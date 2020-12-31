@@ -73,9 +73,8 @@ ALU instrucitons are roughly divided into two sections.  When `op_type` is `OP_T
         } alu;
 ```
 
-We have the following `alu_op`s:
+We have the following `alu_op`:
 
-|---------|-----|----------------------------------------------|
 | ALU Op  | Op  | Descripton                                   |
 |---------|-----|----------------------------------------------|
 | `T`     | 0x0 | Do something with `T`                        |
@@ -97,7 +96,6 @@ We have the following `alu_op`s:
 
 Then we have the following `mem_op`s:
 
-|-----------|-----|------------------------------------------------|
 | Mem Op    | Op  | Descripton                                     |
 |-----------|-----|------------------------------------------------|
 | `T->N`    | 0x0 | Copy `T` into `N`                              |
