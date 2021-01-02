@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #define BYTE    uint8_t
+#define SBYTE   int8_t
 #define CELL    int64_t
 #define WORD    uint16_t
 #define VM_ADDR uint64_t

@@ -39,66 +39,71 @@ int vm(context *ctx) {
             }
             EIP++;
         } else {
+            int64_t TMP;
             switch (ins.alu.op_type) {
                 case OP_TYPE_ALU:
                     switch (ins.alu.alu_op) {
                         case ALU_ADD:
-                            T = T + N;
+                            TMP = T + N;
                             break;
                         case ALU_T:
+                            TMP = T;
                             break;
                         case ALU_N:
-                            ctx->DSTACK[SP] = T;
-                            T=N;
+                            TMP = N;
                             break;
                         case ALU_AND:
-                            T = T & N;
+                            TMP = T & N;
                             break;
                         case ALU_OR:
-                            T = T | N;
+                            TMP = T | N;
                             break;
                         case ALU_XOR:
-                            T = T ^ N;
+                            TMP = T ^ N;
                             break;
                         case ALU_INVERT:
-                            T=-T;
+                            TMP = -T;
                             break;
                         case ALU_EQ:
-                            T = T == N;
+                            TMP = T == N;
                             break;
                         case ALU_GT:
-                            T = T < N;
+                            TMP = T < N;
                             break;
                         case ALU_RSHIFT:
-                            T = N >> T;
+                            TMP = N >> T;
                             break;
                         case ALU_LSHIFT:
-                            T = N << T;
+                            TMP = N << T;
                             break;
                         case ALU_R_T:
-                            T=R;
+                            TMP = R;
                             break;
                         case ALU_LOAD_T:
-                            T=ctx->memory[T];
+                            TMP = ctx->memory[T];
                             break;
                         case ALU_IO_T:
-                            T=IO;
+                            TMP = IO;
                             break;
                         case ALU_STATUS:
-                            T = SP+1;
+                            TMP = SP+1;
                             break;
                         case ALU_U_GT:
-                            T = (uint64_t)T < (uint64_t)N;
+                            TMP = (uint64_t)T < (uint64_t)N;
                             break;
                         default:
                             break;
                     };
                     switch (ins.alu.mem_op) {
+                        case MEM_T:
+                            T = TMP;
                         case MEM_T_N:
-                            N = ctx->DSTACK[SP];
+                            N = T;
+                            T = TMP;
                             break;
                         case MEM_T_R:
                             R = T;
+                            T = TMP;
                             break;
                         case MEM_STORE_N_T:
                             ctx->memory[T] = N;
@@ -119,11 +124,12 @@ int vm(context *ctx) {
                     }
                     SP+=ins.alu.dstack;
                     RSP+=ins.alu.rstack;
-                    if (ins.alu.dstack != 0) {
-                        N = ctx->DSTACK[SP-1];
-                        if (ins.alu.dstack) {
-                            ctx->DSTACK[SP] = T;
-                        }
+                    if (ins.alu.dstack < 0) {
+                        N = ctx->DSTACK[SP - 2];
+                        // ctx->DSTACK[SP - 1] = T;
+                    } else if (ins.alu.dstack) {
+                        ctx->DSTACK[SP-2] = N;
+                        ctx->DSTACK[SP-1] = T;
                     }
                     if (ins.alu.rstack) {
                         ctx->RSTACK[SP] = R;

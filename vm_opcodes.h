@@ -52,6 +52,7 @@ static char* ALU_OPS_REPR[] = {
 };
 
 enum MEM_OP {
+    MEM_T = 0,
     MEM_T_N = 1,
     MEM_T_R = 2,
     MEM_STORE_N_T = 3,
@@ -85,8 +86,8 @@ typedef struct {
             BYTE    alu_op: 4;
             BYTE    mem_op: 3;
             bool    __unused: 1;
-            BYTE    dstack: 2;
-            BYTE    rstack: 2;
+            SBYTE   dstack: 2;
+            SBYTE   rstack: 2;
             bool    ram_write: 1;
         } alu;
     };
@@ -125,6 +126,7 @@ static forth_op FORTH_OPS[] = {
                                 .alu.dstack = -1 }}},
         {"drop", {
                         { .alu.op_type = OP_TYPE_ALU,
+                                .alu.alu_op = ALU_N,
                                 .alu.dstack = -1 }}},
         {"exit", {
                         { .alu.op_type = OP_TYPE_ALU,
