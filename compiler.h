@@ -12,6 +12,7 @@
 instruction* lookup_word(const char* word);
 bool is_null_instruction(instruction ins);
 void insert_opcode(context *ctx, instruction op);
+void compile(context *ctx, char* input);
 void compile_word(context *ctx, const char* word);
 void insert_literal(context *ctx, int64_t n);
 

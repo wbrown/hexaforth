@@ -36,7 +36,14 @@ void compile_word(context *ctx, const char* word) {
             ins = instructions[idx];
         }
     } else {
-        printf("ERROR: '%s' not found!\n", word);
+        // Are we a literal?
+        char* decode_end;
+        int64_t num = strtoll(word, &decode_end, 10);
+        if (*decode_end) {
+            printf("ERROR: '%s' not found!\n", word);
+        } else {
+            insert_literal(ctx, num);
+        }
     }
 }
 
@@ -92,5 +99,29 @@ void insert_literal(context *ctx, int64_t n) {
     // We have a negative number, so we need to apply two's complement to the
     // literal we've built up.  So we insert an instruction to invert the results.
     if (negative) compile_word(ctx, "invert");
+}
+
+// Given a string, this compiles it into VM instructions.
+
+void compile(context *ctx, char* input) {
+    // Size our input buffer, and copy it, as it could be a constant string
+    // that can't be modified.
+    uint64_t input_len = strlen(input) + 1;
+    char* buffer = malloc(input_len);
+    memcpy(buffer, input, input_len);
+    // Our word point into the buffer and are adjusted as we go.
+    char* word = buffer;
+
+    // Loop through the characters in our buffer.
+    for(int i=0; i<=input_len; i++) {
+        if (input[i]==' ') {
+            // We replace spaces with null bytes to indicate to C that it's
+            // the termination of the string.
+            buffer[i]='\0';
+            if (strlen(word)) compile_word(ctx, word);
+            // Adjust our word pointer to the beginning of the next word.
+            word = &buffer[i+1];
+        }
+    }
 }
 
