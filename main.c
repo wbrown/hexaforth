@@ -16,6 +16,7 @@ void generate_test_program(context *ctx) {
     insert_literal(ctx, 7);
     compile_word(ctx, "over");
     compile_word(ctx, "nip");
+    compile_word(ctx, "1+");
     /* insert_literal(ctx, -20);
     insert_literal(ctx, 1024);
     insert_literal(ctx, 2048);
