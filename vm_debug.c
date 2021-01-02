@@ -27,15 +27,15 @@ void print_stack(int16_t SP, int64_t T, int64_t N, context *ctx) {
         case 0:
             break;
         case 1:
-            dprintf(" %lld", T);
+            printf(" %lld", T);
             break;
         default:
             for (int i = 0; i < SP - 2; i++) {
-                dprintf(" %lld", ctx->DSTACK[i]);
+                printf(" %lld", ctx->DSTACK[i]);
             }
         case 2:
-            dprintf(" %lld %lld", N, T);
+            printf(" %lld %lld", N, T);
             break;
     }
-    dprintf("\n");
+    printf("\n");
 }

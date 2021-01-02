@@ -108,7 +108,7 @@ static forth_op FORTH_OPS[] = {
                     .alu.mem_op = MEM_T_N,
                     .alu.dstack = 1 }}},
         {"invert", {{ .alu.op_type = OP_TYPE_ALU,
-                      .alu.alu_op = ALU_INVERT }}},
+                      .alu.alu_op = ALU_INVERT}}},
         {"+", {{ .alu.op_type = OP_TYPE_ALU,
                  .alu.alu_op = ALU_ADD,
                  .alu.dstack = -1 }}},
@@ -151,6 +151,17 @@ static forth_op FORTH_OPS[] = {
         {"2+", {{ .lit.lit_f = true,
                   .lit.lit_add = true,
                   .lit.lit_v = 2 }}},
+        {"lshift", {{ .alu.op_type = OP_TYPE_ALU,
+                      .alu.alu_op = ALU_LSHIFT,
+                      .alu.dstack = -1}}},
+        {"rshift", {{ .alu.op_type = OP_TYPE_ALU,
+                      .alu.alu_op = ALU_RSHIFT,
+                      .alu.dstack = -1}}},
+        {"-", {{ .alu.op_type = OP_TYPE_ALU,
+                 .alu.alu_op = ALU_INVERT },
+               { .alu.op_type = OP_TYPE_ALU,
+                 .alu.alu_op = ALU_ADD,
+                 .alu.dstack = -1}}},
         {"", {{}}}};
 
 bool ins_eq(instruction a, instruction b);

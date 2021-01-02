@@ -8,7 +8,6 @@
 #include "vm_opcodes.h"
 #include "vm.h"
 
-#define DEBUG 1
 #ifdef DEBUG
 #define dprintf(...) printf(__VA_ARGS__)
 #else

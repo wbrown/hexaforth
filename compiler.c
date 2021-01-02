@@ -11,8 +11,10 @@
 // Lowest level compiler call that writes an instruction and increments the
 // HERE pointer to the next CELL.
 void insert_opcode(context *ctx, instruction op) {
+#ifdef DEBUG
     printf("HERE[%d]: ", ctx->HERE);
     debug_instruction(op);
+#endif
     memcpy(&ctx->memory[ctx->HERE], &op, 2);
     ctx->HERE++;
 }
@@ -25,7 +27,7 @@ bool is_null_instruction(instruction ins) {
 
 // Look up a string in our opcodes table, and if found, write the opcodes
 // associated with the word into the image.
-void compile_word(context *ctx, const char* word) {
+bool compile_word(context *ctx, const char* word) {
     instruction* instructions = lookup_word(word);
     if (instructions) {
         int idx=0;
@@ -41,17 +43,19 @@ void compile_word(context *ctx, const char* word) {
         int64_t num = strtoll(word, &decode_end, 10);
         if (*decode_end) {
             printf("ERROR: '%s' not found!\n", word);
+            return(false);
         } else {
             insert_literal(ctx, num);
         }
     }
+    return(true);
 }
 
 // This function takes a 64-bit signed integer and compiles it as a sequence
 // of literal, shift, and invert instructions needed to reconstruct the
 // literal on top of the stack.
 void insert_literal(context *ctx, int64_t n) {
-    printf("COMPILE_LITERAL: %lld\n", n);
+    dprintf("COMPILE_LITERAL: %lld\n", n);
     uint64_t acc = llabs(n);         // Our accumulator, really a deccumlator
     bool negative = n < 0;
     bool first_ins = true;
@@ -103,7 +107,7 @@ void insert_literal(context *ctx, int64_t n) {
 
 // Given a string, this compiles it into VM instructions.
 
-void compile(context *ctx, char* input) {
+bool compile(context *ctx, char* input) {
     // Size our input buffer, and copy it, as it could be a constant string
     // that can't be modified.
     uint64_t input_len = strlen(input) + 1;
@@ -114,14 +118,21 @@ void compile(context *ctx, char* input) {
 
     // Loop through the characters in our buffer.
     for(int i=0; i<=input_len; i++) {
-        if (input[i]==' ') {
+        if (input[i]==' ' || input[i] == '\0') {
             // We replace spaces with null bytes to indicate to C that it's
             // the termination of the string.
             buffer[i]='\0';
-            if (strlen(word)) compile_word(ctx, word);
+            if (strlen(word)) {
+                if (!compile_word(ctx, word)) {
+                    free(buffer);
+                    return(false);
+                };
+            }
             // Adjust our word pointer to the beginning of the next word.
             word = &buffer[i+1];
         }
     }
+    free(buffer);
+    return(true);
 }
 

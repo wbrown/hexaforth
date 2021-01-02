@@ -97,6 +97,7 @@ int vm(context *ctx) {
                     switch (ins.alu.mem_op) {
                         case MEM_T:
                             T = TMP;
+                            break;
                         case MEM_T_N:
                             N = T;
                             T = TMP;
@@ -127,7 +128,7 @@ int vm(context *ctx) {
                     if (ins.alu.dstack < 0) {
                         N = ctx->DSTACK[SP - 2];
                         // ctx->DSTACK[SP - 1] = T;
-                    } else if (ins.alu.dstack) {
+                    } else if (ins.alu.dstack > 0) {
                         ctx->DSTACK[SP-2] = N;
                         ctx->DSTACK[SP-1] = T;
                     }
@@ -152,5 +153,11 @@ int vm(context *ctx) {
         print_stack(SP, T, N, ctx);
 #endif // DEBUG
     }
+    ctx->DSTACK[SP-2] = N;
+    ctx->DSTACK[SP-1] = T;
+    ctx->RSTACK[RSP-1] = R;
+    ctx->SP = SP;
+    ctx->RSP = RSP;
+    ctx->EIP = EIP;
     return 1;
 }

@@ -13,4 +13,4 @@ add_executable(hexaforth
         vm_debug.h
         vm_opcodes.c
         vm.c
-        compiler.h)
+        compiler.h vm_test.c vm_test.h)
