@@ -12,6 +12,8 @@ typedef struct {
     const char* label;
     const char* init;
     const char* input;
+    const char* io_input;
+    const char* io_expected;
     const char* dstack;
     const char* rstack;
 } hexaforth_test;

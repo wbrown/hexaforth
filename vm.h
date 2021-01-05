@@ -18,9 +18,10 @@ typedef struct { int EIP;
     int64_t RSTACK_park;
     int64_t RSTACK[128];
     FILE *OUT;
-    FILE *IN}
+    FILE *IN; }
     context;
 
+uint8_t clz(uint64_t N);
 int vm(context *ctx);
 
 #endif //HEXAFORTH_VM_H

@@ -2,11 +2,13 @@
 // Created by Wes Brown on 12/31/20.
 //
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include "compiler.h"
 #include "vm_debug.h"
+
 
 // Lowest level compiler call that writes an instruction and increments the
 // HERE pointer to the next CELL.
@@ -83,15 +85,18 @@ void insert_string_literal(context *ctx, char* str) {
     uint64_t num_cells = octabytes + (bytes_rem ? 1 : 0);
     uint64_t octabyte = 0;
     int idx = octabytes - (bytes_rem ? 0 : 1);
+
     if (bytes_rem) {
         uint64_t shifts = 64 - (8 * bytes_rem);
         octabyte = *(uint64_t*)&(str[idx*8]) << shifts >> shifts;
+        dprintf("MSB: %hhu\n", clz(octabyte));
         dprintf("STRING_LITERAL: '%.*s' -> %lld\n", (int)bytes_rem, (char*)&octabyte, octabyte);
         insert_literal(ctx, octabyte);
         idx = idx-1;
     }
     for(; idx>=0; idx--) {
         octabyte = *(uint64_t*)&(str[idx*8]);
+        dprintf("MSB: %hhu\n", clz(octabyte));
         dprintf("STRING_LITERAL: '%.*s' -> %lld\n", 8, (char*)&octabyte, octabyte);
         insert_literal(ctx, octabyte);
     }

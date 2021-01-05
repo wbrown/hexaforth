@@ -56,7 +56,9 @@ bool generate_expected(const char* input, counted_array* expected_stack) {
     char* results = (char*)input;
     expected_stack->sz = 0;
 
-    if (input == NULL) return(true);
+    if (input == NULL) {
+        return(true);
+    }
 
     int64_t* res_n = malloc(sizeof(uint64_t));
     int64_t* res = res_n;
@@ -128,6 +130,8 @@ bool stack_match(context* ctx, bool rstack, counted_array* expected) {
 }
 
 bool execute_test(hexaforth_test test) {
+
+
     bool dstack_results = false;
     counted_array* expected_dstack =  malloc(sizeof(counted_array));
     expected_dstack->elems = malloc(0);
@@ -154,17 +158,42 @@ bool execute_test(hexaforth_test test) {
         free(expected_dstack);
         return(false);
     }
-    ctx->OUT = stdout;
-    ctx->IN = stdin;
+
+    // Allocate our input and output buffer.
+    const char* input = test.io_input ? test.io_input : "";
+    ctx->IN = fmemopen((void *)input, strlen(input), "r");
+
+    char* output = calloc(4096, 1);
+    ctx->OUT = fmemopen(output, 4096, "w");
 
     if (compile(ctx, (char*)test.input)) {
         vm(ctx);
-        printf("TEST: %s {Input=\"%s\", Expected={stack: [%s] rstack: [%s]}} => ",
-               test.label, test.input, test.dstack, test.rstack ? test.rstack : "");
+        // Write out a null byte to our output to terminate a string.
+        fputc('\0', ctx->OUT);
+        fclose(ctx->OUT);
+        fclose(ctx->IN);
+        printf("TEST: %s {Input=\"%s\", IO=\"%s\", Expected={stack: [%s] rstack: [%s] %s%s%s}} => ",
+               test.label,
+               test.input,
+               test.io_input ? test.io_input : "",
+               test.dstack ? test.dstack : "",
+               test.rstack ? test.rstack : "",
+               test.io_expected ? "output: \"" : "",
+               test.io_expected ? test.io_expected : "",
+               test.io_expected ? "\"" : "");
+        bool io_match;
+        if (test.io_input && (strcmp(test.io_input, output) != 0)) {
+            io_match = false;
+        } else {
+            io_match = true;
+        }
         dstack_results = stack_match(ctx, false, expected_dstack);
         rstack_results = stack_match(ctx, true, expected_rstack);
-        if (dstack_results && rstack_results) {
+        if (dstack_results && rstack_results && io_match) {
             printf("PASSED\n");
+        }
+        if (!io_match) {
+            printf("\"%s\" != \"%s\" ", test.io_input, output);
         }
         if (!dstack_results) {
             print_stack(ctx->SP, ctx->DSTACK[ctx->SP-1], ctx, false);
@@ -175,6 +204,7 @@ bool execute_test(hexaforth_test test) {
     } else {
         printf("TEST: Failed to compile: \"%s\"\n", test.input);
     };
+    free(output);
     free(ctx);
     free(expected_dstack->elems);
     free(expected_dstack);

@@ -66,6 +66,7 @@ enum OUTPUT_MUX {
     OUTPUT_T = 0,
     OUTPUT_R = 1,
     OUTPUT_MEM_T = 2,
+    OUTPUT_NULL = 3,
 };
 
 static char* OUTPUT_REPR[] = {
@@ -184,6 +185,26 @@ static forth_op FORTH_OPS[] = {
                { .alu.op_type = OP_TYPE_ALU,
                  .alu.alu_op = ALU_ADD,
                  .alu.dstack = -1}}},
+        {"emit", {{ .lit.lit_f = true,
+                    .lit.lit_v = 0xf1},
+                  { .alu.op_type = OP_TYPE_ALU,
+                    .alu.in_mux = INPUT_N,
+                    .alu.alu_op = ALU_IO_WRITE,
+                    .alu.out_mux = OUTPUT_NULL,
+                    .alu.dstack = -2}}},
+        {"8emit", {{ .lit.lit_f = true,
+                    .lit.lit_v = 0xf0},
+                  { .alu.op_type = OP_TYPE_ALU,
+                    .alu.in_mux = INPUT_N,
+                    .alu.alu_op = ALU_IO_WRITE,
+                    .alu.out_mux = OUTPUT_NULL,
+                    .alu.dstack = -2}}},
+        {"key", {{ .lit.lit_f = true,
+                   .lit.lit_v = 0xe0},
+                 { .alu.op_type = OP_TYPE_ALU,
+                   .alu.in_mux = INPUT_T,
+                   .alu.alu_op = ALU_IO_READ,
+                   .alu.out_mux = OUTPUT_T}}},
         {"", {{}}}};
 
 bool ins_eq(instruction a, instruction b);
