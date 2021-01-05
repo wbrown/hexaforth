@@ -7,19 +7,20 @@
 #include "vm_debug.h"
 
 int vm(context *ctx) {
-    register int16_t EIP = 0;
+    register int16_t EIP = ctx->EIP;
     register int16_t SP = 0;
     register int16_t RSP = 0;
     register int16_t IO = 0;
     register int64_t T = ctx->DSTACK[SP];
-    register int64_t N = ctx->DSTACK[SP-1];
     register int64_t R = ctx->RSTACK[RSP];
+    register int64_t I = 0;
+    register int64_t OUT = 0;
 
     for (; ctx->memory[EIP] != 0;) {
         #ifdef DEBUG
-            show_registers(T, N, R, EIP, SP, RSP, ctx);
+            show_registers(T, R, EIP, SP, RSP, ctx);
         #endif // DEBUG
-        instruction ins = *(instruction*)&ctx->memory[EIP];
+        instruction ins = *(instruction*)&(ctx->memory[EIP]);
         #ifdef DEBUG
             printf("MEMORY[%d]: ", EIP);
             debug_instruction(ins);
@@ -28,10 +29,7 @@ int vm(context *ctx) {
             int64_t lit = (uint64_t)ins.lit.lit_v <<
                               (ins.lit.lit_shifts * LIT_BITS);
             if (!ins.lit.lit_add) {
-                if (SP) {
-                    N = T;
-                    ctx->DSTACK[SP-1] = T;
-                }
+                ctx->DSTACK[SP-1] = T;
                 SP++;
                 T = (int64_t)lit;
             } else {
@@ -39,101 +37,90 @@ int vm(context *ctx) {
             }
             EIP++;
         } else {
-            int64_t TMP;
+            switch (ins.alu.in_mux) {
+                case INPUT_N:
+                    I = ctx->DSTACK[SP-2];
+                    break;
+                case INPUT_T:
+                    I = T;
+                    break;
+                case INPUT_LOAD_T:
+                    I = *(int64_t*)&(ctx->memory[T]);
+                    break;
+                case INPUT_R:
+                    I = R;
+                    break;
+            }
             switch (ins.alu.op_type) {
                 case OP_TYPE_ALU:
                     switch (ins.alu.alu_op) {
+                        case ALU_I:
+                            OUT = I;
+                            break;
                         case ALU_ADD:
-                            TMP = T + N;
+                            OUT = T + I;
                             break;
-                        case ALU_T:
-                            TMP = T;
-                            break;
-                        case ALU_N:
-                            TMP = N;
+                        case ALU_T_N:
+                            ctx->DSTACK[SP-2] = T;
+                            OUT = I;
                             break;
                         case ALU_AND:
-                            TMP = T & N;
+                            OUT = T & I;
                             break;
                         case ALU_OR:
-                            TMP = T | N;
+                            OUT = T | I;
                             break;
                         case ALU_XOR:
-                            TMP = T ^ N;
+                            OUT = T ^ I;
                             break;
                         case ALU_INVERT:
-                            TMP = -T;
+                            OUT = -I;
                             break;
                         case ALU_EQ:
-                            TMP = T == N;
+                            OUT = T == I;
                             break;
                         case ALU_GT:
-                            TMP = T < N;
+                            OUT = T < I;
                             break;
                         case ALU_RSHIFT:
-                            TMP = N >> T;
+                            OUT = I >> T;
                             break;
                         case ALU_LSHIFT:
-                            TMP = N << T;
+                            OUT = I << T;
                             break;
-                        case ALU_R_T:
-                            TMP = R;
+                        case ALU_LOAD:
+                            OUT = *(int64_t*)&(ctx->memory[I]);
                             break;
-                        case ALU_LOAD_T:
-                            TMP = ctx->memory[T];
-                            break;
-                        case ALU_IO_T:
-                            TMP = IO;
+                        case ALU_IO_WRITE:
                             break;
                         case ALU_STATUS:
-                            TMP = SP+1;
+                            OUT = SP+1;
                             break;
                         case ALU_U_GT:
-                            TMP = (uint64_t)T < (uint64_t)N;
+                            OUT = (uint64_t)T < (uint64_t)I;
                             break;
                         default:
                             break;
                     };
-                    switch (ins.alu.mem_op) {
-                        case MEM_T:
-                            T = TMP;
-                            break;
-                        case MEM_T_N:
-                            N = T;
-                            T = TMP;
-                            break;
-                        case MEM_T_R:
-                            R = T;
-                            T = TMP;
-                            break;
-                        case MEM_STORE_N_T:
-                            ctx->memory[T] = N;
-                            break;
-                        case MEM_IO_RD:
-                            switch (T) {
-                                case UART_D:
-                                    IO = getchar();
-                                default:
-                                    dprintf("Unsupported IO address! %lld", T);
-                            }
-                            break;
-                        case MEM_R_EIP:
-                            EIP = R;
-                            break;
-                        default:
-                            EIP = EIP;
-                    }
+                    if (ins.alu.r_eip) EIP = R;
                     SP+=ins.alu.dstack;
                     RSP+=ins.alu.rstack;
-                    if (ins.alu.dstack < 0) {
-                        N = ctx->DSTACK[SP - 2];
-                        // ctx->DSTACK[SP - 1] = T;
-                    } else if (ins.alu.dstack > 0) {
-                        ctx->DSTACK[SP-2] = N;
-                        ctx->DSTACK[SP-1] = T;
+                    if (ins.alu.dstack > 0) {
+                        ctx->DSTACK[SP-2] = T;
                     }
-                    if (ins.alu.rstack) {
-                        ctx->RSTACK[SP] = R;
+                    if (ins.alu.rstack > 0) {
+                        ctx->RSTACK[SP-2] = R;
+                    }
+                    switch (ins.alu.out_mux) {
+                        case OUTPUT_T:
+                            T = OUT;
+                            break;
+                        case OUTPUT_R:
+                            R = OUT;
+                            break;
+                        case OUTPUT_MEM_T:
+                            *(int64_t*)&(ctx->memory[T]) = OUT;
+                            break;
                     }
                     EIP++;
                     break;
@@ -150,10 +137,10 @@ int vm(context *ctx) {
             }
         }
 #ifdef DEBUG
-        print_stack(SP, T, N, ctx);
+        print_stack(SP, T, ctx, false);
+        print_stack(RSP, R, ctx, true);
 #endif // DEBUG
     }
-    ctx->DSTACK[SP-2] = N;
     ctx->DSTACK[SP-1] = T;
     ctx->RSTACK[RSP-1] = R;
     ctx->SP = SP;

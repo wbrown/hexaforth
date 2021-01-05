@@ -11,11 +11,12 @@
 // Lowest level compiler call that writes an instruction and increments the
 // HERE pointer to the next CELL.
 void insert_opcode(context *ctx, instruction op) {
+    *(instruction*)&(ctx->memory[ctx->HERE]) = op;
+    //memcpy(&ctx->memory[ctx->HERE], &op, 2);
 #ifdef DEBUG
     printf("HERE[%d]: ", ctx->HERE);
-    debug_instruction(op);
+    debug_instruction(*(instruction*)&(ctx->memory[ctx->HERE]));
 #endif
-    memcpy(&ctx->memory[ctx->HERE], &op, 2);
     ctx->HERE++;
 }
 
@@ -51,6 +52,12 @@ bool compile_word(context *ctx, const char* word) {
     return(true);
 }
 
+void insert_int64(context *ctx, int64_t n) {
+    dprintf("INSERT_INT64: %lld @ %d\n", n, ctx->HERE);
+    *(int64_t*)&(ctx->memory[ctx->HERE])=n;
+    ctx->HERE+=4;
+}
+
 // This function takes a 64-bit signed integer and compiles it as a sequence
 // of literal, shift, and invert instructions needed to reconstruct the
 // literal on top of the stack.
@@ -67,9 +74,15 @@ void insert_literal(context *ctx, int64_t n) {
     literal.lit.lit_add = false;
     uint8_t shifts = 0;
 
+    if (n==0) {
+        literal.lit.lit_v = 0;
+        insert_opcode(ctx, literal);
+        return;
+    }
+
     // We loop until we have zero in our accumulator; but we always allow
     // a first loop for when n=0.
-    while (acc != 0 || n == 0) {
+    while (acc != 0) {
         // This will cause NUM_BITS of acc to be stored in lit_v, with
         // correct signedness. As it's signed, it will be NUM_BITS+1 in
         // size.  We also store how many NUM_BITS left shifts the VM needs

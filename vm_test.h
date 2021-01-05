@@ -9,14 +9,17 @@
 #include <stdbool.h>
 
 typedef struct {
+    const char* label;
+    const char* init;
     const char* input;
-    const char* results;
+    const char* dstack;
+    const char* rstack;
 } hexaforth_test;
 
 typedef struct {
     uint64_t sz;
-    int64_t* results;
-} expected_results;
+    int64_t* elems;
+} counted_array;
 
 bool execute_test(hexaforth_test test);
 bool execute_tests(hexaforth_test* tests);

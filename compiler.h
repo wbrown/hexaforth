@@ -14,6 +14,8 @@ void insert_opcode(context *ctx, instruction op);
 bool compile(context *ctx, char* input);
 bool compile_word(context *ctx, const char* word);
 void insert_literal(context *ctx, int64_t n);
+void insert_int64(context *ctx, int64_t n);
+
 
 
 #endif //VLIW_TEST_COMPILER_H

@@ -35,7 +35,8 @@ instruction* lookup_word(const char* word) {
 const char* lookup_opcode(instruction ins) {
     int idx = 0;
     while (strlen(FORTH_OPS[idx].repr)) {
-        if (ins_eq(ins, FORTH_OPS[idx].ins[0])) {
+        if (ins_eq(ins, FORTH_OPS[idx].ins[0]) &&
+                *(uint16_t*)(&FORTH_OPS[idx].ins[1]) == 0) {
             return FORTH_OPS[idx].repr;
         }
         idx++;
@@ -53,29 +54,28 @@ char* instruction_to_str(instruction ins) {
                  ins.lit.lit_add, ins.lit.lit_shifts, ins.lit.lit_v,
                  (ins.lit.lit_v << (ins.lit.lit_shifts * LIT_BITS)));
     } else {
-        char* mem_str;
         if (ins.alu.op_type == OP_TYPE_ALU) {
-            if (ins.alu.mem_op) {
-                asprintf(&mem_str,
-                         ", mem_op: %s",
-                         MEM_OPS_REPR[ins.alu.mem_op]);
-            } else {
-                asprintf(&mem_str, "");
-            }
+            const char* input_mux = INPUT_REPR[ins.alu.in_mux];
+            const char* output_mux = OUTPUT_REPR[ins.alu.out_mux];
             const char* alu_ops_repr = ALU_OPS_REPR[ins.alu.alu_op];
             asprintf(&ret_str,
-                     "alu: {alu_op: %d, op: %s%s, DSTACK: %d RSTACK: %d, N->[T]: %d}",
-                     ins.alu.op_type,
+                     "input: %s (%#x01d) => "
+                     "{alu_op: %s (%#02xd), DSTACK: %d RSTACK: %d, R->EIP: %s} "
+                     "=> output: %s (%#01xd)",
+                     input_mux,
+                     ins.alu.in_mux,
                      alu_ops_repr,
-                     mem_str,
+                     ins.alu.alu_op,
                      ins.alu.dstack,
                      ins.alu.rstack,
-                     ins.alu.ram_write);
-            free(mem_str);
+                     ins.alu.r_eip ? "true" : "false",
+                     output_mux,
+                     ins.alu.out_mux);
         } else {
             asprintf(&ret_str,
-                     "%s: {target: %d}",
+                     "%s: {target: %d (%xd)}",
                      ALU_OP_TYPE_REPR[ins.jmp.op_type],
+                     ins.jmp.target,
                      ins.jmp.target);
         }
     }

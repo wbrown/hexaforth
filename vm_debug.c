@@ -14,27 +14,33 @@ void debug_instruction(instruction ins) {
     free(ins_r);
 }
 
-void show_registers(int64_t T, int64_t N, int16_t R,
+void show_registers(int64_t T, int16_t R,
                     int16_t EIP, int16_t SP, int16_t RSP,
                     context *ctx) {
-    printf("\nREGS: T=%lld N=%lld R=%d\tPTRS: EIP=%d SP=%d RSP=%d\n",
-           T, N, R, EIP, SP, RSP);
+    printf("\nREGS: {T=%lld R=%d} PTRS: {EIP=%d SP=%d RSP=%d}\n",
+           T, R, EIP, SP, RSP);
 }
 
-void print_stack(int16_t SP, int64_t T, int64_t N, context *ctx) {
-    printf("STACK[%d]:", SP);
+void print_stack(int16_t SP, int64_t T, context *ctx, bool rstack) {
+    int64_t* stack;
+
+    if (rstack) {
+        stack = ctx->RSTACK;
+        printf("RSTACK[%d]:", SP);
+    } else {
+        stack = ctx->DSTACK;
+        printf("DSTACK[%d]:", SP);
+    }
+
     switch (SP) {
         case 0:
             break;
+        default:
+            for (int i = 0; i < SP - 1; i++) {
+                printf(" %lld", stack[i]);
+            }
         case 1:
             printf(" %lld", T);
-            break;
-        default:
-            for (int i = 0; i < SP - 2; i++) {
-                printf(" %lld", ctx->DSTACK[i]);
-            }
-        case 2:
-            printf(" %lld %lld", N, T);
             break;
     }
     printf("\n");

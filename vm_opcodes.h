@@ -23,9 +23,20 @@ static char* ALU_OP_TYPE_REPR[] = {
         "jump", "0jump", "call", "alu"
 };
 
+enum INPUT_MUX {
+    INPUT_N = 0,
+    INPUT_T = 1,
+    INPUT_LOAD_T = 2,
+    INPUT_R = 3,
+};
+
+static char* INPUT_REPR[] = {
+        "N->I", "T->I", "[T]->I", "R->I"
+};
+
 enum ALU_TYPE {
-    ALU_T = 0,
-    ALU_N = 1,
+    ALU_I = 0,
+    ALU_T_N = 1,
     ALU_ADD = 2,
     ALU_AND = 3,
     ALU_OR = 4,
@@ -35,36 +46,30 @@ enum ALU_TYPE {
     ALU_GT = 8,
     ALU_RSHIFT = 9,
     ALU_LSHIFT = 10,
-    ALU_R_T = 11,
-    ALU_LOAD_T = 12,
-    ALU_IO_T = 13,
-    ALU_STATUS = 14,
-    ALU_U_GT = 15
+    ALU_LOAD = 11,
+    ALU_IO_WRITE = 12,
+    ALU_IO_RD = 13,
+    ALU_STATUS = 13,
+    ALU_U_GT = 14,
 };
 
 static char* ALU_OPS_REPR[] = {
-        "T", "N", "T+N",
-        "T&N", "T|N", "T^N",
-        "~T", "T==N", "T>N",
-        "N>>T", "N<<T", "R->T",
-        "[T]", "io[T]", "depth",
+        "I", "T->N", "I+N",
+        "I&N", "I|N", "I^N",
+        "~I", "I==N", "I>N",
+        "N>>I", "N<<I", "[I]",
+        "[T]", "N->io[I]", "depth",
         "T>Nu"
 };
 
-enum MEM_OP {
-    MEM_T = 0,
-    MEM_T_N = 1,
-    MEM_T_R = 2,
-    MEM_STORE_N_T = 3,
-    MEM_IO_N_T = 4,
-    MEM_IO_RD = 5,
-    MEM_R_EIP = 6
+enum OUTPUT_MUX {
+    OUTPUT_T = 0,
+    OUTPUT_R = 1,
+    OUTPUT_MEM_T = 2,
 };
 
-static char* MEM_OPS_REPR[] = {
-        "", "T->N", "T->R",
-        "N->[T]", "io[N]->T", "io@",
-        "R->EIP"
+static char* OUTPUT_REPR[] = {
+        "->T", "->R", "N->[T]"
 };
 
 typedef struct {
@@ -76,19 +81,19 @@ typedef struct {
             WORD  lit_v: 12;
         } lit;
         struct {
-            bool  lit_f: 1;
+            BYTE  lit_f: 1;
             BYTE  op_type: 2;
             WORD  target: 13;
         } jmp;
         struct {
             bool    lit_f: 1;
+            bool    r_eip: 1;       // R->EIP
             BYTE    op_type: 2;
-            BYTE    alu_op: 4;
-            BYTE    mem_op: 3;
-            bool    __unused: 1;
+            BYTE    in_mux: 2;      // input of {T, [T], io[T], R}
+            BYTE    out_mux: 2;     // output of {T, N, R, N->[I]}
+            BYTE    alu_op: 4;      // operation
             SBYTE   dstack: 2;
             SBYTE   rstack: 2;
-            bool    ram_write: 1;
         } alu;
     };
 } instruction;
@@ -100,51 +105,57 @@ typedef struct {
 
 static forth_op FORTH_OPS[] = {
         {"dup", {{ .alu.op_type = OP_TYPE_ALU,
-                   .alu.alu_op = ALU_T,
-                   .alu.mem_op = MEM_T_N,
+                   .alu.in_mux = INPUT_T,
+                   .alu.alu_op = ALU_I,
                    .alu.dstack = 1 }}},
         {"over", {{ .alu.op_type = OP_TYPE_ALU,
-                    .alu.alu_op = ALU_N,
-                    .alu.mem_op = MEM_T_N,
+                    .alu.in_mux = INPUT_N,
+                    .alu.alu_op = ALU_I,
                     .alu.dstack = 1 }}},
         {"invert", {{ .alu.op_type = OP_TYPE_ALU,
+                      .alu.in_mux = INPUT_T,
                       .alu.alu_op = ALU_INVERT}}},
         {"+", {{ .alu.op_type = OP_TYPE_ALU,
                  .alu.alu_op = ALU_ADD,
                  .alu.dstack = -1 }}},
         {"swap", {{ .alu.op_type = OP_TYPE_ALU,
-                    .alu.alu_op = ALU_N,
-                    .alu.mem_op = MEM_T_N}}},
+                    .alu.in_mux = INPUT_N,
+                    .alu.alu_op = ALU_T_N,
+                    .alu.out_mux = OUTPUT_T}}},
         {"nip", {{ .alu.op_type = OP_TYPE_ALU,
-                   .alu.alu_op = ALU_T,
+                   .alu.in_mux = INPUT_T,
+                   .alu.alu_op = ALU_T_N,
                    .alu.dstack = -1 }}},
         {"drop", {{ .alu.op_type = OP_TYPE_ALU,
-                    .alu.alu_op = ALU_N,
+                    .alu.in_mux = INPUT_N,
+                    .alu.alu_op = ALU_I,
                     .alu.dstack = -1 }}},
         {"exit", {{ .alu.op_type = OP_TYPE_ALU,
-                    .alu.alu_op = ALU_T,
-                    .alu.mem_op = MEM_R_EIP,
+                    .alu.r_eip = true,
                     .alu.rstack = -1 }}},
         {">r", {{ .alu.op_type = OP_TYPE_ALU,
-                  .alu.alu_op = ALU_N,
-                  .alu.mem_op = MEM_T_R,
+                  .alu.in_mux = INPUT_T,
+                  .alu.alu_op = ALU_I,
+                  .alu.out_mux = OUTPUT_R,
                   .alu.rstack = 1,
                   .alu.dstack = -1 }}},
         {"r>", {{ .alu.op_type = OP_TYPE_ALU,
-                  .alu.alu_op = ALU_R_T,
-                  .alu.mem_op = MEM_T_N,
+                  .alu.in_mux = INPUT_R,
+                  .alu.out_mux = OUTPUT_T,
                   .alu.rstack = -1,
                   .alu.dstack = 1 }}},
         {"r@", {{ .alu.op_type = OP_TYPE_ALU,
-                  .alu.alu_op = ALU_R_T,
-                  .alu.mem_op = MEM_T_N,
+                  .alu.in_mux = INPUT_R,
+                  .alu.out_mux = OUTPUT_T,
                   .alu.dstack = 1 }}},
         {"@", {{ .alu.op_type = OP_TYPE_ALU,
-                 .alu.alu_op = ALU_LOAD_T }}},
+                 .alu.in_mux = INPUT_LOAD_T,
+                 .alu.out_mux = OUTPUT_T }}},
         {"!", {{ .alu.op_type = OP_TYPE_ALU,
-                 .alu.alu_op = ALU_N,
-                 .alu.dstack = -1,
-                 .alu.ram_write = 1}}},
+                 .alu.in_mux = INPUT_N,
+                 .alu.alu_op = ALU_I,
+                 .alu.out_mux = OUTPUT_MEM_T,
+                 .alu.dstack = -2}}},
         {"1+", {{ .lit.lit_f = true,
                   .lit.lit_add = true,
                   .lit.lit_v = 1 }}},
@@ -157,8 +168,19 @@ static forth_op FORTH_OPS[] = {
         {"rshift", {{ .alu.op_type = OP_TYPE_ALU,
                       .alu.alu_op = ALU_RSHIFT,
                       .alu.dstack = -1}}},
+        {"2*", {{.lit.lit_f = true,
+                 .lit.lit_v = 1},
+                { .alu.op_type = OP_TYPE_ALU,
+                  .alu.alu_op = ALU_LSHIFT,
+                  .alu.dstack = -1}}},
+        {"2/", {{.lit.lit_f = true,
+                 .lit.lit_v = 1},
+                { .alu.op_type = OP_TYPE_ALU,
+                  .alu.alu_op = ALU_RSHIFT,
+                  .alu.dstack = -1}}},
         {"-", {{ .alu.op_type = OP_TYPE_ALU,
-                 .alu.alu_op = ALU_INVERT },
+                 .alu.in_mux = INPUT_T,
+                 .alu.alu_op = ALU_INVERT},
                { .alu.op_type = OP_TYPE_ALU,
                  .alu.alu_op = ALU_ADD,
                  .alu.dstack = -1}}},

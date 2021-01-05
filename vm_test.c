@@ -52,39 +52,75 @@ bool next_literal(char** buffer, int64_t* num) {
     }
 }
 
-bool generate_expected(hexaforth_test test, expected_results* expected) {
-    char* results = (char*)test.results;
-    expected->sz = 0;
+bool generate_expected(const char* input, counted_array* expected_stack) {
+    char* results = (char*)input;
+    expected_stack->sz = 0;
+
+    if (input == NULL) return(true);
+
     int64_t* res_n = malloc(sizeof(uint64_t));
     int64_t* res = res_n;
 
     while (next_literal(&results, res)) {
         if (!res) break;
-        expected->sz++;
-        int64_t* resized = realloc(expected->results, sizeof(int64_t)*expected->sz);
-        expected->results = resized;
-        expected->results[expected->sz-1] = *res;
+        expected_stack->sz++;
+        expected_stack->elems =
+                (int64_t*)realloc(expected_stack->elems,
+                                  sizeof(int64_t)*expected_stack->sz);
+        expected_stack->elems[expected_stack->sz-1] = *res;
     }
 
     free(res_n);
     if (!res) {
-        printf("Error decoding expected results: %s\n", test.results);
+        printf("Error decoding input: %s\n", results);
         return(false);
     } else {
         return(true);
     }
 }
 
-bool stack_match(context* ctx, expected_results* expected) {
-    if (ctx->SP != expected->sz) {
-        printf("Stack size (%d) does not match expected size! (%llu)\n",
-               ctx->SP, expected->sz);
+bool init_image(context *ctx, hexaforth_test test) {
+    if (test.init && strlen(test.init)) {
+        counted_array* parsed = malloc(sizeof(counted_array));
+        parsed->elems = malloc(0);
+        bool results = generate_expected(test.init, parsed);
+        if (results) {
+            for (int i=0; i<parsed->sz; i++) {
+                insert_int64(ctx, parsed->elems[i]);
+            }
+            ctx->EIP = ctx->HERE;
+        }
+        free(parsed->elems);
+        free(parsed);
+        return(results);
+    } else {
+        return(true);
+    }
+}
+
+bool stack_match(context* ctx, bool rstack, counted_array* expected) {
+    int P;
+    const char *P_label;
+    int64_t *stack;
+    if (rstack) {
+        P=ctx->RSP;
+        P_label="RSTACK";
+        stack=ctx->RSTACK;
+    } else {
+        P=ctx->SP;
+        P_label="DSTACK";
+        stack=ctx->DSTACK;
+    }
+
+    if (P != expected->sz) {
+        printf("%s size (%d) does not match expected size! (%llu)\n",
+               P_label, P, expected->sz);
         return(false);
     }
-    for(int idx=0; idx<ctx->SP; idx++) {
-        if (ctx->DSTACK[idx] != expected->results[idx]) {
-            printf("DSTACK[%d]: %lld != EXPECTED[%d]: %lld\n", idx,
-                   ctx->DSTACK[idx], idx, expected->results[idx]);
+    for(int idx=0; idx<P; idx++) {
+        if (stack[idx] != expected->elems[idx]) {
+            printf("%s[%d]: %lld != EXPECTED[%d]: %lld\n", P_label, idx,
+                   stack[idx], idx, expected->elems[idx]);
             return(false);
         }
     }
@@ -92,33 +128,55 @@ bool stack_match(context* ctx, expected_results* expected) {
 }
 
 bool execute_test(hexaforth_test test) {
-    expected_results* expected =  malloc(sizeof(expected_results));
-    expected->results = malloc(0);
-    if (!generate_expected(test, expected)) {
-        free(expected->results);
-        free(expected);
+    bool dstack_results = false;
+    counted_array* expected_dstack =  malloc(sizeof(counted_array));
+    expected_dstack->elems = malloc(0);
+    if (!generate_expected(test.dstack, expected_dstack)) {
+        free(expected_dstack->elems);
+        free(expected_dstack);
         return(false);
     }
-    bool vm_results = false;
+
+    bool rstack_results = false;
+    counted_array* expected_rstack =  malloc(sizeof(counted_array));
+    expected_rstack->elems = malloc(0);
+    if (!generate_expected(test.rstack, expected_rstack)) {
+        free(expected_dstack->elems);
+        free(expected_dstack);
+        return(false);
+    }
+
     // We use calloc rather than malloc, as malloc will often return memory of a
     // previously free'd but non-zero'ed context.
     context *ctx = calloc(sizeof(context), 1);
+    if (!init_image(ctx, test)) {
+        free(expected_dstack->elems);
+        free(expected_dstack);
+        return(false);
+    }
+
     if (compile(ctx, (char*)test.input)) {
         vm(ctx);
-        printf("TEST: {Input=\"%s\", Expected=[%s] => ", test.input, test.results);
-        vm_results = stack_match(ctx, expected);
-        if (vm_results) {
+        printf("TEST: %s {Input=\"%s\", Expected={stack: [%s] rstack: [%s]}} => ",
+               test.label, test.input, test.dstack, test.rstack ? test.rstack : "");
+        dstack_results = stack_match(ctx, false, expected_dstack);
+        rstack_results = stack_match(ctx, true, expected_rstack);
+        if (dstack_results && rstack_results) {
             printf("PASSED\n");
-        } else {
-            print_stack(ctx->SP, ctx->DSTACK[ctx->SP-1], ctx->DSTACK[ctx->SP-2], ctx);
+        }
+        if (!dstack_results) {
+            print_stack(ctx->SP, ctx->DSTACK[ctx->SP-1], ctx, false);
+        }
+        if (!rstack_results) {
+            print_stack(ctx->RSP, ctx->RSTACK[ctx->RSP-1], ctx, true);
         }
     } else {
         printf("TEST: Failed to compile: \"%s\"\n", test.input);
     };
     free(ctx);
-    free(expected->results);
-    free(expected);
-    return(vm_results);
+    free(expected_dstack->elems);
+    free(expected_dstack);
+    return(dstack_results && rstack_results);
 }
 
 bool execute_tests(hexaforth_test* tests) {
