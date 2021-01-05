@@ -48,17 +48,17 @@ enum ALU_TYPE {
     ALU_LSHIFT = 10,
     ALU_LOAD = 11,
     ALU_IO_WRITE = 12,
-    ALU_IO_RD = 13,
-    ALU_STATUS = 13,
-    ALU_U_GT = 14,
+    ALU_IO_READ = 13,
+    ALU_STATUS = 14,
+    ALU_U_GT = 15,
 };
 
 static char* ALU_OPS_REPR[] = {
         "I", "T->N", "I+N",
         "I&N", "I|N", "I^N",
         "~I", "I==N", "I>N",
-        "N>>I", "N<<I", "[I]",
-        "[T]", "N->io[I]", "depth",
+        "N>>I", "N<<I", "[T]",
+        "I->io[T]", "io[I]", "depth",
         "T>Nu"
 };
 

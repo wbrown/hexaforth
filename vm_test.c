@@ -154,6 +154,8 @@ bool execute_test(hexaforth_test test) {
         free(expected_dstack);
         return(false);
     }
+    ctx->OUT = stdout;
+    ctx->IN = stdin;
 
     if (compile(ctx, (char*)test.input)) {
         vm(ctx);

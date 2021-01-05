@@ -14,6 +14,9 @@ void insert_opcode(context *ctx, instruction op);
 bool compile(context *ctx, char* input);
 bool compile_word(context *ctx, const char* word);
 void insert_literal(context *ctx, int64_t n);
+void insert_uint16(context *ctx, uint16_t n);
+void insert_uint32(context *ctx, uint32_t n);
+void insert_uint64(context *ctx, uint64_t n);
 void insert_int64(context *ctx, int64_t n);
 
 

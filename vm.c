@@ -6,6 +6,49 @@
 #include "vm_constants.h"
 #include "vm_debug.h"
 
+bool io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write) {
+    uint8_t c;
+    switch (io_addr) {
+        case 0xf7:
+            c = ((uint8_t*)(uint64_t)io_write)[0];
+            fputc(c, ctx->OUT);
+        case 0xf6:
+            c = ((uint8_t*)(uint64_t)io_write)[1];
+            fputc(c, ctx->OUT);
+        case 0xf5:
+            c = ((uint8_t*)(uint64_t)io_write)[2];
+            fputc(c, ctx->OUT);
+        case 0xf4:
+            c = ((uint8_t*)(uint64_t)io_write)[3];
+            fputc(c, ctx->OUT);
+        case 0xf3:
+            c = ((uint8_t*)(uint64_t)io_write)[4];
+            fputc(c, ctx->OUT);
+        case 0xf2:
+            c = ((uint8_t*)(uint64_t)io_write)[3];
+            fputc(c, ctx->OUT);
+        case 0xf1:
+            c = ((uint8_t*)(uint64_t)io_write)[2];
+            fputc(c, ctx->OUT);
+        case 0xf0:
+            c = ((uint8_t*)(uint64_t)io_write)[1];
+            fputc(c, ctx->OUT);
+            return(true);
+        default:
+            return(false);
+    }
+}
+
+int64_t io_read_handler(context *ctx, uint64_t io_addr) {
+    uint8_t c;
+    switch (io_addr) {
+        case 0xf0:
+            return fgetc(ctx->IN);
+        default:
+            return -1;
+    }
+}
+
 int vm(context *ctx) {
     register int16_t EIP = ctx->EIP;
     register int16_t SP = 0;
@@ -92,7 +135,10 @@ int vm(context *ctx) {
                             OUT = *(int64_t*)&(ctx->memory[I]);
                             break;
                         case ALU_IO_WRITE:
+                            OUT = io_write_handler(ctx, T, I);
                             break;
+                        case ALU_IO_READ:
+                            OUT = io_read_handler(ctx, I);
                         case ALU_STATUS:
                             OUT = SP+1;
                             break;

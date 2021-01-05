@@ -6,6 +6,7 @@
 #define HEXAFORTH_VM_H
 
 #include <inttypes.h>
+#include <stdio.h>
 
 typedef struct { int EIP;
     int HERE;
@@ -15,7 +16,9 @@ typedef struct { int EIP;
     int64_t DSTACK_park;
     int64_t DSTACK[128];
     int64_t RSTACK_park;
-    int64_t RSTACK[128]; }
+    int64_t RSTACK[128];
+    FILE *OUT;
+    FILE *IN}
     context;
 
 int vm(context *ctx);

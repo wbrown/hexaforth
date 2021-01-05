@@ -92,6 +92,8 @@ static hexaforth_test TESTS[] = {
          .input = "1024 >r r@ 2* r>",
          .dstack = "2048 1024",
          .rstack = ""},
+        {.input = "'deadbeef'",
+         .dstack = ""},
         {.input = "",
          .dstack = ""}
 };

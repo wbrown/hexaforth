@@ -52,10 +52,105 @@ bool compile_word(context *ctx, const char* word) {
     return(true);
 }
 
+void insert_uint16(context *ctx, uint16_t n) {
+    dprintf("INSERT_UINT16: %d @ %d\n", n, ctx->HERE);
+    ctx->memory[ctx->HERE] = n;
+    ctx->HERE++;
+}
+
+void insert_uint32(context *ctx, uint32_t n) {
+    dprintf("INSERT_UINT32: %d @ %d\n", n, ctx->HERE);
+    *(uint32_t*)&(ctx->memory[ctx->HERE])=n;
+    ctx->HERE+=2;
+}
+
+void insert_uint64(context *ctx, uint64_t n) {
+    dprintf("INSERT_UINT64: %lld @ %d\n", n, ctx->HERE);
+    *(uint64_t*)&(ctx->memory[ctx->HERE])=n;
+    ctx->HERE+=4;
+}
+
 void insert_int64(context *ctx, int64_t n) {
     dprintf("INSERT_INT64: %lld @ %d\n", n, ctx->HERE);
     *(int64_t*)&(ctx->memory[ctx->HERE])=n;
     ctx->HERE+=4;
+}
+
+void insert_string_literal(context *ctx, char* str) {
+    uint64_t len = strlen(str);
+    uint64_t octabytes = len / 8;
+    uint64_t bytes_rem = len % 8;
+    uint64_t num_cells = octabytes + (bytes_rem ? 1 : 0);
+    uint64_t octabyte = 0;
+    int idx = octabytes - (bytes_rem ? 0 : 1);
+    if (bytes_rem) {
+        uint64_t shifts = 64 - (8 * bytes_rem);
+        octabyte = *(uint64_t*)&(str[idx*8]) << shifts >> shifts;
+        dprintf("STRING_LITERAL: '%.*s' -> %lld\n", (int)bytes_rem, (char*)&octabyte, octabyte);
+        insert_literal(ctx, octabyte);
+        idx = idx-1;
+    }
+    for(; idx>=0; idx--) {
+        octabyte = *(uint64_t*)&(str[idx*8]);
+        dprintf("STRING_LITERAL: '%.*s' -> %lld\n", 8, (char*)&octabyte, octabyte);
+        insert_literal(ctx, octabyte);
+    }
+    // Number of cells for the string.
+    insert_literal(ctx, num_cells);
+}
+
+void insert_string(context *ctx, char* str) {
+    uint64_t len = strlen(str);
+    uint64_t octabytes = len / 8;
+    uint64_t bytes_rem = len % 8;
+    uint64_t octabyte = 0;
+
+    insert_int64(ctx, len);
+    int idx;
+    for(idx=0; idx<octabytes; idx++) {
+        octabyte = *(uint64_t*)&(str[idx*8]);
+        insert_uint64(ctx, octabyte);
+    }
+    if (bytes_rem) {
+        switch (bytes_rem) {
+            case 1:
+                octabyte = (uint8_t)str[idx*8];
+                octabyte = octabyte << 8;
+                insert_uint16(ctx, octabyte);
+                break;
+            case 2:
+                octabyte = (uint16_t)str[idx*8];
+                insert_uint16(ctx, octabyte);
+                break;
+            case 3:
+                octabyte = (uint32_t)str[idx*8];
+                octabyte = octabyte << 8;
+                insert_uint32(ctx, octabyte);
+                break;
+            case 4:
+                octabyte = (uint32_t)str[idx*8];
+                insert_uint32(ctx, octabyte);
+                break;
+            case 5:
+                octabyte = (uint64_t)str[idx*8];
+                octabyte = octabyte << 24;
+                insert_uint64(ctx, octabyte);
+                break;
+            case 6:
+                octabyte = (uint64_t)str[idx*8];
+                octabyte = octabyte << 16;
+                insert_uint64(ctx, octabyte);
+                break;
+            case 7:
+                octabyte = (uint64_t)str[idx*8];
+                octabyte = octabyte << 8;
+                insert_uint64(ctx, octabyte);
+                break;
+            default:
+                printf("!! %lld bytes_rem -- this should never happen!",
+                       bytes_rem);
+        }
+    }
 }
 
 // This function takes a 64-bit signed integer and compiles it as a sequence
@@ -80,6 +175,17 @@ void insert_literal(context *ctx, int64_t n) {
         return;
     }
 
+    // We have a very large literal, larger than 48 bits, so we need
+    // to do two literal calls, the first one shifted left 48 bits,
+    // and the second one added into it.
+    if (acc > 0xfffffffffff) {
+        insert_literal(ctx, acc >> 48);
+        insert_literal(ctx, 48);
+        compile_word(ctx, "lshift");
+        acc = acc << 16 >> 16;
+        first_ins = false;
+    }
+
     // We loop until we have zero in our accumulator; but we always allow
     // a first loop for when n=0.
     while (acc != 0) {
@@ -99,7 +205,7 @@ void insert_literal(context *ctx, int64_t n) {
         }
         // We don't write out intermediate literals that are zeroes, unless
         // the literal we want to write out is a literal zero.
-        if (literal.lit.lit_v != 0 || n == 0) {
+        if (literal.lit.lit_v != 0) {
             literal.lit.lit_shifts = shifts;
             if (!first_ins) literal.lit.lit_add = true;
             // We are past the first instruction, so additional instructions
@@ -128,10 +234,22 @@ bool compile(context *ctx, char* input) {
     memcpy(buffer, input, input_len);
     // Our word point into the buffer and are adjusted as we go.
     char* word = buffer;
+    // Are we scanning a string literal?
+    bool string = false;
 
     // Loop through the characters in our buffer.
     for(int i=0; i<=input_len; i++) {
-        if (input[i]==' ' || input[i] == '\0') {
+        if (input[i]=='\'' && string) {
+            buffer[i]='\0';
+            if (strlen(word)) {
+                insert_string_literal(ctx, word);
+            }
+            string = false;
+            word = &buffer[i+1];
+        } else if (input[i]=='\'') {
+            string = true;
+            word = &buffer[i+1];
+        } else if (input[i]==' ' || input[i] == '\0') {
             // We replace spaces with null bytes to indicate to C that it's
             // the termination of the string.
             buffer[i]='\0';
