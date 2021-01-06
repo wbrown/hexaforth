@@ -33,6 +33,7 @@ typedef struct {
             BYTE    op_type: 2;     // OP_TYPE:     {jump, 0jump, call, alu}
             bool    lit_f: 1;       // literal?:    {true, false}
         } jmp;
+        // ALU operation with 4 input sources, 16 ops, 4 output targets
         struct {
             SBYTE   rstack: 2;      //              {r+1, r-1, r-2}
             SBYTE   dstack: 2;      //              {d+1, d-1, d-2}
