@@ -21,5 +21,7 @@ void show_registers(int64_t T, int16_t R,
                     int16_t EIP, int16_t SP, int16_t RSP,
                     context *ctx);
 void print_stack(int16_t SP, int64_t T, context *ctx, bool rstack);
+void encoding_report();
+
 
 #endif //HEXAFORTH_VM_DEBUG_H

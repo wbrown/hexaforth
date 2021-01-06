@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include "vm.h"
 #include "vm_test.h"
+#include "vm_debug.h"
 #include "compiler.h"
 
 void generate_test_program(context *ctx) {
@@ -119,6 +120,7 @@ static hexaforth_test TESTS[] = {
 
 int main() {
     execute_tests(TESTS);
+    encoding_report();
     // context *ctx = malloc(sizeof(context));
     // ctx->HERE = 0;
     // generate_test_program(ctx);

@@ -2,6 +2,8 @@
 // Created by Wes Brown on 12/31/20.
 //
 
+#include "compiler.h"
+#include "vm_opcodes.h"
 #include "vm_debug.h"
 #include "vm.h"
 
@@ -12,6 +14,23 @@ void debug_instruction(instruction ins) {
     if (forth_word) printf(" => %s", forth_word);
     printf(" => %s\n", ins_r);
     free(ins_r);
+}
+
+void encoding_report() {
+    //context *ctx = calloc(sizeof(context), 1);
+    forth_op* curr_op = &FIELDS[0];
+
+    while(strlen(curr_op->repr)) {
+        if (curr_op->type == COMMT) {
+            printf("\n\\ %s\n", curr_op->repr);
+        } else {
+            printf(": %-10s h# %04x or %s;\n",
+                   curr_op->repr,
+                   *(uint16_t*)&curr_op->ins,
+                   (curr_op->type != FIELD) ? "tcode, " : "" );
+        }
+        curr_op++;
+    }
 }
 
 void show_registers(int64_t T, int16_t R,

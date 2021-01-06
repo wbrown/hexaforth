@@ -130,9 +130,9 @@ int vm(context *ctx) {
                         case ALU_EQ:
                             OUT = T == I;
                             break;
-                        // `(T<I)->OUT`
+                        // `(I<T)->OUT`
                         case ALU_GT:
-                            OUT = T < I;
+                            OUT = I<T;
                             break;
                         // `(I>>T)->OUT`
                         case ALU_RSHIFT:
