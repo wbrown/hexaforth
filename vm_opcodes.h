@@ -215,7 +215,7 @@ typedef struct {
 
 
 static forth_define FORTH_OPS[] = {
-        // word              in_mux|alu_op   |out_mux  | d  | r | op_type
+        // word             in_mux|alu_op   |out_mux  | d  | r | op_type
         {"noop",    "                        ->NULL              alu"},
         {"+",       "       N->I   T+I       ->T       d-1       alu"},
         {"invert",  "       T->I   ~I        ->T                 alu"},
