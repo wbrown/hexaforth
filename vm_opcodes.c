@@ -87,9 +87,11 @@ instruction* lookup_op_word(char* word) {
 
 bool init_opcodes() {
     int num_words = 0;
+    int last_reported = -1;
     forth_define* op = &FORTH_OPS[0];
     uint16_t instruction_acc;
     while(strlen(op->repr)) {
+        int curr_word = num_words;
         uint8_t op_idx = 0;
         const char* input = op->code;
         // Size our input buffer, and copy it, as it could be a constant string
@@ -120,7 +122,15 @@ bool init_opcodes() {
                             instruction* flush = (instruction *)&instruction_acc;
                             FORTH_WORDS[num_words].repr = op->repr;
                             FORTH_WORDS[num_words].ins[op_idx] = *flush;
+#ifdef DEBUG
+                            if (num_words != last_reported) {
+                                last_reported = num_words;
+                                printf("OPCODE[%4d]: ", num_words);
+                            } else {
+                                printf("              ");
+                            }
                             debug_instruction(*(instruction*)&instruction_acc);
+#endif // DEBUG
                             op_idx++;
                             instruction_acc = 0;
                         }
@@ -161,33 +171,39 @@ char* instruction_to_str(instruction ins) {
     char *ret_str;
     if (ins.lit.lit_f) {
         asprintf(&ret_str,
-                 "lit: {lit_f=1, lit_add=%d, shifts=%d, lit.lit_v=%d => %u}",
-                 ins.lit.lit_add, ins.lit.lit_shifts, ins.lit.lit_v,
-                 (ins.lit.lit_v << (ins.lit.lit_shifts * LIT_BITS)));
+                 "%4d  %-7s %-8s %25s",
+                 ins.lit.lit_v,
+                 LIT_SHIFT_REPR[(uint8_t)ins.lit.lit_shifts],
+                 ins.lit.lit_add ? "imm+" : "",
+                 "imm");
     } else {
         if (ins.alu.op_type == OP_TYPE_ALU) {
+            int8_t dstack = ins.alu.dstack;
+            int8_t rstack = ins.alu.rstack;
+            uint8_t dstack_idx = dstack < 0 ? abs(dstack) + 1 : dstack ;
+            uint8_t rstack_idx = rstack < 0 ? abs(rstack) + 1 : rstack ;
             const char* input_mux = INPUT_MUX_REPR[ins.alu.in_mux];
             const char* output_mux = OUTPUT_MUX_REPR[ins.alu.out_mux];
             const char* alu_ops_repr = ALU_OPS_REPR[ins.alu.alu_op];
+            const char* dstack_repr = DSTACK_REPR[dstack_idx];
+            const char* rstack_repr = RSTACK_REPR[rstack_idx];
+            const char* class_repr = OP_TYPE_REPR[ins.alu.op_type];
+
             asprintf(&ret_str,
-                     "input: %s (%#x01d) => "
-                     "{alu_op: %s (%#02xd), DSTACK: %d RSTACK: %d, R->EIP: %s} "
-                     "=> output: %s (%#01xd)",
+                     "      %-7s %-8s %-6s %-4s %-4s %-4s %-4s",
                      input_mux,
-                     ins.alu.in_mux,
                      alu_ops_repr,
-                     ins.alu.alu_op,
-                     ins.alu.dstack,
-                     ins.alu.rstack,
-                     ins.alu.r_eip ? "true" : "false",
                      output_mux,
-                     ins.alu.out_mux);
+                     dstack_repr,
+                     rstack_repr,
+                     ins.alu.r_eip ? "RET" : "",
+                     class_repr);
         } else {
             asprintf(&ret_str,
-                     "%s: {target: %d (%xd)}",
-                     OP_TYPE_REPR[ins.jmp.op_type],
+                     "%-4d  %35s %-4s",
                      ins.jmp.target,
-                     ins.jmp.target);
+                     "",
+                     OP_TYPE_REPR[ins.jmp.op_type]);
         }
     }
     return(ret_str);

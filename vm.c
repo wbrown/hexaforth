@@ -55,12 +55,12 @@ int vm(context *ctx) {
     register int64_t OUT = 0;               // OUT - result from ALU
 
     for (; ctx->memory[EIP] != 0;) {
-        #ifdef DEBUG
-            show_registers(T, R, EIP, SP, RSP, ctx);
-        #endif // DEBUG
+        // #ifdef DEBUG
+        //    show_registers(T, R, EIP, SP, RSP, ctx);
+        // #endif // DEBUG
         instruction ins = *(instruction*)&(ctx->memory[EIP]);
         #ifdef DEBUG
-            printf("MEMORY[%d]: ", EIP);
+            printf("  EXEC[%4d]: ", EIP);
             debug_instruction(ins);
         #endif // DEBUG
         if (ins.lit.lit_f) {

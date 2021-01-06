@@ -102,6 +102,10 @@ enum ALU_OPS {
 };
 
 // === OUTPUT_MUX: where to write the results of the ALU operation
+static char* OUTPUT_MUX_REPR[] = {
+        "->T", "->R", "->[T]", "->NULL"
+};
+
 enum OUTPUT_MUX {
     OUTPUT_T = 0,      // ->T       write result to top of data stack
     OUTPUT_R = 1,      // ->R       write result to top of return stack
@@ -109,8 +113,17 @@ enum OUTPUT_MUX {
     OUTPUT_NULL = 3,   // ->NULL    discard result
 };
 
-static char* OUTPUT_MUX_REPR[] = {
-        "->T", "->R", "->[T]", "->NULL"
+// === Representation of various flags
+static char* LIT_SHIFT_REPR[] = {
+        "", "imm<<12", "imm<<24", "imm<<36"
+};
+
+static char* DSTACK_REPR[] = {
+        "", "d+1", "d-1", "d-2",
+};
+
+static char* RSTACK_REPR[] = {
+        "", "r+1", "r-1", "r-2"
 };
 
 // ==========================================================================

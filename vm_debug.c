@@ -10,9 +10,10 @@
 void debug_instruction(instruction ins) {
     const char* forth_word = lookup_opcode(ins);
     char* ins_r = instruction_to_str(ins);
-    printf("0x%04hx", *(uint16_t*)&ins);
-    if (forth_word) printf(" => %s", forth_word);
-    printf(" => %s\n", ins_r);
+    printf("0x%04hx => %-10s => %s\n",
+           *(uint16_t*)&ins,
+           forth_word ? forth_word : "",
+           ins_r);
     free(ins_r);
 }
 
@@ -54,10 +55,10 @@ void print_stack(int16_t SP, int64_t T, context *ctx, bool rstack) {
 
     if (rstack) {
         stack = ctx->RSTACK;
-        printf("RSTACK[%d]:", SP);
+        printf("RSTACK[%4d]:", SP);
     } else {
         stack = ctx->DSTACK;
-        printf("DSTACK[%d]:", SP);
+        printf("DSTACK[%4d]:", SP);
     }
 
     switch (SP) {

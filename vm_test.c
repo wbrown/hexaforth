@@ -172,7 +172,7 @@ bool execute_test(hexaforth_test test) {
         fputc('\0', ctx->OUT);
         fclose(ctx->OUT);
         fclose(ctx->IN);
-        printf("TEST: %s {Input=\"%s\", IO=\"%s\", Expected={stack: [%s] rstack: [%s] %s%s%s}} => ",
+        printf("TEST: \"%s\" {Input=\"%s\", IO=\"%s\", Expected={stack: [%s] rstack: [%s] %s%s%s}} => ",
                test.label,
                test.input,
                test.io_input ? test.io_input : "",

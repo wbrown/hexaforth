@@ -16,7 +16,7 @@ void insert_opcode(context *ctx, instruction op) {
     *(instruction*)&(ctx->memory[ctx->HERE]) = op;
     //memcpy(&ctx->memory[ctx->HERE], &op, 2);
 #ifdef DEBUG
-    printf("HERE[%d]: ", ctx->HERE);
+    printf("  HERE[%4d]: ", ctx->HERE);
     debug_instruction(*(instruction*)&(ctx->memory[ctx->HERE]));
 #endif
     ctx->HERE++;
@@ -162,7 +162,7 @@ void insert_string(context *ctx, char* str) {
 // of literal, shift, and invert instructions needed to reconstruct the
 // literal on top of the stack.
 void insert_literal(context *ctx, int64_t n) {
-    dprintf("COMPILE_LITERAL: %lld\n", n);
+    dprintf("  HERE[%4d]: COMPILE_LITERAL: %lld\n", ctx->HERE, n);
     uint64_t acc = llabs(n);         // Our accumulator, really a deccumlator
     bool negative = n < 0;
     bool first_ins = true;
@@ -219,7 +219,7 @@ void insert_literal(context *ctx, int64_t n) {
             // Write the encoded literal to our image.
             insert_opcode(ctx, literal);
         } else {
-            dprintf("HERE[%d]: Skipping LIT instruction as lit_v == 0, shift=%d\n",
+            dprintf("  HERE[%4d]: Skipping LIT instruction as lit_v == 0, shift == %d\n",
                     ctx->HERE, shifts);
         }
         shifts++;
