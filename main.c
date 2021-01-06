@@ -4,10 +4,6 @@
 #include "vm_debug.h"
 #include "compiler.h"
 
-void generate_test_program(context *ctx) {
-    compile(ctx, "1 2 3 4 + 5 dup 6 drop drop 7 over nip 1+");
-}
-
 static hexaforth_test TESTS[] = {
         {.label = "8-bit literals",
          .input = "1 2 3 4",

@@ -166,8 +166,8 @@ char* instruction_to_str(instruction ins) {
                  (ins.lit.lit_v << (ins.lit.lit_shifts * LIT_BITS)));
     } else {
         if (ins.alu.op_type == OP_TYPE_ALU) {
-            const char* input_mux = INPUT_REPR[ins.alu.in_mux];
-            const char* output_mux = OUTPUT_REPR[ins.alu.out_mux];
+            const char* input_mux = INPUT_MUX_REPR[ins.alu.in_mux];
+            const char* output_mux = OUTPUT_MUX_REPR[ins.alu.out_mux];
             const char* alu_ops_repr = ALU_OPS_REPR[ins.alu.alu_op];
             asprintf(&ret_str,
                      "input: %s (%#x01d) => "
@@ -185,7 +185,7 @@ char* instruction_to_str(instruction ins) {
         } else {
             asprintf(&ret_str,
                      "%s: {target: %d (%xd)}",
-                     ALU_OP_TYPE_REPR[ins.jmp.op_type],
+                     OP_TYPE_REPR[ins.jmp.op_type],
                      ins.jmp.target,
                      ins.jmp.target);
         }
