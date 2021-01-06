@@ -119,7 +119,9 @@ static hexaforth_test TESTS[] = {
 };
 
 int main() {
-    execute_tests(TESTS);
+    if(init_opcodes()) {
+        execute_tests(TESTS);
+    };
     encoding_report();
     // context *ctx = malloc(sizeof(context));
     // ctx->HERE = 0;

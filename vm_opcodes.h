@@ -104,6 +104,7 @@ enum DEF_TYPE {
     TERM,
     INS,
     COMMT,
+    CODE
 };
 
 typedef struct {
@@ -112,12 +113,12 @@ typedef struct {
     instruction    ins[8];
 } forth_op;
 
-static forth_op FIELDS[] = {
+static forth_op INS_FIELDS[] = {
         {"input_mux",  COMMT, {{}}},
         {"N->I",       FIELD, {{.alu.in_mux = INPUT_N}}},
         {"T->I",       FIELD, {{.alu.in_mux = INPUT_T}}},
         {"[T]->I",     FIELD, {{.alu.in_mux = INPUT_LOAD_T}}},
-        {"R->T",       FIELD, {{.alu.in_mux = INPUT_R}}},
+        {"R->I",       FIELD, {{.alu.in_mux = INPUT_R}}},
         {"alu_op",     COMMT, {{}}},
         {"I->I",       FIELD, {{.alu.alu_op = ALU_I }}},
         {"T+I",        FIELD, {{.alu.alu_op = ALU_ADD }}},
@@ -133,7 +134,7 @@ static forth_op FIELDS[] = {
         {"[I]",        FIELD, {{.alu.alu_op = ALU_LOAD }}},
         {"I->io[T]",   FIELD, {{.alu.alu_op = ALU_IO_WRITE }}},
         {"io[I]",      FIELD, {{.alu.alu_op = ALU_IO_READ }}},
-        {"depths",     FIELD, {{.alu.alu_op = ALU_STATUS }}},
+        {"status",     FIELD, {{.alu.alu_op = ALU_STATUS }}},
         {"Iu<T",       FIELD, {{.alu.alu_op = ALU_U_GT }}},
         {"output_mux", COMMT, {{}}},
         {"->T",        FIELD, {{.alu.out_mux = OUTPUT_T}}},
@@ -161,7 +162,49 @@ static forth_op FIELDS[] = {
         {"alu",        TERM,  {{.alu.op_type = OP_TYPE_ALU}}},
         {"",           FIELD, {{}}}};
 
-static forth_op FORTH_OPS[] = {
+typedef struct {
+    char repr[40];
+    char code[160];
+} forth_define;
+
+static forth_define FORTH_OPS[] = {
+        {"noop",    "                        ->NULL              alu"},
+        {"+",       "       N->I   T+I       ->T       d-1       alu"},
+        {"invert",  "       T->I   ~I        ->T                 alu"},
+        {"swap",    "       N->I   N->T,I    ->T                 alu"},
+        {"nip",     "       T->I   N->T,I    ->T       d-1       alu"},
+        {"drop",    "       N->I             ->T       d-1       alu"},
+        {"over",    "       N->I             ->T       d+1       alu"},
+        {">r",      "       T->I             ->R       d-1  r+1  alu"},
+        {"r>",      "       R->I             ->T       d+1  r-1  alu"},
+        {"r@",      "       R->I             ->T       d+1       alu"},
+        {"@",       "       [T]->I           ->T                 alu"},
+        {"!",       "       N->I             ->[T]     d-2       alu"},
+        {"io@",     "       T->I   io[I]     ->T                 alu"},
+        {"io!",     "       N->I   I->io[T]  ->T       d-2       alu"},
+        {"rshift",  "       N->I   I>>T      ->T       d-1       alu"},
+        {"lshift",  "       N->I   I<<T      ->T       d-1       alu"},
+        {"depths",  "              status    ->T                 alu"},
+        {"depthr",  "       R->I   status    ->T                 alu"},
+        {"exit",    "                            RET        r-1  alu"},
+        {"1+",      "1      imm+                                 imm"},
+        {"2+",      "2      imm+                                 imm"},
+        {"2*",      "1                                           imm lshift"},
+        {"2/",      "1                                           imm rshift"},
+        {"emit",    "241                                         imm io!"},
+        {"8emit",   "240                                         imm io!"},
+        {"key",     "224                                         imm io@"},
+        {"-",       "invert +"},
+        {"",        ""}};
+
+typedef struct {
+    char* repr;
+    instruction ins[8];
+} word_node;
+
+static word_node FORTH_WORDS[256];
+
+static forth_op FORTH_OPS_OLD[] = {
         {"dup",              INS, {{ .alu.op_type = OP_TYPE_ALU,
                                      .alu.in_mux = INPUT_T,
                                      .alu.alu_op = ALU_I,
@@ -268,5 +311,6 @@ bool ins_eq(instruction a, instruction b);
 instruction* lookup_word(const char* word);
 const char* lookup_opcode(instruction ins);
 char* instruction_to_str(instruction ins);
+bool init_opcodes();
 
 #endif //HEXAFORTH_VM_OPCODES_H

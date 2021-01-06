@@ -18,7 +18,7 @@ void debug_instruction(instruction ins) {
 
 void encoding_report() {
     //context *ctx = calloc(sizeof(context), 1);
-    forth_op* curr_op = &FIELDS[0];
+    forth_op* curr_op = &INS_FIELDS[0];
 
     while(strlen(curr_op->repr)) {
         if (curr_op->type == COMMT) {
@@ -30,6 +30,15 @@ void encoding_report() {
                    (curr_op->type != FIELD) ? "tcode, " : "" );
         }
         curr_op++;
+    }
+    printf("\n\\ words\n");
+
+    forth_define* curr_word = &FORTH_OPS[0];
+    while(strlen(curr_word->repr)) {
+        printf(":: %-9s %s\n",
+               curr_word->repr,
+               curr_word->code);
+        curr_word++;
     }
 }
 
