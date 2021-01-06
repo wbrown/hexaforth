@@ -35,7 +35,7 @@ void encoding_report() {
 
     forth_define* curr_word = &FORTH_OPS[0];
     while(strlen(curr_word->repr)) {
-        printf(":: %-9s %s\n",
+        printf(":: %-9s %s ;\n",
                curr_word->repr,
                curr_word->code);
         curr_word++;
