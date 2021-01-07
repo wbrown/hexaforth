@@ -180,6 +180,8 @@ int vm(context *ctx) {
                     }
                     if (ins.alu.rstack > 0) {
                         ctx->RSTACK[RSP-2] = R;
+                    } if (ins.alu.rstack < 0) {
+                        R = ctx->RSTACK[RSP-1];
                     }
                     // Where does `OUT` go?
                     switch (ins.alu.out_mux) {
@@ -209,7 +211,6 @@ int vm(context *ctx) {
                     EIP = ins.jmp.target;
                     break;
                 case OP_TYPE_CALL:
-                    EIP++;
                     R=EIP;
                     ctx->RSTACK[RSP] = EIP;
                     RSP++;

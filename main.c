@@ -114,11 +114,45 @@ static hexaforth_test TESTS[] = {
         {.input = ""},
 };
 
+void load_hex(const char* filepath, context *ctx) {
+    FILE* hexfile = fopen(filepath, "r");
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+
+    if (hexfile == NULL)
+        exit(EXIT_FAILURE);
+
+    ctx->HERE=0;
+
+    while ((read = getline(&line, &len, hexfile)) != -1) {
+        *(uint32_t*)&(ctx->memory[ctx->HERE]) = (uint32_t)strtol(line, NULL, 16);
+        if (ctx->memory[ctx->HERE] != 0) {
+            printf("[0x%0.4x] ", ctx->HERE);
+            debug_instruction(*(instruction*)&ctx->memory[ctx->HERE]);
+        }
+        if (ctx->memory[ctx->HERE+1] != 0) {
+            printf("[0x%0.4x] ", (ctx->HERE+1));
+            debug_instruction(*(instruction*)&ctx->memory[ctx->HERE+1]);
+        }
+        ctx->HERE+=2;
+    }
+
+    fclose(hexfile);
+    if (line)
+        free(line);
+}
+
 int main() {
     if(init_opcodes()) {
-        execute_tests(TESTS);
+        // execute_tests(TESTS);
     };
     generate_basewords_fs();
+    context *ctx = calloc(sizeof(context), 1);
+    load_hex("../build/test.hex", ctx);
+    // ctx->EIP=0x462C / 2;
+    vm(ctx);
+
     // context *ctx = malloc(sizeof(context));
     // ctx->HERE = 0;
     // generate_test_program(ctx);

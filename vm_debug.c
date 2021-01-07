@@ -8,6 +8,7 @@
 #include "vm.h"
 
 void debug_instruction(instruction ins) {
+    if(*(uint16_t*)&ins == 0) return;
     const char* forth_word = lookup_opcode(ins);
     char* ins_r = instruction_to_str(ins);
     printf("0x%04hx => %-10s => %s\n",

@@ -172,7 +172,7 @@ char* instruction_to_str(instruction ins) {
     char *ret_str;
     if (ins.lit.lit_f) {
         asprintf(&ret_str,
-                 "%4d  %-7s %-8s %25s",
+                 "%6d  %-7s %-8s %25s",
                  ins.lit.lit_v,
                  LIT_SHIFT_REPR[(uint8_t)ins.lit.lit_shifts],
                  ins.lit.lit_add ? "imm+" : "",
@@ -191,7 +191,7 @@ char* instruction_to_str(instruction ins) {
             const char* class_repr = OP_TYPE_REPR[ins.alu.op_type];
 
             asprintf(&ret_str,
-                     "      %-7s %-8s %-6s %-4s %-4s %-4s %-4s",
+                     "        %-7s %-8s %-6s %-4s %-4s %-4s %-4s",
                      input_mux,
                      alu_ops_repr,
                      output_mux,
@@ -201,7 +201,7 @@ char* instruction_to_str(instruction ins) {
                      class_repr);
         } else {
             asprintf(&ret_str,
-                     "%-4d  %35s %-4s",
+                     "0x%0.4x  %38s %-4s",
                      ins.jmp.target,
                      "",
                      OP_TYPE_REPR[ins.jmp.op_type]);
