@@ -131,6 +131,7 @@ static char* RSTACK_REPR[] = {
 // ==========================================================================
 
 enum DEF_TYPE {
+    INPUT,
     FIELD,        // Instruction field mapping
     TERM,         // Terminating field definition, writes instruction out
     INS,
@@ -146,22 +147,28 @@ typedef struct {
 
 static forth_op INS_FIELDS[] = {
         {"input_mux",  COMMT, {{}}},
-        {"N->I",       FIELD, {{.alu.in_mux = INPUT_N}}},
-        {"T->I",       FIELD, {{.alu.in_mux = INPUT_T}}},
-        {"[T]->I",     FIELD, {{.alu.in_mux = INPUT_LOAD_T}}},
-        {"R->I",       FIELD, {{.alu.in_mux = INPUT_R}}},
+        {"N->I",       INPUT, {{.alu.in_mux = INPUT_N}}},
+        {"T->I",       INPUT, {{.alu.in_mux = INPUT_T}}},
+        {"[T]->I",     INPUT, {{.alu.in_mux = INPUT_LOAD_T}}},
+        {"R->I",       INPUT, {{.alu.in_mux = INPUT_R}}},
         {"alu_op",     COMMT, {{}}},
         {"I->I",       FIELD, {{.alu.alu_op = ALU_I }}},
         {"N->T,I",     FIELD, {{.alu.alu_op = ALU_T_N }}},
         {"T+I",        FIELD, {{.alu.alu_op = ALU_ADD }}},
         {"T&I",        FIELD, {{.alu.alu_op = ALU_AND }}},
-        {"T|I",        FIELD, {{.alu.alu_op = ALU_OR }}},
+        {"T|I",        FIELD, {{.alu.alu_op = ALU_OR, }}},
+        {"T|N",        INPUT, {{.alu.alu_op = ALU_OR,
+                                .alu.in_mux = INPUT_N}}},
         {"T^I",        FIELD, {{.alu.alu_op = ALU_XOR }}},
         {"~I",         FIELD, {{.alu.alu_op = ALU_INVERT}}},
+        {"~T",         INPUT, {{.alu.in_mux = INPUT_T,
+                                .alu.alu_op = ALU_INVERT}}},
         {"T==I",       FIELD, {{.alu.alu_op = ALU_EQ }}},
         {"I<T",        FIELD, {{.alu.alu_op = ALU_GT }}},
         {"I>>T",       FIELD, {{.alu.alu_op = ALU_RSHIFT }}},
         {"I<<T",       FIELD, {{.alu.alu_op = ALU_LSHIFT }}},
+        {"N<<T",       INPUT, {{.alu.in_mux = INPUT_T,
+                                .alu.alu_op = ALU_LSHIFT}}},
         {"[I]",        FIELD, {{.alu.alu_op = ALU_LOAD }}},
         {"I->io[T]",   FIELD, {{.alu.alu_op = ALU_IO_WRITE }}},
         {"io[I]",      FIELD, {{.alu.alu_op = ALU_IO_READ }}},
@@ -196,6 +203,7 @@ static forth_op INS_FIELDS[] = {
 typedef struct {
     char repr[40];
     char code[160];
+    uint8_t type;
 } forth_define;
 
 // Our internal Forth-like assembler that defines Forth words by referencing
@@ -230,10 +238,17 @@ typedef struct {
 
 static forth_define FORTH_OPS[] = {
         // word             in_mux|alu_op   |out_mux  | d  | r | op_type
-        {"noop",    "                        ->NULL              alu"},
+        {"noop",    "       N->I             ->NULL              alu"},
         {"+",       "       N->I   T+I       ->T       d-1       alu"},
+        {"xor",     "       N->I   T^I       ->T       d-1       alu"},
+        {"and",     "       N->I   T&I       ->T       d-1       alu"},
+        {"or",      "       N->I   T|I       ->T       d-1       alu"},
         {"invert",  "       T->I   ~I        ->T                 alu"},
+        {"=",       "       N->I   T==I      ->T       d-1       alu"},
+        {"<",       "       N->I   I<T       ->T       d-1       alu"},
+        {"u<",      "       N->I   Iu<T      ->T       d-1       alu"},
         {"swap",    "       N->I   N->T,I    ->T                 alu"},
+        {"dup",     "       T->I             ->T       d+1       alu"},
         {"nip",     "       T->I   N->T,I    ->T       d-1       alu"},
         {"drop",    "       N->I             ->T       d-1       alu"},
         {"over",    "       N->I             ->T       d+1       alu"},
@@ -246,17 +261,25 @@ static forth_define FORTH_OPS[] = {
         {"io!",     "       N->I   I->io[T]  ->T       d-2       alu"},
         {"rshift",  "       N->I   I>>T      ->T       d-1       alu"},
         {"lshift",  "       N->I   I<<T      ->T       d-1       alu"},
-        {"depths",  "              status    ->T                 alu"},
+        {"depths",  "       T->I   status    ->T                 alu"},
         {"depthr",  "       R->I   status    ->T                 alu"},
-        {"exit",    "                            RET        r-1  alu"},
+        {"exit",    "       T->I             ->T  RET       r-1  alu"},
+        {"2dup<",   "       N->I   I<T       ->T       d+1       alu"},
+        {"dup@",    "       [T]->I           ->T       d+1       alu"},
+        {"overand", "       N->I   T&I       ->T                 alu"},
+        {"dup>r",   "       N->I             ->R            r+1  alu"},
+        {"2dupxor", "       T->I   T^I       ->R       d+1       alu"},
+        {"over+",   "       T->I   T+I       ->T       d+1       alu"},
+        {"over=",   "       T->I   T==I      ->T       d+1       alu"},
+        {"rdrop",   "       T->I             ->T            r-1  alu"},
         {"1+",      "1      imm+                                 imm"},
         {"2+",      "2      imm+                                 imm"},
-        {"2*",      "1                                           imm lshift"},
-        {"2/",      "1                                           imm rshift"},
-        {"emit",    "241                                         imm io!"},
-        {"8emit",   "240                                         imm io!"},
-        {"key",     "224                                         imm io@"},
-        {"-",       "invert +"},
+        {"2*",      "1                                           imm lshift", CODE},
+        {"2/",      "1                                           imm rshift", CODE},
+        {"emit",    "241                                         imm io!", CODE},
+        {"8emit",   "240                                         imm io!", CODE},
+        {"key",     "224                                         imm io@", CODE},
+        {"-",       "invert +", CODE},
         {"",        ""}};
 
 // Instructions associated with string representations.

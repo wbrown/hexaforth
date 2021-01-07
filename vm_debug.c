@@ -17,30 +17,38 @@ void debug_instruction(instruction ins) {
     free(ins_r);
 }
 
-void encoding_report() {
+void generate_basewords_fs() {
+    FILE* out = fopen("../basewords.fs", "w");
+
+
     //context *ctx = calloc(sizeof(context), 1);
     forth_op* curr_op = &INS_FIELDS[0];
 
     while(strlen(curr_op->repr)) {
         if (curr_op->type == COMMT) {
-            printf("\n\\ %s\n", curr_op->repr);
+            fprintf(out, "\n\\ %s\n", curr_op->repr);
         } else {
-            printf(": %-10s h# %04x or %s;\n",
+            fprintf(out, ": %-10s h# %04x %s%s;\n",
                    curr_op->repr,
                    *(uint16_t*)&curr_op->ins,
-                   (curr_op->type != FIELD) ? "tcode, " : "" );
+                   (curr_op->type != INPUT) ? "or " : "",
+                   (curr_op->type != FIELD &&
+                    curr_op->type != INPUT) ? "tcode, " : "" );
         }
         curr_op++;
     }
-    printf("\n\\ words\n");
+    fprintf(out, "\n\\ words\n");
 
     forth_define* curr_word = &FORTH_OPS[0];
     while(strlen(curr_word->repr)) {
-        printf(":: %-9s %s ;\n",
-               curr_word->repr,
-               curr_word->code);
+        if (curr_word->type != CODE) {
+            fprintf(out, ":: %-9s %s ;\n",
+                   curr_word->repr,
+                   curr_word->code);
+        }
         curr_word++;
     }
+    fclose(out);
 }
 
 void show_registers(int64_t T, int16_t R,

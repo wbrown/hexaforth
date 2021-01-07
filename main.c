@@ -118,7 +118,7 @@ int main() {
     if(init_opcodes()) {
         execute_tests(TESTS);
     };
-    encoding_report();
+    generate_basewords_fs();
     // context *ctx = malloc(sizeof(context));
     // ctx->HERE = 0;
     // generate_test_program(ctx);

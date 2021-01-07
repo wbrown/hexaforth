@@ -26,6 +26,7 @@ instruction* lookup_field(const char* word) {
         char* repr = INS_FIELDS[idx].repr;
         if (strcmp(repr, word) == 0 &&
                 (INS_FIELDS[idx].type == FIELD ||
+                 INS_FIELDS[idx].type == INPUT ||
                  INS_FIELDS[idx].type == TERM)) {
             return(&INS_FIELDS[idx].ins[0]);
         }
