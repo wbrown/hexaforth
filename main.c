@@ -145,13 +145,13 @@ void load_hex(const char* filepath, context *ctx) {
 
 int main() {
     if(init_opcodes()) {
-        // execute_tests(TESTS);
+        execute_tests(TESTS);
     };
     generate_basewords_fs();
-    context *ctx = calloc(sizeof(context), 1);
-    load_hex("../build/test.hex", ctx);
+    // context *ctx = calloc(sizeof(context), 1);
+    // load_hex("../build/test.hex", ctx);
     // ctx->EIP=0x462C / 2;
-    vm(ctx);
+    // vm(ctx);
 
     // context *ctx = malloc(sizeof(context));
     // ctx->HERE = 0;

@@ -63,6 +63,7 @@ int vm(context *ctx) {
             printf("  EXEC[%4d]: ", EIP);
             debug_instruction(ins);
         #endif // DEBUG
+        // == MSB set is an instruction literal.
         if (ins.lit.lit_f) {
             int64_t lit = (uint64_t)ins.lit.lit_v <<
                               (ins.lit.lit_shifts * LIT_BITS);
@@ -74,148 +75,155 @@ int vm(context *ctx) {
                 T += (int64_t)lit;
             }
             EIP++;
-        } else {
-            // Pick which data source for our input `I`:
-            switch (ins.alu.in_mux) {
-                // `N->I`
-                case INPUT_N:
-                    I = ctx->DSTACK[SP-2];
-                    break;
-                // `T->I`
-                case INPUT_T:
-                    I = T;
-                    break;
-                // `[T]->I`
-                case INPUT_LOAD_T:
-                    I = *(int64_t*)&(ctx->memory[T]);
-                    break;
-                // `R->I`
-                case INPUT_R:
-                    I = R;
-                    break;
-            }
-            switch (ins.alu.op_type) {
-                case OP_TYPE_ALU:
-                    switch (ins.alu.alu_op) {
+            continue;
+        }
+        switch (ins.alu.op_type) {
+            case OP_TYPE_CJMP:
+                // Conditional jump based on TOS value truthiness.
+                SP--;
+                if (!T) break;
+            case OP_TYPE_JMP:
+                // Unconditional jump
+                EIP = ins.jmp.target;
+                break;
+            case OP_TYPE_CALL:
+                // Unconditional call
+                R = EIP;
+                ctx->RSTACK[RSP] = EIP;
+                RSP++;
+                EIP = ins.jmp.target;
+                break;
+            case OP_TYPE_ALU: {
+                switch (ins.alu.in_mux) {
+                    // Pick which data source for our input `I`:
+                    case INPUT_N:
+                        // `N->I`
+                        I = ctx->DSTACK[SP - 2];
+                        break;
+                    case INPUT_T:
+                        // `T->I`
+                        I = T;
+                        break;
+                    case INPUT_LOAD_T:
+                        // `[T]->I`
+                        I = *(int64_t *) &(ctx->memory[T]);
+                        break;
+                    case INPUT_R:
+                        // `R->I`
+                        I = R;
+                        break;
+                }
+                // Perform our ALU op
+                switch (ins.alu.alu_op) {
+                    case ALU_I:
                         // `I->OUT` -- passthrough to `out_mux`
-                        case ALU_I:
-                            OUT = I;
-                            break;
+                        OUT = I;
+                        break;
+                    case ALU_ADD:
                         // `(T+I)->OUT`
-                        case ALU_ADD:
-                            OUT = T + I;
-                            break;
+                        OUT = T + I;
+                        break;
+                    case ALU_T_N:
                         // `N->T, I->OUT`
-                        case ALU_T_N:
-                            ctx->DSTACK[SP-2] = T;
-                            OUT = I;
-                            break;
+                        ctx->DSTACK[SP - 2] = T;
+                        OUT = I;
+                        break;
+                    case ALU_AND:
                         // `(T&I)->OUT`
-                        case ALU_AND:
-                            OUT = T & I;
-                            break;
+                        OUT = T & I;
+                        break;
+                    case ALU_OR:
                         // `(T|I)>OUT`
-                        case ALU_OR:
-                            OUT = T | I;
-                            break;
+                        OUT = T | I;
+                        break;
+                    case ALU_XOR:
                         // `(T^I)->OUT`
-                        case ALU_XOR:
-                            OUT = T ^ I;
-                            break;
+                        OUT = T ^ I;
+                        break;
+                    case ALU_INVERT:
                         // `~I->OUT`
-                        case ALU_INVERT:
-                            OUT = -I;
-                            break;
+                        OUT = -I;
+                        break;
+                    case ALU_EQ:
                         // `(T==I)->OUT`
-                        case ALU_EQ:
-                            OUT = T == I;
-                            break;
+                        OUT = T == I;
+                        break;
+                    case ALU_GT:
                         // `(I<T)->OUT`
-                        case ALU_GT:
-                            OUT = I<T;
-                            break;
+                        OUT = I < T;
+                        break;
+                    case ALU_RSHIFT:
                         // `(I>>T)->OUT`
-                        case ALU_RSHIFT:
-                            OUT = (uint64_t)I >> T;
-                            break;
+                        OUT = (uint64_t) I >> T;
+                        break;
+                    case ALU_LSHIFT:
                         // `(I<<T)->OUT`
-                        case ALU_LSHIFT:
-                            OUT = (uint64_t)I << T;
-                            break;
+                        OUT = (uint64_t) I << T;
+                        break;
+                    case ALU_LOAD:
                         // `[I]->OUT`
-                        case ALU_LOAD:
-                            OUT = *(int64_t*)&(ctx->memory[I]);
-                            break;
+                        OUT = *(int64_t *) &(ctx->memory[I]);
+                        break;
+                    case ALU_IO_WRITE:
                         // `(I->io[T])->OUT`
-                        case ALU_IO_WRITE:
-                            OUT = io_write_handler(ctx, T, I);
-                            break;
+                        OUT = io_write_handler(ctx, T, I);
+                        break;
+                    case ALU_IO_READ:
                         // `io[I]->OUT`
-                        case ALU_IO_READ:
-                            OUT = io_read_handler(ctx, I);
-                            break;
+                        OUT = io_read_handler(ctx, I);
+                        break;
+                    case ALU_STATUS:
                         // `depth(RSTACK|DSTACK)->OUT`
-                        case ALU_STATUS:
-                            if (ins.alu.in_mux==INPUT_R) {
-                                OUT = RSP+1;
-                            } else {
-                                OUT = SP+1;
-                            }
-                            break;
+                        if (ins.alu.in_mux == INPUT_R) {
+                            OUT = RSP + 1;
+                        } else {
+                            OUT = SP + 1;
+                        }
+                        break;
+                    case ALU_U_GT:
                         // `(Tu<Iu)->OUT`
-                        case ALU_U_GT:
-                            OUT = (uint64_t)T < (uint64_t)I;
-                            break;
-                        default:
-                            break;
-                    };
-                    // R->EIP flag
-                    if (ins.alu.r_eip) EIP = R;
-                    // Adjust stack depths
-                    SP+=ins.alu.dstack;
-                    RSP+=ins.alu.rstack;
-                    // Update top of stacks if decrement.
-                    if (ins.alu.dstack > 0) {
-                        ctx->DSTACK[SP-2] = T;
-                    }
-                    if (ins.alu.rstack > 0) {
-                        ctx->RSTACK[RSP-2] = R;
-                    } if (ins.alu.rstack < 0) {
-                        R = ctx->RSTACK[RSP-1];
-                    }
-                    // Where does `OUT` go?
-                    switch (ins.alu.out_mux) {
-                        // `OUT->T`
-                        case OUTPUT_T:
-                            T = OUT;
-                            break;
+                        OUT = (uint64_t) T < (uint64_t) I;
+                        break;
+                    default:
+                        break;
+                };
+                // R->EIP flag
+                if (ins.alu.r_eip) EIP = R;
+                // Adjust stack depths
+                SP += ins.alu.dstack;
+                RSP += ins.alu.rstack;
+                // Update NOS (Next On Stack) if stack size was decremented
+                if (ins.alu.dstack > 0) {
+                    ctx->DSTACK[SP - 2] = T;
+                }
+                if (ins.alu.rstack > 0) {
+                    ctx->RSTACK[RSP - 2] = R;
+                }
+                // Update R (Top of Return) if return stack size was incremnted.
+                if (ins.alu.rstack < 0) {
+                    R = ctx->RSTACK[RSP - 1];
+                }
+                // == Where does `OUT` go?
+                switch (ins.alu.out_mux) {
+                    // `OUT->T`
+                    case OUTPUT_T:
+                        T = OUT;
+                        break;
                         // `OUT->R`
-                        case OUTPUT_R:
-                            R = OUT;
-                            break;
+                    case OUTPUT_R:
+                        R = OUT;
+                        break;
                         // `OUT->memory[T]` -- memory write
-                        case OUTPUT_MEM_T:
-                            *(int64_t*)&(ctx->memory[T]) = OUT;
-                            break;
+                    case OUTPUT_MEM_T:
+                        *(int64_t *) &(ctx->memory[T]) = OUT;
+                        break;
                         // Null sink, for ALU ops with side effects.
-                        case OUTPUT_NULL:
-                            break;
-                    }
-                    // Next instruction
-                    EIP++;
-                    break;
-                case OP_TYPE_CJMP:
-                    SP--;
-                    if (!T) break;
-                case OP_TYPE_JMP:
-                    EIP = ins.jmp.target;
-                    break;
-                case OP_TYPE_CALL:
-                    R=EIP;
-                    ctx->RSTACK[RSP] = EIP;
-                    RSP++;
-                    EIP = ins.jmp.target;
-                    break;
+                    case OUTPUT_NULL:
+                        break;
+                }
+                // Next instruction
+                EIP++;
+                break;
             }
         }
 #ifdef DEBUG
