@@ -14,10 +14,10 @@
 // HERE pointer to the next CELL.
 void insert_opcode(context *ctx, instruction op) {
     *(instruction*)&(ctx->memory[ctx->HERE]) = op;
-    //memcpy(&ctx->memory[ctx->HERE], &op, 2);
 #ifdef DEBUG
-    printf("  HERE[%4d]: ", ctx->HERE);
-    debug_instruction(*(instruction*)&(ctx->memory[ctx->HERE]));
+    char decoded[160];
+    debug_address(decoded, ctx, ctx->HERE);
+    printf("HERE[0x%0.4x]: %s\n", ctx->HERE, decoded);
 #endif
     ctx->HERE++;
 }
@@ -55,25 +55,25 @@ bool compile_word(context *ctx, const char* word) {
 }
 
 void insert_uint16(context *ctx, uint16_t n) {
-    dprintf("INSERT_UINT16: %d @ %d\n", n, ctx->HERE);
+    //dprintf("INSERT_UINT16: %d @ %d\n", n, ctx->HERE);
     ctx->memory[ctx->HERE] = n;
     ctx->HERE++;
 }
 
 void insert_uint32(context *ctx, uint32_t n) {
-    dprintf("INSERT_UINT32: %d @ %d\n", n, ctx->HERE);
+    //dprintf("INSERT_UINT32: %d @ %d\n", n, ctx->HERE);
     *(uint32_t*)&(ctx->memory[ctx->HERE])=n;
     ctx->HERE+=2;
 }
 
 void insert_uint64(context *ctx, uint64_t n) {
-    dprintf("INSERT_UINT64: %lld @ %d\n", n, ctx->HERE);
+    //dprintf("INSERT_UINT64: %lld @ %d\n", n, ctx->HERE);
     *(uint64_t*)&(ctx->memory[ctx->HERE])=n;
     ctx->HERE+=4;
 }
 
 void insert_int64(context *ctx, int64_t n) {
-    dprintf("INSERT_INT64: %lld @ %d\n", n, ctx->HERE);
+    //dprintf("INSERT_INT64: %lld @ %d\n", n, ctx->HERE);
     *(int64_t*)&(ctx->memory[ctx->HERE])=n;
     ctx->HERE+=4;
 }
@@ -83,21 +83,21 @@ void insert_string_literal(context *ctx, char* str) {
     uint64_t octabytes = len / 8;
     uint64_t bytes_rem = len % 8;
     uint64_t num_cells = octabytes + (bytes_rem ? 1 : 0);
-    uint64_t octabyte = 0;
+    uint64_t octabyte;
     int idx = octabytes - (bytes_rem ? 0 : 1);
 
     if (bytes_rem) {
         uint64_t shifts = 64 - (8 * bytes_rem);
         octabyte = *(uint64_t*)&(str[idx*8]) << shifts >> shifts;
-        dprintf("MSB: %hhu\n", clz(octabyte));
-        dprintf("STRING_LITERAL: '%.*s' -> %lld\n", (int)bytes_rem, (char*)&octabyte, octabyte);
+        //dprintf("MSB: %hhu\n", clz(octabyte));
+        //dprintf("STRING_LITERAL: '%.*s' -> %lld\n", (int)bytes_rem, (char*)&octabyte, octabyte);
         insert_literal(ctx, octabyte);
         idx = idx-1;
     }
     for(; idx>=0; idx--) {
         octabyte = *(uint64_t*)&(str[idx*8]);
-        dprintf("MSB: %hhu\n", clz(octabyte));
-        dprintf("STRING_LITERAL: '%.*s' -> %lld\n", 8, (char*)&octabyte, octabyte);
+        //dprintf("MSB: %hhu\n", clz(octabyte));
+        //dprintf("STRING_LITERAL: '%.*s' -> %lld\n", 8, (char*)&octabyte, octabyte);
         insert_literal(ctx, octabyte);
     }
     // Number of cells for the string.
@@ -162,7 +162,7 @@ void insert_string(context *ctx, char* str) {
 // of literal, shift, and invert instructions needed to reconstruct the
 // literal on top of the stack.
 void insert_literal(context *ctx, int64_t n) {
-    dprintf("  HERE[%4d]: COMPILE_LITERAL: %lld\n", ctx->HERE, n);
+    dprintf("HERE[0x%0.4d]: COMPILE_LITERAL: %lld\n", ctx->HERE, n);
     uint64_t acc = llabs(n);         // Our accumulator, really a deccumlator
     bool negative = n < 0;
     bool first_ins = true;
@@ -219,7 +219,7 @@ void insert_literal(context *ctx, int64_t n) {
             // Write the encoded literal to our image.
             insert_opcode(ctx, literal);
         } else {
-            dprintf("  HERE[%4d]: Skipping LIT instruction as lit_v == 0, shift == %d\n",
+            dprintf("HERE[0x%0.4d]: Skipping LIT instruction as lit_v == 0, shift == %d\n",
                     ctx->HERE, shifts);
         }
         shifts++;

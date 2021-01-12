@@ -124,13 +124,14 @@ bool init_opcodes() {
                             FORTH_WORDS[num_words].repr = op->repr;
                             FORTH_WORDS[num_words].ins[op_idx] = *flush;
 #ifdef DEBUG
+                            char out[160];
+                            decode_instruction(out, *(instruction*)&instruction_acc);
                             if (num_words != last_reported) {
                                 last_reported = num_words;
-                                printf("OPCODE[%4d]: ", num_words);
+                                printf("OPCODE[%4d]: %s\n", num_words, out);
                             } else {
-                                printf("              ");
+                                printf("              %s\n", out);
                             }
-                            debug_instruction(*(instruction*)&instruction_acc);
 #endif // DEBUG
                             op_idx++;
                             instruction_acc = 0;

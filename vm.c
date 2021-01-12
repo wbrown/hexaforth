@@ -60,8 +60,9 @@ int vm(context *ctx) {
         // #endif // DEBUG
         instruction ins = *(instruction*)&(ctx->memory[EIP]);
         #ifdef DEBUG
-            printf("  EXEC[%4d]: ", EIP);
-            debug_instruction(ins);
+            char out[160];
+            debug_address(out, ctx, EIP);
+            printf("EXEC[0x%0.4x]: %s\n", EIP, out);
         #endif // DEBUG
         // == MSB set is an instruction literal.
         if (ins.lit.lit_f) {

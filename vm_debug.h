@@ -8,7 +8,7 @@
 #include "vm_opcodes.h"
 #include "vm.h"
 
-// #define DEBUG 1
+#define DEBUG 1
 
 #ifdef DEBUG
 #define dprintf(...) printf(__VA_ARGS__)
@@ -16,7 +16,8 @@
 #define dprintf(...)
 #endif
 
-void debug_instruction(instruction ins);
+void decode_instruction(char* out, instruction ins);
+void debug_address(char* out, context* ctx, uint64_t addr);
 void show_registers(int64_t T, int16_t R,
                     int16_t EIP, int16_t SP, int16_t RSP,
                     context *ctx);
