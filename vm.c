@@ -3,9 +3,13 @@
 //
 
 #include <math.h>
+#include <stdbool.h>
 #include "vm.h"
+#include "vm_opcodes.h"
 #include "vm_constants.h"
+#ifdef DEBUG
 #include "vm_debug.h"
+#endif // DEBUG
 
 uint8_t clz(uint64_t N) {
     return N ? 64 - __builtin_clzll(N) : -(uint64_t)INFINITY;

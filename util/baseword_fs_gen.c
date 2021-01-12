@@ -3,7 +3,7 @@
 //
 
 #include <stdio.h>
-#include "vm_opcodes.h"
+#include "../vm_opcodes.h"
 
 void generate_basewords_fs(const char* path) {
     FILE* out = fopen(path, "w");

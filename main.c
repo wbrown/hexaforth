@@ -90,6 +90,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     }
     */
 
+#ifdef DEBUG
     for(int idx=0; idx < ctx->HERE; idx+=1) {
         char out[160];
         uint16_t cell = ctx->memory[idx];
@@ -98,6 +99,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
             dprintf("IMG [0x%0.4x] %s\n", idx, out);
         }
     };
+#endif
     /*
         } else {
             if (cell) {
@@ -134,7 +136,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
 }
 
 int main() {
-
+    init_opcodes();
     context *ctx = calloc(sizeof(context), 1);
     load_hex("../build/nuc.hex", "../build/nuc.lst", ctx);
     // ctx->EIP=0x462C / 2;

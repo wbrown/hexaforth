@@ -1,7 +1,14 @@
 cmake_minimum_required(VERSION 3.17)
 project(hexaforth C)
 
+set(DEBUG false)
 set(CMAKE_C_STANDARD 99)
+
+add_compile_options(-save-temps -g -fverbose-asm -fcommon)
+
+if(DEBUG)
+    add_compile_definitions(DEBUG)
+endif()
 
 # hexaforth nucleus image from swapforth
 add_custom_command(
@@ -20,7 +27,7 @@ add_custom_command(
         DEPENDS           basewords-fs-gen)
 
 add_executable(basewords-fs-gen
-        baseword_fs_gen.c
+        util/baseword_fs_gen.c
         vm_opcodes.c
         vm_opcodes.h
         vm.h
@@ -32,34 +39,46 @@ add_custom_target(forth-env
         ALL
         DEPENDS           ${CMAKE_SOURCE_DIR}/build/nuc.hex)
 
+# VM itself
+add_library(vm_core
+        vm.c
+        vm.h
+        vm_opcodes.h
+        vm_constants.h)
+
+add_library(vm_debug
+        vm_debug.c
+        vm_debug.h)
+
 # VM tests
 add_executable(hexaforth-test
+        vm_opcodes.c
         test/main.c
         test/vm_test.c
         test/vm_test.h
         test/compiler.c
-        test/compiler.h
-        vm_opcodes.h
-        vm_opcodes.c
-        vm_constants.h
-        vm.h
-        vm_debug.c
-        vm_debug.h
-        vm.c)
+        test/compiler.h)
+target_link_libraries(hexaforth-test
+        vm_core
+        vm_debug)
+target_compile_definitions(hexaforth-test
+        PUBLIC
+        TEST)
 
 add_custom_target(tests
         ALL
         COMMAND           ${CMAKE_BINARY_DIR}/hexaforth-test
         DEPENDS           hexaforth-test)
 
-# VM itself
+# Main executable
 add_executable(hexaforth
         main.c
-        vm.c
-        vm.h
-        vm_opcodes.h
-        vm_constants.h
-        vm_debug.c
-        vm_debug.h
         vm_opcodes.c
+        vm_opcodes.h
         build/nuc.hex)
+target_link_libraries(hexaforth
+        vm_core)
+if(DEBUG)
+    target_link_libraries(hexaforth
+            vm_debug)
+endif()
