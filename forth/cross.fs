@@ -75,11 +75,11 @@ warnings off
         invert recurse
         ~T alu
     else
-        dup $ffff8000 and if
-            dup $F rshift recurse
-            $f recurse
+        dup $fffff000 and if
+            dup $c rshift recurse
+            $c recurse
             N<<T d-1 alu
-            $7fff and recurse
+            $fff and recurse
             T|N d-1 alu
         else
             $8000 or tcode,
