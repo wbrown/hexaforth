@@ -96,7 +96,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
         uint16_t cell = ctx->memory[idx];
         if (cell) {
             debug_address(out, ctx, idx);
-            dprintf("IMG [0x%0.4x] %s\n", idx, out);
+            dprintf("IMG [0x%0.4x]: %s\n", idx, out);
         }
     };
 #endif
