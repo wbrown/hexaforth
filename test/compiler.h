@@ -5,9 +5,9 @@
 #ifndef VLIW_TEST_COMPILER_H
 #define VLIW_TEST_COMPILER_H
 
-#include "vm_constants.h"
-#include "vm_opcodes.h"
-#include "vm.h"
+#include "../vm_constants.h"
+#include "../vm_opcodes.h"
+#include "../vm.h"
 
 bool is_null_instruction(instruction ins);
 void insert_opcode(context *ctx, instruction op);

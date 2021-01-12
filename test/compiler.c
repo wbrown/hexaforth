@@ -7,7 +7,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "compiler.h"
-#include "vm_debug.h"
+#include "../vm_debug.h"
 
 
 // Lowest level compiler call that writes an instruction and increments the

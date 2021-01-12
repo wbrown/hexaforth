@@ -2,7 +2,6 @@
 // Created by Wes Brown on 12/31/20.
 //
 
-#include "compiler.h"
 #include "vm_opcodes.h"
 #include "vm_debug.h"
 #include "vm.h"
@@ -36,38 +35,7 @@ void debug_address(char* decoded, context* ctx, uint64_t addr) {
             target_meta ? target_meta : "");
 }
 
-void generate_basewords_fs() {
-    FILE* out = fopen("../basewords.fs", "w");
 
-    //context *ctx = calloc(sizeof(context), 1);
-    forth_op* curr_op = &INS_FIELDS[0];
-
-    while(strlen(curr_op->repr)) {
-        if (curr_op->type == COMMT) {
-            fprintf(out, "\n\\ %s\n", curr_op->repr);
-        } else {
-            fprintf(out, ": %-10s h# %04x %s%s;\n",
-                   curr_op->repr,
-                   *(uint16_t*)&curr_op->ins,
-                   (curr_op->type != INPUT) ? "or " : "",
-                   (curr_op->type != FIELD &&
-                    curr_op->type != INPUT) ? "tcode, " : "" );
-        }
-        curr_op++;
-    }
-    fprintf(out, "\n\\ words\n");
-
-    forth_define* curr_word = &FORTH_OPS[0];
-    while(strlen(curr_word->repr)) {
-        if (curr_word->type != CODE) {
-            fprintf(out, ":: %-9s %s ;\n",
-                   curr_word->repr,
-                   curr_word->code);
-        }
-        curr_word++;
-    }
-    fclose(out);
-}
 
 void show_registers(int64_t T, int16_t R,
                     int16_t EIP, int16_t SP, int16_t RSP,

@@ -43,7 +43,6 @@ meta
     4 org 
 target
 
-header 1+       : 1+        d# 1 + ;
 header 1-       : 1-        d# -1 + ;
 header 0=       : 0=        d# 0 = ;
 header cell+    : cell+     d# 4 + ;
@@ -116,8 +115,8 @@ header bl
 header .x       : . hex8 space ;
 header .x2      : . hex2 space ;
 
-header false    : false d# 0 ; 
-header true     : true  d# -1 ; 
+header true     : true  d# 0 ;
+header false    : false d# 4095 ;
 header rot      : rot   >r swap r> swap ; 
 header -rot     : -rot  swap >r swap r> ; 
 header tuck     : tuck  swap over ; 

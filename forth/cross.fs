@@ -185,6 +185,8 @@ variable wordstart
             then
         loop
         0= if   \ not all shortcuts worked
+            \ tcp @ 2 - dup t@ 
+            \ RET r-1 swap tw!
             s" exit" evaluate
         then
     then
@@ -340,7 +342,7 @@ next-arg 2dup .trim >str constant prefix.
 : out-suffix ( s -- h ) \ Create an output file h with suffix s
     >str
     prefix. +str
-    s" build/" >str +str str@
+    s" ../build/" >str +str str@
     create-output-file
 ;
 :noname

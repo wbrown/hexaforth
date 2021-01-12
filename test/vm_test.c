@@ -2,11 +2,10 @@
 // Created by Wes Brown on 1/1/21.
 //
 
+#include "compiler.h"
 #include "vm_test.h"
 #include <stdbool.h>
-#include "compiler.h"
-#include "vm.h"
-#include "vm_debug.h"
+#include "../vm_debug.h"
 
 bool decode_literal(const char* begin, const char* end, int64_t* num) {
     char *decode_end;
