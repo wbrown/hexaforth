@@ -149,6 +149,8 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     next_ptr = ctx->memory[last_addr] / 2;
     dprintf("WORDS: ");
 
+    uint16_t DP0;
+    uint16_t WORDCT=0;
     while(next_ptr) {
         char word[80];
         uint16_t target=next_ptr;
@@ -161,13 +163,20 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
         uint16_t code_addr=ctx->memory[code_ptr] / 2;
         // Tag the code address with our word's string
         asprintf(&ctx->meta[code_addr], "%s", word);
+        WORDCT++;
         dprintf("0x%0.4x @ %s => 0x%0.4x", target, word, code_addr);
         next_ptr = ctx->memory[next_ptr] / 2;
-        if (next_ptr) {
+        if (!next_ptr) {
+            DP0 = target;
+            dprintf(" ... %d words scanned!\n", WORDCT);
+        } else {
             dprintf(", ");
         }
     }
-    dprintf("\n");
+
+    // Scan backwards from DP0 to discover first used cell.
+    uint16_t last_code = DP0 - 1;
+    while(!ctx->memory[last_code]) last_code--;
 
 /*    if (lstfile != NULL) {
         uint16_t prior = 0;
@@ -198,6 +207,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
         uint16_t cell = ctx->memory[idx];
         if (cell) {
             debug_address(out, ctx, idx);
+            dprintf("IMG [0x%0.4x] %s\n", idx, out);
         }
     };
     /*
@@ -225,12 +235,14 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
 
     } */
 
-
-
-
     fclose(hexfile);
     if (line)
         free(line);
+    printf("%s loaded: (CODE=%d bytes, FREE=%d bytes, DICT=%d bytes)\n",
+           filepath,
+           last_code * 2,
+           (DP0 - last_code) * 2,
+           (last_addr - DP0) * 2);
 }
 
 int main() {
