@@ -164,12 +164,12 @@ variable wordstart
         dup t@ h# 1fff and over tw!
         true
     else
-        dup t@ h# e00c and h# 6000 = if
-            dup t@ h# 0080 or r-1 over tw!
-            true
-        else
+        \ dup t@ h# e00c and h# 6000 = if
+        \    dup t@ h# 0080 or r-1 over tw!
+        \    true
+        \ else
             false
-        then
+        \ then
     then
     nip
 ;

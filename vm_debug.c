@@ -6,12 +6,12 @@
 #include "vm_debug.h"
 #include "vm.h"
 
-void decode_instruction(char* out, instruction ins) {
+void decode_instruction(char* out, instruction ins, word_node words[]) {
     if(*(uint16_t*)&ins == 0) return;
-    const char* forth_word = lookup_opcode(ins);
+    const char* forth_word = lookup_opcode(words, ins);
     char* ins_r = instruction_to_str(ins);
     sprintf(out,
-            "0x%04hx => %-10s => %s",
+            HX "%04hx => %-10s => %s",
             *(uint16_t*)&ins,
             forth_word ? forth_word : "",
             ins_r);
@@ -27,7 +27,7 @@ void debug_address(char* decoded, context* ctx, uint64_t addr) {
     if (!ins.lit.lit_f && ins.alu.op_type != OP_TYPE_ALU) {
         target_meta = ctx->meta[ins.jmp.target];
     }
-    decode_instruction(decoded_ins, ins);
+    decode_instruction(decoded_ins, ins, ctx->words);
     sprintf(decoded,
             "%-20s %-77s %-20s",
             meta ? meta : "",
@@ -49,10 +49,10 @@ void print_stack(int16_t SP, int64_t T, context *ctx, bool rstack) {
 
     if (rstack) {
         stack = ctx->RSTACK;
-        printf("RSTACK[%4d]:", SP);
+        fprintf(stderr, "RSTACK[%4d]:", SP);
     } else {
         stack = ctx->DSTACK;
-        printf("DSTACK[%4d]:", SP);
+        fprintf(stderr, "DSTACK[%4d]:", SP);
     }
 
     switch (SP) {
@@ -60,11 +60,11 @@ void print_stack(int16_t SP, int64_t T, context *ctx, bool rstack) {
             break;
         default:
             for (int i = 0; i < SP - 1; i++) {
-                printf(" %lld", stack[i]);
+                fprintf(stderr, " %lld (" HX "%llx)", stack[i], stack[i]);
             }
         case 1:
-            printf(" %lld", T);
+            fprintf(stderr, " %lld (" HX "%llx)", T, T);
             break;
     }
-    printf("\n");
+    fprintf(stderr, "\n");
 }

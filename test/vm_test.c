@@ -128,9 +128,7 @@ bool stack_match(context* ctx, bool rstack, counted_array* expected) {
     return(true);
 }
 
-bool execute_test(hexaforth_test test) {
-
-
+bool execute_test(context *in_ctx, hexaforth_test test) {
     bool dstack_results = false;
     counted_array* expected_dstack =  malloc(sizeof(counted_array));
     expected_dstack->elems = malloc(0);
@@ -152,6 +150,11 @@ bool execute_test(hexaforth_test test) {
     // We use calloc rather than malloc, as malloc will often return memory of a
     // previously free'd but non-zero'ed context.
     context *ctx = calloc(sizeof(context), 1);
+    if (in_ctx) {
+        ctx->words = in_ctx->words;
+    } else {
+        init_opcodes(ctx->words);
+    }
     if (!init_image(ctx, test)) {
         free(expected_dstack->elems);
         free(expected_dstack);
@@ -210,10 +213,10 @@ bool execute_test(hexaforth_test test) {
     return(dstack_results && rstack_results);
 }
 
-bool execute_tests(hexaforth_test* tests) {
+bool execute_tests(context* ctx, hexaforth_test* tests) {
     int64_t idx = 0;
     while (strlen((tests[idx]).input)) {
-        if (!execute_test(tests[idx])) {
+        if (!execute_test(ctx, tests[idx])) {
             return false;
         } else {
             idx++;

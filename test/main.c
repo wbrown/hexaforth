@@ -3,6 +3,7 @@
 //
 
 #include "../vm_opcodes.h"
+#include "../vm.h"
 #include "vm_test.h"
 
 static hexaforth_test TESTS[] = {
@@ -116,9 +117,11 @@ static hexaforth_test TESTS[] = {
 };
 
 int main() {
-    int ret = init_opcodes();
+    context ctx;
+    ctx.words = FORTH_WORDS;
+    int ret = init_opcodes(ctx.words);
     if(ret) {
-        ret = execute_tests(TESTS);
+        ret = execute_tests(&ctx, TESTS);
     }
     return(!ret);
 }

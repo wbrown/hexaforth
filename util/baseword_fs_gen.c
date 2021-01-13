@@ -6,6 +6,7 @@
 #include "../vm_opcodes.h"
 
 void generate_basewords_fs(const char* path) {
+    init_opcodes(FORTH_WORDS);
     FILE* out = fopen(path, "w");
 
     forth_op* curr_op = &INS_FIELDS[0];
@@ -25,12 +26,14 @@ void generate_basewords_fs(const char* path) {
     }
     fprintf(out, "\n\\ words\n");
 
-    forth_define* curr_word = &FORTH_OPS[0];
-    while(strlen(curr_word->repr)) {
+    word_node* curr_word = &FORTH_WORDS[0];
+    while(curr_word->repr && strlen(curr_word->repr)) {
         if (curr_word->type != CODE) {
+            char* decoded = instruction_to_str(curr_word->ins[0]);
             fprintf(out, ":: %-9s %s ;\n",
                     curr_word->repr,
-                    curr_word->code);
+                    decoded);
+            free(decoded);
         }
         curr_word++;
     }

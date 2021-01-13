@@ -17,7 +17,7 @@ void insert_opcode(context *ctx, instruction op) {
 #ifdef DEBUG
     char decoded[160];
     debug_address(decoded, ctx, ctx->HERE);
-    printf("HERE[0x%0.4x]: %s\n", ctx->HERE, decoded);
+    dprintf("HERE[0x%0.4x]: %s\n", ctx->HERE, decoded);
 #endif
     ctx->HERE++;
 }
@@ -31,7 +31,7 @@ bool is_null_instruction(instruction ins) {
 // Look up a string in our opcodes table, and if found, write the opcodes
 // associated with the word into the image.
 bool compile_word(context *ctx, const char* word) {
-    instruction* instructions = lookup_word(word);
+    instruction* instructions = lookup_word(ctx->words, word);
     if (instructions) {
         int idx=0;
         instruction ins = instructions[idx];

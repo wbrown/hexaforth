@@ -23,8 +23,10 @@ int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write) {
     uint8_t c;
     switch (io_addr) {
         case 0xf1:
-            fputc((uint8_t)io_write, ctx->OUT);
-            return(true);
+            c = (uint8_t)io_write;
+            fputc(c, ctx->OUT);
+            //fflush(ctx->OUT);
+            return(TRUE);
         case 0xf0: {
             uint8_t msb = clz(io_write) + 1;
             uint8_t num_bytes = (msb / 8 + (msb % 8 ? 1 : 0));
@@ -32,10 +34,10 @@ int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write) {
                 io_write = io_write << idx*8;
                 fputc((uint8_t)io_write, ctx->OUT);
             }
-            return(true);
+            return(FALSE);
         }
         default:
-            return(false);
+            return(FALSE);
     }
 }
 
@@ -55,7 +57,7 @@ int vm(context *ctx) {
     register int16_t RSP = 0;               // RSP = return stack pointer
     register int64_t T = ctx->DSTACK[SP];   // T = Top Of Stakc / TOS
     register int64_t R = ctx->RSTACK[RSP];  // R = Top Of Return Stack / TOR
-    register int64_t I = 0;                 // I = input to ALU
+    register int64_t IN = 0;                 // I = input to ALU
     register int64_t OUT = 0;               // OUT - result from ALU
 
     for (; ctx->memory[EIP] != 0;) {
@@ -66,7 +68,7 @@ int vm(context *ctx) {
         #ifdef DEBUG
             char out[160];
             debug_address(out, ctx, EIP);
-            printf("EXEC[0x%0.4x]: %s\n", EIP, out);
+            dprintf("EXEC[0x%0.4x]: %s\n", EIP, out);
         #endif // DEBUG
         // == MSB set is an instruction literal.
         if (ins.lit.lit_f) {
@@ -79,6 +81,10 @@ int vm(context *ctx) {
             } else {
                 T += (int64_t)lit;
             }
+#ifdef DEBUG
+            print_stack(SP, T, ctx, false);
+            print_stack(RSP, R, ctx, true);
+#endif // DEBUG
             EIP++;
             continue;
         }
@@ -86,7 +92,12 @@ int vm(context *ctx) {
             case OP_TYPE_CJMP:
                 // Conditional jump based on TOS value truthiness.
                 SP--;
-                if (!T) break;
+                bool RES=!(uint64_t)T;
+                T=ctx->DSTACK[SP-1];
+                if (RES) {
+                    EIP++;
+                    break;
+                }
             case OP_TYPE_JMP:
                 // Unconditional jump
                 EIP = ins.jmp.target;
@@ -102,80 +113,80 @@ int vm(context *ctx) {
                 switch (ins.alu.in_mux) {
                     // Pick which data source for our input `I`:
                     case INPUT_N:
-                        // `N->I`
-                        I = ctx->DSTACK[SP - 2];
+                        // `N->IN`
+                        IN = ctx->DSTACK[SP - 2];
                         break;
                     case INPUT_T:
-                        // `T->I`
-                        I = T;
+                        // `T->IN`
+                        IN = T;
                         break;
                     case INPUT_LOAD_T:
-                        // `[T]->I`
-                        I = *(int64_t *) &(ctx->memory[T]);
+                        // `[T]->IN`
+                        IN = *(int64_t *) &(ctx->memory[T]);
                         break;
                     case INPUT_R:
-                        // `R->I`
-                        I = R;
+                        // `R->IN`
+                        IN = R;
                         break;
                 }
                 // Perform our ALU op
                 switch (ins.alu.alu_op) {
-                    case ALU_I:
-                        // `I->OUT` -- passthrough to `out_mux`
-                        OUT = I;
+                    case ALU_IN:
+                        // `IN->OUT` -- passthrough to `out_mux`
+                        OUT = IN;
                         break;
                     case ALU_ADD:
-                        // `(T+I)->OUT`
-                        OUT = T + I;
+                        // `(T+IN)->OUT`
+                        OUT = T + IN;
                         break;
                     case ALU_T_N:
-                        // `N->T, I->OUT`
+                        // `N->T, IN->OUT`
                         ctx->DSTACK[SP - 2] = T;
-                        OUT = I;
+                        OUT = IN;
                         break;
                     case ALU_AND:
-                        // `(T&I)->OUT`
-                        OUT = T & I;
+                        // `(T&IN)->OUT`
+                        OUT = T & IN;
                         break;
                     case ALU_OR:
-                        // `(T|I)>OUT`
-                        OUT = T | I;
+                        // `(T|IN)>OUT`
+                        OUT = T | IN;
                         break;
                     case ALU_XOR:
-                        // `(T^I)->OUT`
-                        OUT = T ^ I;
+                        // `(T^IN)->OUT`
+                        OUT = T ^ IN;
                         break;
                     case ALU_INVERT:
-                        // `~I->OUT`
-                        OUT = -I;
+                        // `~IN->OUT`
+                        OUT = ~IN;
                         break;
                     case ALU_EQ:
-                        // `(T==I)->OUT`
-                        OUT = T == I;
+                        // `(T==IN)->OUT`
+                        OUT = T == IN ? TRUE : FALSE;
                         break;
                     case ALU_GT:
-                        // `(I<T)->OUT`
-                        OUT = I < T;
+                        // `(IN<T)->OUT`
+                        OUT = IN < T ? TRUE : FALSE;
                         break;
                     case ALU_RSHIFT:
-                        // `(I>>T)->OUT`
-                        OUT = (uint64_t) I >> T;
+                        // `(IN>>T)->OUT`
+                        OUT = (uint64_t) IN >> T;
                         break;
                     case ALU_LSHIFT:
-                        // `(I<<T)->OUT`
-                        OUT = (uint64_t) I << T;
+                        // `(IN<<T)->OUT`
+                        OUT = (uint64_t) IN << T;
                         break;
                     case ALU_LOAD:
-                        // `[I]->OUT`
-                        OUT = *(int64_t *) &(ctx->memory[I]);
+                        // `[IN]->OUT`
+                        OUT = *(int64_t *) &(ctx->memory[IN]);
                         break;
                     case ALU_IO_WRITE:
-                        // `(I->io[T])->OUT`
-                        OUT = io_write_handler(ctx, T, I);
+                        // `(IN->io[T])->OUT`
+                        OUT = io_write_handler(ctx, T, IN);
                         break;
                     case ALU_IO_READ:
-                        // `io[I]->OUT`
-                        OUT = io_read_handler(ctx, I);
+                        // `io[IN]->OUT`
+                        OUT = io_read_handler(ctx, IN);
                         break;
                     case ALU_STATUS:
                         // `depth(RSTACK|DSTACK)->OUT`
@@ -186,8 +197,8 @@ int vm(context *ctx) {
                         }
                         break;
                     case ALU_U_GT:
-                        // `(Tu<Iu)->OUT`
-                        OUT = (uint64_t) T < (uint64_t) I;
+                        // `(Tu<INu)->OUT`
+                        OUT = (uint64_t) T < (uint64_t) IN;
                         break;
                     default:
                         break;
@@ -224,6 +235,9 @@ int vm(context *ctx) {
                         break;
                         // Null sink, for ALU ops with side effects.
                     case OUTPUT_NULL:
+                        if (ins.alu.dstack < 0) {
+                            T = ctx->DSTACK[SP -1];
+                        }
                         break;
                 }
                 // Next instruction

@@ -48,12 +48,13 @@ bool is_term(const char* word) {
     return(false);
 }
 
-instruction* lookup_word(const char* word) {
+instruction* lookup_word(word_node* nodes, const char* word) {
     int idx = 0;
-    while (FORTH_WORDS[idx].repr && strlen(FORTH_WORDS[idx].repr)) {
-        char *repr = FORTH_WORDS[idx].repr;
+    while (nodes[idx].repr && strlen(nodes[idx].repr)) {
+        word_node forth_word = nodes[idx];
+        char *repr = forth_word.repr;
         if (strcmp(repr, word) == 0) {
-            return (&FORTH_WORDS[idx].ins[0]);
+            return (&nodes[idx].ins[0]);
         }
         idx++;
     }
@@ -77,20 +78,30 @@ instruction* interpret_imm(const char* word) {
     }
 }
 
-instruction* lookup_op_word(char* word) {
+instruction* lookup_op_word(word_node* nodes, char* word) {
     instruction* lookup = lookup_field(word);
     if (lookup) return(lookup);
-    lookup = lookup_word(word);
+    lookup = lookup_word(nodes, word);
     if (lookup) return(lookup);
     lookup = interpret_imm(word);
     return(lookup);
 }
 
-bool init_opcodes() {
+bool init_opcodes(word_node* opcodes) {
     int num_words = 0;
     int last_reported = -1;
     forth_define* op = &FORTH_OPS[0];
     uint16_t instruction_acc;
+
+    // size our opcode list
+    /* int opcode_ct = 0;
+    while(strlen(op->repr)) {
+        opcode_ct++;
+        op++;
+    } */
+    //FORTH_WORDS=(word_node*)malloc(sizeof(word_node) * opcode_ct);
+    // op = &FORTH_OPS[0];
+
     while(strlen(op->repr)) {
         int curr_word = num_words;
         uint8_t op_idx = 0;
@@ -112,25 +123,28 @@ bool init_opcodes() {
                 // the termination of the string.
                 buffer[i]='\0';
                 if (strlen(word)) {
-                    instruction* lookup_ref = lookup_op_word(word);
+                    instruction* lookup_ref = lookup_op_word(opcodes, word);
                     if (lookup_ref) {
                         instruction lookup = *lookup_ref;
                         instruction_acc = instruction_acc | *(uint16_t*)&lookup;
                         if (lookup.lit.lit_f && lookup.lit.lit_v) free(lookup_ref);
                         // if we're a `term` or `code` field, we need to flush our
                         // accumulated instruction.
-                        if (is_term(word) || lookup_word(word)) {
+                        if (is_term(word) || lookup_word(opcodes, word)) {
                             instruction* flush = (instruction *)&instruction_acc;
-                            FORTH_WORDS[num_words].repr = op->repr;
-                            FORTH_WORDS[num_words].ins[op_idx] = *flush;
+                            opcodes[num_words].repr = op->repr;
+                            opcodes[num_words].ins[op_idx] = *flush;
+                            opcodes[num_words].type = op->type;
 #ifdef DEBUG
                             char out[160];
-                            decode_instruction(out, *(instruction*)&instruction_acc);
+                            decode_instruction(out,
+                                               *(instruction*)&instruction_acc,
+                                               opcodes);
                             if (num_words != last_reported) {
                                 last_reported = num_words;
-                                printf("OPCODE[%4d]: %s\n", num_words, out);
+                                dprintf("OPCODE[%4d]: %s\n", num_words, out);
                             } else {
-                                printf("              %s\n", out);
+                                dprintf("              %s\n", out);
                             }
 #endif // DEBUG
                             op_idx++;
@@ -155,12 +169,12 @@ bool init_opcodes() {
 
 // Given an instruction, look up our table of instructions, and if a match
 // is found, return the Forth representation of the opcode, else null.
-const char* lookup_opcode(instruction ins) {
+const char* lookup_opcode(word_node words[], instruction ins) {
     int idx = 0;
-    while (FORTH_WORDS[idx].repr && strlen(FORTH_WORDS[idx].repr)) {
-        if (ins_eq(ins, FORTH_WORDS[idx].ins[0]) &&
-                *(uint16_t*)(&FORTH_WORDS[idx].ins[1]) == 0) {
-            return FORTH_WORDS[idx].repr;
+    while (words[idx].repr && strlen(words[idx].repr)) {
+        if (ins_eq(ins, words[idx].ins[0]) &&
+                *(uint16_t*)(&words[idx].ins[1]) == 0) {
+            return words[idx].repr;
         }
         idx++;
     }
@@ -173,7 +187,7 @@ char* instruction_to_str(instruction ins) {
     char *ret_str;
     if (ins.lit.lit_f) {
         asprintf(&ret_str,
-                 "%6d  %-7s %-8s %25s",
+                 "%6d  %-7s %-8s %26s",
                  ins.lit.lit_v,
                  LIT_SHIFT_REPR[(uint8_t)ins.lit.lit_shifts],
                  ins.lit.lit_add ? "imm+" : "",
@@ -192,7 +206,7 @@ char* instruction_to_str(instruction ins) {
             const char* class_repr = OP_TYPE_REPR[ins.alu.op_type];
 
             asprintf(&ret_str,
-                     "        %-7s %-8s %-6s %-4s %-4s %-4s %-4s",
+                     "        %-7s %-9s %-6s %-4s %-4s %-4s %-4s",
                      input_mux,
                      alu_ops_repr,
                      output_mux,
@@ -202,7 +216,7 @@ char* instruction_to_str(instruction ins) {
                      class_repr);
         } else {
             asprintf(&ret_str,
-                     "0x%0.4x  %38s %-4s",
+                     "$%0.4x   %39s %-4s",
                      ins.jmp.target,
                      "",
                      OP_TYPE_REPR[ins.jmp.op_type]);

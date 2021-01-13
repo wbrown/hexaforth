@@ -23,7 +23,7 @@ typedef struct {
     int64_t* elems;
 } counted_array;
 
-bool execute_test(hexaforth_test test);
-bool execute_tests(hexaforth_test* tests);
+bool execute_test(context *ctx, hexaforth_test test);
+bool execute_tests(context *ctx, hexaforth_test* tests);
 
 #endif //HEXAFORTH_VM_TEST_H

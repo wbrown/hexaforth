@@ -10,6 +10,8 @@ uint16_t read_counted_string(const uint8_t* ptr, char* str) {
 }
 
 void load_hex(const char* filepath, const char* lstpath, context *ctx) {
+    printf("Loading %s\n", filepath);
+    fflush(stdout);
     FILE* hexfile = fopen(filepath, "r");
     FILE* lstfile = fopen(lstpath, "r");
     char *line = NULL;
@@ -133,12 +135,16 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
            last_code * 2,
            (DP0 - last_code) * 2,
            (last_addr - DP0) * 2);
+    fflush(stdout);
 }
 
-int main() {
-    init_opcodes();
+int main(int argc, char *argv[]) {
     context *ctx = calloc(sizeof(context), 1);
-    load_hex("../build/nuc.hex", "../build/nuc.lst", ctx);
+    ctx->words = FORTH_WORDS;
+    init_opcodes(ctx->words);
+    load_hex(argv[1], NULL, ctx);
+    ctx->OUT=stdout;
+    ctx->IN=stdin;
     // ctx->EIP=0x462C / 2;
     vm(ctx);
 

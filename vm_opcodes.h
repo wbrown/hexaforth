@@ -37,7 +37,7 @@ typedef struct {
         struct {
             SBYTE   rstack: 2;      //              {r+1, r-1, r-2}
             SBYTE   dstack: 2;      //              {d+1, d-1, d-2}
-            BYTE    alu_op: 4;      // ALU_OPS:     {I->I, N->T,I, ...}
+            BYTE    alu_op: 4;      // ALU_OPS:     {IN->I, N->T,I, ...}
             BYTE    out_mux: 2;     // OUTPUT_MUX:  {T, N, R, N->[I]}
             BYTE    in_mux: 2;      // INPUT_MUX:   {T, [T], io[T], R}
             bool    r_eip: 1;       // R->EIP, copy top of return to PC
@@ -49,7 +49,7 @@ typedef struct {
 
 // === OP_TYPE: Instruction operation class.
 static char* OP_TYPE_REPR[] = {
-        "jump", "0jump", "call", "alu"
+        "ubranch", "0jump", "scall", "alu"
 };
 
 enum OP_TYPE {
@@ -62,29 +62,29 @@ enum OP_TYPE {
 
 // === INPUI_MUX: Where does the second operand come from?
 static char* INPUT_MUX_REPR[] = {
-        "N->I", "T->I", "[T]->I", "R->I"
+        "N->IN", "T->IN", "[T]->IN", "R->IN"
 };
 
 enum INPUT_MUX {
-    INPUT_N = 0,       // N->I    NOS, next on stack
-    INPUT_T = 1,       // T->I    TOS, top of stack
-    INPUT_LOAD_T = 2,  // [T]->I  Load value at *TOS
-    INPUT_R = 3,       // R->I    TOR, top of return
+    INPUT_N = 0,       // N->IN    NOS, next on stack
+    INPUT_T = 1,       // T->IN    TOS, top of stack
+    INPUT_LOAD_T = 2,  // [T]->IN  Load value at *TOS
+    INPUT_R = 3,       // R->IN    TOR, top of return
 };
 
 // === ALU_TYPE: what ALU operation to perform on T and/or I.
 static char* ALU_OPS_REPR[] = {
-        "I->I", "N->T,I", "T+I",
-        "T&I", "T|I", "T^I",
-        "~I", "T==I", "I<T",
-        "I>>T", "I<<T", "[I]",
-        "I->io[T]", "io[I]", "status",
-        "I<Tu"
+        "IN->IN", "N->T,IN", "T+IN",
+        "T&IN", "T|IN", "T^IN",
+        "~IN", "T==IN", "IN<T",
+        "IN>>T", "IN<<T", "[IN]",
+        "IN->io[T]", "io[IN]", "status",
+        "INu<T"
 };
 
 enum ALU_OPS {
-    ALU_I = 0,         // I->I       Passthrough I
-    ALU_T_N = 1,       // N->T,I     Copy NOS to TOS, passthrough I
+    ALU_IN = 0,         // IN->IN       Passthrough I
+    ALU_T_N = 1,       // N->T,IN     Copy NOS to TOS, passthrough I
     ALU_ADD = 2,       // T+I
     ALU_AND = 3,       // T&I
     ALU_OR = 4,        // T|I
@@ -95,7 +95,7 @@ enum ALU_OPS {
     ALU_RSHIFT = 9,    // I>>T
     ALU_LSHIFT = 10,   // I<<T
     ALU_LOAD = 11,     // [I]        Load value at *I
-    ALU_IO_WRITE = 12, // I->io[T]   Write I to IO address T
+    ALU_IO_WRITE = 12, // IN->io[T]   Write IN to IO address T
     ALU_IO_READ = 13,  // io[I]      Read at IO address I
     ALU_STATUS = 14,   // status     Report on stack depth
     ALU_U_GT = 15,     // I<Tu       Unsigned <
@@ -119,11 +119,11 @@ static char* LIT_SHIFT_REPR[] = {
 };
 
 static char* DSTACK_REPR[] = {
-        "", "d+1", "d-1", "d-2",
+        "d+0", "d+1", "d-1", "d-2",
 };
 
 static char* RSTACK_REPR[] = {
-        "", "r+1", "r-1", "r-2"
+        "r+0", "r+1", "r-1", "r-2"
 };
 
 // ==========================================================================
@@ -147,33 +147,33 @@ typedef struct {
 
 static forth_op INS_FIELDS[] = {
         {"input_mux",  COMMT, {{}}},
-        {"N->I",       INPUT, {{.alu.in_mux = INPUT_N}}},
-        {"T->I",       INPUT, {{.alu.in_mux = INPUT_T}}},
-        {"[T]->I",     INPUT, {{.alu.in_mux = INPUT_LOAD_T}}},
-        {"R->I",       INPUT, {{.alu.in_mux = INPUT_R}}},
+        {"N->IN",      INPUT, {{.alu.in_mux = INPUT_N}}},
+        {"T->IN",      INPUT, {{.alu.in_mux = INPUT_T}}},
+        {"[T]->IN",    INPUT, {{.alu.in_mux = INPUT_LOAD_T}}},
+        {"R->IN",      INPUT, {{.alu.in_mux = INPUT_R}}},
         {"alu_op",     COMMT, {{}}},
-        {"I->I",       FIELD, {{.alu.alu_op = ALU_I }}},
-        {"N->T,I",     FIELD, {{.alu.alu_op = ALU_T_N }}},
-        {"T+I",        FIELD, {{.alu.alu_op = ALU_ADD }}},
-        {"T&I",        FIELD, {{.alu.alu_op = ALU_AND }}},
-        {"T|I",        FIELD, {{.alu.alu_op = ALU_OR, }}},
+        {"IN->IN",     FIELD, {{.alu.alu_op = ALU_IN }}},
+        {"N->T,IN",    FIELD, {{.alu.alu_op = ALU_T_N }}},
+        {"T+IN",       FIELD, {{.alu.alu_op = ALU_ADD }}},
+        {"T&IN",       FIELD, {{.alu.alu_op = ALU_AND }}},
+        {"T|IN",       FIELD, {{.alu.alu_op = ALU_OR, }}},
         {"T|N",        INPUT, {{.alu.alu_op = ALU_OR,
                                 .alu.in_mux = INPUT_N}}},
-        {"T^I",        FIELD, {{.alu.alu_op = ALU_XOR }}},
-        {"~I",         FIELD, {{.alu.alu_op = ALU_INVERT}}},
+        {"T^IN",       FIELD, {{.alu.alu_op = ALU_XOR }}},
+        {"~IN",        FIELD, {{.alu.alu_op = ALU_INVERT}}},
         {"~T",         INPUT, {{.alu.in_mux = INPUT_T,
                                 .alu.alu_op = ALU_INVERT}}},
-        {"T==I",       FIELD, {{.alu.alu_op = ALU_EQ }}},
-        {"I<T",        FIELD, {{.alu.alu_op = ALU_GT }}},
-        {"I>>T",       FIELD, {{.alu.alu_op = ALU_RSHIFT }}},
-        {"I<<T",       FIELD, {{.alu.alu_op = ALU_LSHIFT }}},
+        {"T==IN",      FIELD, {{.alu.alu_op = ALU_EQ }}},
+        {"IN<T",       FIELD, {{.alu.alu_op = ALU_GT }}},
+        {"IN>>T",      FIELD, {{.alu.alu_op = ALU_RSHIFT }}},
+        {"IN<<T",      FIELD, {{.alu.alu_op = ALU_LSHIFT }}},
         {"N<<T",       INPUT, {{.alu.in_mux = INPUT_T,
                                 .alu.alu_op = ALU_LSHIFT}}},
-        {"[I]",        FIELD, {{.alu.alu_op = ALU_LOAD }}},
-        {"I->io[T]",   FIELD, {{.alu.alu_op = ALU_IO_WRITE }}},
-        {"io[I]",      FIELD, {{.alu.alu_op = ALU_IO_READ }}},
+        {"[IN]",       FIELD, {{.alu.alu_op = ALU_LOAD }}},
+        {"IN->io[T]",  FIELD, {{.alu.alu_op = ALU_IO_WRITE }}},
+        {"io[IN]",     FIELD, {{.alu.alu_op = ALU_IO_READ }}},
         {"status",     FIELD, {{.alu.alu_op = ALU_STATUS }}},
-        {"Iu<T",       FIELD, {{.alu.alu_op = ALU_U_GT }}},
+        {"INu<T",      FIELD, {{.alu.alu_op = ALU_U_GT }}},
         {"output_mux", COMMT, {{}}},
         {"->T",        FIELD, {{.alu.out_mux = OUTPUT_T}}},
         {"->R",        FIELD, {{.alu.out_mux = OUTPUT_R}}},
@@ -181,9 +181,11 @@ static forth_op INS_FIELDS[] = {
         {"->NULL",     FIELD, {{.alu.out_mux = OUTPUT_NULL}}},
         {"stack_ops",  COMMT, {{}}},
         {"d+1",        FIELD, {{.alu.dstack = 1}}},
+        {"d+0",        FIELD, {{.alu.dstack = 0}}},
         {"d-1",        FIELD, {{.alu.dstack = -1}}},
         {"d-2",        FIELD, {{.alu.dstack = -2}}},
         {"r+1",        FIELD, {{.alu.rstack = 1}}},
+        {"r+0",        FIELD, {{.alu.dstack = 0}}},
         {"r-1",        FIELD, {{.alu.rstack = -1}}},
         {"r-2",        FIELD, {{.alu.rstack = -2}}},
         {"RET",        FIELD, {{.alu.r_eip = true}}},
@@ -216,8 +218,8 @@ typedef struct {
 // of compiled instructions associated with each word.
 //
 // EXAMPLE:
-//    `io@` is defined as `T->I io[I] ->T alu`, so step by step:
-//           T->I   (0x0400)
+//    `io@` is defined as `T->IN io[I] ->T alu`, so step by step:
+//           T->IN   (0x0400)
 //        || io[I]  (0x00d0)   => 0x04d0
 //        || ->T    (0X0000)   => 0x04d0     (this could be implicit)
 //        || alu    (0x6000)   => 0x64d0     (final 16-bit instruction written out)
@@ -238,47 +240,48 @@ typedef struct {
 
 static forth_define FORTH_OPS[] = {
         // word             in_mux|alu_op   |out_mux  | d  | r | op_type
-        {"noop",    "       N->I             ->NULL              alu"},
-        {"+",       "       N->I   T+I       ->T       d-1       alu"},
-        {"xor",     "       N->I   T^I       ->T       d-1       alu"},
-        {"and",     "       N->I   T&I       ->T       d-1       alu"},
-        {"or",      "       N->I   T|I       ->T       d-1       alu"},
-        {"invert",  "       T->I   ~I        ->T                 alu"},
-        {"=",       "       N->I   T==I      ->T       d-1       alu"},
-        {"<",       "       N->I   I<T       ->T       d-1       alu"},
-        {"u<",      "       N->I   Iu<T      ->T       d-1       alu"},
-        {"swap",    "       N->I   N->T,I    ->T                 alu"},
-        {"dup",     "       T->I             ->T       d+1       alu"},
-        {"nip",     "       T->I   N->T,I    ->T       d-1       alu"},
-        {"drop",    "       N->I             ->T       d-1       alu"},
-        {"over",    "       N->I             ->T       d+1       alu"},
-        {">r",      "       T->I             ->R       d-1  r+1  alu"},
-        {"r>",      "       R->I             ->T       d+1  r-1  alu"},
-        {"r@",      "       R->I             ->T       d+1       alu"},
-        {"@",       "       [T]->I           ->T                 alu"},
-        {"!",       "       N->I             ->[T]     d-2       alu"},
-        {"io@",     "       T->I   io[I]     ->T                 alu"},
-        {"io!",     "       N->I   I->io[T]  ->T       d-2       alu"},
-        {"rshift",  "       N->I   I>>T      ->T       d-1       alu"},
-        {"lshift",  "       N->I   I<<T      ->T       d-1       alu"},
-        {"depths",  "       T->I   status    ->T                 alu"},
-        {"depthr",  "       R->I   status    ->T                 alu"},
-        {"exit",    "       T->I             ->T  RET       r-1  alu"},
-        {"2dup<",   "       N->I   I<T       ->T       d+1       alu"},
-        {"dup@",    "       [T]->I           ->T       d+1       alu"},
-        {"overand", "       N->I   T&I       ->T                 alu"},
-        {"dup>r",   "       N->I             ->R            r+1  alu"},
-        {"2dupxor", "       T->I   T^I       ->R       d+1       alu"},
-        {"over+",   "       T->I   T+I       ->T       d+1       alu"},
-        {"over=",   "       T->I   T==I      ->T       d+1       alu"},
-        {"rdrop",   "       T->I             ->T            r-1  alu"},
-        {"1+",      "1      imm+                                 imm"},
-        {"2+",      "2      imm+                                 imm"},
-        {"2*",      "1                                           imm lshift", CODE},
-        {"2/",      "1                                           imm rshift", CODE},
-        {"emit",    "241                                         imm io!", CODE},
-        {"8emit",   "240                                         imm io!", CODE},
-        {"key",     "224                                         imm io@", CODE},
+        {"halt",    "       N->IN                                 ubranch"},
+        {"noop",    "       N->IN             ->NULL              alu"},
+        {"+",       "       N->IN   T+IN      ->T       d-1       alu"},
+        {"xor",     "       N->IN   T^IN      ->T       d-1       alu"},
+        {"and",     "       N->IN   T&IN      ->T       d-1       alu"},
+        {"or",      "       N->IN   T|IN      ->T       d-1       alu"},
+        {"invert",  "       T->IN   ~IN       ->T                 alu"},
+        {"=",       "       N->IN   T==IN     ->T       d-1       alu"},
+        {"<",       "       N->IN   IN<T      ->T       d-1       alu"},
+        {"u<",      "       N->IN   INu<T     ->T       d-1       alu"},
+        {"swap",    "       N->IN   N->T,IN   ->T                 alu"},
+        {"dup",     "       T->IN             ->T       d+1       alu"},
+        {"nip",     "       T->IN   N->T,IN   ->T       d-1       alu"},
+        {"drop",    "       N->IN             ->T       d-1       alu"},
+        {"over",    "       N->IN             ->T       d+1       alu"},
+        {">r",      "       T->IN             ->R       d-1  r+1  alu"},
+        {"r>",      "       R->IN             ->T       d+1  r-1  alu"},
+        {"r@",      "       R->IN             ->T       d+1       alu"},
+        {"@",       "       [T]->IN           ->T                 alu"},
+        {"!",       "       N->IN             ->[T]     d-2       alu"},
+        {"io@",     "       T->IN   io[IN]    ->T                 alu"},
+        {"io!",     "       N->IN   IN->io[T] ->NULL    d-2       alu"},
+        {"rshift",  "       N->IN   IN>>T     ->T       d-1       alu"},
+        {"lshift",  "       N->IN   IN<<T     ->T       d-1       alu"},
+        {"depths",  "       T->IN   status    ->T                 alu"},
+        {"depthr",  "       R->IN   status    ->T                 alu"},
+        {"exit",    "       T->IN             ->T  RET       r-1  alu"},
+        {"2dup<",   "       N->IN   IN<T      ->T       d+1       alu"},
+        {"dup@",    "       [T]->IN           ->T       d+1       alu"},
+        {"overand", "       N->IN   T&IN      ->T                 alu"},
+        {"dup>r",   "       N->IN             ->R            r+1  alu"},
+        {"2dupxor", "       T->IN   T^IN      ->R       d+1       alu"},
+        {"over+",   "       T->IN   T+IN      ->T       d+1       alu"},
+        {"over=",   "       T->IN   T==IN     ->T       d+1       alu"},
+        {"rdrop",   "       T->IN             ->T            r-1  alu"},
+        {"1+",      "1      imm+                                  imm"},
+        {"2+",      "2      imm+                                  imm"},
+        {"2*",      "1                                            imm lshift", CODE},
+        {"2/",      "1                                            imm rshift", CODE},
+        {"emit",    "241                                          imm io!", CODE},
+        {"8emit",   "240                                          imm io!", CODE},
+        {"key",     "224                                          imm io@", CODE},
         {"-",       "invert +", CODE},
         {"",        ""}};
 
@@ -286,17 +289,18 @@ static forth_define FORTH_OPS[] = {
 typedef struct {
     char* repr;
     instruction ins[8];
+    uint8_t type;
 } word_node;
 
 // Where the compiler looks for definitions to look up.  This is initialized,
 // and the `FORTH_OPS[]` table is interpreted into a compilied form stored in
 // `FORTH_WORDS`.
-static word_node FORTH_WORDS[256];
+static word_node FORTH_WORDS[256]={};
 
 bool ins_eq(instruction a, instruction b);
-instruction* lookup_word(const char* word);
-const char* lookup_opcode(instruction ins);
+instruction* lookup_word(word_node nodes[], const char* word);
+const char* lookup_opcode(word_node nodes[], instruction ins);
 char* instruction_to_str(instruction ins);
-bool init_opcodes();
+bool init_opcodes(word_node opcodes[]);
 
 #endif //HEXAFORTH_VM_OPCODES_H
