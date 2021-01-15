@@ -22,8 +22,9 @@ create "hello"  12 c,
 
 
 \ stack ops
-header tuck   : tuck ( a b -- b a b )  swap over ;
-header 2drop  : 2drop ( a b -- )       drop drop ;
+header tuck   : tuck ( a b -- b a b )   swap over ;
+header 2drop  : 2drop ( a b -- )        drop drop ;
+header -rot   : -rot  ( abc -- cab )    swap >r swap r> ;
 
 header 1-     : 1- ( a -- a-1 )        1 - ;
 header 2dup   : 2dup ( a b -- a b ab ) over over ;
@@ -68,15 +69,6 @@ header type
 ;
 
 
-: delchar ( addr len -- addr len )
-    dup if d# 8 emit d# 32 emit d# 8 emit then
-
-    begin
-        dup 0= if exit then
-        1- 2dup + c@
-        h# C0 and h# 80 <>
-      until
-;
 
 header echo-input
 : echo-input
@@ -107,28 +99,53 @@ header deadbeef64
   dup c@ swap 1+ swap
 ;
 
+$08 constant [BACKSPACE]
+$09 constant [TAB]
+$10 constant [LF]
+$13 constant [CR]
+$1E constant [RS]
+$20 constant [SPACE]
+$7F constant [DEL]
+$31 constant [PRINTABLE]
+
+: s/key/key         ( ch ch - ch )    -rot over= if drop else swap drop then ;
+: key-printable?    ( ch - f )        [PRINTABLE] u> ;
+header insert-char-buff
+: insert-char-buff  ( a l ch -- a l ch ) >r 2dup + r@ swap c! 1+ r> ;
+: delchar ( addr len -- addr len )
+    dup if [BACKSPACE] emit
+           [SPACE]     emit
+           [BACKSPACE] emit then
+
+    begin
+        dup 0= if exit then
+        1- 2dup + c@
+        h# C0 and h# 80 <>
+    until
+;
+
+
+
 header accept
 : accept
-    tethered @ if d# 30 emit then
+    tethered @ if [RS] emit then
 
     >r d# 0  ( addr len R: maxlen )
 
     begin
         key    ( addr len key R: maxlen )
+        [TAB] [SPACE]     s/key/key
+        [DEL] [BACKSPACE] s/key/key
 
-        d# 9 over= if drop d# 32 then
-        d# 127 over= if drop d# 8 then
-
-        dup d# 31 u>
-        if
+        dup key-printable? if
             over r@ u<
             if
                 tethered @ 0= if dup emit then
-                >r 2dup + r@ swap c! 1+ r>
+                insert-char-buff
             then
         then
 
-        d# 8 over= if >r delchar r> then
+        [BACKSPACE] over= if >r delchar r> then
 
         d# 10 over= swap d# 13 = or
     until
@@ -155,6 +172,7 @@ header quit
 header main
 : main
   quit
+  halt
 ;
 
 
