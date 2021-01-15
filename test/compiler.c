@@ -31,8 +31,8 @@ bool is_null_instruction(instruction ins) {
 // Look up a string in our opcodes table, and if found, write the opcodes
 // associated with the word into the image.
 bool compile_word(context *ctx, const char* word) {
-    instruction* instructions = lookup_word(ctx->words, word);
-    if (instructions) {
+    instruction instructions[8] = {};
+    if (lookup_word(ctx->words, word, instructions)) {
         int idx=0;
         instruction ins = instructions[idx];
         while (!is_null_instruction(ins)) {
@@ -163,8 +163,13 @@ void insert_string(context *ctx, char* str) {
 // literal on top of the stack.
 void insert_literal(context *ctx, int64_t n) {
     dprintf("HERE[0x%0.4d]: COMPILE_LITERAL: %lld\n", ctx->HERE, n);
-    uint64_t acc = llabs(n);         // Our accumulator, really a deccumlator
+    uint64_t acc;          // Our accumulator, really a deccumlator
     bool negative = n < 0;
+    if (negative) {
+        acc = (uint64_t)(llabs(n))-1;
+    } else {
+        acc = (uint64_t)n;
+    }
     bool first_ins = true;
 
     // Create our template literal instruction.  We may produce one or more
@@ -174,10 +179,9 @@ void insert_literal(context *ctx, int64_t n) {
     literal.lit.lit_add = false;
     uint8_t shifts = 0;
 
-    if (n==0) {
+    if (acc==0) {
         literal.lit.lit_v = 0;
         insert_opcode(ctx, literal);
-        return;
     }
 
     // We have a very large literal, larger than 48 bits, so we need

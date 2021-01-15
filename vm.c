@@ -104,6 +104,7 @@ int vm(context *ctx) {
                 break;
             case OP_TYPE_CALL:
                 // Unconditional call
+                ctx->RSTACK[RSP-1] = R;
                 R = EIP;
                 ctx->RSTACK[RSP] = EIP;
                 RSP++;
@@ -120,10 +121,10 @@ int vm(context *ctx) {
                         // `T->IN`
                         IN = T;
                         break;
-                    case INPUT_LOAD_T:
-                        // `[T]->IN`
-                        IN = *(int64_t *) &(ctx->memory[T]);
+                    case INPUT_LOAD_T: {
+                        IN = *(uint64_t*)((uint8_t*)(&ctx->memory[0])+T);
                         break;
+                    }
                     case INPUT_R:
                         // `R->IN`
                         IN = R;
@@ -176,9 +177,11 @@ int vm(context *ctx) {
                         // `(IN<<T)->OUT`
                         OUT = (uint64_t) IN << T;
                         break;
-                    case ALU_LOAD:
+                    case ALU_LOAD: {
+                        OUT = *(uint64_t*)((uint8_t*)(&ctx->memory[0])+IN);
+                        break;
+                    }
                         // `[IN]->OUT`
-                        OUT = *(int64_t *) &(ctx->memory[IN]);
                         break;
                     case ALU_IO_WRITE:
                         // `(IN->io[T])->OUT`
@@ -230,9 +233,10 @@ int vm(context *ctx) {
                         R = OUT;
                         break;
                         // `OUT->memory[T]` -- memory write
-                    case OUTPUT_MEM_T:
-                        *(int64_t *) &(ctx->memory[T]) = OUT;
+                    case OUTPUT_MEM_T: {
+                        *(int64_t*)((uint8_t*)(&ctx->memory[0])+T) = OUT;
                         break;
+                    }
                         // Null sink, for ALU ops with side effects.
                     case OUTPUT_NULL:
                         if (ins.alu.dstack < 0) {
