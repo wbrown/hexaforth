@@ -1,5 +1,5 @@
-$1000 constant UART-D
-$2000 constant UART-STATUS
+$00f1 constant IO-OUT
+$00e0 constant IO-IN
 
 \ meta
 \     $3f80 org 
@@ -59,27 +59,14 @@ header u>       : u>        swap u< ;
     d# 0 swap !
 ;
 
-header key?
-: key?
-    d# 2
-: uart-stat ( mask -- f ) \ is bit in UART status register on?
-    h# 2000 io@ and 0<>
-;
-
 header key
 : key
-    begin
-        key?
-    until
-    UART-D io@
+    IO-IN io@
 ;
 
 header emit
 : emit
-    begin
-        d# 1 uart-stat 
-    until
-    UART-D io!
+    IO-OUT io!
 ;
 
 header cr
@@ -131,20 +118,15 @@ header 2over    : 2over >r >r 2dup r> r> 2swap ;
 header min      : min   2dup< if drop else nip then ;
 header max      : max   2dup< if nip else drop then ;
 
-header c@
-: c@
-    dup@ swap
-    d# 3 lshift rshift
-    d# 255 and
-;
-
-: hi16
-    d# 16 rshift d# 16 lshift
-;
-
-: lo16
-    d# 16 lshift d# 16 rshift
-;
+header hi32  : hi32 ( dw -- w ) d# 32 rshift ;
+header lo32  : lo32 ( dw -- w ) d# 32 lshift d# 32 rshift ;
+header hi16  : hi16 ( dw -- s ) d# 32 lshift d# 48 rshift ;
+header lo16  : lo16 ( dw -- s ) d# 48 lshift d# 48 rshift ;
+header c!    : c! ( u c-addr -- ) dup>r @ d# 8 rshift d# 8 lshift or r> ! ;
+header c@    : c@ ( c-addr -- c ) @ h# ff and ;
+header w!    : w! ( u c-addr -- ) dup>r @ d# 16 rshift d# 16 lshift or r> ! ;
+header w@    : w@ ( c-addr -- w ) @ h# ffff and ;
+header +!    : +! ( u c-addr -- ) tuck @ + swap ! ;
 
 header uw@
 : uw@
@@ -176,19 +158,6 @@ header w!
 : w+!   ( u a -- ) \ like +! but for 16-bit a
     tuck uw@ + swap w!
 ; 
-
-header c!
-: c! ( u c-addr -- )
-    dup>r d# 1 and if
-        d# 8 lshift
-        h# 00ff
-    else
-        h# 00ff and
-        h# ff00
-    then
-    r@ uw@ and
-    or r> w!
-;
 
 header count
 : count
@@ -1267,12 +1236,12 @@ header quit
 
 : main
     decimal
-    tethered off
-    "cold" d# 4 sfind if
-        execute
-    else
-        2drop
-    then
+    \ tethered off
+    \ "cold" d# 4 sfind if
+    \    execute
+    \ else
+    \    2drop
+    \ then
     quit
 ;
 
