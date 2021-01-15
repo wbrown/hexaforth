@@ -92,7 +92,7 @@ int vm(context *ctx) {
             case OP_TYPE_CJMP:
                 // Conditional jump based on TOS value truthiness.
                 SP--;
-                bool RES=!(uint64_t)T;
+                bool RES=(uint64_t)T;
                 T=ctx->DSTACK[SP-1];
                 if (RES) {
                     EIP++;
@@ -194,9 +194,9 @@ int vm(context *ctx) {
                     case ALU_STATUS:
                         // `depth(RSTACK|DSTACK)->OUT`
                         if (ins.alu.in_mux == INPUT_R) {
-                            OUT = RSP + 1;
+                            OUT = RSP;
                         } else {
-                            OUT = SP + 1;
+                            OUT = SP;
                         }
                         break;
                     case ALU_U_GT:
