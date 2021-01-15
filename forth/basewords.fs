@@ -87,7 +87,7 @@
 :: 2dup<             N->IN   IN<T      ->T    d+1  r+0       alu  ;
 :: dup@              [T]->IN IN->IN    ->T    d+1  r+0       alu  ;
 :: overand           N->IN   T&IN      ->T    d+0  r+0       alu  ;
-:: dup>r             N->IN   IN->IN    ->R    d+0  r+1       alu  ;
+:: dup>r             T->IN   IN->IN    ->R    d+0  r+1       alu  ;
 :: 2dupxor           T->IN   T^IN      ->R    d+1  r+0       alu  ;
 :: over+             T->IN   T+IN      ->T    d+1  r+0       alu  ;
 :: over=             T->IN   T==IN     ->T    d+1  r+0       alu  ;

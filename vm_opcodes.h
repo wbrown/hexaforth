@@ -270,7 +270,7 @@ static forth_define FORTH_OPS[] = {
         {"2dup<",   "       N->IN   IN<T      ->T       d+1       alu"},
         {"dup@",    "       [T]->IN           ->T       d+1       alu"},
         {"overand", "       N->IN   T&IN      ->T                 alu"},
-        {"dup>r",   "       N->IN             ->R            r+1  alu"},
+        {"dup>r",   "       T->IN             ->R            r+1  alu"},
         {"2dupxor", "       T->IN   T^IN      ->R       d+1       alu"},
         {"over+",   "       T->IN   T+IN      ->T       d+1       alu"},
         {"over=",   "       T->IN   T==IN     ->T       d+1       alu"},
@@ -282,7 +282,8 @@ static forth_define FORTH_OPS[] = {
         {"emit",    "241                                          imm io!", CODE},
         {"8emit",   "240                                          imm io!", CODE},
         {"key",     "224                                          imm io@", CODE},
-        {"-",       "invert +", CODE},
+        {"negate",  "invert 1 imm+ imm", CODE},
+        {"-",       "invert 1 imm+ imm +", CODE},
         {"",        ""}};
 
 // Instructions associated with string representations.
@@ -298,7 +299,8 @@ typedef struct {
 static word_node FORTH_WORDS[256]={};
 
 bool ins_eq(instruction a, instruction b);
-instruction* lookup_word(word_node nodes[], const char* word);
+bool interpret_imm(const char* word, instruction* literal);
+bool lookup_word(word_node* nodes, const char* word, instruction* lookup);
 const char* lookup_opcode(word_node nodes[], instruction ins);
 char* instruction_to_str(instruction ins);
 bool init_opcodes(word_node opcodes[]);
