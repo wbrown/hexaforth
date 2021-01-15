@@ -212,36 +212,40 @@ int vm(context *ctx) {
                 // Adjust stack depths
                 SP += ins.alu.dstack;
                 RSP += ins.alu.rstack;
-                // Update NOS (Next On Stack) if stack size was decremented
+                // Update NOS (Next On Stack) if stack size was incremented
                 if (ins.alu.dstack > 0) {
                     ctx->DSTACK[SP - 2] = T;
                 }
                 if (ins.alu.rstack > 0) {
                     ctx->RSTACK[RSP - 2] = R;
                 }
-                // Update R (Top of Return) if return stack size was incremnted.
-                if (ins.alu.rstack < 0) {
-                    R = ctx->RSTACK[RSP - 1];
-                }
                 // == Where does `OUT` go?
                 switch (ins.alu.out_mux) {
                     // `OUT->T`
                     case OUTPUT_T:
                         T = OUT;
+                        if (ins.alu.rstack < 0) {
+                            R = ctx->RSTACK[RSP - 1];
+                        }
                         break;
                         // `OUT->R`
                     case OUTPUT_R:
                         R = OUT;
+                        if (ins.alu.dstack < 0) {
+                            T = ctx->DSTACK[SP - 1];
+                        }
                         break;
                         // `OUT->memory[T]` -- memory write
-                    case OUTPUT_MEM_T: {
+                    case OUTPUT_MEM_T:
                         *(int64_t*)((uint8_t*)(&ctx->memory[0])+T) = OUT;
-                        break;
-                    }
-                        // Null sink, for ALU ops with side effects.
+                    // Null sink, for ALU ops with side effects.
                     case OUTPUT_NULL:
+                    default:
                         if (ins.alu.dstack < 0) {
                             T = ctx->DSTACK[SP -1];
+                        }
+                        if (ins.alu.rstack < 0) {
+                            R = ctx->RSTACK[RSP - 1];
                         }
                         break;
                 }
