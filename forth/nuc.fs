@@ -135,14 +135,6 @@ header uw@
     lo16
 ;
 
-header w@
-: w@
-    uw@
-    h# 8000 overand if
-        h# -10000 +
-    then
-;
-
 header w!
 : w! ( u c-addr -- )
     dup>r d# 2 and if
@@ -1236,12 +1228,12 @@ header quit
 
 : main
     decimal
-    \ tethered off
-    \ "cold" d# 4 sfind if
-    \    execute
-    \ else
-    \    2drop
-    \ then
+    tethered off
+    "cold" d# 4 sfind if
+        execute
+    else
+       2drop
+    then
     quit
 ;
 

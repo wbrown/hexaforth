@@ -10,34 +10,73 @@ create cp       1024 ,         \ Code pointer, grows up
 create dp       1024 ,         \ Data pointer, grows up
 create deadaddr 8 allot 0 ,
 create charbuf  80 allot 0 ,
+create tethered 0 ,
+create tib      $80 allot
+
 
 header "hello"
-create "hello"  'h' c, 'e' c, 'l' c, 'l' c,
-                'o' c, $32 c, 'w' c, 'o' c,
+create "hello"  12 c,
+                'h' c, 'e' c, 'l' c, 'l' c,
+                'o' c, $20 c, 'w' c, 'o' c,
                 'r' c, 'l' c, 'd' c, '!' c,
 
 
-header tuck  : tuck ( a b -- b a b ) swap over ;
-header hi32  : hi32 ( dw -- w ) d# 32 rshift ;
-header lo32  : lo32 ( dw -- w ) d# 32 lshift d# 32 rshift ;
-header hi16  : hi16 ( dw -- s ) d# 32 lshift d# 48 rshift ;
-header lo16  : lo16 ( dw -- s ) d# 48 lshift d# 48 rshift ;
-header c!    : c! ( u c-addr -- ) dup>r @ d# 8 rshift d# 8 lshift or r> ! ;
-header c@    : c@ ( c-addr -- c ) @ h# ff and ;
-header w!    : w! ( u c-addr -- ) dup>r @ d# 16 rshift d# 16 lshift or r> ! ;
-header w@    : w@ ( c-addr -- w ) @ h# ffff and ;
-header +!    : +! ( u c-addr -- ) tuck @ + swap ! ;
-header here  : here ( -- dp )     dp @ ;
-header allot : tallot             dp +! ;
-header c,    : tc,                here c! d# 1 tallot ;
+\ stack ops
+header tuck   : tuck ( a b -- b a b )  swap over ;
+header 2drop  : 2drop ( a b -- )       drop drop ;
 
-header io!      :noname     io!        ;
-header io@      :noname     io@        ;
-header <>       : <>        = invert   ;
-header halt     :noname     halt       ;
-header quit     : quit      halt       ;
-header emit     : emit      IO-OUT io! ;
-header key      : key       IO-IN  io@ ;
+header 1-     : 1- ( a -- a-1 )        1 - ;
+header 2dup   : 2dup ( a b -- a b ab ) over over ;
+header 0=     : 0=   ( a -- f )        0 = ;
+header u>     : u>                     swap u< ;
+header hi32   : hi32 ( dw -- w )       d# 32 rshift ;
+header lo32   : lo32 ( dw -- w )       d# 32 lshift d# 32 rshift ;
+header hi16   : hi16 ( dw -- s )       d# 32 lshift d# 48 rshift ;
+header lo16   : lo16 ( dw -- s )       d# 48 lshift d# 48 rshift ;
+header >><<   : >><< ( a b -- a[:b])   tuck rshift swap lshift ;
+header c!     : c! ( u c-addr -- )     dup>r @ d# 8 >><< or r> ! ;
+header c@     : c@ ( c-addr -- c )     @ h# ff and ;
+header w!     : w! ( u c-addr -- )     dup>r @ d# 16 >><< or r> ! ;
+header w@     : w@ ( c-addr -- w )     @ h# ffff and ;
+header +!     : +! ( u c-addr -- )     tuck @ + swap ! ;
+header here   : here ( -- dp )         dp @ ;
+header allot  : tallot                 dp +! ;
+header c,     : tc,                    here c! d# 1 tallot ;
+
+header io!    :noname                  io! ;
+header io@    :noname                  io@ ;
+header <>     : <>                     = invert ;
+header halt   :noname                  halt ;
+header emit   : emit                   IO-OUT io! ;
+header key    : key                    IO-IN  io@ ;
+
+header space  : space ( --  )          d# 32 emit ;
+header cr     : cr                     d# 13 emit d# 10 emit ;
+
+header bounds : bounds ( a n -- a+n a ) over + swap ;
+
+header type
+: type
+    bounds
+    begin
+        2dupxor
+    while
+        dup c@ emit
+        1+
+    repeat
+    2drop
+;
+
+
+: delchar ( addr len -- addr len )
+    dup if d# 8 emit d# 32 emit d# 8 emit then
+
+    begin
+        dup 0= if exit then
+        1- 2dup + c@
+        h# C0 and h# 80 <>
+      until
+;
 
 header echo-input
 : echo-input
@@ -68,10 +107,54 @@ header deadbeef64
   dup c@ swap 1+ swap
 ;
 
+header accept
+: accept
+    tethered @ if d# 30 emit then
+
+    >r d# 0  ( addr len R: maxlen )
+
+    begin
+        key    ( addr len key R: maxlen )
+
+        d# 9 over= if drop d# 32 then
+        d# 127 over= if drop d# 8 then
+
+        dup d# 31 u>
+        if
+            over r@ u<
+            if
+                tethered @ 0= if dup emit then
+                >r 2dup + r@ swap c! 1+ r>
+            then
+        then
+
+        d# 8 over= if >r delchar r> then
+
+        d# 10 over= swap d# 13 = or
+    until
+
+    rdrop nip
+    space
+;
+
+header quit
+: quit
+    begin
+        tib dup d# 128 accept
+        space
+        [char] o emit
+        [char] k emit
+        cr
+    again
+;
+
+: typehello
+  "hello" dup c@ swap 1+ swap type
+;
+
 header main
 : main
-  forth w@
-  "hello" c@+ emit c@+ emit c@+ emit c@+ emit
+  quit
 ;
 
 
