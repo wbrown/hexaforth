@@ -199,10 +199,11 @@ int vm(context *ctx) {
                             OUT = SP;
                         }
                         break;
-                    case ALU_U_GT:
-                        // `(Tu<INu)->OUT`
-                        OUT = (uint64_t) T < (uint64_t) IN;
+                    case ALU_U_GT: {
+                        // `(INu<Tu)->OUT`
+                        OUT = (uint64_t) IN < (uint64_t) T ? TRUE : FALSE;
                         break;
+                    }
                     default:
                         break;
                 };
