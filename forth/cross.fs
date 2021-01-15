@@ -70,21 +70,84 @@ warnings off
     then
 ;
 
-: literal
-    dup $80000000 and if
-        invert recurse
-        ~T alu
+\ ===========================================================================
+\ literal encoding for hexaforth
+\
+\       struct {
+\            WORD    lit_v: 12;      //              unsigned 12-bit integer
+\            BYTE    lit_shifts: 2;  // shifts:      {imm<<12,imm<<24,imm<<36}
+\            bool    lit_add: 1;     // add to T?:   {true, false}
+\            bool    lit_f: 1;       // literal?:    {true, false}
+\        } lit;
+\
+\ 16-bit instruction with 12-bit immediate values, with 2 bits for the 12-bit
+\ magnitude of the value, ranging from 12 bits to 48 bits.
+\
+\ lit_add flag accumulates the immediate value into the prior immediate value.
+\ this is an addition operation rather than a OR, as it means that we have
+\ the ability to increment a value on the stack; in other words, it's a way
+\ to encode +1 to +4095 in a single instruction.
+\ ===========================================================================
+
+variable literal-magnitude   0 ,
+variable initializer-lit?    true ,
+
+: incr-lit-magnitude
+  literal-magnitude @ 1 + literal-magnitude !
+;
+
+: decr-lit-magnitude
+  literal-magnitude @ 1 - literal-magnitude !
+;
+
+: add-imm+-flag
+  initializer-lit? @ if        \ if we're the first literal written out,
+    false initializer-lit? !   \ set the flag to false
+  ELSE
+    imm+                       \ non-initializers accumulate into the last lit
+  THEN
+;
+
+: set-lit-magnitude
+  literal-magnitude @ dup if
+    12 lshift or               \ move magnitude to 12th and 13th bits
+  else
+    drop
+  then
+;
+
+: literal-write?
+  literal-magnitude @ invert   \ if it's 0 magnitude ...
+  initializer-lit?  @ and      \ AND if we're the first literal
+                      or       \ or we're non-zero ... allow the write
+;
+
+: _literal
+    dup 0 < if
+        invert recurse            \ we're negative, so we invert to positive
+        ~T alu                    \ at the end of it all, we write an `invert`
     else
         dup $fffff000 and if
-            dup $c rshift recurse
-            $c recurse
-            N<<T d-1 alu
-            $fff and recurse
-            T|N d-1 alu
+          dup 12 rshift           \ 12 bits at a time
+          incr-lit-magnitude
+          recurse                 \ recurse, we return to this point
+          $fff and                \ mask to 12-bits
+          recurse                 \ recurse again
         else
-            $8000 or tcode,
-        then
-    then
+            dup literal-write? if \ for the zero case
+              set-lit-magnitude   \ correct magnitude
+              add-imm+-flag       \ add imm+ flag if required
+              imm                 \ write it all out as a literal instruction
+            then
+            decr-lit-magnitude
+         then
+     then
+;
+
+: literal
+  0    literal-magnitude !        \ reset magnitude to 0
+  true initializer-lit?  !        \ reset whether or not we've written first lit out
+  _literal
 ;
 
 ( Defining words for target                  JCB 19:04 05/02/12)
