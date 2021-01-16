@@ -14,7 +14,6 @@ create tethered 0 ,
 create tib      $80 allot
 
 
-header "hello"
 create "hello"  12 c,
                 'h' c, 'e' c, 'l' c, 'l' c,
                 'o' c, $20 c, 'w' c, 'o' c,
@@ -22,13 +21,11 @@ create "hello"  12 c,
 
 
 \ stack ops
-header tuck   : tuck ( a b -- b a b )   swap over ;
-header 2drop  : 2drop ( a b -- )        drop drop ;
-header -rot   : -rot  ( abc -- cab )    swap >r swap r> ;
+header -rot   : -rot  ( abc -- cab )   swap>r swapr> ;
 
-header 1-     : 1- ( a -- a-1 )        1 - ;
-header 2dup   : 2dup ( a b -- a b ab ) over over ;
-header 0=     : 0=   ( a -- f )        0 = ;
+header 1-     : 1- ( a -- a-1 )        d# 1 - ;
+header 2dup   : 2dup ( a b -- a b a b ) over over ;
+header 0=     : 0=   ( a -- f )        d# 0 = ;
 header u>     : u>                     swap u< ;
 header hi32   : hi32 ( dw -- w )       d# 32 rshift ;
 header lo32   : lo32 ( dw -- w )       d# 32 lshift d# 32 rshift ;
@@ -101,15 +98,22 @@ header deadbeef64
 
 $08 constant [BACKSPACE]
 $09 constant [TAB]
-$10 constant [LF]
-$13 constant [CR]
+$0A constant [LF]
+$0D constant [CR]
 $1E constant [RS]
 $20 constant [SPACE]
 $7F constant [DEL]
 $31 constant [PRINTABLE]
 
-: s/key/key         ( ch ch - ch )    -rot over= if drop else swap drop then ;
+\ [$9 $20 $8]
+\ [$8 $9 $20]
+\ [$8 $9 $20 $9]
+\ [$8 $9 true]
+
+
+: s/key/key         ( ch ch ch - ch ) -rot over= if swap drop else drop then ;
 : key-printable?    ( ch - f )        [PRINTABLE] u> ;
+: is-key?           ( ch ch - f ch )  over= swap
 header insert-char-buff
 : insert-char-buff  ( a l ch -- a l ch ) >r 2dup + r@ swap c! 1+ r> ;
 : delchar ( addr len -- addr len )
@@ -129,14 +133,11 @@ header insert-char-buff
 header accept
 : accept
     tethered @ if [RS] emit then
-
     >r d# 0  ( addr len R: maxlen )
-
     begin
         key    ( addr len key R: maxlen )
         [TAB] [SPACE]     s/key/key
         [DEL] [BACKSPACE] s/key/key
-
         dup key-printable? if
             over r@ u<
             if
@@ -144,12 +145,12 @@ header accept
                 insert-char-buff
             then
         then
-
         [BACKSPACE] over= if >r delchar r> then
-
-        d# 10 over= swap d# 13 = or
+        \ Loop until we have a [LF] or [CR]
+        [LF] is-key?           ( ch ch -- f ch )
+        [CR] is-key?           ( f ch ch -- f f ch )
+        -rot or
     until
-
     rdrop nip
     space
 ;

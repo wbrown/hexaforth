@@ -7,24 +7,24 @@
 
 \ alu_op
 : IN->IN     h# 0000 or ;
-: N->T,IN    h# 0010 or ;
-: T+IN       h# 0020 or ;
-: T&IN       h# 0030 or ;
-: T|IN       h# 0040 or ;
-: T|N        h# 0040 ;
-: T^IN       h# 0050 or ;
-: ~IN        h# 0060 or ;
-: ~T         h# 0460 ;
-: T==IN      h# 0070 or ;
-: IN<T       h# 0080 or ;
-: IN>>T      h# 0090 or ;
-: IN<<T      h# 00a0 or ;
-: N<<T       h# 04a0 ;
-: [IN]       h# 00b0 or ;
-: IN->io[T]  h# 00c0 or ;
-: io[IN]     h# 00d0 or ;
-: status     h# 00e0 or ;
-: INu<T      h# 00f0 or ;
+: T<->N,IN   h# 0010 or ;
+: T->N,IN    h# 0020 or ;
+: T+IN       h# 0030 or ;
+: T&IN       h# 0040 or ;
+: T|IN       h# 0050 or ;
+: T|N        h# 0050 ;
+: T^IN       h# 0060 or ;
+: ~IN        h# 0070 or ;
+: ~T         h# 0470 ;
+: T==IN      h# 0080 or ;
+: IN<T       h# 0090 or ;
+: IN>>T      h# 00b0 or ;
+: IN<<T      h# 00c0 or ;
+: N<<T       h# 04c0 ;
+: [IN]       h# 00d0 or ;
+: IN->io[T]  h# 00e0 or ;
+: io[IN]     h# 00f0 or ;
+: INu<T      h# 00a0 or ;
 
 \ output_mux
 : ->T        h# 0000 or ;
@@ -67,10 +67,12 @@
 :: =                 N->IN   T==IN     ->T    d-1  r+0       alu  ;
 :: <                 N->IN   IN<T      ->T    d-1  r+0       alu  ;
 :: u<                N->IN   INu<T     ->T    d-1  r+0       alu  ;
-:: swap              N->IN   N->T,IN   ->T    d+0  r+0       alu  ;
+:: swap              N->IN   T->N,IN   ->T    d+0  r+0       alu  ;
 :: dup               T->IN   IN->IN    ->T    d+1  r+0       alu  ;
-:: nip               T->IN   N->T,IN   ->T    d-1  r+0       alu  ;
+:: nip               T->IN   T->N,IN   ->T    d-1  r+0       alu  ;
+:: tuck              T->IN   T<->N,IN  ->T    d+1  r+0       alu  ;
 :: drop              N->IN   IN->IN    ->T    d-1  r+0       alu  ;
+:: 2drop             T->IN   IN->IN    ->NULL d-2  r+0       alu  ;
 :: over              N->IN   IN->IN    ->T    d+1  r+0       alu  ;
 :: >r                T->IN   IN->IN    ->R    d-1  r+1       alu  ;
 :: r>                R->IN   IN->IN    ->T    d+1  r-1       alu  ;
@@ -81,8 +83,6 @@
 :: io!               N->IN   IN->io[T] ->NULL d-2  r+0       alu  ;
 :: rshift            N->IN   IN>>T     ->T    d-1  r+0       alu  ;
 :: lshift            N->IN   IN<<T     ->T    d-1  r+0       alu  ;
-:: depths            T->IN   status    ->T    d+1  r+0       alu  ;
-:: depthr            R->IN   status    ->T    d+1  r+0       alu  ;
 :: exit              T->IN   IN->IN    ->T    d+0  r-1  RET  alu  ;
 :: 2dup<             N->IN   IN<T      ->T    d+1  r+0       alu  ;
 :: dup@              [T]->IN IN->IN    ->T    d+1  r+0       alu  ;
@@ -90,7 +90,9 @@
 :: dup>r             T->IN   IN->IN    ->R    d+0  r+1       alu  ;
 :: 2dupxor           N->IN   T^IN      ->T    d+1  r+0       alu  ;
 :: over+             N->IN   T+IN      ->T    d+0  r+0       alu  ;
-:: over=             T->IN   T==IN     ->T    d+0  r+0       alu  ;
-:: rdrop             T->IN   IN->IN    ->T    d+0  r-1       alu  ;
+:: over=             N->IN   T==IN     ->T    d+0  r+0       alu  ;
+:: rdrop             R->IN   IN->IN    ->NULL d+0  r-1       alu  ;
+:: swap>r            N->IN   T->N,IN   ->R    d-1  r+1       alu  ;
+:: swapr>            R->IN   T<->N,IN  ->T    d+1  r-1       alu  ;
 :: 1+             1          imm+                            imm ;
 :: 2+             2          imm+                            imm ;

@@ -66,9 +66,13 @@ int vm(context *ctx) {
         // #endif // DEBUG
         instruction ins = *(instruction*)&(ctx->memory[EIP]);
         #ifdef DEBUG
-            char out[160];
-            debug_address(out, ctx, EIP);
-            dprintf("EXEC[0x%0.4x]: %s\n", EIP, out);
+            char disasm[160];
+            char rstack_repr[80];
+            char dstack_repr[80];
+            mini_stack(RSP, R, ctx->RSTACK, rstack_repr);
+            mini_stack(SP, T, ctx->DSTACK, dstack_repr);
+            debug_address(disasm, ctx, EIP);
+            dprintf("EXEC[0x%0.4x]: %s S%-26s R%s\n", EIP, disasm, dstack_repr, rstack_repr);
         #endif // DEBUG
         // == MSB set is an instruction literal.
         if (ins.lit.lit_f) {
@@ -81,10 +85,6 @@ int vm(context *ctx) {
             } else {
                 T += (int64_t)lit;
             }
-#ifdef DEBUG
-            print_stack(SP, T, ctx, false);
-            print_stack(RSP, R, ctx, true);
-#endif // DEBUG
             EIP++;
             continue;
         }
@@ -141,8 +141,15 @@ int vm(context *ctx) {
                         OUT = T + IN;
                         break;
                     case ALU_T_N:
-                        // `N->T, IN->OUT`
+                        // `T->N, IN->OUT`
                         ctx->DSTACK[SP - 2] = T;
+                        OUT = IN;
+                        break;
+                    case ALU_SWAP_IN:
+                        // 'T<->N, IN->OUT'
+                        OUT = ctx->DSTACK[SP - 2];
+                        ctx->DSTACK[SP - 2] = T;
+                        T = OUT;
                         OUT = IN;
                         break;
                     case ALU_AND:
@@ -190,14 +197,6 @@ int vm(context *ctx) {
                     case ALU_IO_READ:
                         // `io[IN]->OUT`
                         OUT = io_read_handler(ctx, IN);
-                        break;
-                    case ALU_STATUS:
-                        // `depth(RSTACK|DSTACK)->OUT`
-                        if (ins.alu.in_mux == INPUT_R) {
-                            OUT = RSP;
-                        } else {
-                            OUT = SP;
-                        }
                         break;
                     case ALU_U_GT: {
                         // `(INu<Tu)->OUT`
@@ -254,10 +253,6 @@ int vm(context *ctx) {
                 break;
             }
         }
-#ifdef DEBUG
-        print_stack(SP, T, ctx, false);
-        print_stack(RSP, R, ctx, true);
-#endif // DEBUG
     }
     ctx->DSTACK[SP-1] = T;
     ctx->RSTACK[RSP-1] = R;

@@ -44,6 +44,34 @@ void show_registers(int64_t T, int16_t R,
            T, R, EIP, SP, RSP);
 }
 
+void mini_stack(int16_t P, int64_t TOS, int64_t* stack, char* buf) {
+    char* sep="";                       // Start with no separator between elems
+    char* stack_begin = "[..";          // If > 3 stack elements, ellipsesa
+    buf += sprintf(buf, "[%d]=", P);  // add stack depth output
+    switch (P) {
+        case 0:
+            sprintf(buf, "%s", "[]");
+            break;
+        case 1:
+        case 2:
+        case 3:
+            // stacks with 1, 2 or 3 elements do not need ellipses
+            stack_begin = "[";
+        default:
+            buf += sprintf(buf, "%s", stack_begin);
+            int idx = (P - 3 > 0) ? P - 3 : 0;  // floor the start value to 0
+            int last = P - 1;                   // don't loop to top of stack
+            for ( ; idx < last; idx++ ) {
+                    buf += sprintf(buf, "%s$%llx", sep, stack[idx]);
+                    // We're past the first element, so we set the separator
+                    // to a space.
+                    sep = " ";
+                };
+            // Finally, print TOS.
+            sprintf(buf, "%s$%llx]", sep, TOS);
+    }
+}
+
 void print_stack(int16_t SP, int64_t T, context *ctx, bool rstack) {
     int64_t* stack;
 

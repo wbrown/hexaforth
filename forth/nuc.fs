@@ -244,7 +244,7 @@ header abs      : abs       dup 0< if negate then ;
 header 2*       : 2*        d# 1 lshift ; 
 header 2/       : 2/        dup 0< if invert d# 1 rshift invert else d# 1 rshift then ; 
 header here     : here      dp @ ;
-header depth    : depth     depths h# 1f and ;
+\ header depth    : depth     depths h# 1f and ;
 
 header /string
 : /string
