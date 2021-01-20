@@ -147,6 +147,27 @@ bool execute_test(context *in_ctx, hexaforth_test test) {
         return(false);
     }
 
+    bool eip_match = false;
+    char* eip_s;
+    counted_array* expected_eip = malloc(sizeof(counted_array));
+    expected_eip->elems = malloc(0);
+    if (!generate_expected(test.eip_expected, expected_eip)) {
+        free(expected_eip->elems);
+        free(expected_eip);
+        return(false);
+    }
+    if (expected_eip->sz > 1) {
+        printf("expected_eip should not have more than 1 integer: '%s'!\n",
+               test.eip_expected);
+        free(expected_eip->elems);
+        free(expected_eip);
+        return(false);
+    } else if (expected_eip->sz == 1) {
+        asprintf(&eip_s, "%lld", expected_eip->elems[0]);
+    }
+
+    bool io_match;
+
     // We use calloc rather than malloc, as malloc will often return memory of a
     // previously free'd but non-zero'ed context.
     context *ctx = calloc(sizeof(context), 1);
@@ -155,47 +176,65 @@ bool execute_test(context *in_ctx, hexaforth_test test) {
     } else {
         init_opcodes(ctx->words);
     }
+
+    // Initialize our image with memory values if requried.
     if (!init_image(ctx, test)) {
         free(expected_dstack->elems);
         free(expected_dstack);
+        free(expected_rstack->elems);
+        free(expected_rstack);
+        free(expected_eip->elems);
+        free(expected_eip);
         return(false);
     }
 
     // Allocate our input and output buffer.
     const char* input = test.io_input ? test.io_input : "";
     ctx->IN = fmemopen((void *)input, strlen(input), "r");
-
     char* output = calloc(4096, 1);
     ctx->OUT = fmemopen(output, 4096, "w");
 
+    // Compile our input program.
     if (compile(ctx, (char*)test.input)) {
         vm(ctx);
         // Write out a null byte to our output to terminate a string.
         fputc('\0', ctx->OUT);
         fclose(ctx->OUT);
         fclose(ctx->IN);
-        printf("TEST: \"%s\" {Input=\"%s\", IO=\"%s\", Expected={stack: [%s] rstack: [%s] %s%s%s}} => ",
+        printf("TEST: \"%s\" {Input=\"%s\", IO=\"%s\", Expected={stack: [%s] rstack: [%s]%s%s%s%s%s}} => ",
                test.label,
                test.input,
                test.io_input ? test.io_input : "",
                test.dstack ? test.dstack : "",
                test.rstack ? test.rstack : "",
-               test.io_expected ? "output: \"" : "",
+               test.eip_expected ? " eip: " : "",
+               test.eip_expected ? eip_s : "",
+               test.io_expected ? " output: \"" : "",
                test.io_expected ? test.io_expected : "",
                test.io_expected ? "\"" : "");
-        bool io_match;
         if (test.io_input && (strcmp(test.io_input, output) != 0)) {
             io_match = false;
         } else {
             io_match = true;
         }
+        if (expected_eip->sz) {
+            eip_match =  (expected_eip->elems[0] == ctx->EIP);
+        } else {
+            eip_match = true;
+        }
         dstack_results = stack_match(ctx, false, expected_dstack);
         rstack_results = stack_match(ctx, true, expected_rstack);
-        if (dstack_results && rstack_results && io_match) {
+        if (dstack_results && rstack_results && io_match && eip_match) {
             printf("PASSED\n");
+        } else {
+            printf("FAILED: ");
         }
         if (!io_match) {
             printf("\"%s\" != \"%s\" ", test.io_input, output);
+        }
+        if (!eip_match) {
+            printf(" eip: %d != expected_eip: %lld", ctx->EIP,
+                   expected_eip->elems[0]);
         }
         if (!dstack_results) {
             print_stack(ctx->SP, ctx->DSTACK[ctx->SP-1], ctx, false);
@@ -210,7 +249,15 @@ bool execute_test(context *in_ctx, hexaforth_test test) {
     free(ctx);
     free(expected_dstack->elems);
     free(expected_dstack);
-    return(dstack_results && rstack_results);
+    free(expected_rstack->elems);
+    free(expected_rstack);
+    if(expected_eip->sz) {
+        free(eip_s);
+    }
+    free(expected_eip->elems);
+    free(expected_eip);
+
+    return(dstack_results && rstack_results && io_match && eip_match );
 }
 
 bool execute_tests(context* ctx, hexaforth_test* tests) {

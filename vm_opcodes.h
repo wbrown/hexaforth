@@ -74,43 +74,43 @@ enum INPUT_MUX {
 
 // === ALU_TYPE: what ALU operation to perform on T and/or I.
 static char* ALU_OPS_REPR[] = {
-        "IN->IN", "T<->N,IN", "T->N,IN",
-        "T+IN", "T&IN", "T|IN",
-        "T^IN", "~IN", "T==IN",
-        "IN<T", "INu<T", "IN>>T",
+        "IN->", "T<->N,IN->", "T->N,IN->",
+        "IN+N", "IN&N", "IN|N",
+        "IN^N", "~IN", "IN==N",
+        "N<IN", "Nu<IN", "IN>>T",
         "IN<<T", "[IN]", "IN->io[T]",
         "io[IN]",
 };
 
 enum ALU_OPS {
-    ALU_IN = 0,        // IN->IN     Passthrough IN
-    ALU_SWAP_IN = 1,   // T<->N,IN   Swap TOS and NOS, passthrough IN
-    ALU_T_N = 2,       // N->T,IN    Copy NOS to TOS, passthrough IN
-    ALU_ADD = 3,       // T+I
-    ALU_AND = 4,       // T&I
-    ALU_OR = 5,        // T|I
-    ALU_XOR = 6,       // T^I
+    ALU_IN = 0,        // IN->       Passthrough IN
+    ALU_SWAP_IN = 1,   // T<->N,IN-> Swap TOS and NOS, passthrough IN
+    ALU_T_N = 2,       // N->T,IN->  Copy NOS to TOS, passthrough IN
+    ALU_ADD = 3,       // IN+N
+    ALU_AND = 4,       // IN&N
+    ALU_OR = 5,        // IN|N
+    ALU_XOR = 6,       // IN^N
     ALU_INVERT = 7,    // ~I
-    ALU_EQ = 8,        // T==I
-    ALU_GT = 9,        // I<T
-    ALU_U_GT = 10,     // I<Tu       Unsigned <
-    ALU_RSHIFT = 11,   // I>>T
-    ALU_LSHIFT = 12,   // I<<T
-    ALU_LOAD = 13,     // [I]        Load value at *I
-    ALU_IO_WRITE = 14, // IN->io[T]   Write IN to IO address T
-    ALU_IO_READ = 15,  // io[I]      Read at IO address I
+    ALU_EQ = 8,        // IN==N
+    ALU_GT = 9,        // N<IN
+    ALU_U_GT = 10,     // Nu<IN      Unsigned <
+    ALU_RSHIFT = 11,   // IN>>T
+    ALU_LSHIFT = 12,   // IN<<T
+    ALU_LOAD = 13,     // [IN]       Load value at *I
+    ALU_IO_WRITE = 14, // IN->io[T]  Write IN to IO address T
+    ALU_IO_READ = 15,  // io[IN]     Read at IO address I
 };
 
 // === OUTPUT_MUX: where to write the results of the ALU operation
 static char* OUTPUT_MUX_REPR[] = {
-        "->T", "->R", "->[T]", "->NULL"
+        "->T", "->R", "->N", "->[T]"
 };
 
 enum OUTPUT_MUX {
     OUTPUT_T = 0,      // ->T       write result to top of data stack
     OUTPUT_R = 1,      // ->R       write result to top of return stack
-    OUTPUT_MEM_T = 2,  // ->[T]     write result to memory address T
-    OUTPUT_NULL = 3,   // ->NULL    discard result
+    OUTPUT_N = 2,      // ->N       write result to next on data stack
+    OUTPUT_MEM_T = 3,  // ->[T]     write result to memory address T
 };
 
 // === Representation of various flags
@@ -152,33 +152,33 @@ static forth_op INS_FIELDS[] = {
         {"[T]->IN",    INPUT, {{.alu.in_mux = INPUT_LOAD_T}}},
         {"R->IN",      INPUT, {{.alu.in_mux = INPUT_R}}},
         {"alu_op",     COMMT, {{}}},
-        {"IN->IN",     FIELD, {{.alu.alu_op = ALU_IN }}},
-        {"T<->N,IN",    FIELD, {{.alu.alu_op = ALU_SWAP_IN }}},
-        {"T->N,IN",    FIELD, {{.alu.alu_op = ALU_T_N }}},
-        {"T+IN",       FIELD, {{.alu.alu_op = ALU_ADD }}},
-        {"T&IN",       FIELD, {{.alu.alu_op = ALU_AND }}},
-        {"T|IN",       FIELD, {{.alu.alu_op = ALU_OR, }}},
+        {"IN->",       FIELD, {{.alu.alu_op = ALU_IN }}},
+        {"T<->N,IN->", FIELD, {{.alu.alu_op = ALU_SWAP_IN }}},
+        {"T->N,IN->",  FIELD, {{.alu.alu_op = ALU_T_N }}},
+        {"IN+N",       FIELD, {{.alu.alu_op = ALU_ADD }}},
+        {"IN&N",       FIELD, {{.alu.alu_op = ALU_AND }}},
+        {"IN|N",       FIELD, {{.alu.alu_op = ALU_OR, }}},
         {"T|N",        INPUT, {{.alu.alu_op = ALU_OR,
-                                .alu.in_mux = INPUT_N}}},
-        {"T^IN",       FIELD, {{.alu.alu_op = ALU_XOR }}},
+                                .alu.in_mux = INPUT_T}}},
+        {"IN^N",       FIELD, {{.alu.alu_op = ALU_XOR }}},
         {"~IN",        FIELD, {{.alu.alu_op = ALU_INVERT}}},
         {"~T",         INPUT, {{.alu.in_mux = INPUT_T,
                                 .alu.alu_op = ALU_INVERT}}},
-        {"T==IN",      FIELD, {{.alu.alu_op = ALU_EQ }}},
-        {"IN<T",       FIELD, {{.alu.alu_op = ALU_GT }}},
+        {"IN==N",      FIELD, {{.alu.alu_op = ALU_EQ }}},
+        {"N<IN",       FIELD, {{.alu.alu_op = ALU_GT }}},
         {"IN>>T",      FIELD, {{.alu.alu_op = ALU_RSHIFT }}},
         {"IN<<T",      FIELD, {{.alu.alu_op = ALU_LSHIFT }}},
-        {"N<<T",       INPUT, {{.alu.in_mux = INPUT_T,
+        {"N<<T",       INPUT, {{.alu.in_mux = INPUT_N,
                                 .alu.alu_op = ALU_LSHIFT}}},
         {"[IN]",       FIELD, {{.alu.alu_op = ALU_LOAD }}},
         {"IN->io[T]",  FIELD, {{.alu.alu_op = ALU_IO_WRITE }}},
         {"io[IN]",     FIELD, {{.alu.alu_op = ALU_IO_READ }}},
-        {"INu<T",      FIELD, {{.alu.alu_op = ALU_U_GT }}},
+        {"Nu<IN",      FIELD, {{.alu.alu_op = ALU_U_GT }}},
         {"output_mux", COMMT, {{}}},
         {"->T",        FIELD, {{.alu.out_mux = OUTPUT_T}}},
         {"->R",        FIELD, {{.alu.out_mux = OUTPUT_R}}},
+        {"->N",        FIELD, {{.alu.out_mux = OUTPUT_N}}},
         {"->[T]",      FIELD, {{.alu.out_mux = OUTPUT_MEM_T}}},
-        {"->NULL",     FIELD, {{.alu.out_mux = OUTPUT_NULL}}},
         {"stack_ops",  COMMT, {{}}},
         {"d+1",        FIELD, {{.alu.dstack = 1}}},
         {"d+0",        FIELD, {{.alu.dstack = 0}}},
@@ -240,54 +240,56 @@ typedef struct {
 
 static forth_define FORTH_OPS[] = {
         // word             in_mux|alu_op   |out_mux  | d  | r | op_type
-        {"halt",    "       N->IN                                 ubranch"},
-        {"noop",    "       N->IN             ->NULL              alu"},
-        {"+",       "       N->IN   T+IN      ->T       d-1       alu"},
-        {"xor",     "       N->IN   T^IN      ->T       d-1       alu"},
-        {"and",     "       N->IN   T&IN      ->T       d-1       alu"},
-        {"or",      "       N->IN   T|IN      ->T       d-1       alu"},
-        {"invert",  "       T->IN   ~IN       ->T                 alu"},
-        {"=",       "       N->IN   T==IN     ->T       d-1       alu"},
-        {"<",       "       N->IN   IN<T      ->T       d-1       alu"},
-        {"u<",      "       N->IN   INu<T     ->T       d-1       alu"},
-        {"swap",    "       N->IN   T->N,IN   ->T                 alu"},
-        {"dup",     "       T->IN             ->T       d+1       alu"},
-        {"nip",     "       T->IN   T->N,IN   ->T       d-1       alu"},
-        {"tuck",    "       T->IN   T<->N,IN  ->T       d+1       alu"},
-        {"drop",    "       N->IN             ->T       d-1       alu"},
-        {"2drop",   "       T->IN   IN->IN    ->NULL    d-2       alu"},
-        {"over",    "       N->IN             ->T       d+1       alu"},
-        {">r",      "       T->IN             ->R       d-1  r+1  alu"},
-        {"r>",      "       R->IN             ->T       d+1  r-1  alu"},
-        {"r@",      "       R->IN             ->T       d+1       alu"},
-        {"@",       "       [T]->IN           ->T                 alu"},
-        {"!",       "       N->IN             ->[T]     d-2       alu"},
-        {"io@",     "       T->IN   io[IN]    ->T                 alu"},
-        {"io!",     "       N->IN   IN->io[T] ->NULL    d-2       alu"},
-        {"rshift",  "       N->IN   IN>>T     ->T       d-1       alu"},
-        {"lshift",  "       N->IN   IN<<T     ->T       d-1       alu"},
-        {"exit",    "       T->IN             ->T  RET       r-1  alu"},
-        {"@@",      "       [T]->IN [IN]      ->T                 alu"},
-        {"dup@",    "       [T]->IN           ->T       d+1       alu"},
-        {"dup@@",   "       [T]->IN [IN]      ->T       d+1       alu"},
-        {"over@",   "       N->IN   [IN]      ->T       d+1       alu"},
-        {"@r",      "       R->IN   [IN]      ->T       d+1       alu"},
-        {"2dup<",   "       N->IN   IN<T      ->T       d+1       alu"},
-        {"overand", "       N->IN   T&IN      ->T                 alu"},
-        {"dup>r",   "       T->IN             ->R            r+1  alu"},
-        {"2dupxor", "       N->IN   T^IN      ->T       d+1       alu"},
-        {"over+",   "       N->IN   T+IN      ->T                 alu"},
-        {"over=",   "       N->IN   T==IN     ->T                 alu"},
-        {"rdrop",   "       R->IN             ->NULL         r-1  alu"},
-        {"swap>r",  "       N->IN   T->N,IN   ->R       d-1  r+1  alu"},
-        {"swapr>",  "       R->IN   T<->N,IN  ->T       d+1  r-1  alu"},
+        {"halt",    "       N->IN                                  ubranch"},
+        {"noop",    "       T->IN                                  alu"},
+        {"+",       "       T->IN   IN+N       ->T       d-1       alu"},
+        {"xor",     "       T->IN   IN^N       ->T       d-1       alu"},
+        {"and",     "       T->IN   IN&N       ->T       d-1       alu"},
+        {"or",      "       T->IN   IN|N       ->T       d-1       alu"},
+        {"invert",  "       T->IN   ~IN        ->T                 alu"},
+        {"=",       "       T->IN   IN==N      ->T       d-1       alu"},
+        {"<",       "       T->IN   N<IN       ->T       d-1       alu"},
+        {"u<",      "       T->IN   Nu<IN      ->T       d-1       alu"},
+        {"swap",    "       N->IN   T->N,IN->  ->T                 alu"},
+        {"dup",     "       T->IN              ->T       d+1       alu"},
+        {"nip",     "       T->IN   T->N,IN->  ->T       d-1       alu"},
+        {"tuck",    "       T->IN   T<->N,IN-> ->T       d+1       alu"},
+        {"drop",    "       N->IN              ->T       d-1       alu"},
+        {"over",    "       N->IN              ->T       d+1       alu"},
+        {">r",      "       T->IN              ->R       d-1  r+1  alu"},
+        {"r>",      "       R->IN              ->T       d+1  r-1  alu"},
+        {"r@",      "       R->IN              ->T       d+1       alu"},
+        {"@",       "       [T]->IN            ->T                 alu"},
+        {"!",       "       N->IN              ->[T]     d-2       alu"},
+        {"io@",     "       T->IN   io[IN]     ->T                 alu"},
+        {"io!",     "       N->IN   IN->io[T]  ->T       d-1       alu"},
+        {"@+!",     "       [T]->IN IN+N       ->[T]     d-2       alu"},
+        {"rshift",  "       N->IN   IN>>T      ->T       d-1       alu"},
+        {"lshift",  "       N->IN   IN<<T      ->T       d-1       alu"},
+        {"exit",    "       T->IN              ->T  RET       r-1  alu"},
+        {"@@",      "       [T]->IN [IN]       ->T                 alu"},
+        {"dup@",    "       [T]->IN            ->T       d+1       alu"},
+        {"dup@@",   "       [T]->IN [IN]       ->T       d+1       alu"},
+        {"over@",   "       N->IN   [IN]       ->T       d+1       alu"},
+        {"@r",      "       R->IN   [IN]       ->T       d+1       alu"},
+        {"r@;",     "       R->IN              ->T  RET  d+1  r-1  alu"},
+        {"2dup<",   "       T->IN   N<IN       ->T       d+1       alu"},
+        {"overand", "       T->IN   IN&N       ->T                 alu"},
+        {"dup>r",   "       T->IN              ->R            r+1  alu"},
+        {"2dupxor", "       T->IN   IN^N       ->T       d+1       alu"},
+        {"over+",   "       T->IN   IN+N       ->T                 alu"},
+        {"over=",   "       T->IN   IN==N      ->T                 alu"},
+        {"swap>r",  "       N->IN   T->N,IN->  ->R       d-1  r+1  alu"},
+        {"swapr>",  "       R->IN   T<->N,IN-> ->T       d+1  r-1  alu"},
         {"1+",      "1      imm+                                  imm"},
         {"2+",      "2      imm+                                  imm"},
         {"2*",      "1                                            imm lshift", CODE},
         {"2/",      "1                                            imm rshift", CODE},
-        {"emit",    "241                                          imm io!", CODE},
-        {"8emit",   "240                                          imm io!", CODE},
+        {"emit",    "241                                          imm io! drop", CODE},
+        {"8emit",   "240                                          imm io! drop", CODE},
         {"key",     "224                                          imm io@", CODE},
+        {"rdrop",   "r> drop", CODE},
+        {"2drop",   "drop drop", CODE},
         {"negate",  "invert 1 imm+ imm", CODE},
         {"-",       "invert 1 imm+ imm +", CODE},
         {"",        ""}};

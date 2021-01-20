@@ -16,6 +16,7 @@ typedef struct {
     const char* io_expected;
     const char* dstack;
     const char* rstack;
+    const char* eip_expected;
 } hexaforth_test;
 
 typedef struct {
