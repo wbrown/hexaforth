@@ -36,6 +36,10 @@ int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write) {
             }
             return(TRUE);
         }
+        case 0xe0: {
+            print_stack(ctx->SP-2, ctx->DSTACK[ctx->SP-3], ctx, false);
+            print_stack(ctx->RSP-1, ctx->RSTACK[ctx->RSP-2], ctx, true);
+        }
         default:
             return(FALSE);
     }
@@ -194,6 +198,9 @@ int vm(context *ctx) {
                         break;
                     case ALU_IO_WRITE:
                         // `(IN->io[T])->OUT`
+                        ctx->SP = SP;
+                        ctx->RSP = RSP;
+                        ctx->EIP = EIP;
                         OUT = io_write_handler(ctx, T, IN);
                         break;
                     case ALU_IO_READ:
@@ -260,6 +267,7 @@ int vm(context *ctx) {
                 break;
             }
         }
+        // print_stack(SP,T, ctx, false);
     }
     ctx->DSTACK[SP-1] = T;
     ctx->RSTACK[RSP-1] = R;

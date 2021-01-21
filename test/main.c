@@ -29,17 +29,13 @@ static hexaforth_test TESTS[] = {
         {.label = "negative literals",
                 .input = "-1 -2 -3 -4 -5",
                 .dstack = "-1 -2 -3 -4 -5"},
-        {.label = "16-bit literals",
-                .input = "32768 65535 -32768 -65535 49151 -49151",
-                .dstack = "32768 65535 -32768 -65535 49151 -49151"},
-        {.label = "32-bit literals",
-                .input = "4294967295 -4294967295 "
-                         "4294967040 -4294967040 "
-                         "2147483520 -2147483520",
-                .dstack = "4294967295 -4294967295 "
-                          "4294967040 -4294967040 "
-                          "2147483520 -2147483520"},
-        {.label = "48-bit literals",
+        {.label = "lit16",
+                .input = "65535 -65535 49151 -49151",
+                .dstack = "65535 -65535 49151 -49151"},
+        {.label = "lit32 max/min",
+                .input = "4294967295 -4294967295 ",
+                .dstack = "4294967295 -4294967295 "},
+        {.label = "lit48 max/min",
                 .input = "140737488355328 -140737488355328",
                 .dstack = "140737488355328 -140737488355328"},
         {.label = "dup ( a -- a a )",
@@ -123,16 +119,19 @@ static hexaforth_test TESTS[] = {
                 .dstack = "2048 1024",
                 .rstack = ""},
         {.label = "= ( a b -- f )",
-                .input = "1024 1024 = " "2048 2048 = " "-1024 1024 = "
-                         "512 1024 = " "-1024 -1024 = " "0 0 =",
-                .dstack = "-1 -1 0 0 -1 -1"},
+                .input = "1024 1024 = "
+                         "-1024 1024 = "
+                         "-1024 -1024 = ",
+                .dstack = "-1 0 -1"},
         {.label = "u< ( aU bU -- f )",
                 .input = "-1024 1024 u< 1024 -1024 u<",
                 .dstack = "0 -1"},
         {.label = "< ( a b -- f )",
-                .input = "-1024 0 < "  "0 1024 < " "0 -1024 < "
-                         "2048 1024 < "  "1024 2048 < ",
-                .dstack = "-1 -1 0 0 -1"},
+                .input = "-1024 0 < "
+                         "0 1024 < "
+                         "0 -1024 < "
+                         "2048 1024 < ",
+                .dstack = "-1 -1 0 0"},
         {.label = "exit ( -- )",
                 .init = "0",
                 .input = "1024 >r 0 >r exit",
@@ -213,11 +212,11 @@ static hexaforth_test TESTS[] = {
                 .input = "key emit key emit key emit key emit",
                 .io_input = "dead",
                 .io_expected = "dead"},
-        {.label = "@+! ( n addr -- )",
+        {.label = "+! ( n addr -- )",
                 .init = "8",
                 .input = "0 >r "
-                         "4  r@ @+! r@ @ "
-                         "16 r@ @+! r@ @ ",
+                         "4  r@ +! r@ @ "
+                         "16 r@ +! r@ @ ",
                 .dstack = "12 28",
                 .rstack = "0"},
         {.label = "r@; ( R: addr -- addr )",
@@ -225,6 +224,10 @@ static hexaforth_test TESTS[] = {
                 .input = "4 >r r@;",
                 .dstack = "4",
                 .eip_expected = "5"},
+        {.label = "@and ( n addr -- n )",
+                .init = "32768",
+                .input = "65535 0 @and",
+                .dstack = "32768"},
         /* {.label = "depths ( -- n )",
                 .input = "1024 2048 504 depths",
                 .dstack = "1024 2048 504 3"},

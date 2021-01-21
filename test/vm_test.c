@@ -201,10 +201,15 @@ bool execute_test(context *in_ctx, hexaforth_test test) {
         fputc('\0', ctx->OUT);
         fclose(ctx->OUT);
         fclose(ctx->IN);
-        printf("TEST: \"%s\" {Input=\"%s\", IO=\"%s\", Expected={stack: [%s] rstack: [%s]%s%s%s%s%s}} => ",
+        printf("TEST: %-28s INPUT=%-42s%s%s%s%s%s%s EXPECTED={stack: [%s] rstack: [%s]%s%s%s%s%s}} => ",
                test.label,
                test.input,
+               test.init ? " MEMORY=[" : "",
+               test.init ? test.init : "",
+               test.init ? "]" : "",
+               test.io_input ? " IO_INPUT=\"" : "",
                test.io_input ? test.io_input : "",
+               test.io_input ? "\"" : "",
                test.dstack ? test.dstack : "",
                test.rstack ? test.rstack : "",
                test.eip_expected ? " eip: " : "",

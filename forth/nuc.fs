@@ -103,7 +103,7 @@ header .x       : . hex8 space ;
 header .x2      : . hex2 space ;
 
 header true     : true  d# 0 ;
-header false    : false d# 4095 ;
+header false    : false d# -1 ;
 header rot      : rot   >r swap r> swap ; 
 header -rot     : -rot  swap >r swap r> ; 
 header tuck     : tuck  swap over ; 

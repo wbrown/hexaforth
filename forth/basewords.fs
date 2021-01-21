@@ -79,10 +79,11 @@
 :: r>                R->IN   IN->       ->T    d+1  r-1       alu  ;
 :: r@                R->IN   IN->       ->T    d+1  r+0       alu  ;
 :: @                 [T]->IN IN->       ->T    d+0  r+0       alu  ;
+:: @and              [T]->IN IN&N       ->T    d-1  r+0       alu  ;
 :: !                 N->IN   IN->       ->[T]  d-2  r+0       alu  ;
 :: io@               T->IN   io[IN]     ->T    d+0  r+0       alu  ;
 :: io!               N->IN   IN->io[T]  ->T    d-1  r+0       alu  ;
-:: @+!               [T]->IN IN+N       ->[T]  d-2  r+0       alu  ;
+:: +!                [T]->IN IN+N       ->[T]  d-2  r+0       alu  ;
 :: rshift            N->IN   IN>>T      ->T    d-1  r+0       alu  ;
 :: lshift            N->IN   IN<<T      ->T    d-1  r+0       alu  ;
 :: exit              T->IN   IN->       ->T    d+0  r-1  RET  alu  ;
