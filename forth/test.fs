@@ -24,6 +24,7 @@ create nmask8   $ffffff00 , $ffffffff ,
 \ create ffffffff $ffffffff , $0 ,
 \ create nmask32  $00000000 , $ffffffff ,
 
+create base     $a ,
 create forth    1024 ,
 create cp       1024 ,         \ Code pointer, grows up
 create dp       1024 ,         \ Data pointer, grows up
@@ -32,14 +33,18 @@ create charbuf  $80 allot
 create tethered $8 allot
 create tib      $80 allot
 create state    $8 allot
+create delim    $8 allot
 create sourceC  $16 allot
 create sourceid $8 allot
 create >in      $8 allot
 
-header halt    :noname                  halt ;
+header halt     :noname                  halt ;
 ;
-header true   : true    ( -- true )    d# 0 ;
-header false  : false   ( -- false )   d# -1 ;
+header true    : true    ( -- true )    d# 0 ;
+header false   : false   ( -- false )   d# -1 ;
+header decimal : decimal ( -- )         d# 10 ;fallthru
+               : setbase ( n -- )       base ! ;
+
 \ stack ops
 header rot    : rot  ( n0 n1 n2 -- n1 n2 n0 ) >r swap r> swap ;
 header -rot   : -rot ( n0 n1 n2 -- n2 n0 n1 ) swap>r swapr> ;
@@ -70,6 +75,14 @@ header 2/      : 2/      ( n -- n/2 )       dup 0< if
 header /string : /string ( *c u n -- *c u ) dup >r - swap r> + swap ;
 header min     : min     ( n n - n )        2dup< if drop else nip then ;
 header max     : max     ( n n - n )        2dup< if nip else drop then ;
+header um*     : um*     ( u1 u2 -- ud )    abs swap abs * ;
+header s>d     : s>d     ( s -- s f )       dup 0< ;
+
+
+: ud* ( ud1 u -- ud2 ) \ ud2 is the product of ud1 and u
+    tuck * >r
+    um* r> +
+;
 
 header execute : execute                2/ 1- >r ;
 
@@ -103,15 +116,34 @@ header count  : count ( *c -- sz )     dup 1+ swap c@ ;
 header >xt    : >xt ( -- )             d# 2 + count + caligned uw@ ;
 
 \ user interaction, I/O
+: hex8 dup d# 16 rshift DOUBLE
+: hex4 dup d# 8 rshift DOUBLE
+: hex2 dup d# 4 rshift DOUBLE
 header io!    :noname                  io! ;
 header io@    :noname                  io@ ;
-header emit   : emit ( ch -- )         IO-OUT io! drop ;
+header emit   : emit ( ch -- )         IO-OUT io! ;
 header key    : key ( -- ch )          IO-IN  io@ ;
 header .s     : .s ( -- )              d# 0 h# e0 io! drop ;
-
 header bl     : bl ( -- )              [SPACE] ;
 header space  : space ( -- )           [SPACE] emit ;
 header cr     : cr ( -- )              [LF] emit [CR] emit ;
+header .x     : . hex8 space ;
+header .x2    : . hex2 space ;
+: hex1
+    h# f and
+    dup d# 10 < if
+        [char] 0
+    else
+        d# 55
+    then
+    +
+    emit
+;
+
+
+
+
+
 
 header type
 : type
@@ -138,6 +170,62 @@ header i<>       : i<>       ( c1 c2 -- f )  2dupxor h# 1f and if
                                              lower swap lower xor ;
 header isimmediate : isimmediate ( wp -- -1 | 1 ) uw@ d# 1 and 2* 1- ;
 
+: digit? ( c -- u f )
+   lower
+   dup h# 39 > h# 100 and +
+   dup h# 160 > h# 127 and - h# 30 -
+   dup base @ u<
+;
+
+header >number
+: >number ( ud1 c-addr1 u1 -- ud2 c-addr2 u2 )
+    begin
+        dup
+    while
+        over c@ digit?
+        0= if drop exit then
+        >r 2swap base @ ud*
+        r> s>d + 2swap
+        d# 1 /string
+    repeat
+;
+
+: code,
+    cp @ w!
+    d# 2 cp +!
+;
+
+: inline:
+    r>
+    dup uw@ code,
+    d# 2 + >r
+;
+
+: isreturn ( opcode -- f )
+    h# e080 and
+    h# 6080 =
+;
+
+: isliteral ( ptr -- f)
+    dup uw@ h# 8000 and 0<>
+    swap d# 2 + uw@ h# 608c = and
+;
+
+header compile,
+: compile,
+    dup uw@ isreturn if
+        uw@ h# ff73 and
+        code,
+    else
+        dup isliteral if
+            uw@ code,
+        else
+            2/ h# 4000 or
+            code,
+        then
+    then
+;
+
 header isspace?
 : isspace? ( c -- f )
     h# 21 u< ;
@@ -145,6 +233,7 @@ header isspace?
 header isnotspace
 : isnotspace? ( c -- f )
     isspace? 0= ;
+
 
 header xt-skip
 : xt-skip   ( addr1 n1 xt -- addr2 n2 ) \ gforth
@@ -163,6 +252,20 @@ header parse-name
     source >in @ /string
     ['] isspace? xt-skip over >r
     ['] isnotspace? xt-skip ( end-word restlen r: start-word )
+    2dup d# 1 min + source drop - >in !
+    drop r> tuck -
+;
+
+: isnotdelim
+    delim @ <>
+;
+
+header parse
+: parse ( "ccc<char" -- c-addr u )
+    delim !
+    source >in @ /string
+    over >r
+    ['] isnotdelim xt-skip
     2dup d# 1 min + source drop - >in !
     drop r> tuck -
 ;
@@ -221,7 +324,63 @@ header sfind
     repeat
 ;
 
+: jumptable ( u -- ) \ add u to the return address
+    r> + >r ;
 
+\   (doubleAlso) ( c-addr u -- x 1 | x x 2 )
+\               If the string is legal, give a single or double cell number
+\               and size of the number.
+
+header throw
+: throw
+    ?dup if
+        [char] e emit
+        [char] r emit
+        [char] r emit
+        [char] o emit
+        [char] r emit
+        [char] : emit
+        space
+        .
+        d# 2 execute
+    then
+;
+
+: -throw ( a b -- ) \ if a is nonzero, throw -b
+    negate and throw
+;
+
+header-imm 2literal
+: 2literal
+    swap DOUBLE
+header-imm literal
+: tliteral
+    dup 0< if
+        invert tliteral
+        inline: invert
+    else
+        dup h# ffff8000 and if
+            dup d# 15 rshift tliteral
+            d# 15 tliteral
+            inline: lshift
+            h# 7fff and tliteral
+            inline: or
+        else
+            h# 8000 or code,
+        then
+    then
+
+;
+
+: isvoid ( caddr u -- ) \ any char remains, throw -13
+    nip 0<> d# 13 -throw
+;
+
+: consume1 ( caddr u ch -- caddr' u' f )
+    >r over c@ r> =
+    over 0<> and
+    dup>r d# 1 and /string r>
+;
 
 header echo-input
 : echo-input
@@ -230,13 +389,87 @@ header echo-input
     d# 10 <> until
 ;
 
+: is'c' ( caddr u -- f )
+    d# 3 =
+    over c@ [char] ' = and
+    swap 1+ 1+ c@ [char] ' = and
+;
+
+: ((doubleAlso))
+    h# 0. 2swap
+    [char] - consume1 >r
+    >number
+    [char] . consume1 if
+        isvoid              \ double number
+        r> if negate then
+        ['] 2literal exit
+    then
+                            \ single number
+    isvoid drop
+    r> if negate then
+: single
+    ['] tliteral
+;
+
+: base((doubleAlso))
+    base @ >r setbase
+    ((doubleAlso))
+    r> setbase
+;
+
+: (doubleAlso)
+    [char] $ consume1 if
+        d# 16 base((doubleAlso)) exit
+    then
+    [char] # consume1 if
+        d# 10 base((doubleAlso)) exit
+    then
+    [char] % consume1 if
+        d# 2 base((doubleAlso)) exit
+    then
+    2dup is'c' if
+        drop 1+ c@ single exit
+    then
+    ((doubleAlso))
+;
+
+: doubleAlso
+    (doubleAlso) drop
+;
+
+header-imm postpone
+:noname
+    parse-name sfind
+    dup 0= d# 13 -throw
+    0< if
+        tliteral
+        ['] compile,
+    then
+    compile,
+;
+
+: doubleAlso,
+    (doubleAlso)
+    execute
+;
+
+: dispatch
+    jumptable ;fallthru
+    jmp execute                 \      -1      0       non-immediate
+    jmp doubleAlso              \      0       0       number
+    jmp execute                 \      1       0       immediate
+
+    jmp compile,                \      -1      2       non-immediate
+    jmp doubleAlso,             \      0       2       number
+    jmp execute                 \      1       2       immediate
+
 : interpret
     begin
         parse-name dup
     while
         sfind
-        \ state @ +
-        \ 1+ 2* dispatch
+        state @ +
+        1+ 2* dispatch
     repeat
     2drop
 ;
@@ -279,9 +512,7 @@ header accept
         then
         [BACKSPACE] over= if >r delchar r> then
         \ Loop until we have a [LF] or [CR]
-        [LF] is-key?           ( ch ch -- f ch )
-        [CR] is-key?           ( f ch ch -- f f ch )
-        drop or
+        [LF] over= swap [CR] = or
     until
     rdrop nip
     space
@@ -323,7 +554,6 @@ header main
   quit
   halt
 ;
-
 
 meta
     link @ t,
