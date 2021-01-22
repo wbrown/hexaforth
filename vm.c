@@ -5,27 +5,26 @@
 #include <math.h>
 #include <stdbool.h>
 #include "vm.h"
-#include "vm_opcodes.h"
+#include "vm_instruction.h"
 #include "vm_constants.h"
+#include "util/stack.h"
 #ifdef DEBUG
 #include "vm_debug.h"
+#include "vm_opcodes.h"
 #endif // DEBUG
 
-uint8_t clz(uint64_t N) {
+static inline uint8_t clz(uint64_t N) {
     return N ? 64 - __builtin_clzll(N) : -(uint64_t)INFINITY;
 }
 
-uint8_t ctz(uint64_t N) {
+static inline uint8_t ctz(uint64_t N) {
     return N ? 64 - __builtin_ctzll(N) : -(uint64_t)INFINITY;
 }
 
-int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write) {
-    uint8_t c;
+static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write) {
     switch (io_addr) {
         case 0xf1:
-            c = (uint8_t)io_write;
-            fputc(c, ctx->OUT);
-            //fflush(ctx->OUT);
+            fputc((uint8_t)io_write, ctx->OUT);
             return(TRUE);
         case 0xf0: {
             uint8_t msb = clz(io_write) + 1;
@@ -45,8 +44,7 @@ int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write) {
     }
 }
 
-int64_t io_read_handler(context *ctx, uint64_t io_addr) {
-    uint8_t c;
+static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
     switch (io_addr) {
         case 0xe0:
             return(fgetc(ctx->IN));
@@ -55,6 +53,7 @@ int64_t io_read_handler(context *ctx, uint64_t io_addr) {
     }
 }
 
+#ifdef DEBUG
 void print_state(context *ctx, int16_t RSP, int16_t SP, int16_t EIP, int16_t R, int16_t T) {
     char disasm[160];
     char rstack_repr[80];
@@ -64,6 +63,7 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int16_t EIP, int16_t R, 
     debug_address(disasm, ctx, EIP);
     dprintf("EXEC[0x%0.4x]: %s S%-26s R%s\n", EIP, disasm, dstack_repr, rstack_repr);
 }
+#endif
 
 int vm(context *ctx) {
     register int16_t EIP = ctx->EIP;        // EIP = execution pointer

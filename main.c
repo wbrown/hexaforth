@@ -25,17 +25,21 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
         exit(EXIT_FAILURE);
     ctx->HERE=0;
 
+    int first_gap = -1;
+
     while ((read = getline(&line, &len, hexfile)) != -1) {
         *(uint32_t*)&(ctx->memory[ctx->HERE]) = (uint32_t)strtol(line, NULL, 16);
         if (ctx->memory[ctx->HERE+1]) {
             last_addr = ctx->HERE + 1;
         } else if (ctx->memory[ctx->HERE]) {
             last_addr = ctx->HERE;
+        } else if (first_gap <= 0 && !*(uint64_t*)&(ctx->memory[ctx->HERE])) {
+            first_gap = ctx->HERE;
         }
         ctx->HERE+=2;
     }
 
-    dprintf("Last address: [0x%0.4x] = 0x%0.4x\n", last_addr, ctx->memory[last_addr]);
+
     next_ptr = ctx->memory[last_addr] / 2;
     dprintf("WORDS: ");
 
@@ -68,29 +72,10 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     uint16_t last_code = DP0 - 1;
     while(!ctx->memory[last_code]) last_code--;
 
-/*    if (lstfile != NULL) {
-        uint16_t prior = 0;
-        uint16_t name = 0;
-        while ((read = getline(&line, &len, lstfile)) != -1) {
-            uint32_t addr = (uint32_t) strtol(line, NULL, 16);
-             if (!header_begin) {
-                header_begin = ctx->memory[addr / 2];
-                name = header_begin + 1;
-                prior = header_begin;
-            } else {
-                prior =
-                name = + 1;
-
-
-                len = read_counted_string((uint8_t *)&ctx->memory[addr/2],
-                                          ctx->meta[addr/2]);
-                printf("%s\n", ctx->meta[addr/2]);
-            }
-            line[strlen(line)-1] = '\0';
-            asprintf(&ctx->meta[addr/2], "%s", line + 5);
-        }
-    }
-    */
+    // printf("First gap:    [0x%0.4x] = 0x%0.4x\n", first_gap, ctx->memory[first_gap]);
+    // printf("DP0:          [0x%0.4x] = 0x%0.4x\n", DP0, ctx->memory[DP0]);
+    // printf("Last address: [0x%0.4x] = 0x%0.4x\n", last_addr, ctx->memory[last_addr]);
+    // printf("Last code:    [0x%0.4x] = 0x%0.4x\n", last_code, ctx->memory[last_code]);
 
 #ifdef DEBUG
     for(int idx=0; idx < ctx->HERE; idx+=1) {
@@ -130,18 +115,21 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     fclose(hexfile);
     if (line)
         free(line);
-    printf("%s loaded: (CODE=%d bytes, FREE=%d bytes, DICT=%d bytes)\n",
+    printf("%s loaded: (CODE=%d bytes, CODE_FREE=%d bytes, DICT=%d bytes, WORDS=%d)\n",
            filepath,
-           last_code * 2,
-           (DP0 - last_code) * 2,
-           (last_addr - DP0) * 2);
+           (first_gap-1) * 2,
+           (DP0 - (first_gap-1)) * 2,
+           (last_addr - DP0) * 2,
+           WORDCT);
     fflush(stdout);
 }
 
 int main(int argc, char *argv[]) {
     context *ctx = calloc(sizeof(context), 1);
     ctx->words = FORTH_WORDS;
+#ifdef DEBUG
     init_opcodes(ctx->words);
+#endif
     load_hex(argv[1], NULL, ctx);
     ctx->OUT=stdout;
     ctx->IN=stdin;

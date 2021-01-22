@@ -23,7 +23,6 @@ void debug_address(char* out, context* ctx, uint64_t addr);
 void show_registers(int64_t T, int16_t R,
                     int16_t EIP, int16_t SP, int16_t RSP,
                     context *ctx);
-void print_stack(int16_t SP, int64_t T, context *ctx, bool rstack);
 void mini_stack(int16_t P, int64_t TOS, int64_t* stack, char* buf);
 
 #endif

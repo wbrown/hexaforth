@@ -4,7 +4,8 @@ project(hexaforth C)
 set(DEBUG false)
 set(CMAKE_C_STANDARD 99)
 
-add_compile_options(-save-temps -g -fverbose-asm -fcommon)
+set(CMAKE_C_FLAGS_RELEASE "-save-temps -Os -fverbose-asm -fcommon")
+set(CMAKE_C_FLAGS_DEBUG "-save-temps -g -fverbose-asm -fcommon")
 
 # if(DEBUG)
 #    add_compile_definitions(DEBUG)
@@ -53,35 +54,41 @@ add_custom_target(forth-env
 add_library(vm_core
         vm.c
         vm.h
-        vm_opcodes.h
+        vm_instruction.h
         vm_constants.h
-        vm_debug.c
-        vm_debug.h)
-target_compile_definitions(vm_core
-        PUBLIC
-        DEBUG)
+        util/stack.c
+        util/stack.h)
+iF(DEBUG)
+    target_compile_definitions(vm_core PUBLIC DEBUG)
+endif()
 
-add_library(vm_debug
+add_library(vm_core_debug
         vm.c
         vm.h
+        vm_instruction.h
+        vm_opcodes.c
         vm_opcodes.h
         vm_constants.h
         vm_debug.c
-        vm_debug.h)
-target_compile_definitions(vm_debug
+        vm_debug.h
+        util/stack.c
+        util/stack.h)
+target_compile_definitions(vm_core_debug
         PUBLIC
         DEBUG)
 
 # VM tests
 add_executable(hexaforth-test
         vm_opcodes.c
+        vm_opcodes.h
+        vm_instruction.h
         test/main.c
         test/vm_test.c
         test/vm_test.h
         test/compiler.c
         test/compiler.h)
 target_link_libraries(hexaforth-test
-        vm_debug)
+        vm_core_debug)
 target_compile_definitions(hexaforth-test
         PUBLIC
         TEST
@@ -95,13 +102,11 @@ add_custom_target(tests
 # Main executable
 add_executable(hexaforth
         main.c
-        vm_opcodes.c
-        vm_opcodes.h
         build/nuc.hex
         build/test.hex)
 if(DEBUG)
     target_link_libraries(hexaforth
-            vm_debug)
+            vm_core_debug)
     target_compile_definitions(hexaforth
             PUBLIC
             DEBUG)

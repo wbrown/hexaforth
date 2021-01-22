@@ -6,6 +6,7 @@
 #include "vm_test.h"
 #include <stdbool.h>
 #include "../vm_debug.h"
+#include "../util/stack.h"
 
 bool decode_literal(const char* begin, const char* end, int64_t* num) {
     char *decode_end;

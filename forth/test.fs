@@ -12,12 +12,14 @@ $7F constant [DEL]
 $31 constant [PRINTABLE]
 $40 constant [AT]
 $5B constant [LBRACKET]
+$3F constant [EOT]
 
 
 meta
     4 org
 target
 
+header *dictbegin*
 create nmask8   $ffffff00 , $ffffffff ,
 \ create ffff     $ffff     , $0 ,
 \ create nmask16  $ffff0000 , $ffffffff ,
@@ -543,15 +545,16 @@ header quit
 
 : echoback
     begin
-        key emit
-    again
+        key dup emit
+        [EOT] =
+    until
 ;
 
 create testvar 8 allot
 
 header main
 : main
-  quit
+  echoback
   halt
 ;
 

@@ -24,7 +24,9 @@ typedef struct { int EIP;
     word_node* words;
     uint64_t   CYCLES; } context;
 
-uint8_t clz(uint64_t N);
+static inline uint8_t clz(uint64_t N);
+static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write);
+static inline int64_t io_read_handler(context *ctx, uint64_t io_addr);
 int vm(context *ctx);
 
 #endif //HEXAFORTH_VM_H
