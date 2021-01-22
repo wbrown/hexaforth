@@ -195,19 +195,17 @@ int vm(context *ctx) {
                         // `(IN<<T)->OUT`
                         OUT = (uint64_t) IN << T;
                         break;
+                    case ALU_MUL:
+                        // `(N*IN)->OUT`
+                        OUT = IN * N;
+                        break;
                     case ALU_LOAD: {
                         OUT = *(uint64_t*)((uint8_t*)(&ctx->memory[0])+IN);
                         break;
                     }
                         // `[IN]->OUT`
                         break;
-                    case ALU_IO_WRITE:
-                        // `(IN->io[T])->OUT`
-                        ctx->SP = SP;
-                        ctx->RSP = RSP;
-                        ctx->EIP = EIP;
-                        OUT = io_write_handler(ctx, T, IN);
-                        break;
+
                     case ALU_IO_READ:
                         // `io[IN]->OUT`
                         OUT = io_read_handler(ctx, IN);
@@ -249,16 +247,16 @@ int vm(context *ctx) {
                         }
                         break;
                         // `OUT->memory[T]` -- memory write
-                    case OUTPUT_N:
-                        ctx->DSTACK[SP-2] = OUT;
-                        T = ctx->DSTACK[SP-1];
-                        if (ins.alu.rstack < 0) {
-                            R = ctx->RSTACK[RSP - 1];
-                        }
-                        break;
+                    case OUTPUT_IO_T:
+                        ctx->SP = SP;
+                        ctx->RSP = RSP;
+                        ctx->EIP = EIP;
+                        io_write_handler(ctx, T, OUT);
+                        goto resolve_stack;
                     case OUTPUT_MEM_T:
                         *(int64_t*)((uint8_t*)(&ctx->memory[0])+T) = OUT;
                     default:
+                    resolve_stack:
                         if (ins.alu.dstack < 0) {
                             T = ctx->DSTACK[SP -1];
                         }

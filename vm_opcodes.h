@@ -76,9 +76,9 @@ enum INPUT_MUX {
 static char* ALU_OPS_REPR[] = {
         "IN->", "T<->N,IN->", "T->N,IN->",
         "IN+N", "IN&N", "IN|N",
-        "IN^N", "~IN", "IN==N",
-        "N<IN", "Nu<IN", "IN>>T",
-        "IN<<T", "[IN]", "IN->io[T]",
+        "IN^N", "IN*N", "~IN",
+        "IN==N", "N<IN", "Nu<IN",
+        "IN>>T", "IN<<T", "[IN]",
         "io[IN]",
 };
 
@@ -90,26 +90,26 @@ enum ALU_OPS {
     ALU_AND = 4,       // IN&N
     ALU_OR = 5,        // IN|N
     ALU_XOR = 6,       // IN^N
-    ALU_INVERT = 7,    // ~I
-    ALU_EQ = 8,        // IN==N
-    ALU_GT = 9,        // N<IN
-    ALU_U_GT = 10,     // Nu<IN      Unsigned <
-    ALU_RSHIFT = 11,   // IN>>T
-    ALU_LSHIFT = 12,   // IN<<T
-    ALU_LOAD = 13,     // [IN]       Load value at *I
-    ALU_IO_WRITE = 14, // IN->io[T]  Write IN to IO address T
+    ALU_MUL = 7,       // IN*N
+    ALU_INVERT = 8,    // ~I
+    ALU_EQ = 9,        // IN==N
+    ALU_GT = 10,        // N<IN
+    ALU_U_GT = 11,     // Nu<IN      Unsigned <
+    ALU_RSHIFT = 12,   // IN>>T
+    ALU_LSHIFT = 13,   // IN<<T
+    ALU_LOAD = 14,     // [IN]       Load value at *I
     ALU_IO_READ = 15,  // io[IN]     Read at IO address I
 };
 
 // === OUTPUT_MUX: where to write the results of the ALU operation
 static char* OUTPUT_MUX_REPR[] = {
-        "->T", "->R", "->N", "->[T]"
+        "->T", "->R", "->io[T]", "->[T]"
 };
 
 enum OUTPUT_MUX {
     OUTPUT_T = 0,      // ->T       write result to top of data stack
     OUTPUT_R = 1,      // ->R       write result to top of return stack
-    OUTPUT_N = 2,      // ->N       write result to next on data stack
+    OUTPUT_IO_T = 2,   // ->IO[T]   write result to IO address T
     OUTPUT_MEM_T = 3,  // ->[T]     write result to memory address T
 };
 
@@ -161,6 +161,7 @@ static forth_op INS_FIELDS[] = {
         {"T|N",        INPUT, {{.alu.alu_op = ALU_OR,
                                 .alu.in_mux = INPUT_T}}},
         {"IN^N",       FIELD, {{.alu.alu_op = ALU_XOR }}},
+        {"IN*N",       FIELD, {{.alu.alu_op = ALU_MUL }}},
         {"~IN",        FIELD, {{.alu.alu_op = ALU_INVERT}}},
         {"~T",         INPUT, {{.alu.in_mux = INPUT_T,
                                 .alu.alu_op = ALU_INVERT}}},
@@ -171,13 +172,12 @@ static forth_op INS_FIELDS[] = {
         {"N<<T",       INPUT, {{.alu.in_mux = INPUT_N,
                                 .alu.alu_op = ALU_LSHIFT}}},
         {"[IN]",       FIELD, {{.alu.alu_op = ALU_LOAD }}},
-        {"IN->io[T]",  FIELD, {{.alu.alu_op = ALU_IO_WRITE }}},
         {"io[IN]",     FIELD, {{.alu.alu_op = ALU_IO_READ }}},
         {"Nu<IN",      FIELD, {{.alu.alu_op = ALU_U_GT }}},
         {"output_mux", COMMT, {{}}},
         {"->T",        FIELD, {{.alu.out_mux = OUTPUT_T}}},
         {"->R",        FIELD, {{.alu.out_mux = OUTPUT_R}}},
-        {"->N",        FIELD, {{.alu.out_mux = OUTPUT_N}}},
+        {"->io[T]",    FIELD, {{.alu.out_mux = OUTPUT_IO_T }}},
         {"->[T]",      FIELD, {{.alu.out_mux = OUTPUT_MEM_T}}},
         {"stack_ops",  COMMT, {{}}},
         {"d+1",        FIELD, {{.alu.dstack = 1}}},
@@ -246,6 +246,7 @@ static forth_define FORTH_OPS[] = {
         {"xor",     "       T->IN   IN^N       ->T       d-1       alu"},
         {"and",     "       T->IN   IN&N       ->T       d-1       alu"},
         {"or",      "       T->IN   IN|N       ->T       d-1       alu"},
+        {"*",       "       T->IN   IN*N       ->T       d-1       alu"},
         {"invert",  "       T->IN   ~IN        ->T                 alu"},
         {"=",       "       T->IN   IN==N      ->T       d-1       alu"},
         {"<",       "       T->IN   N<IN       ->T       d-1       alu"},
@@ -262,10 +263,11 @@ static forth_define FORTH_OPS[] = {
         {"r>",      "       R->IN              ->T       d+1  r-1  alu"},
         {"r@",      "       R->IN              ->T       d+1       alu"},
         {"@",       "       [T]->IN            ->T                 alu"},
+        {"@+",      "       [T]->IN IN+N       ->T       d-1       alu"},
         {"@and",    "       [T]->IN IN&N       ->T       d-1       alu"},
         {"!",       "       N->IN              ->[T]     d-2       alu"},
         {"io@",     "       T->IN   io[IN]     ->T                 alu"},
-        {"io!",     "       N->IN   IN->io[T]  ->T       d-1       alu"},
+        {"io!",     "       N->IN              ->io[T]   d-2       alu"},
         {"+!",      "       [T]->IN IN+N       ->[T]     d-2       alu"},
         {"rshift",  "       N->IN   IN>>T      ->T       d-1       alu"},
         {"lshift",  "       N->IN   IN<<T      ->T       d-1       alu"},
@@ -288,8 +290,8 @@ static forth_define FORTH_OPS[] = {
         {"2+",      "2      imm+                                   imm"},
         {"2*",      "1                                             imm lshift", CODE},
         {"2/",      "1                                             imm rshift", CODE},
-        {"emit",    "241                                           imm io! drop", CODE},
-        {"8emit",   "240                                           imm io! drop", CODE},
+        {"emit",    "241                                           imm io!", CODE},
+        {"8emit",   "240                                           imm io!", CODE},
         {"key",     "224                                           imm io@", CODE},
         {"negate",  "invert 1 imm+ imm", CODE},
         {"-",       "invert 1 imm+ imm +", CODE},

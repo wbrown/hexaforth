@@ -14,22 +14,22 @@
 : IN|N       h# 0050 or ;
 : T|N        h# 0450 ;
 : IN^N       h# 0060 or ;
-: ~IN        h# 0070 or ;
-: ~T         h# 0470 ;
-: IN==N      h# 0080 or ;
-: N<IN       h# 0090 or ;
-: IN>>T      h# 00b0 or ;
-: IN<<T      h# 00c0 or ;
-: N<<T       h# 00c0 ;
-: [IN]       h# 00d0 or ;
-: IN->io[T]  h# 00e0 or ;
+: IN*N       h# 0070 or ;
+: ~IN        h# 0080 or ;
+: ~T         h# 0480 ;
+: IN==N      h# 0090 or ;
+: N<IN       h# 00a0 or ;
+: IN>>T      h# 00c0 or ;
+: IN<<T      h# 00d0 or ;
+: N<<T       h# 00d0 ;
+: [IN]       h# 00e0 or ;
 : io[IN]     h# 00f0 or ;
-: Nu<IN      h# 00a0 or ;
+: Nu<IN      h# 00b0 or ;
 
 \ output_mux
 : ->T        h# 0000 or ;
 : ->R        h# 0100 or ;
-: ->N        h# 0200 or ;
+: ->io[T]    h# 0200 or ;
 : ->[T]      h# 0300 or ;
 
 \ stack_ops
@@ -63,6 +63,7 @@
 :: xor               T->IN   IN^N       ->T    d-1  r+0       alu  ;
 :: and               T->IN   IN&N       ->T    d-1  r+0       alu  ;
 :: or                T->IN   IN|N       ->T    d-1  r+0       alu  ;
+:: *                 T->IN   IN*N       ->T    d-1  r+0       alu  ;
 :: invert            T->IN   ~IN        ->T    d+0  r+0       alu  ;
 :: =                 T->IN   IN==N      ->T    d-1  r+0       alu  ;
 :: <                 T->IN   N<IN       ->T    d-1  r+0       alu  ;
@@ -79,10 +80,11 @@
 :: r>                R->IN   IN->       ->T    d+1  r-1       alu  ;
 :: r@                R->IN   IN->       ->T    d+1  r+0       alu  ;
 :: @                 [T]->IN IN->       ->T    d+0  r+0       alu  ;
+:: @+                [T]->IN IN+N       ->T    d-1  r+0       alu  ;
 :: @and              [T]->IN IN&N       ->T    d-1  r+0       alu  ;
 :: !                 N->IN   IN->       ->[T]  d-2  r+0       alu  ;
 :: io@               T->IN   io[IN]     ->T    d+0  r+0       alu  ;
-:: io!               N->IN   IN->io[T]  ->T    d-1  r+0       alu  ;
+:: io!               N->IN   IN->       ->io[T] d-2  r+0       alu  ;
 :: +!                [T]->IN IN+N       ->[T]  d-2  r+0       alu  ;
 :: rshift            N->IN   IN>>T      ->T    d-1  r+0       alu  ;
 :: lshift            N->IN   IN<<T      ->T    d-1  r+0       alu  ;
