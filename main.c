@@ -147,6 +147,7 @@ int main(int argc, char *argv[]) {
     ctx->IN=stdin;
     // ctx->EIP=0x462C / 2;
     vm(ctx);
+    printf("\n[%lld instructions executed]\n", ctx->CYCLES);
 
     // context *ctx = malloc(sizeof(context));
     // ctx->HERE = 0;

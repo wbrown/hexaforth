@@ -55,29 +55,34 @@ int64_t io_read_handler(context *ctx, uint64_t io_addr) {
     }
 }
 
+void print_state(context *ctx, int16_t RSP, int16_t SP, int16_t EIP, int16_t R, int16_t T) {
+    char disasm[160];
+    char rstack_repr[80];
+    char dstack_repr[80];
+    mini_stack(RSP, R, ctx->RSTACK, rstack_repr);
+    mini_stack(SP, T, ctx->DSTACK, dstack_repr);
+    debug_address(disasm, ctx, EIP);
+    dprintf("EXEC[0x%0.4x]: %s S%-26s R%s\n", EIP, disasm, dstack_repr, rstack_repr);
+}
+
 int vm(context *ctx) {
     register int16_t EIP = ctx->EIP;        // EIP = execution pointer
     register int16_t SP = 0;                // SP = data stack pointer
     register int16_t RSP = 0;               // RSP = return stack pointer
     register int64_t T = ctx->DSTACK[SP];   // T = Top Of Stakc / TOS
     register int64_t R = ctx->RSTACK[RSP];  // R = Top Of Return Stack / TOR
-    register int64_t IN = 0;                 // I = input to ALU
-    register int64_t N = 0;                  // N = Next on Stack / NOS
+    register int64_t IN = 0;                // I = input to ALU
+    register int64_t N = 0;                 // N = Next on Stack / NOS
     register int64_t OUT = 0;               // OUT - result from ALU
+    register uint64_t cycles = ctx->CYCLES; // how many instructions processed
 
-    for (; ctx->memory[EIP] != 0;) {
+    for (; ctx->memory[EIP] != 0; ++cycles) {
         // #ifdef DEBUG
         //    show_registers(T, R, EIP, SP, RSP, ctx);
         // #endif // DEBUG
         instruction ins = *(instruction*)&(ctx->memory[EIP]);
         #ifdef DEBUG
-            char disasm[160];
-            char rstack_repr[80];
-            char dstack_repr[80];
-            mini_stack(RSP, R, ctx->RSTACK, rstack_repr);
-            mini_stack(SP, T, ctx->DSTACK, dstack_repr);
-            debug_address(disasm, ctx, EIP);
-            dprintf("EXEC[0x%0.4x]: %s S%-26s R%s\n", EIP, disasm, dstack_repr, rstack_repr);
+        print_state(ctx, RSP, SP, EIP, R, T);
         #endif // DEBUG
         // == MSB set is an instruction literal.
         if (ins.lit.lit_f) {
@@ -269,10 +274,15 @@ int vm(context *ctx) {
         }
         // print_stack(SP,T, ctx, false);
     }
+#ifdef DEBUG
+    print_state(ctx, RSP, SP, EIP-1, R, T);
+#endif
+    ctx->CYCLES = cycles;
     ctx->DSTACK[SP-1] = T;
     ctx->RSTACK[RSP-1] = R;
     ctx->SP = SP;
     ctx->RSP = RSP;
     ctx->EIP = EIP;
+    fflush(ctx->OUT);
     return 1;
 }

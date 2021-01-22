@@ -21,7 +21,8 @@ typedef struct { int EIP;
     FILE       *OUT;
     FILE       *IN;
     char*      meta[32768];
-    word_node* words; } context;
+    word_node* words;
+    uint64_t   CYCLES; } context;
 
 uint8_t clz(uint64_t N);
 int vm(context *ctx);
