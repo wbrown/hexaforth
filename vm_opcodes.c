@@ -186,10 +186,11 @@ char* instruction_to_str(instruction ins) {
     char *ret_str;
     if (ins.lit.lit_f) {
         asprintf(&ret_str,
-                 "%6d  %-7s %-8s %29s",
+                 "%6d  %-7s %-8s %25s %-7s",
                  ins.lit.lit_v,
                  LIT_SHIFT_REPR[(uint8_t)ins.lit.lit_shifts],
                  ins.lit.lit_add ? "imm+" : "",
+                 "",
                  "imm");
     } else {
         if (ins.alu.op_type == OP_TYPE_ALU) {
@@ -205,7 +206,7 @@ char* instruction_to_str(instruction ins) {
             const char* class_repr = OP_TYPE_REPR[ins.alu.op_type];
 
             asprintf(&ret_str,
-                     "        %-7s %-9s %-7s %-6s %-4s %-4s %-4s",
+                     "        %-7s %-9s %-7s %-6s %-4s %-4s %-7s",
                      input_mux,
                      alu_ops_repr,
                      output_mux,

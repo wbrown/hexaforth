@@ -29,7 +29,7 @@ void debug_address(char* decoded, context* ctx, uint64_t addr) {
     }
     decode_instruction(decoded_ins, ins, ctx->words);
     sprintf(decoded,
-            "%-20s %-77s %-20s",
+            "%-20s %-77s %-15s",
             meta ? meta : "",
             decoded_ins,
             target_meta ? target_meta : "");
