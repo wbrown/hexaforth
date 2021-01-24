@@ -84,6 +84,8 @@ int vm(context *ctx) {
         #ifdef DEBUG
         print_state(ctx, RSP, SP, EIP, R, T);
         #endif // DEBUG
+        // increment EIP to the next instruction for next cycle
+        EIP++;
         // == MSB set is an instruction literal.
         if (ins.lit.lit_f) {
             int64_t lit = (uint64_t)ins.lit.lit_v <<
@@ -95,7 +97,6 @@ int vm(context *ctx) {
             } else {
                 T += (int64_t)lit;
             }
-            EIP++;
             continue;
         }
         switch (ins.alu.op_type) {
@@ -104,10 +105,7 @@ int vm(context *ctx) {
                 SP--;
                 bool RES=(uint64_t)T;
                 T=ctx->DSTACK[SP-1];
-                if (RES) {
-                    EIP++;
-                    break;
-                }
+                if (RES) break;
             case OP_TYPE_JMP:
                 // Unconditional jump
                 EIP = ins.jmp.target;
@@ -265,8 +263,6 @@ int vm(context *ctx) {
                         }
                         break;
                 }
-                // Next instruction
-                EIP++;
                 break;
             }
         }
