@@ -57,7 +57,7 @@
 : alu        h# 6000 or tcode, ;
 
 \ words
-:: halt      $0004                                              ubranch ;
+:: halt      $0000                                              ubranch ;
 :: noop              T->IN   IN->      ->T     d+0    r+0       alu  ;
 :: +                 T->IN   IN+N      ->T     d-1    r+0       alu  ;
 :: xor               T->IN   IN^N      ->T     d-1    r+0       alu  ;

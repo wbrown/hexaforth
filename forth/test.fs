@@ -86,7 +86,7 @@ header s>d     : s>d     ( s -- s f )       dup 0< ;
     um* r> +
 ;
 
-header execute : execute                2/ 1- >r ;
+header execute : execute                2/ >r ;
 
 \ memory address calculations, loads, stores
 header cell+  : cell+ ( n -- n+cell )  d# 8 + ;
