@@ -233,31 +233,30 @@ int vm(context *ctx) {
                     // `OUT->T`
                     case OUTPUT_T:
                         T = OUT;
-                        if (ins.alu.rstack < 0) {
-                            R = ctx->RSTACK[RSP - 1];
-                        }
-                        break;
-                        // `OUT->R`
+                        goto resolve_rstack;
+                    // `OUT->R`
                     case OUTPUT_R:
                         R = OUT;
                         if (ins.alu.dstack < 0) {
                             T = ctx->DSTACK[SP - 1];
                         }
                         break;
-                        // `OUT->memory[T]` -- memory write
+                    // `OUT->io[T]` IO write op.
                     case OUTPUT_IO_T:
                         ctx->SP = SP;
                         ctx->RSP = RSP;
                         ctx->EIP = EIP;
                         io_write_handler(ctx, T, OUT);
-                        goto resolve_stack;
+                        goto resolve_dstack;
+                    // `OUT->memory[T]` -- memory write
                     case OUTPUT_MEM_T:
                         *(int64_t*)((uint8_t*)(&ctx->memory[0])+T) = OUT;
                     default:
-                    resolve_stack:
+                    resolve_dstack:
                         if (ins.alu.dstack < 0) {
                             T = ctx->DSTACK[SP -1];
                         }
+                    resolve_rstack:
                         if (ins.alu.rstack < 0) {
                             R = ctx->RSTACK[RSP - 1];
                         }
@@ -269,7 +268,7 @@ int vm(context *ctx) {
         // print_stack(SP,T, ctx, false);
     }
 #ifdef DEBUG
-    print_state(ctx, RSP, SP, EIP-1, R, T);
+    print_state(ctx, RSP, SP, EIP, R, T);
 #endif
     ctx->CYCLES = cycles;
     ctx->DSTACK[SP-1] = T;
