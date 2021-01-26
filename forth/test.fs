@@ -125,7 +125,7 @@ header io!    :noname                  io! ;
 header io@    :noname                  io@ ;
 header emit   : emit ( ch -- )         IO-OUT io! ;
 header key    : key ( -- ch )          IO-IN  io@ ;
-header .s     : .s ( -- )              d# 0 h# e0 io! drop ;
+header .s     : .s ( -- )              d# 0 h# e0 io! ;
 header bl     : bl ( -- )              [SPACE] ;
 header space  : space ( -- )           [SPACE] emit ;
 header cr     : cr ( -- )              [LF] emit [CR] emit ;
