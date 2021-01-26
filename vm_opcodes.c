@@ -8,8 +8,9 @@
 // Basic equivalency operation, leveraging the fact that our encoded
 // instructions can be compared as unsigned integers.
 bool ins_eq(instruction a, instruction b) {
-    if (*(uint16_t *)&a ==
-                      *(uint16_t *)&b) {
+    uint16_t a_int = *(uint16_t *)&a;
+    uint16_t b_int = *(uint16_t *)&b;
+    if (a_int == b_int) {
         return true;
     } else {
         return false;
@@ -49,20 +50,24 @@ bool is_term(const char* word) {
     return(false);
 }
 
-bool lookup_word(word_node* nodes, const char* word, instruction* lookup) {
+uint8_t lookup_word(word_node* nodes, const char* word, instruction* lookup) {
     int idx = 0;
     while (nodes[idx].repr && strlen(nodes[idx].repr)) {
         word_node forth_word = nodes[idx];
         char *repr = forth_word.repr;
         if (strcmp(repr, word) == 0) {
-            for(int ins_idx=0; ins_idx < 8; ins_idx++) {
+            int ins_idx;
+            for(ins_idx=0; ins_idx < nodes[idx].num_ins; ins_idx++) {
                 lookup[ins_idx] = nodes[idx].ins[ins_idx];
             }
-            return(true);
+            for(; ins_idx < 8; ins_idx++) {
+                *(uint16_t*)&lookup[ins_idx] = 0;
+            }
+            return(nodes[idx].num_ins);
         }
         idx++;
     }
-    return(false);
+    return(0);
 }
 
 bool interpret_imm(const char* word, instruction* literal) {
@@ -88,11 +93,25 @@ bool lookup_op_word(word_node* nodes, char* word, instruction* lookup) {
     return(interpret_imm(word, lookup));
 }
 
+void report_opcode(instruction* ins, word_node* opcodes, int num_words) {
+    static int last_reported = -1;
+    char out[160];
+    decode_instruction(out,
+                       *ins,
+                       opcodes);
+    if (num_words != last_reported) {
+        last_reported = num_words;
+        printf("OPCODE[%4d]: %s\n", num_words, out);
+    } else {
+        printf("              %s\n", out);
+    }
+}
+
 bool init_opcodes(word_node* opcodes) {
     int num_words = 0;
     int last_reported = -1;
     forth_define* op = &FORTH_OPS[0];
-    uint16_t instruction_acc;
+    uint16_t instruction_acc = 0;
 
     // size our opcode list
     /* int opcode_ct = 0;
@@ -126,28 +145,31 @@ bool init_opcodes(word_node* opcodes) {
                 if (strlen(word)) {
                     instruction lookup[8];
                     if (lookup_op_word(opcodes, word, (instruction*)&lookup)) {
-                        instruction_acc = instruction_acc | *(uint16_t*)&lookup;
                         // if we're a `term` or `code` field, we need to flush our
                         // accumulated instruction.
-                        if (is_term(word) || lookup_word(opcodes, word, (instruction*)&lookup)) {
-                            instruction* flush = (instruction *)&instruction_acc;
-                            opcodes[num_words].repr = op->repr;
-                            opcodes[num_words].ins[op_idx] = *flush;
-                            opcodes[num_words].type = op->type;
-#ifdef DEBUG
-                            char out[160];
-                            decode_instruction(out,
-                                               *(instruction*)&instruction_acc,
-                                               opcodes);
-                            if (num_words != last_reported) {
-                                last_reported = num_words;
-                                dprintf("OPCODE[%4d]: %s\n", num_words, out);
-                            } else {
-                                dprintf("              %s\n", out);
+                        uint8_t num_ins = lookup_word(opcodes, word, (instruction*)&lookup);
+                        if (num_ins) {
+                            for(int ins_idx=0; ins_idx < num_ins; ins_idx++) {
+                                instruction idxed_ins = lookup[ins_idx];
+                                opcodes[num_words].ins[op_idx+ins_idx] = idxed_ins;
+                                report_opcode(&idxed_ins, opcodes, num_words);
                             }
-#endif // DEBUG
-                            op_idx++;
+                            op_idx += num_ins;
+                            opcodes[num_words].num_ins = op_idx;
+                            opcodes[num_words].repr = op->repr;
+                            opcodes[num_words].type = op->type;
                             instruction_acc = 0;
+                        } else if (is_term(word)) {
+                            instruction_acc = instruction_acc | *(uint16_t*)&lookup;
+                            instruction flush = *(instruction *)&instruction_acc;
+                            opcodes[num_words].ins[op_idx] = flush;
+                            opcodes[num_words].num_ins = ++op_idx;
+                            opcodes[num_words].repr = op->repr;
+                            opcodes[num_words].type = op->type;
+                            instruction_acc = 0;
+                            report_opcode(&flush, opcodes, num_words);
+                        } else {
+                            instruction_acc = instruction_acc | *(uint16_t*)&lookup;
                         }
                     } else {
                         printf("ERROR: Lookup of %s failed!", word);

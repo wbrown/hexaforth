@@ -83,7 +83,7 @@ bool generate_expected(const char* input, counted_array* expected_stack) {
 
 bool init_image(context *ctx, hexaforth_test test) {
     if (test.init && strlen(test.init)) {
-        counted_array* parsed = malloc(sizeof(counted_array));
+        counted_array* parsed = calloc(sizeof(counted_array), 1);
         parsed->elems = malloc(0);
         bool results = generate_expected(test.init, parsed);
         if (results) {
@@ -131,7 +131,7 @@ bool stack_match(context* ctx, bool rstack, counted_array* expected) {
 
 bool execute_test(context *in_ctx, hexaforth_test test) {
     bool dstack_results = false;
-    counted_array* expected_dstack =  malloc(sizeof(counted_array));
+    counted_array* expected_dstack =  calloc(sizeof(counted_array), sizeof(int64_t));
     expected_dstack->elems = malloc(0);
     if (!generate_expected(test.dstack, expected_dstack)) {
         free(expected_dstack->elems);
@@ -140,7 +140,7 @@ bool execute_test(context *in_ctx, hexaforth_test test) {
     }
 
     bool rstack_results = false;
-    counted_array* expected_rstack =  malloc(sizeof(counted_array));
+    counted_array* expected_rstack =  calloc(sizeof(counted_array), sizeof(int64_t));
     expected_rstack->elems = malloc(0);
     if (!generate_expected(test.rstack, expected_rstack)) {
         free(expected_dstack->elems);
@@ -150,7 +150,7 @@ bool execute_test(context *in_ctx, hexaforth_test test) {
 
     bool eip_match = false;
     char* eip_s;
-    counted_array* expected_eip = malloc(sizeof(counted_array));
+    counted_array* expected_eip = calloc(sizeof(counted_array), sizeof(int64_t));
     expected_eip->elems = malloc(0);
     if (!generate_expected(test.eip_expected, expected_eip)) {
         free(expected_eip->elems);
@@ -171,7 +171,7 @@ bool execute_test(context *in_ctx, hexaforth_test test) {
 
     // We use calloc rather than malloc, as malloc will often return memory of a
     // previously free'd but non-zero'ed context.
-    context *ctx = calloc(sizeof(context), 1);
+    context *ctx = calloc(1, sizeof(context));
     if (in_ctx) {
         ctx->words = in_ctx->words;
     } else {

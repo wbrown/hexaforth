@@ -7,7 +7,6 @@
 #include "vm.h"
 
 void decode_instruction(char* out, instruction ins, word_node words[]) {
-    if(*(uint16_t*)&ins == 0) return;
     const char* forth_word = lookup_opcode(words, ins);
     char* ins_r = instruction_to_str(ins);
     sprintf(out,
@@ -33,6 +32,20 @@ void debug_address(char* decoded, context* ctx, uint64_t addr) {
             meta ? meta : "",
             decoded_ins,
             target_meta ? target_meta : "");
+}
+
+void debug_monitor(int64_t T, int16_t R,
+                   int16_t EIP, int16_t SP, int16_t RSP,
+                   context *ctx) {
+    fprintf(ctx->OUT, "@$%0.4x !! ", EIP);
+    int idx;
+    char buf[160];
+
+    for(idx=0; (buf[idx]=(char)(fgetc(ctx->IN))) != '\n'; idx++) {
+        fputc(buf[idx], ctx->OUT);
+    }
+    buf[idx] = '\0';
+
 }
 
 

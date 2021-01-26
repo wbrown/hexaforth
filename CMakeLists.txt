@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17)
 project(hexaforth C)
 
-set(DEBUG true)
+# set(DEBUG false)
 set(CMAKE_C_STANDARD 99)
 
 set(CMAKE_C_FLAGS_RELEASE "-save-temps -O2 -fverbose-asm -fcommon")
@@ -108,6 +108,7 @@ target_link_libraries(hexaforth
         vm_core)
 
 # Debug executable
+if(DEBUG)
 add_executable(hexaforth-debug
         main.c
         build/nuc.hex
@@ -117,3 +118,4 @@ target_link_libraries(hexaforth-debug
 target_compile_definitions(hexaforth-debug
         PUBLIC
         DEBUG)
+endif()

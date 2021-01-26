@@ -68,6 +68,7 @@ typedef struct {
     char           repr[40];
     uint8_t        type;
     instruction    ins[8];
+    uint8_t        ins_ct;
 } forth_op;
 
 static forth_op INS_FIELDS[] = {
@@ -167,12 +168,12 @@ static forth_define FORTH_OPS[] = {
         // word             in_mux|alu_op   |out_mux  | d  | r | op_type
         {"halt",    "       N->IN                                  ubranch"},
         {"noop",    "       T->IN                                  alu"},
-        {"+",       "       T->IN   IN+N       ->T       d-1       alu"},
         {"xor",     "       T->IN   IN^N       ->T       d-1       alu"},
         {"and",     "       T->IN   IN&N       ->T       d-1       alu"},
         {"or",      "       T->IN   IN|N       ->T       d-1       alu"},
-        {"*",       "       T->IN   IN*N       ->T       d-1       alu"},
         {"invert",  "       T->IN   ~IN        ->T                 alu"},
+        {"+",       "       T->IN   IN+N       ->T       d-1       alu"},
+        {"*",       "       T->IN   IN*N       ->T       d-1       alu"},
         {"=",       "       T->IN   IN==N      ->T       d-1       alu"},
         {"<",       "       T->IN   N<IN       ->T       d-1       alu"},
         {"u<",      "       T->IN   Nu<IN      ->T       d-1       alu"},
@@ -215,16 +216,17 @@ static forth_define FORTH_OPS[] = {
         {"2+",      "2      imm+                                   imm"},
         {"2*",      "1                                             imm lshift", CODE},
         {"2/",      "1                                             imm rshift", CODE},
+        {"negate",  "invert 1+", CODE},
+        {"-",       "negate +", CODE},
         {"emit",    "241                                           imm io!", CODE},
         {"8emit",   "240                                           imm io!", CODE},
         {"key",     "224                                           imm io@", CODE},
-        {"negate",  "invert 1 imm+ imm", CODE},
-        {"-",       "invert 1 imm+ imm +", CODE},
-        {"",        ""}};
+        {".s",      "0 imm 224 imm io!", CODE}};
 
 // Instructions associated with string representations.
 typedef struct {
     char* repr;
+    uint8_t num_ins;
     instruction ins[8];
     uint8_t type;
 } word_node;
@@ -236,7 +238,7 @@ static word_node FORTH_WORDS[256]={};
 
 bool ins_eq(instruction a, instruction b);
 bool interpret_imm(const char* word, instruction* literal);
-bool lookup_word(word_node* nodes, const char* word, instruction* lookup);
+uint8_t lookup_word(word_node* nodes, const char* word, instruction* lookup);
 const char* lookup_opcode(word_node nodes[], instruction ins);
 char* instruction_to_str(instruction ins);
 bool init_opcodes(word_node opcodes[]);

@@ -31,14 +31,12 @@ bool is_null_instruction(instruction ins) {
 // Look up a string in our opcodes table, and if found, write the opcodes
 // associated with the word into the image.
 bool compile_word(context *ctx, const char* word) {
+    int ins_ct = 0;
     instruction instructions[8] = {};
-    if (lookup_word(ctx->words, word, instructions)) {
-        int idx=0;
-        instruction ins = instructions[idx];
-        while (!is_null_instruction(ins)) {
+    if ((ins_ct=lookup_word(ctx->words, word, instructions))) {
+        for(int idx=0; idx < ins_ct; idx++) {
+            instruction ins = instructions[idx];
             insert_opcode(ctx, ins);
-            idx++;
-            ins = instructions[idx];
         }
     } else {
         // Are we a literal?
@@ -272,6 +270,7 @@ bool compile(context *ctx, char* input) {
             word = &buffer[i+1];
         }
     }
+    insert_opcode(ctx, (instruction){});
     free(buffer);
     return(true);
 }
