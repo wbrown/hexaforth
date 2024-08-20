@@ -69,10 +69,10 @@ int vm(context *ctx) {
     register int16_t EIP = ctx->EIP;        // EIP = execution pointer
     register int16_t SP = 0;                // SP = data stack pointer
     register int16_t RSP = 0;               // RSP = return stack pointer
-    register int64_t T = ctx->DSTACK[SP];   // T = Top Of Stakc / TOS
+    register int64_t T = ctx->DSTACK[SP];   // T = Top Of Stack / TOS
     register int64_t R = ctx->RSTACK[RSP];  // R = Top Of Return Stack / TOR
     register int64_t IN = 0;                // I = input to ALU
-    register int64_t N = 0;                 // N = Next on Stack / NOS
+    register int64_t N;                     // N = Next on Stack / NOS
     register int64_t OUT = 0;               // OUT - result from ALU
     register uint64_t cycles = ctx->CYCLES; // how many instructions processed
 
@@ -138,6 +138,8 @@ int vm(context *ctx) {
                         // `R->IN`
                         IN = R;
                         break;
+                    default:
+                        break;
                 }
                 // Perform our ALU op
                 switch (ins.alu.alu_op) {
@@ -201,9 +203,6 @@ int vm(context *ctx) {
                         OUT = *(uint64_t*)((uint8_t*)(&ctx->memory[0])+IN);
                         break;
                     }
-                        // `[IN]->OUT`
-                        break;
-
                     case ALU_IO_READ:
                         // `io[IN]->OUT`
                         OUT = io_read_handler(ctx, IN);
@@ -264,6 +263,9 @@ int vm(context *ctx) {
                 }
                 break;
             }
+            // This should never happen.
+            default:
+                break;
         }
         // print_stack(SP,T, ctx, false);
     }

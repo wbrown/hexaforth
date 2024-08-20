@@ -93,14 +93,26 @@ bool lookup_op_word(word_node* nodes, char* word, instruction* lookup) {
     return(interpret_imm(word, lookup));
 }
 
-void report_opcode(instruction* ins, word_node* opcodes, int num_words) {
+void decode_instruction(char* out, instruction ins, word_node words[]) {
+    const char* forth_word = lookup_opcode(words, ins);
+    char* ins_r = instruction_to_str(ins);
+    sprintf(out,
+            HX "%04hx => %-10s => %s",
+            *(uint16_t*)&ins,
+            forth_word ? forth_word : "",
+            ins_r);
+    free(ins_r);
+}
+
+void report_opcode(const instruction* ins, word_node* opcodes, int num_words) {
     static int last_reported = -1;
-    char out[160];
+    char out[640];
     decode_instruction(out,
                        *ins,
                        opcodes);
     if (num_words != last_reported) {
         last_reported = num_words;
+        printf("%s\n", opcodes[num_words].repr);
         printf("OPCODE[%4d]: %s\n", num_words, out);
     } else {
         printf("              %s\n", out);
@@ -143,12 +155,14 @@ bool init_opcodes(word_node* opcodes) {
                 // the termination of the string.
                 buffer[i]='\0';
                 if (strlen(word)) {
-                    instruction lookup[8];
+                    instruction lookup[128];
                     if (lookup_op_word(opcodes, word, (instruction*)&lookup)) {
                         // if we're a `term` or `code` field, we need to flush our
                         // accumulated instruction.
                         uint8_t num_ins = lookup_word(opcodes, word, (instruction*)&lookup);
                         if (num_ins) {
+                            opcodes[num_words].repr = op->repr;
+                            opcodes[num_words].type = op->type;
                             for(int ins_idx=0; ins_idx < num_ins; ins_idx++) {
                                 instruction idxed_ins = lookup[ins_idx];
                                 opcodes[num_words].ins[op_idx+ins_idx] = idxed_ins;
@@ -156,8 +170,6 @@ bool init_opcodes(word_node* opcodes) {
                             }
                             op_idx += num_ins;
                             opcodes[num_words].num_ins = op_idx;
-                            opcodes[num_words].repr = op->repr;
-                            opcodes[num_words].type = op->type;
                             instruction_acc = 0;
                         } else if (is_term(word)) {
                             instruction_acc = instruction_acc | *(uint16_t*)&lookup;

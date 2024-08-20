@@ -28,13 +28,20 @@ void generate_basewords_fs(const char* path) {
 
     word_node* curr_word = &FORTH_WORDS[0];
     while(curr_word->repr && strlen(curr_word->repr)) {
-        if (curr_word->type != CODE) {
-            char* decoded = instruction_to_str(curr_word->ins[0]);
-            fprintf(out, ":: %-9s %s ;\n",
-                    curr_word->repr,
-                    decoded);
-            free(decoded);
+        char* decoded = instruction_to_str(curr_word->ins[0]);
+        fprintf(out, ":: %-9s %s",
+            curr_word->repr,
+            decoded);
+        free(decoded);
+        if (curr_word->type == CODE) {
+            for(int idx=1; idx < curr_word->num_ins; idx++) {
+                fprintf(out, "\n");
+                decoded = instruction_to_str(curr_word->ins[idx]);
+                fprintf(out, "   %-9s %s", "", decoded);
+                free(decoded);
+            }
         }
+        fprintf(out, " ;\n");
         curr_word++;
     }
     fclose(out);

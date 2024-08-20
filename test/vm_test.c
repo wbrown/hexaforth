@@ -55,6 +55,7 @@ bool next_literal(char** buffer, int64_t* num) {
 bool generate_expected(const char* input, counted_array* expected_stack) {
     char* results = (char*)input;
     expected_stack->sz = 0;
+    expected_stack->elems = malloc(0);
 
     if (input == NULL) {
         return(true);
@@ -84,7 +85,6 @@ bool generate_expected(const char* input, counted_array* expected_stack) {
 bool init_image(context *ctx, hexaforth_test test) {
     if (test.init && strlen(test.init)) {
         counted_array* parsed = calloc(sizeof(counted_array), 1);
-        parsed->elems = malloc(0);
         bool results = generate_expected(test.init, parsed);
         if (results) {
             for (int i=0; i<parsed->sz; i++) {

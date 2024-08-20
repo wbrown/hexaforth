@@ -32,7 +32,7 @@ bool is_null_instruction(instruction ins) {
 // associated with the word into the image.
 bool compile_word(context *ctx, const char* word) {
     int ins_ct = 0;
-    instruction instructions[8] = {};
+    instruction instructions[32] = {};
     if ((ins_ct=lookup_word(ctx->words, word, instructions))) {
         for(int idx=0; idx < ins_ct; idx++) {
             instruction ins = instructions[idx];

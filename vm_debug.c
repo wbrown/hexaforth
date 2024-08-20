@@ -6,21 +6,22 @@
 #include "vm_debug.h"
 #include "vm.h"
 
-void decode_instruction(char* out, instruction ins, word_node words[]) {
-    const char* forth_word = lookup_opcode(words, ins);
-    char* ins_r = instruction_to_str(ins);
-    sprintf(out,
-            HX "%04hx => %-10s => %s",
-            *(uint16_t*)&ins,
-            forth_word ? forth_word : "",
-            ins_r);
-    free(ins_r);
-}
+// void decode_instruction(char* out, instruction ins, word_node words[]) {
+//     const char* forth_word = lookup_opcode(words, ins);
+//     char* ins_r = instruction_to_str(ins);
+//     sprintf(out,
+//             HX "%04hx => %-10s => %s",
+//             *(uint16_t*)&ins,
+//             forth_word ? forth_word : "",
+//             ins_r);
+//     free(ins_r);
+// }
 
 void debug_address(char* decoded, context* ctx, uint64_t addr) {
     char* meta = ctx->meta[addr];
     char* target_meta = NULL;
     char decoded_ins[160];
+    const char* forth_word = NULL;
 
     instruction ins = *(instruction*)&ctx->memory[addr];
     if (!ins.lit.lit_f && ins.alu.op_type != OP_TYPE_ALU) {
@@ -37,6 +38,9 @@ void debug_address(char* decoded, context* ctx, uint64_t addr) {
 void debug_monitor(int64_t T, int16_t R,
                    int16_t EIP, int16_t SP, int16_t RSP,
                    context *ctx) {
+    ctx->EIP = EIP;
+    ctx->SP = SP;
+    ctx->RSP = RSP;
     fprintf(ctx->OUT, "@$%0.4x !! ", EIP);
     int idx;
     char buf[160];

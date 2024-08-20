@@ -59,12 +59,12 @@
 \ words
 :: halt      $0000                                              ubranch ;
 :: noop              T->IN   IN->      ->T     d+0    r+0       alu     ;
-:: +                 T->IN   IN+N      ->T     d-1    r+0       alu     ;
 :: xor               T->IN   IN^N      ->T     d-1    r+0       alu     ;
 :: and               T->IN   IN&N      ->T     d-1    r+0       alu     ;
 :: or                T->IN   IN|N      ->T     d-1    r+0       alu     ;
-:: *                 T->IN   IN*N      ->T     d-1    r+0       alu     ;
 :: invert            T->IN   ~IN       ->T     d+0    r+0       alu     ;
+:: +                 T->IN   IN+N      ->T     d-1    r+0       alu     ;
+:: *                 T->IN   IN*N      ->T     d-1    r+0       alu     ;
 :: =                 T->IN   IN==N     ->T     d-1    r+0       alu     ;
 :: <                 T->IN   N<IN      ->T     d-1    r+0       alu     ;
 :: u<                T->IN   Nu<IN     ->T     d-1    r+0       alu     ;
@@ -78,6 +78,7 @@
 :: over              N->IN   IN->      ->T     d+1    r+0       alu     ;
 :: >r                T->IN   IN->      ->R     d-1    r+1       alu     ;
 :: r>                R->IN   IN->      ->T     d+1    r-1       alu     ;
+:: over>r            N->IN   IN->      ->R     d+0    r+1       alu     ;
 :: r@                R->IN   IN->      ->T     d+1    r+0       alu     ;
 :: @                 [T]->IN IN->      ->T     d+0    r+0       alu     ;
 :: @+                [T]->IN IN+N      ->T     d-1    r+0       alu     ;
@@ -105,3 +106,90 @@
 :: swapr>            R->IN   T<>N,IN-> ->T     d+1    r-1       alu     ;
 :: 1+             1          imm+                               imm     ;
 :: 2+             2          imm+                               imm     ;
+:: 2*             1                                             imm    
+                     N->IN   IN<<T     ->T     d-1    r+0       alu     ;
+:: 2/             1                                             imm    
+                     N->IN   IN>>T     ->T     d-1    r+0       alu     ;
+:: negate            T->IN   ~IN       ->T     d+0    r+0       alu    
+                  1          imm+                               imm     ;
+:: -                 T->IN   ~IN       ->T     d+0    r+0       alu    
+                  1          imm+                               imm    
+                     T->IN   IN+N      ->T     d-1    r+0       alu     ;
+:: emit         241                                             imm    
+                     N->IN   IN->      ->io[T] d-2    r+0       alu     ;
+:: 8emit        240                                             imm    
+                     N->IN   IN->      ->io[T] d-2    r+0       alu     ;
+:: key          224                                             imm    
+                     T->IN   io[IN]    ->T     d+0    r+0       alu     ;
+:: rot               T->IN   IN->      ->R     d-1    r+1       alu    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     R->IN   IN->      ->T     d+1    r-1       alu    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu     ;
+:: -rot              N->IN   T->N,IN-> ->R     d-1    r+1       alu    
+                     R->IN   T<>N,IN-> ->T     d+1    r-1       alu     ;
+:: 2dup              N->IN   IN->      ->T     d+1    r+0       alu    
+                     N->IN   IN->      ->T     d+1    r+0       alu     ;
+:: 2swap             T->IN   IN->      ->R     d-1    r+1       alu    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     R->IN   IN->      ->T     d+1    r-1       alu    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     T->IN   IN->      ->R     d-1    r+1       alu    
+                     T->IN   IN->      ->R     d-1    r+1       alu    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     R->IN   IN->      ->T     d+1    r-1       alu    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     R->IN   IN->      ->T     d+1    r-1       alu     ;
+:: 2over             T->IN   IN->      ->R     d-1    r+1       alu    
+                     T->IN   IN->      ->R     d-1    r+1       alu    
+                     N->IN   IN->      ->T     d+1    r+0       alu    
+                     N->IN   IN->      ->T     d+1    r+0       alu    
+                     R->IN   IN->      ->T     d+1    r-1       alu    
+                     R->IN   T<>N,IN-> ->T     d+1    r-1       alu    
+                     N->IN   T->N,IN-> ->R     d-1    r+1       alu    
+                     T->IN   IN->      ->R     d-1    r+1       alu    
+                     R->IN   T<>N,IN-> ->T     d+1    r-1       alu    
+                     R->IN   T<>N,IN-> ->T     d+1    r-1       alu     ;
+:: 3rd               T->IN   IN->      ->R     d-1    r+1       alu    
+                     N->IN   IN->      ->T     d+1    r+0       alu    
+                     R->IN   IN->      ->T     d+1    r-1       alu    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu     ;
+:: 3dup              T->IN   IN->      ->R     d-1    r+1       alu    
+                     N->IN   IN->      ->T     d+1    r+0       alu    
+                     R->IN   IN->      ->T     d+1    r-1       alu    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     T->IN   IN->      ->R     d-1    r+1       alu    
+                     N->IN   IN->      ->T     d+1    r+0       alu    
+                     R->IN   IN->      ->T     d+1    r-1       alu    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     T->IN   IN->      ->R     d-1    r+1       alu    
+                     N->IN   IN->      ->T     d+1    r+0       alu    
+                     R->IN   IN->      ->T     d+1    r-1       alu    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu     ;
+:: >                 N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     T->IN   N<IN      ->T     d-1    r+0       alu     ;
+:: u>                N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     T->IN   Nu<IN     ->T     d-1    r+0       alu     ;
+:: 0=             0                                             imm    
+                     T->IN   IN==N     ->T     d-1    r+0       alu     ;
+:: 0<             0                                             imm    
+                     T->IN   N<IN      ->T     d-1    r+0       alu     ;
+:: 0>             0                                             imm    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     T->IN   N<IN      ->T     d-1    r+0       alu     ;
+:: <>                T->IN   IN==N     ->T     d-1    r+0       alu    
+                     T->IN   ~IN       ->T     d+0    r+0       alu     ;
+:: 0<>            0                                             imm    
+                     T->IN   IN==N     ->T     d-1    r+0       alu    
+                     T->IN   ~IN       ->T     d+0    r+0       alu     ;
+:: 1-             1                                             imm    
+                     T->IN   ~IN       ->T     d+0    r+0       alu    
+                  1          imm+                               imm    
+                     T->IN   IN+N      ->T     d-1    r+0       alu     ;
+:: bounds            T->IN   IN+N      ->T     d+0    r+0       alu    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu     ;
+:: s>d               T->IN   IN->      ->T     d+1    r+0       alu    
+                  0                                             imm    
+                     T->IN   N<IN      ->T     d-1    r+0       alu     ;
+:: .s             0                                             imm    
+                224                                             imm    
+                     N->IN   IN->      ->io[T] d-2    r+0       alu     ;

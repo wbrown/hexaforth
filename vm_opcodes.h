@@ -67,7 +67,7 @@ enum DEF_TYPE {
 typedef struct {
     char           repr[40];
     uint8_t        type;
-    instruction    ins[8];
+    instruction    ins[64];
     uint8_t        ins_ct;
 } forth_op;
 
@@ -187,6 +187,7 @@ static forth_define FORTH_OPS[] = {
         {"over",    "       N->IN              ->T       d+1       alu"},
         {">r",      "       T->IN              ->R       d-1  r+1  alu"},
         {"r>",      "       R->IN              ->T       d+1  r-1  alu"},
+        {"over>r",  "       N->IN              ->R            r+1  alu"},
         {"r@",      "       R->IN              ->T       d+1       alu"},
         {"@",       "       [T]->IN            ->T                 alu"},
         {"@+",      "       [T]->IN IN+N       ->T       d-1       alu"},
@@ -221,13 +222,30 @@ static forth_define FORTH_OPS[] = {
         {"emit",    "241                                           imm io!", CODE},
         {"8emit",   "240                                           imm io!", CODE},
         {"key",     "224                                           imm io@", CODE},
+        {"rot",     ">r swap r> swap", CODE},
+        {"-rot",    "swap>r swapr>", CODE},
+        {"2dup",    "over over", CODE},
+        {"2swap",   "rot >r rot r>", CODE},
+        {"2over",   ">r >r over over r> swapr> swap>r >r swapr> swapr>", CODE},
+        {"3rd",     ">r over r> swap", CODE},
+        {"3dup",    "3rd 3rd 3rd", CODE},
+        {">",       "swap <", CODE},
+        {"u>",      "swap u< ", CODE},
+        {"0=",      "0 imm =", CODE},
+        {"0<",      "0 imm <", CODE},
+        {"0>",      "0 imm >", CODE},
+        {"<>",      "= invert", CODE},
+        {"0<>",     "0 imm <>", CODE},
+        {"1-",      "1 imm -", CODE},
+        {"bounds",  "over+ swap", CODE},
+        {"s>d",     "dup 0<", CODE},
         {".s",      "0 imm 224 imm io!", CODE}};
 
 // Instructions associated with string representations.
 typedef struct {
     char* repr;
     uint8_t num_ins;
-    instruction ins[8];
+    instruction ins[64];
     uint8_t type;
 } word_node;
 
@@ -236,6 +254,7 @@ typedef struct {
 // `FORTH_WORDS`.
 static word_node FORTH_WORDS[256]={};
 
+void decode_instruction(char* out, instruction ins, word_node words[]);
 bool ins_eq(instruction a, instruction b);
 bool interpret_imm(const char* word, instruction* literal);
 uint8_t lookup_word(word_node* nodes, const char* word, instruction* lookup);

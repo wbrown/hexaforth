@@ -48,37 +48,37 @@ header decimal : decimal ( -- )         d# 10 ;fallthru
                : setbase ( n -- )       base ! ;
 
 \ stack ops
-header rot    : rot  ( n0 n1 n2 -- n1 n2 n0 ) >r swap r> swap ;
-header -rot   : -rot ( n0 n1 n2 -- n2 n0 n1 ) swap>r swapr> ;
-header 2dup   : 2dup ( n0 n1 -- n0 n1 n0 n1 ) over over ;
+\ header rot    : rot  ( n0 n1 n2 -- n1 n2 n0 ) >r swap r> swap ;
+\ header -rot   : -rot ( n0 n1 n2 -- n2 n0 n1 ) swap>r swapr> ;
+\ header 2dup   : 2dup ( n0 n1 -- n0 n1 n0 n1 ) over over ;
 header ?dup   : ?dup ( n -- a|a f)            dup if dup then ;
-header 2swap  : 2swap ( ab cd -- cd ab )      rot >r rot r> ;
-header 2over  : 2swap ( ab cd -- ab cd ab )   >r >r 2dup r> r> 2swap ;
-header 3rd    : 3rd ( abc -- abc a )          >r over r> swap ;
-header 3dup   : 3dup ( abc -- abc abc )       3rd 3rd 3rd ;
+\ header 2swap  : 2swap ( ab cd -- cd ab )      rot >r rot r> ;
+\ header 2over  : 2swap ( ab cd -- ab cd ab )   >r >r 2dup r> r> 2swap ;
+\ header 3rd    : 3rd ( abc -- abc a )          >r over r> swap ;
+\ header 3dup   : 3dup ( abc -- abc abc )       3rd 3rd 3rd ;
 
 \ alu ops
-header >       : >       ( n n -- f )       swap < ;
-header u>      : u>      ( n n -- f )       swap u< ;
-header 0=      : 0=      ( n -- f )         d# 0 = ;
-header 0<      : 0<      ( n -- f )         d# 0 < ;
-header 0>      : 0>      ( n -- f )         d# 0 > ;
-header <>      : <>      ( n -- ~n )        = invert ;
-header 0<>     : 0<>     ( n -- f )         d# 0 <> ;
-header negate  : negate  ( n -- ~a+1 )      invert 1+ ;
-header -       : -       ( n n -- n-n )     negate + ;
-header 1-      : 1-      ( n -- n-1 )       d# 1 - ;
+\ header >       : >       ( n n -- f )       swap < ;
+\ header u>      : u>      ( n n -- f )       swap u< ;
+\ header 0=      : 0=      ( n -- f )         d# 0 = ;
+\ header 0<      : 0<      ( n -- f )         d# 0 < ;
+\ header 0>      : 0>      ( n -- f )         d# 0 > ;
+\ header <>      : <>      ( n -- ~n )        = invert ;
+\ header 0<>     : 0<>     ( n -- f )         d# 0 <> ;
+\ header negate  : negate  ( n -- ~a+1 )      invert 1+ ;
+\ header -       : -       ( n n -- n-n )     negate + ;
+\ header 1-      : 1-      ( n -- n-1 )       d# 1 - ;
 header abs     : abs     ( n -- n )         dup 0< if negate then ;
-header bounds  : bounds  ( a n -- a+n a )   over+ swap ;
-header 2*      : 2*      ( n -- n*2 )       d# 1 lshift ;
-header 2/      : 2/      ( n -- n/2 )       dup 0< if
-                                            invert d# 1 rshift invert else
-                                            d# 1 rshift then ;
+\ header bounds  : bounds  ( a n -- a+n a )   over+ swap ;
+\ header 2*      : 2*      ( n -- n*2 )       d# 1 lshift ;
+\ header 2/      : 2/      ( n -- n/2 )       dup 0< if
+\                                            invert d# 1 rshift invert else
+\                                            d# 1 rshift then ;
 header /string : /string ( *c u n -- *c u ) dup >r - swap r> + swap ;
 header min     : min     ( n n - n )        2dup< if drop else nip then ;
 header max     : max     ( n n - n )        2dup< if nip else drop then ;
 header um*     : um*     ( u1 u2 -- ud )    abs swap abs * ;
-header s>d     : s>d     ( s -- s f )       dup 0< ;
+\ header s>d     : s>d     ( s -- s f )       dup 0< ;
 
 
 : ud* ( ud1 u -- ud2 ) \ ud2 is the product of ud1 and u
@@ -554,7 +554,7 @@ create testvar 8 allot
 
 header main
 : main
-  echoback
+  quit
   halt
 ;
 

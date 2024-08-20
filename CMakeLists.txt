@@ -1,15 +1,15 @@
 cmake_minimum_required(VERSION 3.17)
 project(hexaforth C)
 
-# set(DEBUG false)
+set(DEBUG true)
 set(CMAKE_C_STANDARD 99)
 
 set(CMAKE_C_FLAGS_RELEASE "-save-temps -O2 -fverbose-asm -fcommon")
 set(CMAKE_C_FLAGS_DEBUG "-save-temps -g -fverbose-asm -fcommon")
 
-# if(DEBUG)
-#    add_compile_definitions(DEBUG)
-# endif()
+if(DEBUG)
+   add_compile_definitions(DEBUG)
+endif()
 
 # hexaforth nucleus image from swapforth
 add_custom_command(
@@ -78,7 +78,7 @@ target_compile_definitions(vm_core_debug
         DEBUG)
 
 # VM tests
-add_executable(hexaforth-test
+add_executable(hexaforth_test
         vm_opcodes.c
         vm_opcodes.h
         vm_instruction.h
@@ -87,9 +87,9 @@ add_executable(hexaforth-test
         test/vm_test.h
         test/compiler.c
         test/compiler.h)
-target_link_libraries(hexaforth-test
+target_link_libraries(hexaforth_test
         vm_core_debug)
-target_compile_definitions(hexaforth-test
+target_compile_definitions(hexaforth_test
         PUBLIC
         TEST
         DEBUG)
