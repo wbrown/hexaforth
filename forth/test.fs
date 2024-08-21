@@ -20,7 +20,7 @@ meta
 target
 
 header *dictbegin*
-create nmask8   $ffffff00 , $ffffffff ,
+\ create nmask8   $ffffff00 , $ffffffff ,
 \ create ffff     $ffff     , $0 ,
 \ create nmask16  $ffff0000 , $ffffffff ,
 \ create ffffffff $ffffffff , $0 ,
@@ -91,13 +91,13 @@ header execute : execute                2/ >r ;
 \ memory address calculations, loads, stores
 header cell+  : cell+ ( n -- n+cell )  d# 8 + ;
 header cells  : cells ( n -- n*cell )  d# 3 lshift ;
-header hi32   : hi32 ( n -- w )        d# 32 rshift ;
-header lo32   : lo32 ( n -- w )        d# 32 lshift d# 32 rshift ;
-header hi16   : hi16 ( n -- s )        d# 32 lshift d# 48 rshift ;
-header lo16   : lo16 ( n -- s )        d# 48 lshift d# 48 rshift ;
-header >><<   : >><< ( n n -- n )      tuck rshift swap lshift ;
-header c!     : c! ( u *c -- )         >r h# ff and @r nmask8 @and or r> ! ;
-header c@     : c@ ( *c -- c )         @ h# ff and ;
+\ header hi32   : hi32 ( n -- w )        d# 32 rshift ;
+\ header lo32   : lo32 ( n -- w )        d# 32 lshift d# 32 rshift ;
+\ header hi16   : hi16 ( n -- s )        d# 32 lshift d# 48 rshift ;
+\ header lo16   : lo16 ( n -- s )        d# 48 lshift d# 48 rshift ;
+\ header >><<   : >><< ( n n -- n )      tuck rshift swap lshift ;
+\ header c!     : c! ( u *c -- )         >r h# ff and @r nmask8 @and or r> ! ;
+\ header c@     : c@ ( *c -- c )         @ h# ff and ;
 header w!     : w! ( u *c -- )         >r h# ffff and @r d# 16 >><< or r> ! ;
 header uw@    : uw@ ( *c -- w )        \ aliased to w@ as we're a 64-bit forth
 header w@     : w@ ( *c -- w )         @ h# ffff and ;
@@ -123,9 +123,9 @@ header >xt    : >xt ( -- )             d# 2 + count + caligned uw@ ;
 : hex2 dup d# 4 rshift DOUBLE
 header io!    :noname                  io! ;
 header io@    :noname                  io@ ;
-header emit   : emit ( ch -- )         IO-OUT io! ;
-header key    : key ( -- ch )          IO-IN  io@ ;
-header .s     : .s ( -- )              d# 0 h# e0 io! ;
+\ header emit   : emit ( ch -- )         IO-OUT io! ;
+\ header key    : key ( -- ch )          IO-IN  io@ ;
+\ header .s     : .s ( -- )              d# 0 h# e0 io! ;
 header bl     : bl ( -- )              [SPACE] ;
 header space  : space ( -- )           [SPACE] emit ;
 header cr     : cr ( -- )              [LF] emit [CR] emit ;
@@ -481,7 +481,7 @@ header-imm postpone
 header s/key/key      : s/key/key      ( ch ch ch - ch )    -rot over= if
                                                              drop else
                                                              swap drop then ;
-header key-printable? : key-printable? ( ch - f )           [PRINTABLE] u> ;
+header key-printable? : key-printable? ( ch - f )           dup [PRINTABLE] u> swap [SPACE] = or ;
 header is-key?        : is-key?        ( ch ch - f ch )     over= swap ;
 header insert-char    : insert-char    ( a l ch -- a l ch ) >r 2dup + r@
                                                             swap c! 1+ r> ;
@@ -522,7 +522,8 @@ header accept
 
 header refill
 : refill
-    source-id 0= dup
+    \ source-id 0= dup
+    source-id 0=
     if
         tib dup d# 128 accept
         source!
@@ -532,14 +533,22 @@ header refill
 
 header quit
 : quit
+    [char] o emit
+    [char] k emit
     begin
         refill drop
         interpret
         space
         [char] o emit
         [char] k emit
-        halt
-        cr
+    again
+;
+
+: echobacktib
+    begin
+        refill
+        source
+        type
     again
 ;
 

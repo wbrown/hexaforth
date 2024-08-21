@@ -239,6 +239,14 @@ static forth_define FORTH_OPS[] = {
         {"1-",      "1 imm -", CODE},
         {"bounds",  "over+ swap", CODE},
         {"s>d",     "dup 0<", CODE},
+        {"hi32",    "32 imm rshift", CODE},
+        {"lo32",    "32 imm lshift 32 imm rshift", CODE},
+        {"hi16",    "32 imm lshift 48 imm rshift", CODE},
+        {"lo16",    "48 imm lshift 48 imm rshift", CODE},
+        {">><<",    "tuck rshift swap lshift", CODE},
+        {"nmask8",  "255 imm invert", CODE},
+        {"c!",      ">r 255 imm and @r nmask8 and or r> !", CODE},
+        {"c@",      ">r @r 255 imm and r> 256 imm and or", CODE},
         {".s",      "0 imm 224 imm io!", CODE}};
 
 // Instructions associated with string representations.
