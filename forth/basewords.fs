@@ -190,6 +190,44 @@
 :: s>d               T->IN   IN->      ->T     d+1    r+0       alu    
                   0                                             imm    
                      T->IN   N<IN      ->T     d-1    r+0       alu     ;
+:: hi32          32                                             imm    
+                     N->IN   IN>>T     ->T     d-1    r+0       alu     ;
+:: lo32          32                                             imm    
+                     N->IN   IN<<T     ->T     d-1    r+0       alu    
+                 32                                             imm    
+                     N->IN   IN>>T     ->T     d-1    r+0       alu     ;
+:: hi16          32                                             imm    
+                     N->IN   IN<<T     ->T     d-1    r+0       alu    
+                 48                                             imm    
+                     N->IN   IN>>T     ->T     d-1    r+0       alu     ;
+:: lo16          48                                             imm    
+                     N->IN   IN<<T     ->T     d-1    r+0       alu    
+                 48                                             imm    
+                     N->IN   IN>>T     ->T     d-1    r+0       alu     ;
+:: >><<              T->IN   T<>N,IN-> ->T     d+1    r+0       alu    
+                     N->IN   IN>>T     ->T     d-1    r+0       alu    
+                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     N->IN   IN<<T     ->T     d-1    r+0       alu     ;
+:: nmask8       255                                             imm    
+                     T->IN   ~IN       ->T     d+0    r+0       alu     ;
+:: c!                T->IN   IN->      ->R     d-1    r+1       alu    
+                255                                             imm    
+                     T->IN   IN&N      ->T     d-1    r+0       alu    
+                     R->IN   [IN]      ->T     d+1    r+0       alu    
+                255                                             imm    
+                     T->IN   ~IN       ->T     d+0    r+0       alu    
+                     T->IN   IN&N      ->T     d-1    r+0       alu    
+                     T->IN   IN|N      ->T     d-1    r+0       alu    
+                     R->IN   IN->      ->T     d+1    r-1       alu    
+                     N->IN   IN->      ->[T]   d-2    r+0       alu     ;
+:: c@                T->IN   IN->      ->R     d-1    r+1       alu    
+                     R->IN   [IN]      ->T     d+1    r+0       alu    
+                255                                             imm    
+                     T->IN   IN&N      ->T     d-1    r+0       alu    
+                     R->IN   IN->      ->T     d+1    r-1       alu    
+                256                                             imm    
+                     T->IN   IN&N      ->T     d-1    r+0       alu    
+                     T->IN   IN|N      ->T     d-1    r+0       alu     ;
 :: .s             0                                             imm    
                 224                                             imm    
                      N->IN   IN->      ->io[T] d-2    r+0       alu     ;
