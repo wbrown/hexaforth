@@ -120,7 +120,7 @@ The system uses a sophisticated toolchain that keeps the VM simple while providi
 
 **Build Process**:
 1. `basewords-fs-gen` reads C definitions and generates `forth/basewords.fs`
-2. `forth/cross.fs` cross-compiles Forth source to hex files  
+2. `forth/cross.fs` cross-compiles Forth source to hex files
 3. VM loads and executes hex files directly
 
 **Testing**: The test framework includes a mini Forth compiler that uses the same instruction definitions to compile test cases.
@@ -132,7 +132,7 @@ This design provides a single source of truth for instruction encodings while ke
 Tests are defined in `test/main.c` as an array of `hexaforth_test` structures. Each test specifies:
 - Input Forth code
 - Expected data stack state
-- Expected return stack state  
+- Expected return stack state
 - Optional IO expectations
 
 ## Development Notes
@@ -143,6 +143,83 @@ Tests are defined in `test/main.c` as an array of `hexaforth_test` structures. E
 - The "dumb VM" design eliminates all interpreter overhead for maximum performance
 - The project explores how dataflow principles can optimize stack machine performance
 - All Forth complexity lives in the toolchain, not the runtime
+
+## Cross-Compiling Programs
+
+To create a program for hexaforth using the cross-compiler (cross.fs), follow this structure:
+
+### Basic Template
+
+```forth
+\ Your program description
+
+meta
+    4 org        \ Set origin after basewords
+target
+
+header word1 : word1
+    \ your code here
+;
+
+header word2 : word2
+    \ your code here
+;
+
+\ REQUIRED: Define main and quit
+header main : main
+    \ your initialization/main code
+    \ main should eventually call quit or halt
+;
+
+header quit : quit
+    halt  \ or your main loop
+;
+```
+
+### Key Requirements
+
+1. **Vocabulary Switching**: Use `meta`/`target` to switch between host and target compilation
+2. **Headers**: Each word needs `header name` before its definition for dictionary linking
+3. **Entry Points**: Must define both `main` and `quit` - cross.fs expects these at addresses 0 and 1
+4. **Number Literals**: Use prefixes in target vocabulary:
+   - `d# 123` for decimal numbers
+   - `h# FF` for hex numbers
+   - Plain numbers like `5` won't work in target vocabulary
+
+### Compilation
+
+```bash
+cd forth
+gforth ./cross.fs ./basewords.fs ./yourprogram.fs
+```
+
+This creates:
+- `../build/yourprogram.hex` - The compiled hex file
+- `../build/yourprogram.lst` - Symbol listing (addresses include 0x4000 offset)
+
+### Example
+
+```forth
+\ Simple test program
+
+meta
+    4 org
+target
+
+header double : double d# 2 * ;
+header test : test d# 21 double ;
+header main : main test drop halt ;
+header quit : quit halt ;
+```
+
+### Debugging
+
+Use the disassembler to inspect compiled output:
+```bash
+./disasm_hex build/yourprogram.hex
+```
+
+The first few addresses (0x0000-0x0002) contain the bootloader that calls main and quit.
 
 ## Key Architectural Insight
 
