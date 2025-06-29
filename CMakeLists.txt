@@ -44,6 +44,33 @@ add_executable(basewords-fs-gen
         vm_debug.c
         vm_debug.h)
 
+# Test case generator
+add_executable(generate-test-cases
+        test/generate_test_cases.c
+        test/tests.h
+        test/vm_test.h
+        vm_opcodes.c
+        vm_opcodes.h
+        vm.h
+        vm_debug.c
+        vm_debug.h)
+
+# Generate test_cases.fs from tests.h
+add_custom_command(
+        COMMAND           ${CMAKE_BINARY_DIR}/generate-test-cases
+        OUTPUT            ${CMAKE_SOURCE_DIR}/forth/test_cases.fs
+        DEPENDS           generate-test-cases
+                          test/tests.h)
+
+# Compile test_cases.fs to hex
+add_custom_command(
+        COMMAND           gforth cross.fs basewords.fs test_cases.fs
+        OUTPUT            ${CMAKE_SOURCE_DIR}/build/test_cases.hex
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
+        DEPENDS           forth/test_cases.fs
+                          forth/cross.fs
+                          forth/basewords.fs)
+
 # kick off our entire forth environment
 add_custom_target(forth-env
         ALL
@@ -96,16 +123,22 @@ target_compile_definitions(hexaforth_test
 
 add_custom_target(tests
         ALL
-        COMMAND           ${CMAKE_BINARY_DIR}/hexaforth-test 2> hexaforth-test.debug
-        DEPENDS           hexaforth-test)
+        COMMAND           ${CMAKE_BINARY_DIR}/hexaforth_test 2> hexaforth_test.debug
+        DEPENDS           hexaforth_test
+                          build/test_cases.hex)
 
 # Main executable
 add_executable(hexaforth
         main.c
         build/nuc.hex
         build/test.hex)
-target_link_libraries(hexaforth
-        vm_core)
+if(DEBUG)
+    target_link_libraries(hexaforth
+            vm_core_debug)
+else()
+    target_link_libraries(hexaforth
+            vm_core)
+endif()
 
 # Debug executable
 if(DEBUG)

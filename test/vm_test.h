@@ -7,6 +7,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "../vm.h"
 
 typedef struct {
   const char *label;
