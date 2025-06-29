@@ -41,7 +41,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
 
 
     next_ptr = ctx->memory[last_addr] / 2;
-    dprintf("WORDS: ");
+    dprintf("WORDS:\n");
 
     uint16_t DP0;
     uint16_t WORDCT=0;
@@ -58,7 +58,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
         // Tag the code address with our word's string
         asprintf(&ctx->meta[code_addr], "%s", word);
         WORDCT++;
-        dprintf("0x%0.4x @ %s => 0x%0.4x", target, word, code_addr);
+        dprintf("  0x%0.4x @ %s => 0x%0.4x\n", target, word, code_addr);
         next_ptr = ctx->memory[next_ptr] / 2;
         if (!next_ptr) {
             DP0 = target;
