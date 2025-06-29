@@ -104,7 +104,12 @@ void decode_instruction(char* out, instruction ins, word_node words[]) {
     free(ins_r);
 }
 
+// Global flag to suppress opcode output
+int suppress_opcode_output = 1;
+
 void report_opcode(const instruction* ins, word_node* opcodes, int num_words) {
+    if (suppress_opcode_output) return;
+
     static int last_reported = -1;
     char out[640];
     decode_instruction(out,
