@@ -60,15 +60,15 @@ warnings off
 :: [else]       postpone [else] ;
 :: [then]       postpone [then] ;
 
-: literal
-    \ dup $f rshift over $e rshift xor 1 and throw
-    dup h# 8000 and if
-        h# ffff xor recurse
-        ~T alu
-    else
-        h# 8000 or tcode,
-    then
-;
+\ : literal
+\    \ dup $f rshift over $e rshift xor 1 and throw
+\    dup h# 8000 and if
+\        h# ffff xor recurse
+\        ~T alu
+\    else
+\        h# 8000 or tcode,
+\    then
+\ ;
 
 \ ===========================================================================
 \ literal encoding for hexaforth
@@ -89,8 +89,9 @@ warnings off
 \ to encode +1 to +4095 in a single instruction.
 \ ===========================================================================
 
-variable literal-magnitude   0 ,
-variable initializer-lit?    true ,
+\ Variables for tracking literal encoding state
+variable literal-magnitude   0 ,      \ Tracks how many 12-bit shifts needed (0-3)
+variable initializer-lit?    true ,   \ True if this is the first literal instruction
 
 : incr-lit-magnitude
   literal-magnitude @ 1 + literal-magnitude !
@@ -109,45 +110,99 @@ variable initializer-lit?    true ,
 ;
 
 : set-lit-magnitude
+  \ Convert magnitude counter (0-3) to shift encoding bits:
+  \ 0 -> 0x0000 (no shift)
+  \ 1 -> 0x1000 (shift 12, bits 12-13 = 01)
+  \ 2 -> 0x2000 (shift 24, bits 12-13 = 10)
+  \ 3 -> 0x3000 (shift 36, bits 12-13 = 11)
   literal-magnitude @ dup if
-    12 lshift or               \ move magnitude to 12th and 13th bits
+    12 lshift or               \ move magnitude to bits 12-13
   else
     drop
   then
 ;
 
-: literal-write?
-  literal-magnitude @ invert   \ if it's 0 magnitude ...
-  initializer-lit?  @ and      \ AND if we're the first literal
-                      or       \ or we're non-zero ... allow the write
+: literal-write? ( value -- value flag )
+  \ Decide whether to write this chunk
+  \ Write if: value is non-zero OR (mag=0 AND init=true)
+  dup 0<>                      \ value non-zero?
+  literal-magnitude @ 0=       \ mag=0?
+  initializer-lit? @ and       \ mag=0 AND init?
+  or                           \ write if non-zero OR (mag=0 AND init)
 ;
 
-: _literal
-    dup 0 < if
-        invert recurse            \ we're negative, so we invert to positive
-        ~T alu                    \ at the end of it all, we write an `invert`
+: should-write-chunk? ( chunk init mag -- chunk flag )
+    \ Check if chunk should be written (non-zero OR (mag=0 AND init))
+    rot dup >r          \ chunk init mag | R: chunk
+    rot                 \ mag chunk init | R: chunk  
+    swap 0<>            \ mag init chunk<>0 | R: chunk
+    rot 0=              \ init chunk<>0 mag=0 | R: chunk
+    rot and             \ chunk<>0 mag=0&init | R: chunk
+    or                  \ flag | R: chunk
+    r> swap             \ chunk flag
+;
+
+: write-chunk ( chunk mag init -- init' )
+    \ Write a chunk with given magnitude, return updated init flag
+    rot swap                     \ chunk init mag
+    over $fff and                \ chunk init mag chunk&fff
+    swap dup if                  \ chunk init chunk&fff mag
+        12 lshift or             \ chunk init encoded
     else
-        dup $fffff000 and if
-          dup 12 rshift           \ 12 bits at a time
-          incr-lit-magnitude
-          recurse                 \ recurse, we return to this point
-          $fff and                \ mask to 12-bits
-          recurse                 \ recurse again
+        drop                     \ chunk init chunk&fff
+    then
+    nip                          \ init encoded
+    
+    \ Add imm+ flag if not first chunk
+    over 0= if
+        imm+                     \ add accumulate flag
+    then
+    
+    h# 8000 or tcode,            \ emit instruction
+    drop false                   \ return false (not init anymore)
+;
+
+: _literal ( n -- )
+    \ Recursively encode a literal value into 12-bit chunks
+    \ Processes from MSB to LSB, writing instructions in reverse order
+    dup 0 < if
+        invert recurse            \ Handle negative: convert to positive
+        ~T alu                    \ Then add invert instruction at end
+    else
+        dup $fffffffffffff000 and if      \ Check if value needs > 12 bits (64-bit mask)
+          dup 12 rshift           \ Get upper bits (shift right by 12)
+          incr-lit-magnitude      \ Track that we need a bigger shift
+          recurse                 \ Process upper bits first (MSB to LSB)
+          $fff and                \ Mask current value to lower 12 bits
+          recurse                 \ Process lower 12 bits
         else
-            dup literal-write? if \ for the zero case
-              set-lit-magnitude   \ correct magnitude
-              add-imm+-flag       \ add imm+ flag if required
-              imm                 \ write it all out as a literal instruction
+            \ Base case: value fits in 12 bits
+            literal-write? if     \ Check if should write
+              $fff and            \ Mask to 12 bits
+              ." Writing chunk " dup hex . ." at mag " literal-magnitude @ . decimal
+              set-lit-magnitude   \ Set correct magnitude bits
+              ." after set-lit: " dup hex . decimal
+              add-imm+-flag       \ Add imm+ flag if not first chunk
+              ." after add-imm+: " dup hex . cr decimal
+              h# 8000 or          \ Set literal flag
+              ." final instruction: " dup hex . cr decimal  
+              tcode,              \ Write to code memory
+            else
+              drop                \ Skip zero chunks in middle of literal
             then
             decr-lit-magnitude
          then
      then
 ;
 
-: literal
-  0    literal-magnitude !        \ reset magnitude to 0
-  true initializer-lit?  !        \ reset whether or not we've written first lit out
+: literal ( n -- )
+  \ Main entry point for encoding literals up to 48 bits
+  \ NOTE: Values > 48 bits not supported (would need special handling)
+  0    literal-magnitude !        \ Reset shift counter
+  true initializer-lit?  !        \ Mark as first literal instruction
+  dup ." DEBUG: literal " hex . decimal cr
   _literal
+  ." Final mag: " literal-magnitude @ . cr
 ;
 
 ( Defining words for target                  JCB 19:04 05/02/12)
@@ -198,6 +253,8 @@ variable wordstart
     wordstr lst @ write-line throw
 
     there wordstart !
+    0    literal-magnitude !        \ Reset shift counter
+    true initializer-lit?  !        \ Mark as first literal instruction
     create  codeptr ,
     does>   @ scall
 
