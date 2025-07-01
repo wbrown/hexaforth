@@ -100,12 +100,16 @@ int vm(context *ctx) {
             continue;
         }
         switch (ins.alu.op_type) {
-            case OP_TYPE_CJMP:
-                // Conditional jump based on TOS value truthiness.
+            case OP_TYPE_CJMP: {
+                // Conditional jump - jumps if TOS is zero (0branch)
                 SP--;
                 bool RES=(uint64_t)T;
                 T=ctx->DSTACK[SP-1];
-                if (RES) break;
+                if (!RES) {
+                    EIP = ins.jmp.target;
+                }
+                break;
+            }
             case OP_TYPE_JMP:
                 // Unconditional jump
                 EIP = ins.jmp.target;

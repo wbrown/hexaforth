@@ -18,7 +18,8 @@ add_custom_command(
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
         DEPENDS           forth/cross.fs
                           forth/basewords.fs
-                          forth/nuc.fs)
+                          forth/nuc.fs
+                          basewords-fs-gen)
 
 # adhoc test
 add_custom_command(

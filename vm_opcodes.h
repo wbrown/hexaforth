@@ -178,6 +178,7 @@ static forth_define FORTH_OPS[] = {
         {"<",       "       T->IN   N<IN       ->T       d-1       alu"},
         {"u<",      "       T->IN   Nu<IN      ->T       d-1       alu"},
         {"swap",    "       N->IN   T->N,IN->  ->T                 alu"},
+        {"dup>r",   "       T->IN              ->R            r+1  alu"},
         {"dup",     "       T->IN              ->T       d+1       alu"},
         {"nip",     "       T->IN   T->N,IN->  ->T       d-1       alu"},
         {"tuck",    "       T->IN   T<>N,IN->  ->T       d+1       alu"},
@@ -207,7 +208,6 @@ static forth_define FORTH_OPS[] = {
         {"r@;",     "       R->IN              ->T  RET  d+1  r-1  alu"},
         {"2dup<",   "       T->IN   N<IN       ->T       d+1       alu"},
         {"overand", "       T->IN   IN&N       ->T                 alu"},
-        {"dup>r",   "       T->IN              ->R            r+1  alu"},
         {"2dupxor", "       T->IN   IN^N       ->T       d+1       alu"},
         {"over+",   "       T->IN   IN+N       ->T                 alu"},
         {"over=",   "       T->IN   IN==N      ->T                 alu"},
@@ -245,8 +245,13 @@ static forth_define FORTH_OPS[] = {
         {"lo16",    "48 imm lshift 48 imm rshift", CODE},
         {">><<",    "tuck rshift swap lshift", CODE},
         {"nmask8",  "255 imm invert", CODE},
-        {"c!",      ">r 255 imm and @r nmask8 and or r> !", CODE},
+        {"w@",      "@ lo16", CODE},
         {"c@",      ">r @r 255 imm and r> 256 imm and or", CODE},
+        {"c!",      ">r 255 imm and @r nmask8 and or r> !", CODE},
+        {"nmask16",  "0 imm invert 16 imm lshift", CODE},
+        {"w!",      ">r lo16 r@ @ nmask16 and or r> !", CODE},
+        {"2w@",     "dup w@ swap 2+ w@", CODE},
+        {"2w!",     "dup>r 2+ w! r> w!", CODE},
         {".s",      "0 imm 224 imm io!", CODE}};
 
 // Instructions associated with string representations.

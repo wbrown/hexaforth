@@ -31,7 +31,7 @@ bool is_null_instruction(instruction ins) {
 // associated with the word into the image.
 bool compile_word(context *ctx, const char *word) {
   int ins_ct = 0;
-  instruction instructions[32] = {};
+  instruction instructions[64] = {};
   if ((ins_ct = lookup_word(ctx->words, word, instructions))) {
     for (int idx = 0; idx < ins_ct; idx++) {
       instruction ins = instructions[idx];
@@ -40,12 +40,15 @@ bool compile_word(context *ctx, const char *word) {
   } else {
     // Are we a literal?
     char *decode_end;
-    int64_t num = strtoll(word, &decode_end, 10);
+    // Use strtoull for parsing to handle large unsigned values
+    // then cast to signed for consistency with cross.fs
+    uint64_t unum = strtoull(word, &decode_end, 10);
     if (*decode_end) {
       printf("ERROR: '%s' not found!\n", word);
       return (false);
     } else {
-      insert_literal(ctx, num);
+      // Cast to signed to match cross.fs behavior
+      insert_literal(ctx, (int64_t)unum);
     }
   }
   return (true);
@@ -175,6 +178,7 @@ void insert_string(context *ctx, char *str) {
 // literal on top of the stack.
 void insert_literal(context *ctx, int64_t n) {
   dprintf("HERE[0x%0.4d]: COMPILE_LITERAL: %lld\n", ctx->HERE, n);
+  
   uint64_t acc; // Our accumulator, really a deccumlator
   bool negative = n < 0;
   if (negative) {
@@ -209,6 +213,20 @@ void insert_literal(context *ctx, int64_t n) {
       acc = acc << 16 >> 16; // Sign-extend lower 48 bits
       first_ins = false;
     }
+  }
+  
+  // Check if we can use the invert optimization
+  // This works for both negative numbers and large positive numbers
+  // that have mostly 1 bits (like 0xffffffffffffff00)
+  // Do this after handling >48 bit values
+  uint64_t inverted = ~acc;
+  if (inverted <= LIT_UMASK && first_ins) {
+    // Use the optimization: push inverted value then invert
+    literal.lit.lit_v = inverted;
+    literal.lit.lit_shifts = 0;
+    insert_opcode(ctx, literal);
+    compile_word(ctx, "invert");
+    return;
   }
 
   // Process literal in 12-bit chunks from MSB to LSB to match cross.fs

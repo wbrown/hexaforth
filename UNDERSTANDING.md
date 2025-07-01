@@ -58,6 +58,26 @@ Hexaforth adds multiplexers:
 
 This transforms every instruction into a configurable dataflow operation, enabling direct paths between any source and destination.
 
+### Literal Encoding Design
+
+The 64-bit literal encoding system emerged from the constraint of fitting 64-bit values into 16-bit instructions:
+
+**Structure**: 12-bit immediate + 2-bit shift + 1-bit add flag
+- Reduced from J1's 15-bit literals to 12-bit
+- Shift positions: 0, 12, 24, 36 bits
+- Add flag enables incremental value building
+
+**Key insights**:
+1. Most 64-bit values are sparse (addresses, small numbers)
+2. Building values incrementally eliminates zero segments
+3. The add flag turns literals into immediate ALU operations
+
+**Synergy with dataflow**: The reduced 12-bit range (vs J1's 15-bit) is offset by the input multiplexer's `[T]` option. Direct memory-to-ALU paths reduce the need for large immediate addressing:
+- `addr @` + `+` (3 ops) → `addr` + `(IN=[T], ALU=ADD)` (2 ops)
+- For addresses <4096: single literal + memory operation
+
+The literal system and dataflow architecture compensate for each other's limitations, creating a more efficient whole.
+
 ## Core Design Patterns
 
 ### Unencoded Instructions
@@ -325,6 +345,51 @@ Hexaforth demonstrates that small changes to instruction encoding can fundamenta
 The metacircular build system ensures perfect synchronization: changes to instruction encoding in C headers automatically propagate through code generation, cross-compilation, and VM execution. This eliminates documentation drift and enables rapid experimentation with instruction set changes.
 
 The core insight - that specific operations like T→N, T→R, and N→[T] are special cases of general data routing - shows how finding the right abstraction can unlock capabilities that were always latent in the hardware. The multiplexers don't add complexity; they reveal the simplicity that was always there.
+
+## Architectural Tensions: 16-bit Heritage in a 64-bit World
+
+Hexaforth embodies a fundamental tension between its 16-bit heritage and 64-bit ambitions:
+
+### The Three-Way Impedance Mismatch
+
+1. **16-bit opcodes** - Instructions are 16 bits wide (from J1)
+   - Limits immediate literals to 12 bits (0-4095)
+   - Requires multi-instruction sequences for larger values
+   - Provides excellent code density
+
+2. **64-bit stack cells** - The VM operates on 64-bit values
+   - Enables modern computational power
+   - Natural for contemporary processors
+   - But requires complex literal encoding
+
+3. **Byte addressing with 16-bit data layout** - Memory model complexity
+   - The cross-compiler generates 16-bit cells (J1/Swapforth heritage)
+   - Memory is byte-addressed (not word-addressed like J1)
+   - Dictionary entries, link fields, etc. are all 16-bit values
+
+### The Cost of Compatibility
+
+This mismatch necessitates an entire compatibility layer:
+- `w@` and `w!` for 16-bit memory access (with byte preservation)
+- `2w@` and `2w!` for paired 16-bit values (like source buffers)
+- Complex literal encoding that builds 64-bit values from 12-bit chunks
+- Careful distinction between byte addresses (for data) and word addresses (for code)
+
+In a pure 16-bit Forth, none of this would exist. The simplicity would be profound:
+- `@` would just read a cell
+- Addresses would increment by 1 for the next cell
+- No mask-and-preserve operations
+- No shift-and-accumulate literal building
+
+### Why This Complexity?
+
+The complexity serves a purpose: it allows hexaforth to be a bridge between classic Forth implementations and modern computing:
+- Runs classic 16-bit Forth code (via cross-compilation)
+- Leverages 64-bit computational power
+- Maintains code density through 16-bit instructions
+- Preserves the metacircular elegance (cross.fs can bootstrap the system)
+
+This demonstrates why many Forth implementations remain 16-bit: the elegance of matching your cell size to your instruction size to your addressing granularity is hard to beat. Hexaforth shows both what you gain (modern computational power) and what you lose (architectural simplicity) when you break that symmetry.
 
 ## Comparison with Other Forth Implementations
 
