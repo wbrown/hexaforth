@@ -45,8 +45,8 @@ target
 
 header 1-       : 1-        d# -1 + ;
 header 0=       : 0=        d# 0 = ;
-header cell+    : cell+     d# 4 + ;
-header cells    : cells     d# 2 lshift ;
+header cell+    : cell+     d# 8 + ;        \ 64-bit cells = 8 bytes
+header cells    : cells     d# 3 lshift ;   \ multiply by 8 for 64-bit
 
 header <>       : <>        = invert ; 
 header >        : >         swap < ; 
@@ -122,17 +122,11 @@ header hi32  : hi32 ( dw -- w ) d# 32 rshift ;
 header lo32  : lo32 ( dw -- w ) d# 32 lshift d# 32 rshift ;
 header hi16  : hi16 ( dw -- s ) d# 32 lshift d# 48 rshift ;
 header lo16  : lo16 ( dw -- s ) d# 48 lshift d# 48 rshift ;
-header c!    : c! ( u c-addr -- ) dup>r @ d# 8 rshift d# 8 lshift or r> ! ;
-header c@    : c@ ( c-addr -- c ) @ h# ff and ;
-header w!    : w! ( u c-addr -- ) dup>r @ d# 16 rshift d# 16 lshift or r> ! ;
-header w@    : w@ ( c-addr -- w ) @ h# ffff and ;
 header +!    : +! ( u c-addr -- ) tuck @ + swap ! ;
 
 header uw@
 : uw@
-    dup@ swap
-    d# 2 and d# 3 lshift rshift
-    lo16
+    w@
 ;
 
 header w!
@@ -612,16 +606,16 @@ header cmove>
 
 header execute
 : execute
-    >r
+    2/ >r
 ;
 
 header source
 : source
-    sourceC 2@
+    sourceC 2w@
 ;
 
 : source! ( addr u -- ) \ set the source
-    sourceC 2!
+    sourceC 2w!
 ;
 
 header source-id
@@ -631,9 +625,11 @@ header source-id
 
 \ From Forth200x - public domain
 
+header isspace?
 : isspace? ( c -- f )
     h# 21 u< ;
 
+header isnotspace?
 : isnotspace? ( c -- f )
     isspace? 0= ;
 
@@ -657,6 +653,7 @@ header parse-name
     drop r> tuck -
 ;
 
+header isnotdelim
 : isnotdelim
     delim @ <>
 ;
@@ -702,7 +699,7 @@ header c,
 
 : attach
     lastword @ ?dup if
-        forth !
+        forth w!
     then
 ;
 
@@ -725,7 +722,7 @@ header s,
 : mkheader
     calign
     here lastword !
-    forth @ w,
+    forth w@ w,
     parse-name
     s,
     calign
@@ -782,7 +779,7 @@ header :noname
 
 : jumpable ( op -- f )
     dup h# e000 and h# 4000 =       \ is a call
-    swap h# 1fff and 2* ['] (loopdone) <> and
+    swap h# 1fff and ['] (loopdone) 2/ <> and
 ;
 
 header-imm exit
@@ -874,7 +871,7 @@ header compile,
 
 header does>
 :noname
-    r> 2/
+    r>
     lastword @
     >xt d# 2 +  \ ready to patch the RETURN
     w!

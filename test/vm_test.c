@@ -14,7 +14,9 @@ bool decode_literal(const char *begin, const char *end, int64_t *num) {
   char *literal_s = malloc(literal_len + 1);
   memcpy(literal_s, begin, literal_len);
   literal_s[literal_len] = '\0';
-  *num = strtoll(literal_s, &decode_end, 10);
+  // Use strtoull to handle large unsigned values, then cast to signed
+  uint64_t unum = strtoull(literal_s, &decode_end, 10);
+  *num = (int64_t)unum;
   if (*decode_end) {
     printf("ERROR: '%s' is not a literal!\n", literal_s);
     num = NULL;

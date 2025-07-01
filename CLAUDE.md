@@ -139,10 +139,28 @@ Tests are defined in `test/main.c` as an array of `hexaforth_test` structures. E
 
 - Debug builds define the `DEBUG` macro and include verbose tracing
 - The VM implements both 8-bit character operations and full 64-bit operations
-- Memory is word-addressed (not byte-addressed)
+- Memory is word-addressed for branches/calls but byte-addressed for data access
 - The "dumb VM" design eliminates all interpreter overhead for maximum performance
 - The project explores how dataflow principles can optimize stack machine performance
 - All Forth complexity lives in the toolchain, not the runtime
+
+### Memory Access Operations
+
+Hexaforth provides multiple memory access widths:
+
+- **`@` and `!`**: 64-bit memory operations (8 bytes)
+- **`w@` and `w!`**: 16-bit memory operations (2 bytes) - essential for dictionary access
+- **`c@` and `c!`**: 8-bit memory operations (1 byte)
+
+The dictionary structure inherited from J1/Swapforth uses 16-bit values, so proper `w@` and `w!` implementations are critical for correct operation. These preserve other bytes in the 64-bit word:
+- `w@`: Reads 64 bits then masks to lower 16 bits using `lo16`
+- `w!`: Reads existing 64-bit value, masks out lower 16 bits, ORs in new value
+- `2w@`: Reads two consecutive 16-bit values (e.g., for source buffer)
+- `2w!`: Writes two consecutive 16-bit values while preserving other bytes
+
+### Dictionary Structure
+
+The Forth dictionary uses 16-bit cells for compatibility with the J1 heritage, even though hexaforth is a 64-bit system. This requires careful use of `w@` instead of `@` when reading dictionary entries, link fields, and execution tokens. The cross-compiler maintains this 16-bit structure while the VM operates with 64-bit cells.
 
 ## Cross-Compiling Programs
 

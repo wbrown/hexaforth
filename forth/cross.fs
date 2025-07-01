@@ -207,7 +207,7 @@ variable initializer-lit?    true ,   \ True if this is the first literal instru
 
 ( Defining words for target                  JCB 19:04 05/02/12)
 
-: codeptr   tcp @ 2/ ;  \ target data pointer as a jump address
+: codeptr   tcp @ 2/ ;  \ target code pointer as a word address
 
 : wordstr ( "name" -- c-addr u )
     >in @ >r bl word count r> >in !
@@ -389,7 +389,7 @@ warnings on
 ;
 
 :: DOUBLE
-    tcp @ 2/ 1+ scall
+    tcp @ 2 + 2/ scall
 ;
 
 :: then
