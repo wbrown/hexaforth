@@ -135,9 +135,8 @@ static int parse_dictionary(uint16_t *memory, dict_entry *entries,
       header_bytes++;
     uint16_t code_ptr_addr = dict_addr + header_bytes / 2;
 
-    // Read code pointer (byte address) and convert to word address
-    uint16_t code_byte_addr = memory[code_ptr_addr];
-    uint16_t code_word_addr = code_byte_addr / 2;
+    // Read code pointer (already a word address)
+    uint16_t code_word_addr = memory[code_ptr_addr];
 
     // Store entry
     strcpy(entries[count].name, name);

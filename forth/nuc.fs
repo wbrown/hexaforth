@@ -102,8 +102,8 @@ header bl
 header .x       : . hex8 space ;
 header .x2      : . hex2 space ;
 
-header true     : true  d# 0 ;
-header false    : false d# -1 ;
+header true     : true  d# -1 ;
+header false    : false d# 0 ;
 header rot      : rot   >r swap r> swap ; 
 header -rot     : -rot  swap >r swap r> ; 
 header tuck     : tuck  swap over ; 
@@ -606,7 +606,7 @@ header cmove>
 
 header execute
 : execute
-    2/ >r
+    >r
 ;
 
 header source
@@ -779,7 +779,7 @@ header :noname
 
 : jumpable ( op -- f )
     dup h# e000 and h# 4000 =       \ is a call
-    swap h# 1fff and ['] (loopdone) 2/ <> and
+    swap h# 1fff and ['] (loopdone) <> and
 ;
 
 header-imm exit
@@ -863,7 +863,7 @@ header compile,
         dup isliteral if
             uw@ code,
         else
-            2/ h# 4000 or
+            h# 4000 or
             code,
         then
     then

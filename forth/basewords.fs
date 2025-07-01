@@ -265,34 +265,15 @@
                      N->IN   IN<<T     ->T     d-1    r+0       alu    
                  48                                             imm    
                      N->IN   IN>>T     ->T     d-1    r+0       alu     ;
-:: 2w!               T->IN   IN->      ->R     d+0    r+1       alu    
-                  2          imm+                               imm    
-                     T->IN   IN->      ->R     d-1    r+1       alu    
-                 48                                             imm    
-                     N->IN   IN<<T     ->T     d-1    r+0       alu    
-                 48                                             imm    
-                     N->IN   IN>>T     ->T     d-1    r+0       alu    
-                     R->IN   IN->      ->T     d+1    r+0       alu    
-                     [T]->IN IN->      ->T     d+0    r+0       alu    
-                  0                                             imm    
-                     T->IN   ~IN       ->T     d+0    r+0       alu    
+:: 2w!               T->IN   IN->      ->R     d-1    r+1       alu    
                  16                                             imm    
                      N->IN   IN<<T     ->T     d-1    r+0       alu    
-                     T->IN   IN&N      ->T     d-1    r+0       alu    
                      T->IN   IN|N      ->T     d-1    r+0       alu    
-                     R->IN   IN->      ->T     d+1    r-1       alu    
-                     N->IN   IN->      ->[T]   d-2    r+0       alu    
-                     R->IN   IN->      ->T     d+1    r-1       alu    
-                     T->IN   IN->      ->R     d-1    r+1       alu    
-                 48                                             imm    
-                     N->IN   IN<<T     ->T     d-1    r+0       alu    
-                 48                                             imm    
-                     N->IN   IN>>T     ->T     d-1    r+0       alu    
                      R->IN   IN->      ->T     d+1    r+0       alu    
                      [T]->IN IN->      ->T     d+0    r+0       alu    
                   0                                             imm    
                      T->IN   ~IN       ->T     d+0    r+0       alu    
-                 16                                             imm    
+                 32                                             imm    
                      N->IN   IN<<T     ->T     d-1    r+0       alu    
                      T->IN   IN&N      ->T     d-1    r+0       alu    
                      T->IN   IN|N      ->T     d-1    r+0       alu    

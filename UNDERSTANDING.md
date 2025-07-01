@@ -21,20 +21,23 @@ Hexaforth is a 64-bit Forth VM inspired by the J1 Forth CPU, implementing a data
 - **48-bit Literal System**: 12-bit values with shift and add flags
 - **Memory-to-Memory Operations**: Direct dataflow paths
 - **Metacircular Build System**: Self-describing architecture
+- **Dual Addressing Model**: Byte addresses for data, word addresses for code
 
 **Technical Impact**:
 1. Memory operations execute in 1 cycle instead of 3-5
 2. Instruction count reduced by 3-5x for common operations
 3. Changes to instruction set propagate automatically through toolchain
 4. Instruction encoding serves as both implementation and documentation
+5. Execution tokens consistently use word addresses throughout
 
 **Architecture**:
 - VM executes 16-bit packed instructions without decoding
 - C headers define instruction encoding as single source of truth
 - Code generation creates Forth assembler from C definitions
 - Cross-compilation using gforth produces hex files for VM execution
+- 16-bit memory layout preserves J1/Swapforth compatibility
 
-The implementation demonstrates how adding routing flexibility fundamentally transforms a stack machine into a dataflow architecture.
+The implementation demonstrates how adding routing flexibility fundamentally transforms a stack machine into a dataflow architecture, while the memory model shows the complexity of bridging 16-bit and 64-bit worlds.
 
 ## Overview
 
@@ -449,3 +452,103 @@ Hexaforth challenges the assumption that stack machines must route all operation
 4. VM loads hex and executes
 
 This ensures perfect synchronization between all components.
+
+## Memory Model and Execution Token Architecture
+
+### The Dual Addressing Model
+
+Hexaforth implements a sophisticated dual addressing model that emerged from reconciling J1's word-addressed architecture with modern byte-addressed expectations:
+
+1. **Data addresses are byte addresses**
+   - Memory access operations (`@`, `!`, `c@`, `c!`) use byte addresses
+   - Pointer arithmetic works in bytes
+   - Compatible with C interop and modern expectations
+
+2. **Code addresses are word addresses**
+   - The VM's EIP (instruction pointer) counts 16-bit words
+   - Execution tokens stored in dictionary are word addresses
+   - Branch targets in instructions are word addresses
+   - No conversion needed when calling or jumping
+
+### Execution Token Consistency
+
+A critical architectural decision: **all execution tokens are word addresses**. This creates a consistent model:
+
+```forth
+\ Dictionary header stores word address
+tcp @ 2/ tw,  \ Store code pointer as word address
+
+\ Execute takes a word address
+: execute
+    >r  \ Push word address directly to return stack
+;
+
+\ Compile, uses word address
+: compile,
+    h# 4000 or  \ Add CALL bit to word address
+    code,
+;
+```
+
+This avoids the confusion of mixed address spaces. When you hold an execution token, it's always a word address, whether it came from:
+- Dictionary lookup (`' word`)
+- CREATE...DOES> constructs
+- :NONAME definitions
+- Literal XT values
+
+### The 2w! Optimization Story
+
+The `2w!` operation demonstrates the sophistication possible when understanding the memory model deeply:
+
+**Original implementation**:
+```forth
+: 2w!  ( lo hi addr -- )
+    dup>r -rot w! r> 2+ w!  \ Two separate 16-bit writes
+;
+```
+
+**Optimized implementation**:
+```forth
+: 2w!  ( lo hi addr -- )
+    >r 16 imm lshift or     \ Combine into 32-bit value
+    r@ @ 0 imm invert       \ Load 64-bit, create mask
+    32 imm lshift and or    \ Preserve upper 32 bits
+    r> !                    \ Single 64-bit write
+;
+```
+
+This optimization matters because:
+1. **Reduced memory operations**: One read-modify-write instead of two
+2. **Atomic updates**: The 32-bit value updates atomically
+3. **Better cache behavior**: Single cache line access
+4. **Preserved semantics**: Still writes two 16-bit values
+
+### Dictionary Structure and Memory Layout
+
+The dictionary maintains J1/Swapforth compatibility with 16-bit structures:
+
+```
+Dictionary Entry:
++0: link     (16-bit word address of previous entry)
++2: count|immediate (8-bit count, 7-bit immediate flag)
++3: name     (count bytes)
++n: padding  (to 16-bit alignment)
++n+2: code   (16-bit word address of code)
+```
+
+This creates interesting challenges:
+- Name strings pack into 16-bit cells
+- Code pointers are word addresses (not byte addresses)
+- Link fields chain through 16-bit values
+- Everything aligns to 16-bit boundaries
+
+### Why This Complexity Matters
+
+The memory model decisions cascade through the entire system:
+
+1. **Cross-compiler compatibility**: Can run J1/Swapforth code
+2. **Modern expectations**: Byte addressing for strings and data
+3. **Performance**: Word addressing eliminates shifts in inner loop
+4. **Correctness**: Consistent execution token model prevents bugs
+
+The system would be simpler with pure word addressing (like J1) or pure byte addressing (like C), but the hybrid model enables Hexaforth to bridge both worlds effectively.

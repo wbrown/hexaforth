@@ -251,7 +251,7 @@ static forth_define FORTH_OPS[] = {
         {"nmask16",  "0 imm invert 16 imm lshift", CODE},
         {"w!",      ">r lo16 r@ @ nmask16 and or r> !", CODE},
         {"2w@",     "dup w@ swap 2+ w@", CODE},
-        {"2w!",     "dup>r 2+ w! r> w!", CODE},
+        {"2w!",     ">r 16 imm lshift or r@ @ 0 imm invert 32 imm lshift and or r> !", CODE},
         {".s",      "0 imm 224 imm io!", CODE}};
 
 // Instructions associated with string representations.
