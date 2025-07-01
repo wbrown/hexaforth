@@ -179,13 +179,9 @@ variable initializer-lit?    true ,   \ True if this is the first literal instru
             \ Base case: value fits in 12 bits
             literal-write? if     \ Check if should write
               $fff and            \ Mask to 12 bits
-              ." Writing chunk " dup hex . ." at mag " literal-magnitude @ . decimal
               set-lit-magnitude   \ Set correct magnitude bits
-              ." after set-lit: " dup hex . decimal
               add-imm+-flag       \ Add imm+ flag if not first chunk
-              ." after add-imm+: " dup hex . cr decimal
               h# 8000 or          \ Set literal flag
-              ." final instruction: " dup hex . cr decimal  
               tcode,              \ Write to code memory
             else
               drop                \ Skip zero chunks in middle of literal
@@ -200,9 +196,7 @@ variable initializer-lit?    true ,   \ True if this is the first literal instru
   \ NOTE: Values > 48 bits not supported (would need special handling)
   0    literal-magnitude !        \ Reset shift counter
   true initializer-lit?  !        \ Mark as first literal instruction
-  dup ." DEBUG: literal " hex . decimal cr
   _literal
-  ." Final mag: " literal-magnitude @ . cr
 ;
 
 ( Defining words for target                  JCB 19:04 05/02/12)
@@ -227,7 +221,7 @@ variable link 0 link !
         i c@ tc,
     loop
     twalign
-    tcp @ tw,
+    tcp @ 2/ tw,
 ;
 
 :: header-imm
@@ -240,7 +234,7 @@ variable link 0 link !
         i c@ tc,
     loop
     twalign
-    tcp @ tw,
+    tcp @ 2/ tw,
 ;
 
 variable wordstart
