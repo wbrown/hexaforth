@@ -158,9 +158,9 @@ int main(int argc, char *argv[]) {
       if (header_bytes & 1)
         header_bytes++; // Add padding if odd
       uint16_t code_addr = dict_addr + header_bytes / 2;
-      // The value at code_addr is a byte address - convert to word address
-      uint16_t code_byte_addr = memory[code_addr];
-      uint16_t code_word_addr = code_byte_addr / 2;
+      // The value at code_addr is a word address (after execution token consistency fix)
+      uint16_t code_word_addr = memory[code_addr];
+      uint16_t code_byte_addr = code_word_addr * 2;
 
       printf(
           "  '%s' @ 0x%04X: code at word 0x%04X (byte 0x%04X), link=0x%04X\n",
