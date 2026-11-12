@@ -20,6 +20,8 @@
 // IO ports:
 //   0xf1 write   UART transmit            (emit)
 //   0xe0 read    UART receive, blocking   (key)
+//   0xc0 write   latch a machine address  read: machine address of VM byte 0
+//   0xc1/c2/c4/c8  read or write 8/16/32/64 bits at the latched address
 //   0xd0 read    data stack depth      write: set it, reloading T
 //   0xd1 read    return stack depth    write: set it, reloading R
 
@@ -31,10 +33,12 @@
 
         .equ    IO_EMIT,     0xf1
         .equ    IO_KEY,      0xe0
+        .equ    IO_ADDR,     0xc0
         .equ    IO_SP,       0xd0
         .equ    IO_RSP,      0xd1
 
 MEM     .req    x19     // host address of VM byte 0
+IOA     .req    x20     // latched machine address for the device ports
 PC      .req    x21     // word address of next instruction
 T       .req    x22     // top of data stack
 R       .req    x23     // top of return stack
@@ -62,6 +66,7 @@ _start:
         add     DS, MEM, #DSTACK_BASE
         add     RS, DS, #(RSTACK_BASE - DSTACK_BASE)
         mov     PC, #0
+        mov     IOA, MEM
         mov     T, #0
         mov     R, #0
 
@@ -156,7 +161,29 @@ key:    ldr     w12, [UART, #UART_FR]
         and     IO, IO, #0xff
         b       alu_done
 io_read:
-        cmp     IO, #IO_SP
+        sub     x12, IO, #IO_ADDR               // device ports 0xc0-0xc8
+        cmp     x12, #8
+        b.hi    5f
+        mov     IO, MEM                         // 0xc0: where VM byte 0 is
+        cbz     x12, alu_done
+        mov     IO, #0
+        tbnz    x12, #0, 3f
+        tbnz    x12, #1, 4f
+        tbz     x12, #2, 6f
+        ldr     w10, [IOA]                      // 0xc4
+        b       alu_done
+6:      tbz     x12, #3, alu_done
+        ldr     IO, [IOA]                       // 0xc8
+        b       alu_done
+3:      cmp     x12, #1
+        b.ne    alu_done
+        ldrb    w10, [IOA]                      // 0xc1
+        b       alu_done
+4:      cmp     x12, #2
+        b.ne    alu_done
+        ldrh    w10, [IOA]                      // 0xc2
+        b       alu_done
+5:      cmp     IO, #IO_SP
         b.eq    1f
         cmp     IO, #IO_RSP
         mov     IO, #0
@@ -202,7 +229,29 @@ out_io: cmp     OLDT, #IO_EMIT                  // 2: ->io[T]
         tbnz    w12, #5, 1b                     // TXFF: transmit FIFO full
         str     w10, [UART]
         b       fix_r
-2:      add     x12, MEM, IO, lsl #3            // new stack pointer, less its base
+2:      sub     x12, OLDT, #IO_ADDR             // device ports 0xc0-0xc8
+        cmp     x12, #8
+        b.hi    8f
+        cbnz    x12, 5f
+        mov     IOA, IO                         // 0xc0: latch
+        b       fix_r
+5:      cmp     x12, #1
+        b.ne    6f
+        strb    w10, [IOA]                      // 0xc1
+        b       fix_r
+6:      cmp     x12, #2
+        b.ne    7f
+        strh    w10, [IOA]                      // 0xc2
+        b       fix_r
+7:      cmp     x12, #4
+        b.ne    9f
+        str     w10, [IOA]                      // 0xc4
+        b       fix_r
+9:      cmp     x12, #8
+        b.ne    fix_r
+        str     IO, [IOA]                       // 0xc8
+        b       fix_r
+8:      add     x12, MEM, IO, lsl #3            // new stack pointer, less its base
         cmp     OLDT, #IO_SP
         b.ne    4f
         add     DS, x12, #DSTACK_BASE

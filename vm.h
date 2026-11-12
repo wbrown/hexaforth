@@ -25,7 +25,8 @@ typedef struct { int EIP;
     FILE       *IN;
     char*      meta[65536];
     word_node* words;
-    uint64_t   CYCLES; } context;
+    uint64_t   CYCLES;
+    int64_t    IOADDR; } context;
 
 static inline uint8_t clz(uint64_t N);
 static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write);

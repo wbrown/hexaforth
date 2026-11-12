@@ -559,11 +559,11 @@ header execute
 
 header source
 : source
-    sourceC 2w@
+    sourceC 2@
 ;
 
 : source! ( addr u -- ) \ set the source
-    sourceC 2w!
+    sourceC 2!
 ;
 
 header source-id
@@ -1308,7 +1308,7 @@ header refill
 ;
 
 header evaluate
-:noname
+: tevaluate
     source >r >r >in @ >r
     source-id >r d# -1 sourceid !
     source! d# 0 >in !
@@ -1338,6 +1338,15 @@ header quit
     then
     quit
 ;
+
+\ Everything below is compiled into code page 1.  The kernel never calls it
+\ directly: these words are reached by name from the prompt, or through an
+\ execution token.
+meta
+    $2000 org
+target
+
+include system.fs
 
 meta
     link @ t,
