@@ -19,6 +19,8 @@
 //   0xf1 write   UART transmit            (emit)
 //   0xe0 read    UART receive, blocking   (key)
 //   0xb0 write   byte address of the 8KB block to map into the code window
+//   0xd0 read    data stack depth      write: set it, reloading T
+//   0xd1 read    return stack depth    write: set it, reloading R
 
         .equ    UART_BASE,   0x09000000      // PL011 on QEMU `virt`
         .equ    UART_FR,     0x18
@@ -29,6 +31,8 @@
         .equ    IO_EMIT,     0xf1
         .equ    IO_KEY,      0xe0
         .equ    IO_BANK,     0xb0
+        .equ    IO_SP,       0xd0
+        .equ    IO_RSP,      0xd1
 
 MEM     .req    x19     // host address of VM byte 0
 BANK    .req    x20     // fetch base for the code window
@@ -146,13 +150,24 @@ alu_ops:
         ldr     IO, [MEM, IO]                   // 14  [IN]
         b       alu_done
         cmp     IO, #IO_KEY                     // 15  io[IN]
-        b.eq    key
-        mov     IO, #0
-        b       alu_done
+        b.ne    io_read
 key:    ldr     w12, [UART, #UART_FR]
         tbnz    w12, #4, key                    // RXFE: nothing received yet
         ldr     w10, [UART]
         and     IO, IO, #0xff
+        b       alu_done
+io_read:
+        cmp     IO, #IO_SP
+        b.eq    1f
+        cmp     IO, #IO_RSP
+        mov     IO, #0
+        b.ne    alu_done
+        sub     IO, RS, #(RSTACK_BASE - DSTACK_BASE)
+        b       2f
+1:      mov     IO, DS
+2:      sub     IO, IO, MEM
+        sub     IO, IO, #DSTACK_BASE
+        asr     IO, IO, #3
         b       alu_done
 swap_t: mov     T, N
 
@@ -189,10 +204,22 @@ out_io: cmp     OLDT, #IO_EMIT                  // 2: ->io[T]
         str     w10, [UART]
         b       fix_r
 2:      cmp     OLDT, #IO_BANK
-        b.ne    fix_r
+        b.ne    3f
         add     BANK, MEM, IO
         sub     BANK, BANK, #0x2000
         b       fix_r
+3:      add     x12, MEM, IO, lsl #3            // new stack pointer, less its base
+        cmp     OLDT, #IO_SP
+        b.ne    4f
+        add     DS, x12, #DSTACK_BASE
+        ldr     T, [DS]
+        b       fix_r
+4:      cmp     OLDT, #IO_RSP
+        b.ne    fix_r
+        add     RS, x12, #DSTACK_BASE
+        add     RS, RS, #(RSTACK_BASE - DSTACK_BASE)
+        ldr     R, [RS]
+        b       next
 out_t:  mov     T, IO                           // 0: ->T
 fix_r:  tbz     RD, #63, next
         ldr     R, [RS]                         // popped: refill R

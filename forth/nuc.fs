@@ -1,5 +1,7 @@
 $00f1 constant IO-OUT
 $00e0 constant IO-IN
+$00d0 constant IO-SP    \ data stack depth
+$00d1 constant IO-RSP   \ return stack depth
 
 \ meta
 \     $3f80 org 
@@ -233,7 +235,7 @@ header abs      : abs       dup 0< if negate then ;
 header 2*       : 2*        d# 1 lshift ; 
 header 2/       : 2/        dup 0< if invert d# 1 rshift invert else d# 1 rshift then ; 
 header here     : here      dp @ ;
-\ header depth    : depth     depths h# 1f and ;
+header depth    : depth     IO-SP io@ 1- ;  \ less the port number itself
 
 header /string
 : /string
@@ -656,7 +658,7 @@ header allot
 ;
 
 header ,
-:noname
+: t,
     here !
     d# 8 tallot
 ;
@@ -848,14 +850,6 @@ header compile,
             code,
         then
     then
-;
-
-header does>
-:noname
-    r>
-    lastword @
-    >xt 2* d# 2 +  \ ready to patch the RETURN
-    w!
 ;
 
 header-imm recurse
@@ -1059,6 +1053,10 @@ header throw
         [char] : emit
         space
         .
+        t[
+        d# 0 sourceid !
+        d# 0 IO-RSP io!     \ empty both stacks before restarting
+        d# 0 IO-SP io!
         d# 1 execute        \ word 1 of the boot vector: quit
     then
 ;
@@ -1104,6 +1102,40 @@ header-imm literal
         exit
     then
     d# 0 segs,
+;
+
+\ A created word is the literal address of its data field, then exit.
+\ The literal is 1-4 instructions long, so remember where the exit went.
+
+create doesexit 0 ,
+
+header create
+: tcreate
+    mkheader attach
+    here aligned dp !
+    here tliteral
+    cp @ doesexit !
+    h# 7403 code,           \ exit
+;
+
+header variable
+: variable
+    tcreate d# 0 t,
+;
+
+header constant
+: tconstant ( x "name" -- )
+    mkheader attach
+    tliteral
+    h# 7403 code,
+;
+
+\ Runs inside a defining word: the rest of that word becomes the behaviour
+\ of the word just created.  Its exit is replaced by a jump to the code after
+\ does>, and the defining word returns to its own caller.
+header does>
+:noname
+    r> doesexit @ w!
 ;
 
 : isvoid ( caddr u -- ) \ any char remains, throw -13
