@@ -257,9 +257,11 @@ variable wordstart
 :: :noname
 ;
 
+\ Target data cells are 64 bits: `@` and `!` move 8 bytes.
+: tcalign   tdp @ 7 + -8 and tdp ! ;
 :: ,
-    talign
-    t,
+    tcalign
+    there islegal tflash + !  8 tdp +!
 ;
 
 :: c,
@@ -318,7 +320,7 @@ variable wordstart
 ;
 
 :: create
-    talign
+    tcalign
     create there ,
     does>   @ literal
 ;
@@ -353,7 +355,7 @@ variable wordstart
         2drop drop literal
     else
         1 = swap c@ [char] . = and if
-            drop dup literal 32 rshift literal
+            swap literal literal  \ double: lo hi, one cell each
         else
             -1 abort" bad number"
         then
@@ -362,7 +364,7 @@ warnings on
 
 :: d# bl parse 10 base>number ;
 :: h# bl parse 16 base>number ;
-:: ['] ' >body @ 2* literal ;
+:: ['] ' >body @ literal ;  \ xt = word address
 :: [char] char literal ;
 
 :: asm-0branch
