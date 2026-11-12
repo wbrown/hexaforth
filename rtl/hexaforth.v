@@ -22,7 +22,9 @@
 //     period: shifts are computed into a register first, and the multiply
 //     is done in two steps of 32-bit products.
 //
-// Timing.  The next instruction is fetched while the current one executes.
+// Timing, with LAT = 1.  The next instruction is fetched while the current
+// one executes.  With LAT = 2 the memory registers its output: a memory read
+// takes a cycle more, and so does every jump, call, return or taken branch.
 //
 //     +  dup  >r  swap  !  literals  jumps  calls      1 cycle
 //     shifts                                           2 cycles
@@ -45,7 +47,8 @@ module hexaforth #(
     parameter PCW   = 16,           // program counter width, in words; at most W
     parameter DEPTH = 64,           // cells in each stack below T, N and R
     parameter MB    = 17,           // log2 of the memory size in bytes
-    parameter STACKRAM = 1          // stacks in distributed RAM, or shift registers
+    parameter STACKRAM = 1,         // stacks in distributed RAM, or shift registers
+    parameter LAT   = 1             // cycles from a read address to its data: 1 or 2
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -94,12 +97,23 @@ module hexaforth #(
     reg [2:0]  state;
     reg [7:0]  newdepth;
 
-    // What the read port is showing: an instruction, or data asked for by
-    // the instruction now waiting in `hold`.
-    localparam RD_INS = 2'd0, RD_A = 2'd1, RD_B = 2'd2;
-    reg [1:0]  rd_kind;
-    reg        held;                // the instruction is in `hold`
+    // What was asked of the read port in the last cycle (k1) and the one
+    // before (k2): nothing, an instruction, [T], or [IN] or a device read.
+    // With LAT cycles of latency, what rdata shows now is k1 or k2.
+    //
+    // Instructions are asked for ahead of need, LAT of them at most, and
+    // come back in order.  One that arrives while the one before it is
+    // still unfinished waits in `nxt`, and an instruction that takes more
+    // than a cycle moves to `hold`, so the read port never has to stand
+    // still or be asked twice.
+    localparam K_NONE = 2'd0, K_INS = 2'd1, K_A = 2'd2, K_B = 2'd3;
+    reg [1:0]  k1, k2;
+    wire [1:0] arr = LAT == 2 ? k2 : k1;
+    reg        held;                // the current instruction is in `hold`
     reg [15:0] hold;
+    reg        nxtv;                // the one after it is in `nxt`
+    reg [15:0] nxt;
+    reg [PCW-1:0] fpc;              // the next instruction to ask for
 
     // Work done ahead of executing the instruction.
     reg        have_a, have_b;      // memory reads latched
@@ -109,7 +123,8 @@ module hexaforth #(
     reg [W/2-1:0] mul_x;
 
     // ----------------------------------------------------------- decode
-    wire [15:0] ins     = held ? hold : rdata[15:0];
+    wire        have_cur = held || nxtv || arr == K_INS;
+    wire [15:0] ins     = held ? hold : nxtv ? nxt : rdata[15:0];
     wire        is_lit  = ins[15];
     wire [1:0]  op_type = ins[14:13];
     wire        is_alu  = !is_lit && op_type == 2'd3;
@@ -262,26 +277,42 @@ module hexaforth #(
 
     // -------------------------------------------------- sequencing
     wire running  = state == S_RUN;
-    wire is_halt  = running && ins == 16'd0;
+    wire is_halt  = running && have_cur && ins == 16'd0;
     assign halted = state == S_HALT;
 
     // [T] can be used in the cycle it arrives, unless the instruction goes
     // on to use it as an address or a port number.  [IN] and device reads
     // can always be used as they arrive.
-    wire ready     = running && !is_halt;
+    wire ready     = running && have_cur && !is_halt;
     wire wr_busy   = dwe != 0;                  // a store is landing this cycle
-    wire a_here    = have_a || (rd_kind == RD_A && !ab_op);
+    wire rd_flying = LAT == 2 && (k1 == K_A || k1 == K_B);
+    wire a_here    = have_a || (arr == K_A && !ab_op);
     wire a_ok      = !need_a || a_here;
-    wire b_here    = have_b || rd_kind == RD_B;
+    wire b_here    = have_b || arr == K_B;
     wire b_ok      = !need_b || b_here;
-    wire want_a    = ready && need_a && !a_here && rd_kind != RD_A && !wr_busy;
-    wire want_b    = ready && a_ok && !b_ok && !wr_busy;
+    wire want_a    = ready && need_a && !a_here && arr != K_A && !rd_flying && !wr_busy;
+    wire want_b    = ready && a_ok && !b_ok && !rd_flying && !wr_busy;
     wire want_slow = ready && a_ok && b_ok && slow_cnt != slow_need;
     wire waiting   = (tx_wr && !tx_ready) || (rx_rd && !rx_valid);
     wire execute   = ready && a_ok && b_ok && !want_slow && !waiting;
 
     wire       ioa_ok = (ioa >> MB) == 0;
-    wire [PCW-1:0] fetch = (state == S_BOOT) ? start_pc : execute ? pc_next : pc;
+    // An instruction that does not fall through to the next one: what was
+    // asked for after it is dropped, and fetching starts again at its target.
+    wire redirect  = !is_lit && (op_type == 2'd0 || op_type == 2'd2 ||
+                                 (op_type == 2'd1 && T == 0) || (op_type == 2'd3 && ret));
+    wire jump      = execute && redirect;
+
+    // Instructions in hand or on their way.  Another is asked for whenever
+    // that leaves fewer than LAT after this cycle and the port is free.
+    wire [1:0] others = {1'b0, held && nxtv} + {1'b0, (held || nxtv) && arr == K_INS}
+                      + {1'b0, LAT == 2 && k1 == K_INS};
+    wire [1:0] total  = {1'b0, have_cur} + others;
+    wire [1:0] left   = total - {1'b0, execute};
+    wire       issue  = state != S_HALT && !want_a && !want_b && (jump || left < LAT);
+    wire [1:0] kreq   = want_a ? K_A : want_b ? K_B : issue ? K_INS : K_NONE;
+
+    wire [PCW-1:0] fetch = jump ? pc_next : fpc;
     always @* begin
         raddr = {{(W-PCW-1){1'b0}}, fetch, 1'b0};  rok = 1;
         if (want_a) raddr = T;
@@ -401,25 +432,35 @@ module hexaforth #(
         if (rst) begin
             state <= S_BOOT;
             have_a <= 0;  have_b <= 0;  slow_cnt <= 0;
-            rd_kind <= RD_INS;  held <= 0;
-            pc <= start_pc;  T <= 0;  N <= 0;  R <= 0;
+            k1 <= K_NONE;  k2 <= K_NONE;  held <= 0;  nxtv <= 0;
+            pc <= start_pc;  fpc <= start_pc;  T <= 0;  N <= 0;  R <= 0;
             dsp <= 0;  rsp <= 0;  ioa <= 0;
         end else begin
             dsp <= dsp + dsp_step;
             rsp <= rsp + rsp_step;
+
+            // The read port.  Data is kept, in case the instruction does
+            // not finish in the cycle it arrives.
+            k1 <= kreq;
+            k2 <= jump ? K_NONE : k1;
+            if (issue) fpc <= fetch + 1;
+            if (arr == K_A) begin a_val <= rdata;  have_a <= 1; end
+            if (arr == K_B) begin b_val <= rdata;  have_b <= 1; end
+
+            // Where the current instruction and the one after it wait.
+            if (jump) begin
+                held <= 0;  nxtv <= 0;
+            end else begin
+                if (execute) held <= 0;
+                else if (have_cur) begin hold <= ins;  held <= 1; end
+                if (arr == K_INS && (held || nxtv)) begin nxt <= rdata[15:0];  nxtv <= 1; end
+                else if (!held) nxtv <= 0;
+            end
+
             case (state)
             S_BOOT: state <= S_RUN;
 
             S_RUN: begin
-                // Data on the read port is kept, in case the instruction
-                // does not finish in this cycle.
-                if (rd_kind == RD_A) begin a_val <= rdata;  have_a <= 1; end
-                if (rd_kind == RD_B) begin b_val <= rdata;  have_b <= 1; end
-                rd_kind <= want_a ? RD_A : want_b ? RD_B : RD_INS;
-                if (want_a || want_b) begin
-                    held <= 1;  hold <= ins;                // the port is borrowed
-                end
-
                 if (is_halt) begin
                     state <= S_HALT;
                 end else if (want_slow) begin
@@ -433,7 +474,7 @@ module hexaforth #(
                         mul_res <= mul_ll + {mul_x, {(W/2){1'b0}}};
                     end
                 end else if (execute) begin
-                    have_a <= 0;  have_b <= 0;  slow_cnt <= 0;  held <= 0;
+                    have_a <= 0;  have_b <= 0;  slow_cnt <= 0;
                     pc <= pc_next;
                     T <= t_next;  N <= n_next;  R <= r_next;
                     if (io_wr && port_small && port[7:0] == 8'hc0) ioa <= out;

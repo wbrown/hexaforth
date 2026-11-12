@@ -276,6 +276,9 @@ takes only aligned cell accesses, which is all the nucleus makes.
 memories read without a clock (LUT RAM on an FPGA); `STACKRAM=0` makes them
 shift registers instead. `PLANES=1` builds the memory from one-bit-wide
 block RAMs, which was tried for clock speed and gains little.
+`LAT=2` registers the memory's output: about 29% more cycles (a cycle lost
+on every jump, call, return and taken branch, and on every memory read) for
+a clock about 45% faster on an ECP5.
 
 - `make -C rtl test W=64` (or 32, or 16) replays differential cases from
   `baremetal/difftest_dump.c`, built for that cell width, on the Verilog
