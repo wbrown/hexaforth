@@ -6,7 +6,9 @@
 //   1. every test in test/tests.h, compiled with the test compiler;
 //   2. every possible ALU instruction (all 8192 encodings), executed once
 //      from a fixed machine state in which every stack cell and every
-//      memory cell it can reach holds a valid data address.
+//      memory cell it can reach holds a valid data address;
+//   3. paged code: calls, jumps and returns between the kernel and two
+//      code pages.
 #include "../test/compiler.h"
 #include "../test/tests.h"
 #include "../test/vm_test.h"
@@ -21,12 +23,13 @@ bool init_image(context *ctx, hexaforth_test test);
 
 static void w32(FILE *f, uint32_t v) { fwrite(&v, 4, 1, f); }
 
-static void run_and_dump(FILE *f, context *ctx, const char *label,
-                         const char *input) {
+static void run_and_dump_n(FILE *f, context *ctx, const char *label,
+                           const char *input, uint32_t mem_len) {
   w32(f, strlen(label));
   fwrite(label, 1, strlen(label), f);
   w32(f, ctx->EIP);
-  fwrite(ctx->memory, 1, MEM_DUMP, f);
+  w32(f, mem_len);
+  fwrite(ctx->memory, 1, mem_len, f);
   w32(f, strlen(input));
   fwrite(input, 1, strlen(input), f);
 
@@ -44,8 +47,48 @@ static void run_and_dump(FILE *f, context *ctx, const char *label,
   fwrite(ctx->RSTACK, 8, ctx->RSP > 0 ? ctx->RSP : 0, f);
   w32(f, outlen);
   fwrite(output, 1, outlen, f);
-  fwrite(ctx->memory, 1, MEM_DUMP, f);
+  fwrite(ctx->memory, 1, mem_len, f);
   free(output);
+}
+
+static void run_and_dump(FILE *f, context *ctx, const char *label,
+                         const char *input) {
+  run_and_dump_n(f, ctx, label, input, MEM_DUMP);
+}
+
+// Kernel at word 0, pages 8 and 9 at words 0x8000 and 0x9000.  Exercises a
+// far call through `execute`, near calls and jumps inside a page, calls from
+// a page into the kernel, a 0branch inside a page, and returns across pages.
+static void paging_case(FILE *f, word_node *words) {
+  context *ctx = calloc(1, sizeof(context));
+  ctx->words = words;
+  uint16_t *m = ctx->memory;
+  // kernel
+  m[0x000] = 0x9008;                    // h# 8000
+  m[0x001] = 0x4010;                    // call execute
+  m[0x002] = 0x8063;                    // 99
+  m[0x003] = 0x0000;                    // halt
+  m[0x010] = 0x650d; m[0x011] = 0x7403; // execute: >r exit
+  m[0x020] = 0x8005; m[0x021] = 0x7403; // five: 5 exit
+  // page 8
+  m[0x8000] = 0x802a;                   // 42
+  m[0x8001] = 0x5010;                   // call 0x8010, same page
+  m[0x8002] = 0x4020;                   // call five, kernel
+  m[0x8003] = 0x9009;                   // h# 9000
+  m[0x8004] = 0x4010;                   // call execute: far call into page 9
+  m[0x8005] = 0x1020;                   // jump 0x8020, same page
+  m[0x8010] = 0x8007; m[0x8011] = 0x7403; // 7 exit
+  m[0x8020] = 0x8000;                   // 0
+  m[0x8021] = 0x3030;                   // 0branch 0x8030, taken
+  m[0x8022] = 0x8bad;                   // skipped
+  m[0x8030] = 0x8008; m[0x8031] = 0x7403; // 8 exit: back to the kernel
+  // page 9
+  m[0x9000] = 0x8009;                   // 9
+  m[0x9001] = 0x5ffe;                   // call 0x9ffe, same page
+  m[0x9002] = 0x7403;                   // exit: back to page 8
+  m[0x9ffe] = 0x800a; m[0x9fff] = 0x7403; // 10 exit, at the end of the page
+  run_and_dump_n(f, ctx, "paged code", "", 0x14000);
+  free(ctx);
 }
 
 int main(int argc, char **argv) {
@@ -84,6 +127,8 @@ int main(int argc, char **argv) {
     free(ctx);
     n++;
   }
+  paging_case(f, words);
+  n++;
   fclose(f);
   fprintf(stderr, "%d cases dumped\n", n);
   return 0;

@@ -23,7 +23,7 @@ typedef struct { int EIP;
     int64_t    DBGSTACK[32];
     FILE       *OUT;
     FILE       *IN;
-    char*      meta[32768];
+    char*      meta[65536];
     word_node* words;
     uint64_t   CYCLES; } context;
 

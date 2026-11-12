@@ -162,6 +162,28 @@ The dictionary structure inherited from J1/Swapforth uses 16-bit values, so prop
 
 The Forth dictionary uses 16-bit cells for compatibility with the J1 heritage, even though hexaforth is a 64-bit system. This requires careful use of `w@` instead of `@` when reading dictionary entries, link fields, and execution tokens. The cross-compiler maintains this 16-bit structure while the VM operates with 64-bit cells.
 
+### Code Paging
+
+The program counter is a flat word address and code is divided into pages of
+4096 words (8KB). Page 0 is the kernel. The 13-bit target in a jump, call or
+0branch means:
+
+- bit 12 clear: an absolute address in the kernel, reachable from any page
+- bit 12 set: an offset within the page the branch itself is in
+
+Return addresses and execution tokens are full program counters, so `exit`
+and `execute` cross pages with no extra state. Memory layout:
+
+- `0x00000-0x01fff`: kernel code (cross-compiled)
+- `0x04000-0x0ffff`: dictionary and data
+- `0x10000-0x1ffff`: eight code pages for definitions made at run time
+
+In `nuc.fs`, `compile,` emits a one-instruction call for a kernel or
+same-page target and `literal xt` + `call execute` for another page.
+`newpage?` starts a fresh page when under 1KB is left, and `code,` throws -8
+if a definition runs off the end of its page. Execution tokens are stored in
+16 bits in dictionary headers, which is what limits code to 64K words.
+
 ## Cross-Compiling Programs
 
 To create a program for hexaforth using the cross-compiler (cross.fs), follow this structure:

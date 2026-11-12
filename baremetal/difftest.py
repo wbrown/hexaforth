@@ -10,8 +10,7 @@ from unicorn import Uc, UC_ARCH_ARM64, UC_MODE_ARM, UC_HOOK_MEM_READ, UC_HOOK_ME
 from unicorn.arm64_const import *
 
 B = "build"
-MEM_DUMP = 0x2000
-DSTACK, RSTACK = 0xF000, 0xF800
+DSTACK, RSTACK = 0x20000, 0x20800
 UART = 0x09000000
 
 subprocess.check_call(
@@ -80,18 +79,19 @@ total = failed = skipped = 0
 while pos < len(data):
     label = take(u32()).decode()
     eip = u32()
-    image = take(MEM_DUMP)
+    mem_len = u32()
+    image = take(mem_len)
     rx[:] = take(u32())
     sp, rsp = i32(), i32()
     want_d = list(struct.unpack(f"<{max(sp, 0)}q", take(8 * max(sp, 0))))
     want_r = list(struct.unpack(f"<{max(rsp, 0)}q", take(8 * max(rsp, 0))))
     want_out = take(u32())
-    want_mem = take(MEM_DUMP)
+    want_mem = take(mem_len)
     total += 1
 
     uc.context_restore(boot)
     uc.mem_write(mem, image)
-    uc.mem_write(mem + MEM_DUMP, bytes(0x20000 - MEM_DUMP))
+    uc.mem_write(mem + len(image), bytes(0x21000 - len(image)))
     uc.reg_write(UC_ARM64_REG_X21, eip)
     tx.clear()
     try:
@@ -103,7 +103,7 @@ while pos < len(data):
 
     got_d = stack(DSTACK, UC_ARM64_REG_X24, UC_ARM64_REG_X22)
     got_r = stack(RSTACK, UC_ARM64_REG_X25, UC_ARM64_REG_X23)
-    got_mem = bytes(uc.mem_read(mem, MEM_DUMP))
+    got_mem = bytes(uc.mem_read(mem, mem_len))
     problems = []
     if not halted:
         problems.append("did not halt")
@@ -112,7 +112,7 @@ while pos < len(data):
     if got_r != want_r:
         problems.append(f"rstack {got_r} != {want_r}")
     if got_mem != want_mem:
-        at = next(i for i in range(MEM_DUMP) if got_mem[i] != want_mem[i])
+        at = next(i for i in range(mem_len) if got_mem[i] != want_mem[i])
         problems.append(f"memory differs at 0x{at:x}")
     if bytes(tx) != want_out:
         problems.append(f"output {bytes(tx)!r} != {want_out!r}")
@@ -123,20 +123,4 @@ while pos < len(data):
 
 print(f"{total - failed}/{total} cases match vm.c")
 
-# Code window (no counterpart in vm.c): map the block at 0x10000 over word
-# addresses 0x1000+, jump into it, and check that execution is redirected
-# while a data read of byte 0x2000 still sees the unmapped contents.
-words = lambda *w: struct.pack(f"<{len(w)}H", *w)
-uc.context_restore(boot)
-uc.mem_write(mem, bytes(0x20000))
-uc.mem_write(mem, words(0x9010, 0x80B0, 0x6208, 0x1000))   # h# 10000 h# b0 io!  jump 0x1000
-uc.mem_write(mem + 0x2000, words(0x8007))                  # identity window: 7
-uc.mem_write(mem + 0x10000, words(0x802A, 0x9002, 0x6800)) # banked block: 42 h# 2000 @
-uc.emu_start(syms["next"], syms["halt"], count=1000)
-got = stack(DSTACK, UC_ARM64_REG_X24, UC_ARM64_REG_X22)
-if got == [42, 0x8007]:
-    print("code window: ok")
-else:
-    print(f"FAIL code window: dstack {got} != [42, 32775]")
-    failed += 1
 sys.exit(1 if failed else 0)
