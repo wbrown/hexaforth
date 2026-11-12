@@ -21,6 +21,12 @@ static inline uint8_t ctz(uint64_t N) {
     return N ? 64 - __builtin_ctzll(N) : -(uint64_t)INFINITY;
 }
 
+// Stack depth ports.  Reading gives the depth of the data or return stack
+// as the instruction starts (so `port io@` counts the port number itself).
+// Writing sets the depth; T or R is reloaded from the new top cell.
+#define IO_SP  0xd0
+#define IO_RSP 0xd1
+
 static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write) {
     switch (io_addr) {
         case 0xf1:
@@ -209,7 +215,9 @@ int vm(context *ctx) {
                     }
                     case ALU_IO_READ:
                         // `io[IN]->OUT`
-                        OUT = io_read_handler(ctx, IN);
+                        if (IN == IO_SP) OUT = SP;
+                        else if (IN == IO_RSP) OUT = RSP;
+                        else OUT = io_read_handler(ctx, IN);
                         break;
                     case ALU_U_GT: {
                         // `(Nu<INu)->OUT`
@@ -246,6 +254,16 @@ int vm(context *ctx) {
                         break;
                     // `OUT->io[T]` IO write op.
                     case OUTPUT_IO_T:
+                        if (T == IO_SP) {
+                            SP = OUT;
+                            T = ctx->DSTACK[SP - 1];
+                            goto resolve_rstack;
+                        }
+                        if (T == IO_RSP) {
+                            RSP = OUT;
+                            R = ctx->RSTACK[RSP - 1];
+                            goto resolve_dstack;
+                        }
                         ctx->SP = SP;
                         ctx->RSP = RSP;
                         ctx->EIP = EIP;
