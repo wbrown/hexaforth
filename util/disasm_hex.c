@@ -113,92 +113,28 @@ int main(int argc, char *argv[]) {
   }
   fclose(f);
 
-  // Parse dictionary by walking the chain
-  // Dictionary format: link(2), name_len(1), name(n), padding, code (inline)
+  // Walk the dictionary from the newest header, whose address is the last
+  // nonzero word of the image.  A header is cells: link, xt (top bit:
+  // immediate), then the name as a count byte and characters.
   printf("Dictionary entries:\n");
-
-  // Start at the beginning of dictionary at word 0x2000
-  uint16_t dict_addr = 0x2000;
-  int entry_count = 0;
-
-  while (dict_addr < addr && entry_count < 100) { // Safety limit
-    uint16_t link = memory[dict_addr];
-    if (dict_addr > 0x2000 && link == 0)
-      break; // End of dictionary
-
-    if (dict_addr < addr - 1) {
-      uint16_t link = memory[dict_addr];
-      uint8_t name_len =
-          memory[dict_addr + 1] & 0xFF; // Low byte of next word
-
-      // Extract the actual name from memory
-      char extracted_name[64] = {0};
-      // Name starts in high byte of word containing length
-      int byte_pos = 0;
-      // First character is in high byte of the length word
-      if (name_len > 0) {
-        extracted_name[0] = (memory[dict_addr + 1] >> 8) & 0xFF;
-        byte_pos = 1;
-      }
-      // Rest of name continues in following words
-      while (byte_pos < name_len && byte_pos < 63) {
-        uint16_t word_offset = 2 + (byte_pos - 1) / 2;
-        uint16_t word = memory[dict_addr + word_offset];
-        if ((byte_pos - 1) & 1) {
-          extracted_name[byte_pos++] = (word >> 8) & 0xFF; // High byte
-        } else {
-          extracted_name[byte_pos++] = word & 0xFF; // Low byte
-        }
-      }
-
-      // Calculate where code starts: after link(1 word) + name_len(1 byte) +
-      // name + padding Total header size in bytes: 2 + 1 + name_len + padding
-      // Padding to make total bytes even (word aligned)
-      uint16_t header_bytes = 2 + 1 + name_len;
-      if (header_bytes & 1)
-        header_bytes++; // Add padding if odd
-      uint16_t code_addr = dict_addr + header_bytes / 2;
-      // The value at code_addr is a word address (after execution token consistency fix)
-      uint16_t code_word_addr = memory[code_addr];
-      uint16_t code_byte_addr = code_word_addr * 2;
-
-      printf(
-          "  '%s' @ 0x%04X: code at word 0x%04X (byte 0x%04X), link=0x%04X\n",
-          extracted_name, dict_addr, code_word_addr, code_byte_addr, link);
-
-      // Add this as a label
-      add_label(code_word_addr, extracted_name);
-
-      // Move to next entry - follow the chain backwards
-      // The first entry (test_0) has link=0x0000
-      // Subsequent entries have links pointing to previous entries
-      // We need to find the next entry by scanning forward
-
-      // Calculate next dictionary entry address
-      uint16_t next_addr = code_addr + 1; // Skip past code pointer
-
-      // Skip to next aligned dictionary entry
-      uint16_t old_dict_addr = dict_addr;
-      dict_addr = 0; // Reset to detect if we found a new entry
-
-      while (next_addr < addr - 10) { // Leave some margin at end
-        // Check if this looks like a dictionary entry
-        if (memory[next_addr] >= 0x4000 || memory[next_addr] == 0) {
-          // Looks like a link field
-          dict_addr = next_addr;
-          break;
-        }
-        next_addr++;
-      }
-
-      // If we didn't find a new entry or it's the same as before, we're done
-      if (dict_addr == 0 || dict_addr <= old_dict_addr) {
-        break;
-      }
-      entry_count++;
-    } else {
-      break;
-    }
+  const uint8_t *bytes = (const uint8_t *)memory;
+  int last = 0;
+  for (int i = 0x2000; i < addr && i < 0x8000; i++)
+    if (memory[i]) last = i;
+  uint32_t head = last ? memory[last] : 0;
+  for (int n = 0; head && n < 1000; n++) {
+    uint64_t link = 0, xt = 0;
+    memcpy(&link, bytes + head, CELL_BYTES);
+    memcpy(&xt, bytes + head + CELL_BYTES, CELL_BYTES);
+    xt &= ~(1ull << (CELL_BITS - 1));
+    char name[256];
+    uint8_t len = bytes[head + 2 * CELL_BYTES];
+    memcpy(name, bytes + head + 2 * CELL_BYTES + 1, len);
+    name[len] = '\0';
+    printf("  '%s' @ 0x%04X: code at word 0x%04X (byte 0x%04X), link=0x%04X\n",
+           name, head, (unsigned)xt, (unsigned)xt * 2, (unsigned)link);
+    add_label((uint16_t)xt, name);
+    head = (uint32_t)link;
   }
   printf("\n");
 

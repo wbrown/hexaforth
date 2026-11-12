@@ -42,33 +42,31 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     }
 
 
-    next_ptr = ctx->memory[last_addr] / 2;
+    // The image ends with the address of the newest dictionary header.  A
+    // header is cells: link, xt (top bit: immediate), then the name as a
+    // count byte and characters, padded to whole cells.
+    const uint8_t *bytes = (const uint8_t *)ctx->memory;
+    uint32_t head = ctx->memory[last_addr];
     dprintf("WORDS:\n");
 
-    uint16_t DP0;
+    uint16_t DP0 = last_addr;
     uint16_t WORDCT=0;
-    while(next_ptr) {
-        char word[80];
-        uint16_t target=next_ptr;
-        // How many aligned cells our word string was.
-        uint16_t text_cells = read_counted_string((uint8_t*)&ctx->memory[target+1],
-                                     word) / 2;
-        // Where our dictionary entry's code pointer is.
-        uint16_t code_ptr=target + text_cells + 1;
-        // Dereference code pointer, get the address of where our code is.
-        uint16_t code_addr=ctx->memory[code_ptr] / 2;
-        // Tag the code address with our word's string
-        asprintf(&ctx->meta[code_addr], "%s", word);
+    while (head) {
+        uint64_t link = 0, xt = 0;
+        memcpy(&link, bytes + head, CELL_BYTES);
+        memcpy(&xt, bytes + head + CELL_BYTES, CELL_BYTES);
+        xt &= ~(1ull << (CELL_BITS - 1));
+        char word[256];
+        uint8_t len = bytes[head + 2 * CELL_BYTES];
+        memcpy(word, bytes + head + 2 * CELL_BYTES + 1, len);
+        word[len] = '\0';
+        if (xt < 65536) asprintf(&ctx->meta[xt], "%s", word);
         WORDCT++;
-        dprintf("  0x%0.4x @ %s => 0x%0.4x\n", target, word, code_addr);
-        next_ptr = ctx->memory[next_ptr] / 2;
-        if (!next_ptr) {
-            DP0 = target;
-            dprintf(" ... %d words scanned!\n", WORDCT);
-        } else {
-            dprintf(", ");
-        }
+        dprintf("  0x%0.4x @ %s => 0x%0.4x\n", head, word, (unsigned)xt);
+        DP0 = head / 2;
+        head = (uint32_t)link;
     }
+    dprintf(" ... %d words scanned!\n", WORDCT);
 
     // Scan backwards from DP0 to discover first used cell.
     uint16_t last_code = DP0 - 1;

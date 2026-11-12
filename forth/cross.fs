@@ -185,6 +185,8 @@ cell-bits #64 = [if] -1 [else] 1 cell-bits lshift 1- [then] constant cell-mask
 addr-bits #16 > [if] $10000 [else] $c000 [then] constant code-base
 addr-bits #16 > [if] $10000 [else] $4000 [then] constant code-size
 
+: tcalign   tdp @ cell-bytes 1- + cell-bytes negate and tdp ! ;
+
 : tcell! ( x a -- ) \ store one target cell
     cell-bytes 0 do
         over i 8 * rshift over i + tc!
@@ -369,35 +371,36 @@ variable initializer-lit?    true ,   \ True if this is the first literal instru
 
 variable link 0 link !
 
-:: header
-    label
-    twalign there
-    \ cr ." link is " link @ .
-    link @ tw,
-    link !
-    bl parse
-    \ cr ." at " there . 2dup type tcp @ .
+\ A dictionary header is made of cells:
+\
+\     link    address of the previous header, or 0
+\     xt      word address of the code; the top bit is set if immediate
+\     name    a count byte, then the name in lower case, padded with
+\             zeros to a whole number of cells
+\
+\ Every field is a cell at a cell-aligned address, so nothing in the
+\ dictionary is fetched unaligned, and a name is compared a cell at a time.
+
+: tcell, ( x -- ) there tcell!  cell-bytes tdp +! ;
+
+: tname, ( c-addr u -- )
     dup tc,
-    bounds do
-        i c@ tc,
+    bounds ?do
+        i c@ dup [char] A [char] Z 1+ within if 32 + then tc,
     loop
-    twalign
-    tcp @ 2/ tw,
+    tcalign
 ;
 
-:: header-imm
+: (header) ( immediate? "name" -- )
     label
-    twalign there
-    link @ 1+ tw,
-    link !
-    bl parse
-    dup tc,
-    bounds do
-        i c@ tc,
-    loop
-    twalign
-    tcp @ 2/ tw,
+    tcalign
+    there  link @ tcell,  link !
+    tcp @ 2/ swap if 1 cell-bits 1- lshift or then tcell,
+    bl parse tname,
 ;
+
+:: header       false (header) ;
+:: header-imm   true (header) ;
 
 variable wordstart
 variable lastdef    \ body of the most recent target colon definition
@@ -440,7 +443,6 @@ variable lastdef    \ body of the most recent target colon definition
 ;
 
 \ A target data cell is cell-bytes wide: that is what `@` and `!` move.
-: tcalign   tdp @ cell-bytes 1- + cell-bytes negate and tdp ! ;
 :: ,
     tcalign
     there tcell!  cell-bytes tdp +!
@@ -563,6 +565,7 @@ warnings on
 \ The machine's sizes, for the target program.  The first group compile a
 \ literal; the second leave a flag for [if].
 :: CELL       cell-bytes literal ;              \ bytes in a cell
+:: CELL2      cell-bytes 2 * literal ;          \ offset of a header's name
 :: CELLSHIFT  cell-bytes 2 = if 1 else cell-bytes 4 = if 2 else 3 then then literal ;
 :: TOPBIT     cell-bits 1- literal ;            \ index of the sign bit
 :: HALFBITS   cell-bits 2/ literal ;

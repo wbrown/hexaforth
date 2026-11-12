@@ -151,19 +151,14 @@ header base  :noname base ;
 header >in   :noname >in  ;
 header forth :noname forth ;
 
-: nextword
-    uw@ d# -2 and
-;
-
 header words : words
-    forth uw@
+    forth @
     begin
         dup
     while
-        dup d# 2 +
-        count type
+        dup CELL2 + count type
         space
-        nextword
+        @
     repeat
     drop
 ;
@@ -428,43 +423,9 @@ header accept
     h# 20 and +
 ;
 
-: i<> ( c1 c2 -- f ) \ case-insensitive difference
-    2dupxor h# 1f and if
-        drop exit
-    then
-    lower swap lower xor
-;
-
-: sameword ( c-addr u wp -- c-addr u wp flag )
-    2dup d# 2 + c@ = if
-        3dup
-        d# 3 + >r
-        bounds
-        begin
-            2dupxor
-        while
-            dup c@ r@ c@ i<> if
-                2drop rdrop false exit
-            then
-            1+
-            r> 1+ >r
-        repeat
-        2drop rdrop true
-    else
-        false
-    then
-;
-
 header caligned
 : caligned
     1+ d# -2 and
-;
-
-: >xt
-    d# 2 +
-    count +
-    caligned
-    uw@
 ;
 
 header calign
@@ -474,53 +435,73 @@ header calign
     dp !
 ;
 
-\ lsb 0 means non-immediate, return -1
-\     1 means immediate,     return  1
-: isimmediate ( wp -- -1 | 1 )
-    uw@ d# 1 and 2* 1-
-;
+\ A dictionary header is cells: a link, an xt whose top bit marks an
+\ immediate word, then the name as a count byte and lower-case characters,
+\ zero padded to whole cells.  To look a name up it is packed the same way
+\ into skey, and then compared with each header a cell at a time; the first
+\ cell holds the length and the first characters, which settles nearly
+\ every entry with one aligned fetch.
 
-\ A header starts with a 16-bit link, the name length, and the name.  One
-\ 64-bit fetch therefore sees the link, the length and the first five
-\ characters together.  namekey builds the value those bytes must have for a
-\ name, and a mask selecting the length and as many characters as the name
-\ has (up to five), ignoring letter case.  Both are shifted past the link.
+create skey #264 allot
+create skn 0 ,              \ cells in the key
 
-: namekey ( c-addr u -- mask key )
-    dup d# 5 min d# 3 lshift
-    d# 1 swap lshift 1-
-    h# dfdfdfdfdf and
-    d# 8 lshift h# ff or d# 16 lshift       ( c-addr u mask )
-    >r
-    swap @ d# 8 lshift or                   \ characters above the length
-    d# 16 lshift r@ and
-    r> swap
-;
-
-\ Most entries are rejected by one fetch, mask and compare.  Survivors are
-\ confirmed by sameword, which also checks names longer than five.
-
-header sfind
-: sfind ( c-addr u -- c-addr u 0 | xt flag )
-    2dup namekey >r                         ( c-addr u mask ) ( r: key )
-    forth uw@
+: >key ( c-addr u -- n ) \ pack a name into skey; n is its size in cells
+    d# 255 min
+    dup CELLSHIFT rshift 1+ skn !
+    skey skn @
     begin
         dup
     while
-        2dup @and r@ = if
-            >r -rot r>                      ( mask c-addr u wp )
-            sameword if
-                >r 2drop drop r>
-                rdrop
-                dup >xt
-                swap isimmediate
+        >r d# 0 over ! cell+ r> 1-
+    repeat
+    2drop
+    dup skey c!
+    skey 1+ swap                            ( src dst u )
+    begin
+        dup
+    while
+        >r
+        over c@ lower over c!
+        1+ swap 1+ swap
+        r> 1-
+    repeat
+    drop 2drop
+    skn @
+;
+
+: samename? ( wp -- f ) \ do the name cells after the first match the key?
+    CELL2 + cell+ skey cell+ skn @ 1-
+    begin
+        dup
+    while
+        >r
+        over @ over @ <> if rdrop 2drop false exit then
+        cell+ swap cell+ swap
+        r> 1-
+    repeat
+    drop 2drop true
+;
+
+header sfind
+: sfind ( c-addr u -- c-addr u 0 | xt flag ) \ flag: 1 immediate, -1 not
+    2dup >key drop
+    skey @ >r
+    forth @
+    begin
+        dup
+    while
+        dup CELL2 + @ r@ = if
+            dup samename? if
+                rdrop nip nip
+                cell+ @
+                dup d# 1 lshift d# 1 rshift         \ the xt, less the flag
+                swap 0< if d# 1 else d# -1 then
                 exit
             then
-            >r rot r>                       ( c-addr u mask wp )
         then
-        @ h# fffe and                       \ next entry, less its immediate flag
+        @
     repeat
-    nip rdrop
+    rdrop
 ;
 
 : digit? ( c -- u f )
@@ -762,7 +743,7 @@ header throw
 
 : attach
     lastword @ ?dup if
-        forth w!
+        forth !
     then
 ;
 
@@ -784,22 +765,25 @@ header s,
 
 : mkheader
     newpage?
-    calign
+    here aligned dp !
     here lastword !
-    forth uw@ w,
-    parse-name
-    s,
-    calign
-    cp @ d# 1 rshift w,              \ xt: the word address, on any page
-    cp @ d# 1 rshift thisxt !
+    forth @ t,                              \ link
+    cp @ d# 1 rshift dup thisxt ! t,        \ xt: the word address, on any page
+    parse-name >key skey swap               \ name
+    begin
+        dup
+    while
+        >r dup @ t, cell+ r> 1-
+    repeat
+    2drop
     sync
 ;
 
 header immediate
 :noname
-    lastword @
-    dup uw@ d# 1 or
-    swap w!
+    lastword @ cell+
+    dup @ d# 1 TOPBIT lshift or
+    swap !
 ;
 
 header ]
