@@ -760,9 +760,25 @@ header :noname
     r> r> rO ! >r
 ;
 
+\ Where the most recent created word's exit is.  The literal in front of it
+\ is 1-4 instructions long, so `create` records the spot.
+create doesexit 0 ,
+
+\ Runs inside a defining word: the rest of that word becomes the behaviour
+\ of the word just created.  Its exit is replaced by a jump to the code after
+\ does>, and the defining word returns to its own caller.
+header does>
+: (does>)
+    r> doesexit @ w!
+;
+
+\ May ; turn this call into a jump?  Not for words that take their own
+\ return address.
 : jumpable ( op -- f )
     dup h# e000 and h# 4000 =       \ is a call
-    swap h# 1fff and ['] (loopdone) <> and
+    swap h# 1fff and
+    dup ['] (loopdone) <>
+    swap ['] (does>) <> and and
 ;
 
 header-imm exit
@@ -1042,9 +1058,26 @@ header-imm r@   :noname     inline: r@ noop ;
 \               If the string is legal, give a single or double cell number
 \               and size of the number.
 
+\ catch saves the data stack depth, the previous handler and the DO loop
+\ offset on the return stack, and records the return stack depth at that
+\ point in `handler`.  throw cuts the return stack back to that depth, which
+\ leaves those cells on top, then restores the data stack depth with the
+\ xt's cell replaced by the throw code.
+
+create handler 0 ,
+
 header throw
-: throw
+: throw ( n -- )
     ?dup if
+        handler @ ?dup if
+            IO-RSP io!
+            r> rO !
+            r> handler !
+            r> swap >r
+            IO-SP io!
+            drop r>
+            exit
+        then
         [char] e emit
         [char] r emit
         [char] r emit
@@ -1105,9 +1138,6 @@ header-imm literal
 ;
 
 \ A created word is the literal address of its data field, then exit.
-\ The literal is 1-4 instructions long, so remember where the exit went.
-
-create doesexit 0 ,
 
 header create
 : tcreate
@@ -1130,13 +1160,6 @@ header constant
     h# 7403 code,
 ;
 
-\ Runs inside a defining word: the rest of that word becomes the behaviour
-\ of the word just created.  Its exit is replaced by a jump to the code after
-\ does>, and the defining word returns to its own caller.
-header does>
-:noname
-    r> doesexit @ w!
-;
 
 : isvoid ( caddr u -- ) \ any char remains, throw -13
     nip 0<> d# 13 -throw
@@ -1231,6 +1254,30 @@ header-imm postpone
         1+ dispatch         \ table index in words, one jmp each
     repeat
     2drop
+;
+
+header catch
+: catch ( xt -- 0 | n )
+    depth >r
+    handler @ >r
+    rO @ >r
+    IO-RSP io@ handler !
+    execute
+    rdrop
+    r> handler !
+    rdrop
+    d# 0
+;
+
+header '
+: tick ( "name" -- xt )
+    parse-name sfind
+    0= d# 13 -throw
+;
+
+header-imm [']
+:noname
+    tick tliteral
 ;
 
 header refill
