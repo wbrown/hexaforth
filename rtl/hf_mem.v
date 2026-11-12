@@ -19,7 +19,8 @@
 module hf_mem #(
     parameter W  = 64,              // cell width
     parameter MB = 17,              // log2 of the size in bytes
-    parameter INIT = ""             // if set, lane k is loaded from INIT<k>.hex
+    parameter INIT = "",            // if set, lane k is loaded from INIT<k>.hex
+    parameter ALIGNED = 0           // if set, data accesses are whole aligned cells
 ) (
     input  wire        clk,
     input  wire [W-1:0] daddr,      // byte address
@@ -35,7 +36,9 @@ module hf_mem #(
     localparam LB = $clog2(LANES);  // address bits that pick a lane
     localparam AW = MB - LB;        // address bits that pick a word
 
-    wire [LB-1:0] off  = daddr[LB-1:0];
+    // With ALIGNED the offset is zero, and the lane adders and the rotation
+    // below reduce to wires: the lanes become one cell-wide memory.
+    wire [LB-1:0] off  = ALIGNED ? {LB{1'b0}} : daddr[LB-1:0];
     wire [AW-1:0] word = daddr[MB-1:LB];
     wire [MB-1:0] ibyte = {iaddr, 1'b0};
 

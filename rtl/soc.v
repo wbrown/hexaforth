@@ -5,7 +5,8 @@ module soc #(
     parameter MB = 17,              // log2 of the memory size in bytes
     parameter PCW = MB - 1,         // program counter width, in words
     parameter DEPTH = 64,           // cells in each stack
-    parameter INIT = ""             // memory image, one hex file per lane
+    parameter INIT = "",            // memory image, one hex file per lane
+    parameter ALIGNED = 0           // the memory takes only aligned cell accesses
 ) (
     input  wire       clk,
     input  wire       rst,
@@ -32,7 +33,7 @@ module soc #(
         .halted(halted),
         .dbg_t(), .dbg_n(), .dbg_r(), .dbg_dsp(), .dbg_rsp(), .dbg_exec());
 
-    hf_mem #(.W(W), .MB(MB), .INIT(INIT)) mem (
+    hf_mem #(.W(W), .MB(MB), .INIT(INIT), .ALIGNED(ALIGNED)) mem (
         .clk(clk),
         .daddr(daddr), .dok(dok), .dre(dre), .dwe(dwe), .dwdata(dwdata), .drdata(drdata),
         .iaddr(iaddr[MB-2:0]), .idata(idata));
