@@ -388,13 +388,12 @@ def load_image(path):
     cells = list(struct.unpack(f"<{len(raw) // 2}H", raw))
     code = cells[:0x2000] + [0] * 0x6000 + cells[0x8000:0x10000]
     code = code[:max(i for i, w in enumerate(code) if w) + 1]
+    # Headers are 64-bit cells: link, then xt with the immediate flag on top.
     entries = set()
     link = cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
     while link:
-        link &= ~1
-        name_len = raw[link + 2]
-        entries.add(struct.unpack_from("<H", raw, (link + 3 + name_len + 1) & ~1)[0])
-        link = struct.unpack_from("<H", raw, link)[0]
+        entries.add(struct.unpack_from("<Q", raw, link + 8)[0] & 0xFFFF)
+        link = struct.unpack_from("<Q", raw, link)[0]
     return code, entries
 
 

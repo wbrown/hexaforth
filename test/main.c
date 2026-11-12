@@ -99,67 +99,29 @@ typedef struct dict_entry {
   uint16_t link;      // Link to previous entry
 } dict_entry;
 
-// Parse dictionary starting at word 0x2000
+// Parse the dictionary of a test image, where the headers are laid end to
+// end from byte 0x4000.  A header is cells: link, xt (top bit: immediate),
+// then the name as a count byte and characters, padded to whole cells.
 static int parse_dictionary(uint16_t *memory, dict_entry *entries,
                             int max_entries) {
+  const uint8_t *bytes = (const uint8_t *)memory;
+  uint32_t at = 0x4000;
   int count = 0;
-  uint16_t dict_addr = 0x2000;
 
-  while (dict_addr < 0x2200 && count < max_entries) {
-    uint16_t link = memory[dict_addr];
-    uint8_t name_len = memory[dict_addr + 1] & 0xFF;
-
+  while (count < max_entries) {
+    uint64_t link = 0, xt = 0;
+    memcpy(&link, bytes + at, CELL_BYTES);
+    memcpy(&xt, bytes + at + CELL_BYTES, CELL_BYTES);
+    uint8_t name_len = bytes[at + 2 * CELL_BYTES];
     if (name_len == 0 || name_len > 63)
       break;
-
-    // Extract name
-    char name[64] = {0};
-    // First character is in high byte of length word
-    if (name_len > 0) {
-      name[0] = (memory[dict_addr + 1] >> 8) & 0xFF;
-    }
-    // Rest of name continues in following words
-    for (int i = 1; i < name_len; i++) {
-      uint16_t word_offset = 2 + (i - 1) / 2;
-      uint16_t word = memory[dict_addr + word_offset];
-      if ((i - 1) & 1) {
-        name[i] = (word >> 8) & 0xFF;
-      } else {
-        name[i] = word & 0xFF;
-      }
-    }
-
-    // Calculate code pointer location
-    uint16_t header_bytes = 2 + 1 + name_len;
-    if (header_bytes & 1)
-      header_bytes++;
-    uint16_t code_ptr_addr = dict_addr + header_bytes / 2;
-
-    // Read code pointer (already a word address)
-    uint16_t code_word_addr = memory[code_ptr_addr];
-
-    // Store entry
-    strcpy(entries[count].name, name);
-    entries[count].dict_addr = dict_addr;
-    entries[count].code_addr = code_word_addr;
-    entries[count].link = link;
+    memcpy(entries[count].name, bytes + at + 2 * CELL_BYTES + 1, name_len);
+    entries[count].name[name_len] = '\0';
+    entries[count].dict_addr = at / 2;
+    entries[count].code_addr = (uint16_t)(xt & ~(1ull << (CELL_BITS - 1)));
+    entries[count].link = (uint16_t)link;
     count++;
-
-    // Find next entry
-    uint16_t next_addr = code_ptr_addr + 1;
-    dict_addr = 0;
-
-    // Scan forward for next dictionary entry
-    while (next_addr < 0x2200) {
-      if (memory[next_addr] >= 0x4000 || memory[next_addr] == 0) {
-        dict_addr = next_addr;
-        break;
-      }
-      next_addr++;
-    }
-
-    if (dict_addr == 0)
-      break;
+    at += 2 * CELL_BYTES + (name_len / CELL_BYTES + 1) * CELL_BYTES;
   }
 
   return count;
