@@ -19,7 +19,7 @@
 #include <string>
 #include <vector>
 
-static const size_t MEM = 1 << 18;
+static const size_t MEM = 1 << 17;      // 128KB, as the CPU's MB parameter
 
 struct Machine {
     Vhexaforth top;
@@ -46,9 +46,9 @@ struct Machine {
         top.clk = 0;
         top.eval();
         uint16_t next_idata = (uint16_t)read((uint64_t)top.iaddr * 2, 2);
-        uint64_t next_rdata = top.dre ? read(top.daddr, 8) : rdata;
+        uint64_t next_rdata = top.dre ? (top.dok ? read(top.daddr, 8) : 0) : rdata;
         for (int i = 0; i < 8; i++)
-            if ((top.dwe >> i & 1) && top.daddr + i < MEM)
+            if ((top.dwe >> i & 1) && top.dok && top.daddr + i < MEM)
                 mem[top.daddr + i] = top.dwdata >> (8 * i);
         if (top.tx_valid) out.push_back(top.tx_data);
         if (top.rx_ready) in_at++;
@@ -73,18 +73,22 @@ struct Machine {
 
     bool run(uint64_t limit) {
         for (uint64_t i = 0; i < limit && !top.halted; i++) tick();
+        tick();                     // let a store by the last instruction land
         return top.halted;
     }
 
+    // The stacks are shift registers: cell i from the bottom is found by
+    // its distance from the top.
     int64_t dcell(int i) {
         int sp = top.dbg_dsp;
         if (i == sp - 1) return top.dbg_t;
         if (i == sp - 2) return top.dbg_n;
-        return top.rootp->hexaforth__DOT__ds[i];
+        return top.rootp->hexaforth__DOT__dtail[sp - 3 - i];
     }
 
     int64_t rcell(int i) {
-        return i == top.dbg_rsp - 1 ? (int64_t)top.dbg_r : (int64_t)top.rootp->hexaforth__DOT__rs[i];
+        int sp = top.dbg_rsp;
+        return i == sp - 1 ? (int64_t)top.dbg_r : (int64_t)top.rootp->hexaforth__DOT__rtail[sp - 2 - i];
     }
 };
 

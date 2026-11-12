@@ -9,8 +9,11 @@
 //
 // Each lane has a second port for instruction fetch.  An instruction is two
 // bytes at an even address, so it comes from two neighbouring lanes of one
-// word.  Reads on both ports are registered.  Addresses past the end read
-// as zero and are not written.
+// word.  Reads on both ports are registered.
+//
+// Only the low address bits are used, so an address past the end wraps.
+// `dok` low makes a read return zero and a write do nothing; the CPU uses it
+// for device-port accesses that fall outside the memory.
 
 module hf_mem #(
     parameter AW = 14,              // log2 of the size in 64-bit words
@@ -18,6 +21,7 @@ module hf_mem #(
 ) (
     input  wire        clk,
     input  wire [63:0] daddr,       // byte address
+    input  wire        dok,
     input  wire        dre,
     input  wire [7:0]  dwe,
     input  wire [63:0] dwdata,
@@ -25,8 +29,8 @@ module hf_mem #(
     input  wire [AW+1:0] iaddr,     // 16-bit word address
     output wire [15:0] idata
 );
-    wire [2:0]  off  = daddr[2:0];
-    wire [60:0] word = daddr[63:3];
+    wire [2:0]    off  = daddr[2:0];
+    wire [AW-1:0] word = daddr[AW+2:3];
 
     reg  [2:0]  off_q;
     reg  [1:0]  isel_q;
@@ -41,14 +45,13 @@ module hf_mem #(
             initial if (INIT != "") $readmemh($sformatf("%s%0d.hex", INIT, k), m);
             // Lanes before the offset hold bytes from the next word.
             /* verilator lint_off CMPCONST */
-            wire [60:0] w  = word + (k[2:0] < off ? 61'd1 : 61'd0);
+            wire [AW-1:0] w = word + {{(AW-1){1'b0}}, k[2:0] < off};
             /* verilator lint_on CMPCONST */
-            wire        ok = w[60:AW] == 0;
             // The data byte this lane takes: byte (k - off) mod 8.
             wire [2:0]  j  = k[2:0] - off;
             always @(posedge clk) begin
-                if (dwe[j] && ok) m[w[AW-1:0]] <= dwdata[8*j +: 8];
-                if (dre) q <= ok ? m[w[AW-1:0]] : 8'd0;     // held between reads
+                if (dwe[j] && dok) m[w] <= dwdata[8*j +: 8];
+                if (dre) q <= dok ? m[w] : 8'd0;            // held between reads
                 qi <= m[iaddr[AW+1:2]];
             end
             assign dq[8*k +: 8] = q;
