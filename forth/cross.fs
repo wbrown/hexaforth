@@ -37,8 +37,43 @@ variable tcp    0 tcp !         \ Code pointer
 : tc,       there tc! 1 tdp +! ;
 : t,        there t!  4 tdp +! ;
 : tw,       there tw! tcell tdp +! ;
-: tcode,    tcp @ tw! tcell tcp +! ;
-: org       tcp ! ;
+
+( Peephole: fold exit into the instruction before it )
+
+\ `X exit` is one instruction when X is an ALU instruction that leaves the
+\ return stack alone: set RET and r-1 on X.  util/insn_map.py checks the rule
+\ below against every encoding.  Two things stop a fold:
+\   tfence   an address a branch or call can land on.  An exit emitted there
+\            is reached without running the instruction before it.
+\   tpinned  an instruction that the word called just before it will read
+\            and copy (see inline-operand), so it must stay as written.
+
+variable tfence     0 tfence !
+variable tpinned    -1 tpinned !
+variable fold-exits true fold-exits !
+: label     tcp @ tfence ! ;
+
+: foldable? ( insn -- f ) \ ALU, no RET, r+0, result not to R or IO
+    dup h# f003 and h# 6000 =
+    swap h# 0300 and dup h# 0100 <> swap h# 0200 <> and and
+;
+
+: fold-exit? ( insn -- f ) \ is insn an exit that can join the previous instruction?
+    h# 7403 = fold-exits @ and
+    tcp @ tfence @ <> and
+    tcp @ 2 - tpinned @ <> and
+    dup if drop tcp @ 2 - t@ foldable? then
+;
+
+: tcode, ( insn -- )
+    dup fold-exit? if
+        drop
+        tcp @ 2 - dup t@ h# 1003 or swap tw!    \ RET r-1
+    else
+        tcp @ tw! tcell tcp +!
+    then
+;
+: org       tcp ! label ;
 
 wordlist constant target-wordlist
 : add-order ( wid -- ) >r get-order r> swap 1+ set-order ;
@@ -210,6 +245,7 @@ variable initializer-lit?    true ,   \ True if this is the first literal instru
 variable link 0 link !
 
 :: header
+    label
     twalign there
     \ cr ." link is " link @ .
     link @ tw,
@@ -225,6 +261,7 @@ variable link 0 link !
 ;
 
 :: header-imm
+    label
     twalign there
     link @ 1+ tw,
     link !
@@ -238,6 +275,7 @@ variable link 0 link !
 ;
 
 variable wordstart
+variable lastdef    \ body of the most recent target colon definition
 
 :: :
     hex
@@ -246,12 +284,25 @@ variable wordstart
     lst @ write-file throw
     wordstr lst @ write-line throw
 
-    there wordstart !
+    tcp @ wordstart !
+    label
     0    literal-magnitude !        \ Reset shift counter
     true initializer-lit?  !        \ Mark as first literal instruction
-    create  codeptr ,
-    does>   @ scall
+    create  here lastdef !  codeptr , 0 ,
+    does>   dup @ scall
+            cell+ @ if tcp @ tpinned ! then
+;
 
+\ Mark the word just defined as one that reads the instruction after each
+\ call to it (through its return address).  That instruction is then left
+\ exactly as written.
+:: inline-operand
+    true lastdef @ cell+ !
+;
+
+\ For programs that are compared instruction-for-instruction (test cases).
+:: exit-folding-off
+    false fold-exits !
 ;
 
 :: :noname
@@ -375,6 +426,7 @@ warnings on
 ( Conditionals                               JCB 13:12 09/03/10)
 
 : resolve ( orig -- )
+    label
     tcp @ over tbranches ! \ forward reference from orig to this loc
     dup t@ tcp @ 2/ or swap tw!
 ;
@@ -398,7 +450,7 @@ warnings on
     swap resolve
 ;
 
-:: begin tcp @ ;
+:: begin label tcp @ ;
 
 :: again ( dest -- )
     2/ ubranch
