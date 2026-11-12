@@ -38,41 +38,127 @@ variable tcp    0 tcp !         \ Code pointer
 : t,        there t!  4 tdp +! ;
 : tw,       there tw! tcell tdp +! ;
 
-( Peephole: fold exit into the instruction before it )
+( Peephole )
 
-\ `X exit` is one instruction when X is an ALU instruction that leaves the
-\ return stack alone: set RET and r-1 on X.  util/insn_map.py checks the rule
-\ below against every encoding.  Two things stop a fold:
-\   tfence   an address a branch or call can land on.  An exit emitted there
-\            is reached without running the instruction before it.
+\ Instructions are emitted one at a time through tcode,.  Each one is first
+\ offered to the instructions just before it:
+\
+\   exit      joins an ALU instruction that leaves the return stack alone, by
+\             setting RET and r-1 on it.
+\   +         after a pushed literal turns the literal into an add: `d# 8 +`
+\             is one instruction.
+\   anything  that forms a pair or triple listed in peephole.fs is replaced by
+\             the one instruction it equals.  The result is offered again, so
+\             fusions cascade.
+\
+\ The tables come from util/insn_map.py, which derives them from a symbolic
+\ model of vm.c and checks every entry on the VM itself.
+\
+\ Two things stop a fusion:
+\   tfence   the most recent address a branch or call can land on.  The
+\            instruction there may start a fused group but not sit inside one.
 \   tpinned  an instruction that the word called just before it will read
 \            and copy (see inline-operand), so it must stay as written.
 
 variable tfence     0 tfence !
 variable tpinned    -1 tpinned !
-variable fold-exits true fold-exits !
+variable peephole   true peephole !
+s" PEEPHOLE" getenv s" off" compare 0= [if] false peephole ! [then]   \ PEEPHOLE=off gforth ...
 : label     tcp @ tfence ! ;
+
+s" peephole.fs" included
+
+: fuse-lookup ( key table -- insn true | false )
+    begin
+        dup @
+    while
+        2dup @ = if nip cell+ @ true exit then
+        2 cells +
+    repeat
+    2drop false
+;
+
+: (tcode,)  tcp @ tw! tcell tcp +! ;
+: retract ( n -- ) \ take back the last n instructions
+    0 ?do  tcp @ 2 - tcp !  0 tcp @ tw!  loop ;
+
+\ May the n instructions before tcp be replaced, along with one emitted at tcp?
+: fusable? ( n -- f )
+    2* tcp @ over u< if drop false exit then
+    tcp @ swap -                            ( first )
+    dup tfence @ u< if drop false exit then \ a label inside the group
+    tpinned @ swap tcp @ within 0=          \ a pinned instruction in the group
+;
 
 : foldable? ( insn -- f ) \ ALU, no RET, r+0, result not to R or IO
     dup h# f003 and h# 6000 =
     swap h# 0300 and dup h# 0100 <> swap h# 0200 <> and and
 ;
 
-: fold-exit? ( insn -- f ) \ is insn an exit that can join the previous instruction?
-    h# 7403 = fold-exits @ and
-    tcp @ tfence @ <> and
-    tcp @ 2 - tpinned @ <> and
-    dup if drop tcp @ 2 - t@ foldable? then
+: fold-exit ( insn -- insn false | true )
+    dup h# 7403 = if
+        1 fusable? if
+            tcp @ 2 - t@ foldable? if
+                drop tcp @ 2 - dup t@ h# 1003 or swap tw!
+                true exit
+            then
+        then
+    then
+    false
 ;
 
-: tcode, ( insn -- )
-    dup fold-exit? if
+\ `+` after a literal.  The literal is a push followed by any number of adds;
+\ making the push an add turns the whole of it into T += n.
+: fold-lit+ ( insn -- insn false | true )
+    dup h# 643c <> if false exit then
+    0 begin                                 ( insn n )
+        1+
+        dup 2* tcp @ u> if drop false exit then
+        tcp @ over 2* - t@ h# c000 and      ( insn n kind )
+        dup h# c000 =
+    while
         drop
-        tcp @ 2 - dup t@ h# 1003 or swap tw!    \ RET r-1
-    else
-        tcp @ tw! tcell tcp +!
-    then
+    repeat
+    h# 8000 <> if drop false exit then      \ not a literal at all
+    dup fusable? 0= if drop false exit then
+    nip
+    tcp @ swap 2* - dup t@ h# 4000 or swap tw!
+    true
 ;
+
+defer tcode,
+
+: fuse-pair ( insn -- insn false | true )
+    1 fusable? if
+        tcp @ 2 - t@ h# e000 and h# 6000 <> if false exit then
+        tcp @ 2 - t@ 16 lshift over or fuse2 fuse-lookup if
+            nip 1 retract tcode, true exit
+        then
+    then
+    false
+;
+
+: fuse-triple ( insn -- insn false | true )
+    2 fusable? if
+        tcp @ 4 - t@ 32 lshift  tcp @ 2 - t@ 16 lshift or  over or
+        fuse3 fuse-lookup if
+            nip 2 retract tcode, true exit
+        then
+    then
+    false
+;
+
+:noname ( insn -- )
+    peephole @ if
+        fold-exit   if exit then
+        fold-lit+   if exit then
+        dup h# e000 and h# 6000 = if
+            fuse-pair   if exit then
+            fuse-triple if exit then
+        then
+    then
+    (tcode,)
+; is tcode,
 : org       tcp ! label ;
 
 wordlist constant target-wordlist
@@ -301,8 +387,8 @@ variable lastdef    \ body of the most recent target colon definition
 ;
 
 \ For programs that are compared instruction-for-instruction (test cases).
-:: exit-folding-off
-    false fold-exits !
+:: peephole-off
+    false peephole !
 ;
 
 :: :noname

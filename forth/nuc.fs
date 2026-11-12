@@ -46,30 +46,27 @@ meta
 target
 
 header 1-       : 1-        d# -1 + ;
-header 0=       : 0=        d# 0 = ;
+\ Words the cross-compiler already knows as one or two instructions get a
+\ header only: `:noname` leaves the name bound to the inline form, so code
+\ below compiles the instructions themselves, where the peephole can fuse
+\ them, instead of a call.
+header 0=       :noname     0=       ;
 header cell+    : cell+     d# 8 + ;        \ 64-bit cells = 8 bytes
 header cells    : cells     d# 3 lshift ;   \ multiply by 8 for 64-bit
 
-header <>       : <>        = invert ; 
-header >        : >         swap < ; 
-header 0<       : 0<        d# 0 < ; 
+header <>       :noname     <>       ;
+header >        :noname     >        ;
+header 0<       :noname     0<       ;
 header 0>       : 0>        d# 0 > ;
 header 0<>      : 0<>       d# 0 <> ;
-header u>       : u>        swap u< ; 
+header u>       :noname     u>       ;
 
 : off
     d# 0 swap !
 ;
 
-header key
-: key
-    IO-IN io@
-;
-
-header emit
-: emit
-    IO-OUT io!
-;
+header key      :noname     key      ;
+header emit     :noname     emit     ;
 
 header cr
 : cr
@@ -107,24 +104,23 @@ header .x2      : .x2 hex2 space ;
 header true     : true  d# -1 ;
 header false    : false d# 0 ;
 header rot      : rot   >r swap r> swap ; 
-header -rot     : -rot  swap >r swap r> ; 
-header tuck     : tuck  swap over ; 
-header 2drop    : 2drop drop drop ; 
+header -rot     :noname     -rot     ;
+header tuck     :noname     tuck     ;
+header 2drop    :noname     2drop    ;
 header ?dup     : ?dup  dup if dup then ;
 
-header 2dup     : 2dup  over over ; 
-header +!       : +!    tuck @ + swap ! ; 
+header 2dup     :noname     2dup     ;
+header +!       :noname     +!       ;
 header 2swap    : 2swap rot >r rot r> ;
 header 2over    : 2over >r >r 2dup r> r> 2swap ;
 
 header min      : min   2dup< if drop else nip then ;
 header max      : max   2dup< if nip else drop then ;
 
-header hi32  : hi32 ( dw -- w ) d# 32 rshift ;
+header hi32  :noname hi32 ;
 header lo32  : lo32 ( dw -- w ) d# 32 lshift d# 32 rshift ;
 header hi16  : hi16 ( dw -- s ) d# 32 lshift d# 48 rshift ;
 header lo16  : lo16 ( dw -- s ) d# 48 lshift d# 48 rshift ;
-header +!    : +! ( u c-addr -- ) tuck @ + swap ! ;
 
 header uw@
 : uw@
@@ -147,10 +143,7 @@ header count
     dup 1+ swap c@
 ;
 
-header bounds
-: bounds ( a n -- a+n a )
-    over + swap
-;
+header bounds   :noname     bounds   ;
 
 header type
 : type
@@ -229,10 +222,10 @@ header words : words
 \     drop cr
 \ ;
 
-header negate   : negate    invert 1+ ; 
+header negate   :noname     negate   ;
 header -        : -         negate + ; 
 header abs      : abs       dup 0< if negate then ; 
-header 2*       : 2*        d# 1 lshift ; 
+header 2*       :noname     2*       ;
 header 2/       : 2/        dup 0< if invert d# 1 rshift invert else d# 1 rshift then ; 
 header here     : here      dp @ ;
 header depth    : depth     IO-SP io@ 1- ;  \ less the port number itself
