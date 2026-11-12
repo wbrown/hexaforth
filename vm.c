@@ -83,6 +83,9 @@ static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
     if (io_addr == IO_ADDR) {
         return (int64_t)(intptr_t)ctx->memory;
     }
+    if (io_addr == 0xe1) {
+        return TRUE;        // key?: reading stdin just blocks until there is one
+    }
     if (io_width(io_addr)) {
         uint64_t value = 0;
         uint8_t *p = io_target(ctx, io_width(io_addr));

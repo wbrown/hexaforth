@@ -26,6 +26,7 @@
 
         .equ    IO_EMIT,     0xf1
         .equ    IO_KEY,      0xe0
+        .equ    IO_KEYQ,     0xe1
         .equ    IO_ADDR,     0xc0
         .equ    IO_SP,       0xd0
         .equ    IO_RSP,      0xd1
@@ -271,6 +272,12 @@ io_read:                                        // port in OUT, result in OUT
         tbnz    w12, #4, 1b                     // RXFE: nothing received yet
         ldr     w10, [UART]
         and     OUT, OUT, #0xff
+        ret
+2:      cmp     OUT, #IO_KEYQ
+        b.ne    2f
+        ldr     w12, [UART, #UART_FR]
+        tst     w12, #0x10                      // RXFE clear: something is waiting
+        csetm   OUT, eq
         ret
 2:      sub     x12, OUT, #IO_ADDR              // device ports 0xc0-0xc8
         cmp     x12, #8

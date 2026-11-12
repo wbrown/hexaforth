@@ -5,8 +5,8 @@
 #   make size       native code size
 #   make test       differential test against vm.c (needs python3 + unicorn)
 #   make KERNEL=hexaforth-fast ...   any target, with the table-decoded kernel
-#   make demo       boot with a disk and display; type `mandrill`
-#   make demo-test  run the Mandrill demo headless and check the screen
+#   make demo       boot into the desktop, with a disk, keyboard and pointer
+#   make demo-test  drive the desktop headless and check the screen
 
 # KERNEL picks the native kernel: hexaforth (small) or hexaforth-fast.
 KERNEL ?= hexaforth
@@ -53,18 +53,19 @@ $(B)/disk.img: $(B)/baboon.png mkdisk.py block1.fs
 	python3 mkdisk.py $(B)/baboon.png $@ block1.fs
 
 DEVICES := -device ramfb -global virtio-mmio.force-legacy=false \
-           -drive file=$(B)/disk.img,if=none,format=raw,id=hd0 -device virtio-blk-device,drive=hd0
+           -drive file=$(B)/disk.img,if=none,format=raw,id=hd0 -device virtio-blk-device,drive=hd0 \
+           -device virtio-keyboard-device -device virtio-tablet-device
 
-# Boot with the disk and a display; type `mandrill` at the prompt.
+# Boot into the desktop.  Needs a QEMU with a graphical display; the serial
+# console also types into the front window.  ^Q leaves the desktop for the
+# serial prompt.
 demo: $(B)/$(KERNEL).elf $(B)/disk.img
 	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 -serial mon:stdio -nic none $(DEVICES) -kernel $<
 
-# Run the demo headless, save $(B)/mandrill.png, and check it against a
-# reference dither computed on the host.
+# Boot headless, drive the desktop with key and pointer events, and check
+# the screen.  Screenshots are left in $(B)/gui.
 demo-test: $(B)/$(KERNEL).elf $(B)/disk.img
-	python3 demo.py $< $(B)/disk.img $(B)/disk.tiff $(B)/mandrill.png
-
-clean:
-	rm -rf $(B)
+	cp $(B)/disk.img $(B)/gui.img
+	python3 guitest.py $< $(B)/gui.img $(B)/disk.tiff $(B)/gui
 
 .PHONY: all size run test demo demo-test clean

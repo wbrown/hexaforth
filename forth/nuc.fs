@@ -24,7 +24,19 @@ header 0<>      : 0<>       d# 0 <> ;
 header u>       :noname     u>       ;
 
 header key      :noname     key      ;
-header emit     :noname     emit     ;
+
+header key?
+: key? ( -- f ) \ is a character waiting on the console?
+    h# e1 io@
+;
+
+\ Output goes through a vector, so it can be sent to a window.
+
+create 'emit 0 ,
+: uart-emit ( c -- ) emit ;
+
+header emit
+: emit ( c -- ) 'emit @ >r ;      \ as execute: return into the vector
 
 header cr
 : cr
@@ -160,7 +172,12 @@ header abs      : abs       dup 0< if negate then ;
 header 2*       :noname     2*       ;
 header 2/       : 2/        dup 0< if invert d# 1 rshift invert else d# 1 rshift then ; 
 header here     : here      dp @ ;
-header depth    : depth     IO-SP io@ 1- ;  \ less the port number itself
+\ The data stack depth.  adepth is the true depth; depth is what a program
+\ sees, measured from sbase, which the desktop raises while it runs a line
+\ of Forth above its own work.
+create sbase 0 ,
+: adepth ( -- n ) IO-SP io@ 1- ;            \ less the port number itself
+header depth    : depth     adepth sbase @ - ;
 
 header /string
 : /string
@@ -682,6 +699,8 @@ header throw
         .
         d# 0 state !
         d# 0 sourceid !
+        ['] uart-emit 'emit !
+        d# 0 sbase !
         d# 0 IO-RSP io!     \ empty both stacks before restarting
         d# 0 IO-SP io!
         d# 1 execute        \ word 1 of the boot vector: quit
@@ -1275,7 +1294,7 @@ header-imm postpone
 
 header catch
 : catch ( xt -- 0 | n )
-    depth >r
+    adepth >r
     handler @ >r
     rO @ >r
     IO-RSP io@ handler !
@@ -1330,6 +1349,7 @@ header quit
 ;
 
 : main
+    ['] uart-emit 'emit !
     decimal
     "cold" d# 4 sfind if
         execute
@@ -1352,5 +1372,6 @@ meta
     link @ t,
     link @ t' forth t!
     there  t' dp t!
-    $10000 t' cp t!         \ run-time definitions go in the code pages
+    tcp @ $10000 max $1fff + $1fff invert and
+    t' cp t!                \ run-time definitions start on the next free code page
 target

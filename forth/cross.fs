@@ -18,9 +18,9 @@ variable lst        \ .lst output file handle
 : tcell+    tcell + ;
 
 131072 allocate throw constant tflash       \ bytes, target flash
-131072 allocate throw constant _tbranches   \ branch targets, cells
+131072 cells allocate throw constant _tbranches   \ branch targets, one cell per byte address
 tflash      131072 erase
-_tbranches  131072 erase
+_tbranches  131072 cells erase
 : tbranches cells _tbranches + ;
 
 variable tdp    $4000 tdp !     \ Data pointer
@@ -78,7 +78,9 @@ s" peephole.fs" included
     2drop false
 ;
 
-: (tcode,)  tcp @ tw! tcell tcp +! ;
+: (tcode,)
+    tcp @ $1fff and $1ffe = abort" code page full"
+    tcp @ tw! tcell tcp +! ;
 : retract ( n -- ) \ take back the last n instructions
     0 ?do  tcp @ 2 - tcp !  0 tcp @ tw!  loop ;
 
@@ -324,6 +326,21 @@ variable initializer-lit?    true ,   \ True if this is the first literal instru
 
 : codeptr   tcp @ 2/ ;  \ target code pointer as a word address
 
+( Code pages                                                          )
+
+\ A page is 4096 words.  A branch target field with bit 12 clear is an
+\ absolute kernel address; with bit 12 set it is an offset in the branch's
+\ own page.  Code compiled past the kernel reaches other pages by execution
+\ token, exactly as the run-time compiler does.
+
+: tpage ( word-addr -- page ) 12 rshift ;
+: >target ( word-addr -- field ) \ for a branch in the page being compiled
+    dup tpage if $fff and $1000 or then ;
+: here-target ( -- field ) tcp @ 2/ >target ;
+: near? ( word-addr -- f ) \ kernel, or the page being compiled?
+    tpage dup 0= swap tcp @ 2/ tpage = or ;
+
+
 : wordstr ( "name" -- c-addr u )
     >in @ >r bl word count r> >in !
 ;
@@ -375,7 +392,13 @@ variable lastdef    \ body of the most recent target colon definition
     0    literal-magnitude !        \ Reset shift counter
     true initializer-lit?  !        \ Mark as first literal instruction
     create  here lastdef !  codeptr , 0 ,
-    does>   dup @ scall
+    does>   dup @ dup near? if
+                >target scall
+            else
+                literal
+                s" execute" target-wordlist search-wordlist 0= throw
+                >body @ scall
+            then
             cell+ @ if tcp @ tpinned ! then
 ;
 
@@ -403,6 +426,12 @@ variable lastdef    \ body of the most recent target colon definition
 
 :: c,
     tc,
+;
+
+\ ," text" lays down a counted string in data space.
+:: ,"
+    [char] " parse dup tc,
+    bounds ?do i c@ tc, loop
 ;
 
 :: allot
@@ -448,7 +477,7 @@ variable lastdef    \ body of the most recent target colon definition
 :: ;fallthru ;
 
 :: jmp
-    ' >body @ ubranch
+    ' >body @ >target ubranch
 ;
 
 :: constant
@@ -514,7 +543,7 @@ warnings on
 : resolve ( orig -- )
     label
     tcp @ over tbranches ! \ forward reference from orig to this loc
-    dup t@ tcp @ 2/ or swap tw!
+    dup t@ here-target or swap tw!
 ;
 
 :: if
@@ -523,7 +552,7 @@ warnings on
 ;
 
 :: DOUBLE
-    tcp @ 2 + 2/ scall
+    tcp @ 2 + 2/ >target scall
 ;
 
 :: then
@@ -539,17 +568,17 @@ warnings on
 :: begin label tcp @ ;
 
 :: again ( dest -- )
-    2/ ubranch
+    2/ >target ubranch
 ;
 :: until
-    2/ 0branch
+    2/ >target 0branch
 ;
 :: while
     tcp @
     0 0branch
 ;
 :: repeat
-    swap 2/ ubranch
+    swap 2/ >target ubranch
     resolve
 ;
 
@@ -629,8 +658,8 @@ decimal
     s" hex" out-suffix to file
 
     hex
-    8192 0 do
-        tflash i 4 * + @
+    32768 0 do
+        tflash i 4 * + ul@
         s>d <# # # # # # # # # #> file write-line throw
     loop
     file close-file

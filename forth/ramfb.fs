@@ -44,10 +44,49 @@ create ramfb-name 'e' c, 't' c, 'c' c, '/' c, 'r' c, 'a' c, 'm' c, 'f' c,
     repeat
 ;
 
+: fb-addr ( x y -- a ) fb-stride @ * swap d# 2 lshift + fb @ + ;
+
 : ramfb-plot ( on? x y -- )
-    fb-stride @ * swap d# 2 lshift + fb @ +
+    fb-addr
     swap if h# ffffff else d# 0 then
     swap l!
+;
+
+\ Two pixels are one 64-bit cell, so runs are drawn a pair at a time.  pix2
+\ holds the four possible pairs; the left pixel is the low half.
+
+create pix2  0 ,  $00ffffff00000000 ,  $00ffffff ,  $00ffffff00ffffff ,
+
+: pair ( bits shift -- cell ) rshift d# 3 and cells pix2 + @ ;
+
+: ramfb-blit8 ( bits x y -- )
+    fb-addr
+    over d# 6 pair over !
+    over d# 4 pair over d# 8 + !
+    over d# 2 pair over d# 16 + !
+    swap d# 0 pair swap d# 24 + !
+;
+
+: x! ( cell a -- ) dup >r @ xor r> ! ;
+
+: ramfb-xor8 ( bits x y -- )
+    fb-addr
+    over d# 6 pair over x!
+    over d# 4 pair over d# 8 + x!
+    over d# 2 pair over d# 16 + x!
+    swap d# 0 pair swap d# 24 + x!
+;
+
+: ramfb-hspan ( on? x y n -- )
+    >r fb-addr
+    swap if pix2 d# 24 + @ else d# 0 then swap      ( cell a )
+    r>
+    begin
+        dup d# 1 >
+    while
+        >r 2dup ! d# 8 + r> d# 2 -
+    repeat
+    if swap lo32 swap l! else 2drop then
 ;
 
 header ramfb-init
@@ -71,5 +110,8 @@ header ramfb-init
     fwc d# 48 + @   FWCFG d# 16 + reg64!
     fwc be32@ d# 38 -throw                  \ control is zero once done
 
-    ['] ramfb-plot 'plot !
+    ['] ramfb-plot  'plot !
+    ['] ramfb-hspan 'hspan !
+    ['] ramfb-blit8 'blit8 !
+    ['] ramfb-xor8  'xor8 !
 ;

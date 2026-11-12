@@ -386,10 +386,10 @@ def load_image(path):
     """Code words and the entry points named by the dictionary."""
     raw = b"".join(struct.pack("<I", int(l, 16)) for l in open(path) if l.strip())
     cells = list(struct.unpack(f"<{len(raw) // 2}H", raw))
-    code = cells[:0x2000]
+    code = cells[:0x2000] + [0] * 0x6000 + cells[0x8000:0x10000]
     code = code[:max(i for i, w in enumerate(code) if w) + 1]
     entries = set()
-    link = cells[max(i for i in range(0x2000, len(cells)) if cells[i])]
+    link = cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
     while link:
         link &= ~1
         name_len = raw[link + 2]
@@ -398,13 +398,26 @@ def load_image(path):
     return code, entries
 
 
+def flat_target(at, ins):
+    """Word address a branch at `at` goes to: the kernel, or its own page."""
+    field = ins & 0x1FFF
+    return (at & ~0xFFF) | (field & 0xFFF) if field & 0x1000 else field
+
+
 def split_runs(code, entries):
     """Cut code into control instructions and straight-line runs.  A run ends
     at a RET or an IO write, and before anything a branch can land on."""
     targets = set(entries)
-    for w in code:
+    for i, w in enumerate(code):
         if w and not w & 0x8000 and w >> 13 != 3:
-            targets.add(w & 0x1FFF)
+            targets.add(flat_target(i, w))
+        # A two-instruction literal that points into code past the kernel is
+        # an execution token: its word is an entry point too.
+        nxt = code[i + 1] if i + 1 < len(code) else 0
+        if w & 0xF000 == 0x9000 and nxt & 0xF000 == 0xC000:
+            value = (w & 0xFFF) << 12 | nxt & 0xFFF
+            if 0x1000 <= value < 0x2000 or 0x8000 <= value < len(code):
+                targets.add(value)
     items, run, start = [], [], 0
     for i, w in enumerate(code):
         if run and i in targets:
@@ -440,20 +453,26 @@ def compare_images(plain_path, opt_path):
         return 1
     moved = {a[1]: b[1] for a, b in zip(plain, opt)}
 
-    def translate(run):
-        """Rewrite literals that are code addresses: one instruction for the
-        kernel, a shifted push and an add for addresses above 4095."""
+    def translate(run, kernel):
+        """Rewrite literals that are code addresses: a shifted push and an
+        add for addresses above 4095 and, if `kernel`, one instruction for
+        the kernel.  A small constant can look like a kernel address, so the
+        caller tries it both ways."""
         out, i = [], 0
         while i < len(run):
             w = run[i]
             nxt = run[i + 1] if i + 1 < len(run) else 0
-            if w & 0xF000 == 0x8000 and (w & 0xFFF) in moved and moved[w & 0xFFF] < 0x1000:
+            if kernel and w & 0xF000 == 0x8000 and (w & 0xFFF) in moved \
+                    and moved[w & 0xFFF] < 0x1000:
                 out.append(0x8000 | moved[w & 0xFFF])
             elif w & 0xF000 == 0x9000 and nxt & 0xF000 == 0xC000 and \
                     ((w & 0xFFF) << 12 | nxt & 0xFFF) in moved:
                 to = moved[(w & 0xFFF) << 12 | nxt & 0xFFF]
                 out += [0x9000 | to >> 12, 0xC000 | to & 0xFFF]
                 i += 1
+            elif w & 0xF000 == 0x9000 and (w & 0xFFF) << 12 in moved and \
+                    moved[(w & 0xFFF) << 12] & 0xFFF == 0:
+                out.append(0x9000 | moved[(w & 0xFFF) << 12] >> 12)
             else:
                 out.append(w)
             i += 1
@@ -462,11 +481,13 @@ def compare_images(plain_path, opt_path):
     bad = runs = 0
     for (kind, at_a, a), (_, at_b, b) in zip(plain, opt):
         if kind == "ctl":
-            same = a >> 13 == b >> 13 and (a == b == 0 or moved.get(a & 0x1FFF) == b & 0x1FFF)
+            same = a >> 13 == b >> 13 and (
+                a == b == 0 or moved.get(flat_target(at_a, a)) == flat_target(at_b, b))
         else:
             runs += 1
             want = behaviour(b)
-            same = want is not None and want in (behaviour(a), behaviour(translate(a)))
+            same = want is not None and want in (
+                behaviour(a), behaviour(translate(a, False)), behaviour(translate(a, True)))
         if not same:
             bad += 1
             text = lambda x: " ".join(f"{w:04x}" for w in x) if isinstance(x, list) else f"{x:04x}"
