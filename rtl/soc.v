@@ -6,7 +6,9 @@ module soc #(
     parameter PCW = MB - 1,         // program counter width, in words
     parameter DEPTH = 64,           // cells in each stack
     parameter INIT = "",            // memory image, one hex file per lane
-    parameter ALIGNED = 0           // the memory takes only aligned cell accesses
+    parameter ALIGNED = 0,          // the memory takes only aligned cell accesses
+    parameter STACKRAM = 1,         // stacks in distributed RAM, or shift registers
+    parameter PLANES = 0            // memory built from one-bit-wide block RAMs
 ) (
     input  wire       clk,
     input  wire       rst,
@@ -22,7 +24,7 @@ module soc #(
     wire         rok, wok;
     wire [W/8-1:0] dwe;
 
-    hexaforth #(.W(W), .PCW(PCW), .DEPTH(DEPTH), .MB(MB)) cpu (
+    hexaforth #(.W(W), .PCW(PCW), .DEPTH(DEPTH), .MB(MB), .STACKRAM(STACKRAM)) cpu (
         .clk(clk), .rst(rst), .start_pc({PCW{1'b0}}),
         .raddr(raddr), .rok(rok), .rdata(rdata),
         .waddr(waddr), .wok(wok), .dwe(dwe), .dwdata(dwdata),
@@ -31,7 +33,7 @@ module soc #(
         .halted(halted),
         .dbg_t(), .dbg_n(), .dbg_r(), .dbg_dsp(), .dbg_rsp(), .dbg_exec());
 
-    hf_mem #(.W(W), .MB(MB), .INIT(INIT), .ALIGNED(ALIGNED)) mem (
+    hf_mem #(.W(W), .MB(MB), .INIT(INIT), .ALIGNED(ALIGNED), .PLANES(PLANES)) mem (
         .clk(clk),
         .raddr(raddr), .rok(rok), .rdata(rdata),
         .waddr(waddr), .wok(wok), .dwe(dwe), .dwdata(dwdata));

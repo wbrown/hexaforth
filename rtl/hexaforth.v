@@ -44,7 +44,8 @@ module hexaforth #(
     parameter W     = 64,           // cell width: 64, 32 or 16
     parameter PCW   = 16,           // program counter width, in words; at most W
     parameter DEPTH = 64,           // cells in each stack below T, N and R
-    parameter MB    = 17            // log2 of the memory size in bytes
+    parameter MB    = 17,           // log2 of the memory size in bytes
+    parameter STACKRAM = 1          // stacks in distributed RAM, or shift registers
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -85,10 +86,9 @@ module hexaforth #(
     reg [7:0]  dsp, rsp;            // stack depths, for the depth ports
     reg [W-1:0] ioa;                 // latched address for the device ports
 
-    // The stacks below the registers.  dtail[0] is the cell under N and
-    // rtail[0] the cell under R; a push or pop moves every cell along.
-    reg [W-1:0] dtail [0:DEPTH-1] /* verilator public_flat_rd */;
-    reg [W-1:0] rtail [0:DEPTH-1] /* verilator public_flat_rd */;
+    // The cells under N (ds3, ds4) and under R (rs2, rs3) come from the
+    // stacks below the registers, defined further down.
+    wire [W-1:0] ds3, ds4, rs2, rs3;
 
     localparam S_BOOT = 0, S_RUN = 1, S_HALT = 2, S_SP = 3, S_RSP = 4;
     reg [2:0]  state;
@@ -207,10 +207,6 @@ module hexaforth #(
     // ------------------------------------------------- next state values
     wire [W-1:0] lit = {{(W-12){1'b0}}, ins[11:0]} << (ins[13:12] * 12);
     wire [W:0]   pc_wide = {{(W+1-PCW){1'b0}}, pc};
-    wire [W-1:0] ds3 = dtail[0];                 // the cells under N
-    wire [W-1:0] ds4 = dtail[1];
-    wire [W-1:0] rs2 = rtail[0];                 // the cells under R
-    wire [W-1:0] rs3 = rtail[1];
 
     localparam KEEP = 2'd0, PUSH = 2'd1, POP1 = 2'd2, POP2 = 2'd3;
 
@@ -345,23 +341,58 @@ module hexaforth #(
         end
     end
 
-    integer k;
-    always @(posedge clk) begin
-        for (k = 0; k < DEPTH; k = k + 1) begin
-            case (d_op)
-                PUSH: dtail[k] <= k == 0 ? d_in : dtail[k - 1];
-                POP1: dtail[k] <= k + 1 < DEPTH ? dtail[k + 1] : {W{1'b0}};
-                POP2: dtail[k] <= k + 2 < DEPTH ? dtail[k + 2] : {W{1'b0}};
-                default: ;
-            endcase
-            case (r_op)
-                PUSH: rtail[k] <= k == 0 ? R : rtail[k - 1];
-                POP1: rtail[k] <= k + 1 < DEPTH ? rtail[k + 1] : {W{1'b0}};
-                POP2: rtail[k] <= k + 2 < DEPTH ? rtail[k + 2] : {W{1'b0}};
-                default: ;
-            endcase
+    // The stacks below the registers, in one of two forms.
+    //
+    // As memories, read without a clock: cell i from the bottom of the data
+    // stack is dmem[i], so the cell under N is at depth - 3, and a push
+    // writes at depth - 2.  Only the depth changes on a pop.  On an FPGA
+    // these are small LUT memories, not flip-flops.
+    //
+    // As shift registers: dtail[0] is the cell under N and rtail[0] the
+    // cell under R, and a push or pop moves every cell along.
+    localparam SB = $clog2(DEPTH);
+    generate
+        if (STACKRAM) begin : sram
+            reg [W-1:0] dmem [0:DEPTH-1] /* verilator public_flat_rd */;
+            reg [W-1:0] rmem [0:DEPTH-1] /* verilator public_flat_rd */;
+            wire [SB-1:0] d3 = dsp[SB-1:0] - 2'd3, d4 = dsp[SB-1:0] - 3'd4;
+            wire [SB-1:0] dw = dsp[SB-1:0] - 2'd2;
+            wire [SB-1:0] r2 = rsp[SB-1:0] - 2'd2, r3 = rsp[SB-1:0] - 2'd3;
+            wire [SB-1:0] rw = rsp[SB-1:0] - 2'd1;
+            assign ds3 = dmem[d3];
+            assign ds4 = dmem[d4];
+            assign rs2 = rmem[r2];
+            assign rs3 = rmem[r3];
+            always @(posedge clk) begin
+                if (d_op == PUSH) dmem[dw] <= d_in;
+                if (r_op == PUSH) rmem[rw] <= R;
+            end
+        end else begin : sreg
+            reg [W-1:0] dtail [0:DEPTH-1] /* verilator public_flat_rd */;
+            reg [W-1:0] rtail [0:DEPTH-1] /* verilator public_flat_rd */;
+            assign ds3 = dtail[0];
+            assign ds4 = dtail[1];
+            assign rs2 = rtail[0];
+            assign rs3 = rtail[1];
+            integer k;
+            always @(posedge clk) begin
+                for (k = 0; k < DEPTH; k = k + 1) begin
+                    case (d_op)
+                        PUSH: dtail[k] <= k == 0 ? d_in : dtail[k - 1];
+                        POP1: dtail[k] <= k + 1 < DEPTH ? dtail[k + 1] : {W{1'b0}};
+                        POP2: dtail[k] <= k + 2 < DEPTH ? dtail[k + 2] : {W{1'b0}};
+                        default: ;
+                    endcase
+                    case (r_op)
+                        PUSH: rtail[k] <= k == 0 ? R : rtail[k - 1];
+                        POP1: rtail[k] <= k + 1 < DEPTH ? rtail[k + 1] : {W{1'b0}};
+                        POP2: rtail[k] <= k + 2 < DEPTH ? rtail[k + 2] : {W{1'b0}};
+                        default: ;
+                    endcase
+                end
+            end
         end
-    end
+    endgenerate
 
     wire [7:0] dsp_step = d_op == PUSH ? 8'd1 : d_op == POP1 ? 8'hff : d_op == POP2 ? 8'hfe : 8'd0;
     wire [7:0] rsp_step = r_op == PUSH ? 8'd1 : r_op == POP1 ? 8'hff : r_op == POP2 ? 8'hfe : 8'd0;
