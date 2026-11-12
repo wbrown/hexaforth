@@ -246,7 +246,7 @@ static forth_define FORTH_OPS[] = {
         {">><<",    "tuck rshift swap lshift", CODE},
         {"nmask8",  "255 imm invert", CODE},
         {"w@",      "@ lo16", CODE},
-        {"c@",      ">r @r 255 imm and r> 256 imm and or", CODE},
+        {"c@",      "@ 255 imm and", CODE},
         {"c!",      ">r 255 imm and @r nmask8 and or r> !", CODE},
         {"nmask16",  "0 imm invert 16 imm lshift", CODE},
         {"w!",      ">r lo16 r@ @ nmask16 and or r> !", CODE},

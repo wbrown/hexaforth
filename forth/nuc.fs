@@ -99,8 +99,8 @@ header bl
     emit
 ;
 
-header .x       : . hex8 space ;
-header .x2      : . hex2 space ;
+header .x       : .x hex8 space ;
+header .x2      : .x2 hex2 space ;
 
 header true     : true  d# -1 ;
 header false    : false d# 0 ;
@@ -130,14 +130,9 @@ header uw@
 ;
 
 header w!
-: w! ( u c-addr -- )
-    dup>r d# 2 and if
-        d# 16 lshift
-        r@ @ lo16
-    else
-        lo16
-        r@ @ hi16
-    then
+: w! ( u c-addr -- ) \ store 16 bits, leaving the other 48 bits of the cell alone
+    >r lo16
+    r@ @ d# -1 d# 16 lshift and
     or r> !
 ;
 
@@ -247,7 +242,7 @@ header /string
 
 header aligned
 : aligned
-    d# 3 + d# -4 and
+    d# 7 + d# -8 and
 ; 
 
 header d+
@@ -348,7 +343,7 @@ header d2*
 header d2/
 : d2/
     >r d# 1 rshift r@
-    d# 31 lshift
+    d# 63 lshift
     or r> 2/
 ;
 
@@ -366,10 +361,12 @@ header d2/
 
 create scratch 0 ,
 
+\ One step per bit of a cell: six DOUBLEs = 64 steps.
+
 : mulstep ( ud u1 -- ud u1 )
-    DOUBLE DOUBLE DOUBLE DOUBLE DOUBLE
+    DOUBLE DOUBLE DOUBLE DOUBLE DOUBLE DOUBLE
     >r
-    d# 1 lshift over d# 31 rshift + swap d# 1 lshift swap
+    d# 1 lshift over d# 63 rshift + swap d# 1 lshift swap
     r@ d# 0 < if 
         scratch @ d# 0 d+ 
     then 
@@ -384,28 +381,12 @@ header um*
     drop 
 ; 
 
-: mul32step ( u2 u1 -- u2 u1 )
-    DOUBLE DOUBLE DOUBLE DOUBLE DOUBLE
-    >r
-    d# 1 lshift
-    r@ d# 0 < if 
-        scratch @ +
-    then 
-    r> d# 1 lshift
-;
-
-header *
-: *
-    scratch !
-    d# 0 swap
-    mul32step
-    drop
-;
+header *        :noname     *        ;
 
 \ see Hacker's Delight (2nd ed) 9-4 "Unsigned Long Division"
 
 : divstep  \ ( y x z )
-    DOUBLE DOUBLE DOUBLE DOUBLE DOUBLE
+    DOUBLE DOUBLE DOUBLE DOUBLE DOUBLE DOUBLE
     >r
     dup 0< >r
     2dup d+
@@ -677,7 +658,7 @@ header allot
 header ,
 :noname
     here !
-    d# 4 tallot
+    d# 8 tallot
 ;
 
 header w,
@@ -726,8 +707,8 @@ header s,
     parse-name
     s,
     calign
-    cp @ w,
-    cp @ thisxt !
+    cp @ 2/ w,              \ xt: word address
+    cp @ 2/ thisxt !
     sync
 ;
 
@@ -755,17 +736,17 @@ header :
 
 header :noname
 :noname
-    calign cp @
+    calign cp @ 2/
     dup thisxt !
     d# 0 lastword !
     sync
     t]
 ;
 
-: inline:
+: inline: \ copy the instruction after the call, and skip it
     r>
-    dup uw@ code,
-    d# 2 + >r
+    dup 2* uw@ code,
+    1+ >r
 ;
 
 : prev
@@ -784,7 +765,7 @@ header :noname
 
 header-imm exit
 : texit
-    cp @ thisxt @ <> if
+    cp @ 2/ thisxt @ <> if
         prev uw@ jumpable if
             prev
             uw@
@@ -844,24 +825,24 @@ header-imm until
     h# 2000 or code,
 ;
 
-: isreturn ( opcode -- f )
-    h# e080 and
-    h# 6080 =
+: isreturn ( opcode -- f ) \ ALU instruction with RET set
+    h# f000 and
+    h# 7000 =
 ;
 
-: isliteral ( ptr -- f)
+: isliteral ( ptr -- f) \ a literal followed by exit
     dup uw@ h# 8000 and 0<>
-    swap d# 2 + uw@ h# 608c = and
+    swap d# 2 + uw@ h# 7403 = and
 ;
 
 header compile,
-: compile,
-    dup uw@ isreturn if
-        uw@ h# ff73 and
+: compile, ( xt -- ) \ xt is a word address; 2* gives the byte address of its code
+    dup 2* uw@ isreturn if
+        2* uw@ h# effc and  \ single-instruction word: inline it without RET r-1
         code,
     else
-        dup isliteral if
-            uw@ code,
+        dup 2* isliteral if
+            2* uw@ code,
         else
             h# 4000 or
             code,
@@ -873,7 +854,7 @@ header does>
 :noname
     r>
     lastword @
-    >xt d# 2 +  \ ready to patch the RETURN
+    >xt 2* d# 2 +  \ ready to patch the RETURN
     w!
 ;
 
@@ -1025,6 +1006,18 @@ header decimal
     base !
 ;
 
+: (.) ( u -- )
+    d# 0 base @ um/mod
+    ?dup if (.) then
+    hex1
+;
+
+header .
+: . ( n -- )
+    dup 0< if [char] - emit negate then
+    (.) space
+;
+
 header !        :noname     !        ;
 header +        :noname     +        ;
 header xor      :noname     xor      ;
@@ -1066,12 +1059,30 @@ header throw
         [char] : emit
         space
         .
-        d# 2 execute
+        d# 1 execute        \ word 1 of the boot vector: quit
     then
 ;
 
 : -throw ( a b -- ) \ if a is nonzero, throw -b
     negate and throw
+;
+
+\ Literals: 12-bit immediates with a shift selector (0/12/24/36 bits) and an
+\ add flag.  The first non-zero segment pushes, later ones add.
+
+: segs, ( u48 addflag -- ) \ addflag: h# 4000 to add to T, 0 to push
+    >r d# 0
+    begin ( u shift )
+        over h# fff and ?dup if
+            over d# 12 lshift or
+            r> or h# 8000 or code,
+            h# 4000 >r
+        then
+        1+ swap d# 12 rshift swap
+        over 0=
+    until
+    2drop
+    r> 0= if h# 8000 code, then \ nothing emitted: push zero
 ;
 
 header-imm 2literal
@@ -1082,18 +1093,17 @@ header-imm literal
     dup 0< if
         invert tliteral
         inline: invert
-    else
-        dup h# ffff8000 and if
-            dup d# 15 rshift tliteral
-            d# 15 tliteral
-            inline: lshift
-            h# 7fff and tliteral
-            inline: or
-        else
-            h# 8000 or code,
-        then
+        exit
     then
-    
+    dup d# 48 rshift ?dup if \ wider than 48 bits: high part, shift, add the rest
+        tliteral
+        d# 48 tliteral
+        inline: lshift
+        d# 16 lshift d# 16 rshift
+        h# 4000 segs,
+        exit
+    then
+    d# 0 segs,
 ;
 
 : isvoid ( caddr u -- ) \ any char remains, throw -13
@@ -1186,7 +1196,7 @@ header-imm postpone
     while
         sfind
         state @ +
-        1+ 2* dispatch
+        1+ dispatch         \ table index in words, one jmp each
     repeat
     2drop
 ;

@@ -215,14 +215,9 @@
                      N->IN   IN<<T     ->T     d-1    r+0       alu    
                  48                                             imm    
                      N->IN   IN>>T     ->T     d-1    r+0       alu     ;
-:: c@                T->IN   IN->      ->R     d-1    r+1       alu    
-                     R->IN   [IN]      ->T     d+1    r+0       alu    
+:: c@                [T]->IN IN->      ->T     d+0    r+0       alu    
                 255                                             imm    
-                     T->IN   IN&N      ->T     d-1    r+0       alu    
-                     R->IN   IN->      ->T     d+1    r-1       alu    
-                256                                             imm    
-                     T->IN   IN&N      ->T     d-1    r+0       alu    
-                     T->IN   IN|N      ->T     d-1    r+0       alu     ;
+                     T->IN   IN&N      ->T     d-1    r+0       alu     ;
 :: c!                T->IN   IN->      ->R     d-1    r+1       alu    
                 255                                             imm    
                      T->IN   IN&N      ->T     d-1    r+0       alu    
