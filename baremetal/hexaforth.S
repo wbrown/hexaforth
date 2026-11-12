@@ -20,6 +20,7 @@
 // IO ports:
 //   0xf1 write   UART transmit            (emit)
 //   0xe0 read    UART receive, blocking   (key)
+//   0xe1 read    true if a character is waiting   (key?)
 //   0xc0 write   latch a machine address  read: machine address of VM byte 0
 //   0xc1/c2/c4/c8  read or write 8/16/32/64 bits at the latched address
 //   0xd0 read    data stack depth      write: set it, reloading T
@@ -33,6 +34,7 @@
 
         .equ    IO_EMIT,     0xf1
         .equ    IO_KEY,      0xe0
+        .equ    IO_KEYQ,     0xe1
         .equ    IO_ADDR,     0xc0
         .equ    IO_SP,       0xd0
         .equ    IO_RSP,      0xd1
@@ -161,7 +163,13 @@ key:    ldr     w12, [UART, #UART_FR]
         and     IO, IO, #0xff
         b       alu_done
 io_read:
-        sub     x12, IO, #IO_ADDR               // device ports 0xc0-0xc8
+        cmp     IO, #IO_KEYQ
+        b.ne    7f
+        ldr     w12, [UART, #UART_FR]
+        tst     w12, #0x10                      // RXFE clear: something is waiting
+        csetm   IO, eq
+        b       alu_done
+7:      sub     x12, IO, #IO_ADDR               // device ports 0xc0-0xc8
         cmp     x12, #8
         b.hi    5f
         mov     IO, MEM                         // 0xc0: where VM byte 0 is

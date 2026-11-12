@@ -29,7 +29,9 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
 
     while ((read = getline(&line, &len, hexfile)) != -1) {
         *(uint32_t*)&(ctx->memory[ctx->HERE]) = (uint32_t)strtol(line, NULL, 16);
-        if (ctx->memory[ctx->HERE+1]) {
+        if (ctx->HERE >= 0x8000) {
+            // code pages; the dictionary and its final link are below 64KB
+        } else if (ctx->memory[ctx->HERE+1]) {
             last_addr = ctx->HERE + 1;
         } else if (ctx->memory[ctx->HERE]) {
             last_addr = ctx->HERE;
