@@ -566,6 +566,8 @@ warnings on
 \ literal; the second leave a flag for [if].
 :: CELL       cell-bytes literal ;              \ bytes in a cell
 :: CELL2      cell-bytes 2 * literal ;          \ offset of a header's name
+:: ALIGN-MASK cell-bytes negate literal ;       \ address of the cell an address is in
+:: OFFSET-MASK cell-bytes 1- literal ;          \ byte position within that cell
 :: CELLSHIFT  cell-bytes 2 = if 1 else cell-bytes 4 = if 2 else 3 then then literal ;
 :: TOPBIT     cell-bits 1- literal ;            \ index of the sign bit
 :: HALFBITS   cell-bits 2/ literal ;

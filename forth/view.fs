@@ -2,10 +2,10 @@
 \
 \ The image is dithered once, into a 1-bit bitmap, by pointing the display's
 \ plot vector at the bitmap while atkinson runs.  Painting the window is
-\ then a matter of copying bytes to the screen.
+\ then a matter of copying it to the screen, a cell of 64 pixels at a time.
 
 create bm  0 ,          \ the bitmap, or 0
-create bmw 0 ,          \ bytes per row
+create bmw 0 ,          \ bytes per row, a whole number of cells
 create bmh 0 ,          \ rows
 
 : bm-plot ( on? x y -- )
@@ -17,7 +17,7 @@ create bmh 0 ,          \ rows
 
 : view-load ( blk# -- ) \ dither the TIFF starting at a block
     tiff-open tiff-decode
-    tw @ d# 7 + d# 3 rshift bmw !
+    tw @ d# 63 + d# 6 rshift d# 3 lshift bmw !
     th @ bmh !
     bmw @ bmh @ * halloc bm !
     'plot @ >r
@@ -38,8 +38,17 @@ create bmh 0 ,          \ rows
         begin
             dup bmw @ <
         while
-            over c@  over d# 3 lshift tx0 @ +  ty0 @ ti @ +  cblit8
-            swap 1+ swap 1+
+            over @                                  ( a i cell )
+            d# 8                                    \ its eight bytes, lowest first
+            begin
+                dup
+            while
+                >r >r
+                r@ h# ff and  over d# 3 lshift tx0 @ +  ty0 @ ti @ +  cblit8
+                1+ r> d# 8 rshift r> 1-
+            repeat
+            2drop
+            swap cell+ swap
         repeat
         drop
         d# 1 ti +!

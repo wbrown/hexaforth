@@ -59,7 +59,24 @@ create pix2  0 ,  $00ffffff00000000 ,  $00ffffff ,  $00ffffff00ffffff ,
 
 : pair ( bits shift -- cell ) rshift d# 3 and cells pix2 + @ ;
 
+\ A pair starts on an even pixel.  At an odd x the first and last pixels are
+\ each half of a cell, and the six between them are three pairs.
+
+: hi! ( cell a -- ) dup >r @ lo32 or r> ! ;             \ replace the high half
+: lo! ( cell a -- ) dup >r @ dup lo32 xor or r> ! ;     \ replace the low half
+
+: odd-addr ( bits x y -- bits a ) swap 1- swap fb-addr ;
+
 : ramfb-blit8 ( bits x y -- )
+    over d# 1 and if
+        odd-addr
+        over d# 7 pair over hi!
+        over d# 5 pair over d# 8 + !
+        over d# 3 pair over d# 16 + !
+        over d# 1 pair over d# 24 + !
+        swap 2* d# 0 pair swap d# 32 + lo!
+        exit
+    then
     fb-addr
     over d# 6 pair over !
     over d# 4 pair over d# 8 + !
@@ -70,6 +87,15 @@ create pix2  0 ,  $00ffffff00000000 ,  $00ffffff ,  $00ffffff00ffffff ,
 : x! ( cell a -- ) dup >r @ xor r> ! ;
 
 : ramfb-xor8 ( bits x y -- )
+    over d# 1 and if
+        odd-addr
+        over d# 7 pair over x!
+        over d# 5 pair over d# 8 + x!
+        over d# 3 pair over d# 16 + x!
+        over d# 1 pair over d# 24 + x!
+        swap 2* d# 0 pair swap d# 32 + x!
+        exit
+    then
     fb-addr
     over d# 6 pair over x!
     over d# 4 pair over d# 8 + x!
@@ -78,7 +104,12 @@ create pix2  0 ,  $00ffffff00000000 ,  $00ffffff ,  $00ffffff00ffffff ,
 ;
 
 : ramfb-hspan ( on? x y n -- )
-    >r fb-addr
+    >r >r                                           ( on? x ) ( r: n y )
+    dup d# 1 and if                                 \ odd x: one pixel first
+        2dup r@ ramfb-plot
+        1+ r> r> 1- >r >r
+    then
+    r> fb-addr
     swap if pix2 d# 24 + @ else d# 0 then swap      ( cell a )
     r>
     begin
@@ -86,7 +117,7 @@ create pix2  0 ,  $00ffffff00000000 ,  $00ffffff ,  $00ffffff00ffffff ,
     while
         >r 2dup ! d# 8 + r> d# 2 -
     repeat
-    if swap lo32 swap l! else 2drop then
+    0> if swap lo32 swap l! else 2drop then
 ;
 
 header ramfb-init

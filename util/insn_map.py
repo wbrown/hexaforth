@@ -452,19 +452,16 @@ def compare_images(plain_path, opt_path):
         return 1
     moved = {a[1]: b[1] for a, b in zip(plain, opt)}
 
-    def translate(run, kernel):
-        """Rewrite literals that are code addresses: a shifted push and an
-        add for addresses above 4095 and, if `kernel`, one instruction for
-        the kernel.  A small constant can look like a kernel address, so the
-        caller tries it both ways."""
-        out, i = [], 0
+    def translations(run):
+        """The run with its code-address literals rewritten for the other
+        image.  An address above 4095 is a shifted push and an add, which is
+        unmistakable.  A kernel address is one small literal, which may just
+        as well be an ordinary constant, so each is tried both ways."""
+        out, small, i = [], [], 0
         while i < len(run):
             w = run[i]
             nxt = run[i + 1] if i + 1 < len(run) else 0
-            if kernel and w & 0xF000 == 0x8000 and (w & 0xFFF) in moved \
-                    and moved[w & 0xFFF] < 0x1000:
-                out.append(0x8000 | moved[w & 0xFFF])
-            elif w & 0xF000 == 0x9000 and nxt & 0xF000 == 0xC000 and \
+            if w & 0xF000 == 0x9000 and nxt & 0xF000 == 0xC000 and \
                     ((w & 0xFFF) << 12 | nxt & 0xFFF) in moved:
                 to = moved[(w & 0xFFF) << 12 | nxt & 0xFFF]
                 out += [0x9000 | to >> 12, 0xC000 | to & 0xFFF]
@@ -473,9 +470,16 @@ def compare_images(plain_path, opt_path):
                     moved[(w & 0xFFF) << 12] & 0xFFF == 0:
                 out.append(0x9000 | moved[(w & 0xFFF) << 12] >> 12)
             else:
+                if w & 0xF000 == 0x8000 and moved.get(w & 0xFFF, 0x1000) < 0x1000 \
+                        and moved[w & 0xFFF] != w & 0xFFF:
+                    small.append(len(out))
                 out.append(w)
             i += 1
-        return out
+        yield out
+        for choice in itertools.product((False, True), repeat=min(len(small), 10)):
+            if any(choice):
+                yield [0x8000 | moved[w & 0xFFF] if i in small[:10] and choice[small.index(i)] else w
+                       for i, w in enumerate(out)]
 
     bad = runs = 0
     for (kind, at_a, a), (_, at_b, b) in zip(plain, opt):
@@ -485,8 +489,8 @@ def compare_images(plain_path, opt_path):
         else:
             runs += 1
             want = behaviour(b)
-            same = want is not None and want in (
-                behaviour(a), behaviour(translate(a, False)), behaviour(translate(a, True)))
+            same = want is not None and (
+                want == behaviour(a) or any(want == behaviour(t) for t in translations(a)))
         if not same:
             bad += 1
             text = lambda x: " ".join(f"{w:04x}" for w in x) if isinstance(x, list) else f"{x:04x}"

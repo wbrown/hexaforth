@@ -25,13 +25,10 @@ header halloc
     r>
 ;
 
-\ 32-bit store into ordinary memory.
+\ 32-bit fields in ordinary memory, as parts of the cells they are in.
 
-: l! ( x a -- )
-    >r lo32
-    r@ @ hi32 d# 32 lshift or
-    r> !
-;
+: l@ ( a -- x ) h# ffffffff field@ ;
+: l! ( x a -- ) h# ffffffff field! ;
 
 \ Big-endian fields, for firmware structures and big-endian TIFF.
 

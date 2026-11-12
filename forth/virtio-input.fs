@@ -59,7 +59,7 @@ header input-init
         r@ d# 24 + @ d# 2 + uw@  r@ d# 32 + @ <>
     while
         r@ d# 32 + @ d# 63 and d# 3 lshift
-        r@ d# 24 + @ + d# 4 + @ lo32                ( id )
+        r@ d# 24 + @ + d# 4 + l@                    ( id )
         dup d# 3 lshift r@ d# 40 + @ + @            ( id event )
         dup h# ffff and
         over d# 16 rshift h# ffff and

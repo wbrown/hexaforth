@@ -46,19 +46,30 @@ create gh 0 ,
 
 create inverse 0 ,
 
-: draw-char ( c x y -- )
-    over fb-w @ d# 8 - u> over fb-h @ d# 16 - u> or if drop 2drop exit then
-    rot d# 32 - dup d# 94 u> if drop d# 0 then
-    d# 4 lshift font +                              ( x y glyph )
-    d# 16
+\ A glyph is 16 rows of 8 pixels: two cells, eight rows in each, the top
+\ row in the low byte.  The rows are shifted out of the cell; the font is
+\ never read a byte at a time.
+
+: rows8 ( x y cell -- x y' ) \ draw the eight rows held in a cell
+    d# 8
     begin
         dup
     while
         >r >r
-        2dup r@ c@ inverse @ 0= if h# ff xor then -rot blit8
-        1+ r> 1+ r> 1-
+        2dup r@ h# ff and inverse @ 0= if h# ff xor then -rot blit8
+        1+ r> d# 8 rshift r> 1-
     repeat
-    2drop 2drop
+    2drop
+;
+
+: draw-char ( c x y -- )
+    over fb-w @ d# 8 - u> over fb-h @ d# 16 - u> or if drop 2drop exit then
+    rot d# 32 - dup d# 94 u> if drop d# 0 then
+    d# 4 lshift font +                              ( x y glyph )
+    dup cell+ @ >r @
+    rows8
+    r> rows8
+    2drop
 ;
 
 create tx 0 ,

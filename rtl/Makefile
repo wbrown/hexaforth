@@ -12,8 +12,9 @@
 # memory actually built.
 
 W       ?= 64
+ALIGNED ?= 0
 SIMMB   := $(if $(filter 16,$(W)),16,17)
-B       := build/w$(W)
+B       := build/w$(W)$(if $(filter 1,$(ALIGNED)),-aligned)
 TOP     := ..
 CASES   := $(B)/cases.bin
 HEX     := $(TOP)/build/nuc-$(W)-$(SIMMB).hex
@@ -42,7 +43,7 @@ $(HEX) $(VM):
 $(B)/tb_soc: soc.v hexaforth.v hf_mem.v tb_soc.cpp lanes.py $(HEX)
 	@mkdir -p $(B)
 	python3 lanes.py $(HEX) $(B)/lane $(W) $(SIMMB)
-	verilator $(VFLAGS) --cc soc.v hexaforth.v hf_mem.v --top-module soc -GW=$(W) -GMB=$(SIMMB) \
+	verilator $(VFLAGS) --cc soc.v hexaforth.v hf_mem.v --top-module soc -GW=$(W) -GMB=$(SIMMB) -GALIGNED=$(ALIGNED) \
 	    -GINIT='"$(B)/lane"' --exe $(CURDIR)/tb_soc.cpp --Mdir $(B)/soc -o ../tb_soc \
 	    --build -j 4 > $(B)/build.log 2>&1 || (cat $(B)/build.log; false)
 
@@ -70,16 +71,16 @@ test-mem: build/w64/tb_mem
 # Synthesis.
 A       ?= $(if $(filter 16,$(W)),16,17)
 MEMBITS ?= $(if $(filter 16,$(W)),16,17)
-S       := build/synth-w$(W)-a$(A)-m$(MEMBITS)
+S       := build/synth-w$(W)-a$(A)-m$(MEMBITS)$(if $(filter 1,$(ALIGNED)),-aligned)
 
 synth:
 	@mkdir -p $(S)
 	yosys -q -l $(S)/yosys.log -p "read_verilog soc.v hexaforth.v hf_mem.v; \
-	    chparam -set W $(W) -set MB $(MEMBITS) -set PCW $$(($(A)-1)) soc; \
+	    chparam -set W $(W) -set MB $(MEMBITS) -set PCW $$(($(A)-1)) -set ALIGNED $(ALIGNED) soc; \
 	    synth_ecp5 -top soc -json $(S)/soc.json"
 	nextpnr-ecp5 --85k --package CABGA381 --json $(S)/soc.json --lpf-allow-unconstrained \
 	    --timing-allow-fail -q -l $(S)/nextpnr.log || true
-	@echo "W=$(W) A=$(A) memory 2^$(MEMBITS) bytes:" \
+	@echo "W=$(W) A=$(A) ALIGNED=$(ALIGNED) memory 2^$(MEMBITS) bytes:" \
 	    $$(grep -E "Total LUT4s" $(S)/nextpnr.log | tail -1 | awk '{print $$4}' | cut -d/ -f1) LUTs, \
 	    $$(grep -E "TRELLIS_FF:" $(S)/nextpnr.log | tail -1 | awk '{print $$3}' | cut -d/ -f1) flip-flops, \
 	    $$(grep -E "Max frequency for clock" $(S)/nextpnr.log | tail -1 | awk '{print $$7}') MHz \

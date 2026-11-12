@@ -39,6 +39,15 @@
         .equ    IO_SP,       0xd0
         .equ    IO_RSP,      0xd1
 
+// Built with -DSTRICT, a fetch or store that is not at a cell-aligned address
+// sends '!' and halts.  The Forth system does not make any.
+        .macro  ALIGNED reg
+#ifdef STRICT
+        tst     \reg, #7
+        b.ne    unaligned
+#endif
+        .endm
+
 MEM     .req    x19     // host address of VM byte 0
 IOA     .req    x20     // latched machine address for the device ports
 PC      .req    x21     // word address of next instruction
@@ -116,10 +125,17 @@ alu:    ldur    N, [DS, #-8]
         b.ls    1f
         mov     IO, R                           // 3: R
         tbnz    w12, #0, 1f
+        ALIGNED T
         ldr     IO, [MEM, T]                    // 2: [T]
 1:      ubfx    w12, INSw, #4, #4               // alu_op
         adr     x16, alu_ops
         add     x16, x16, x12, lsl #3
+#ifdef STRICT
+        cmp     w12, #14                        // [IN] fetches at IN
+        b.ne    9f
+        ALIGNED IO
+9:
+#endif
         cmp     N, IO                           // flags for the compare ops
         br      x16
 
@@ -229,6 +245,7 @@ alu_done:
         mov     R, IO                           // 1: ->R
         b       next
 out_mem:
+        ALIGNED OLDT
         str     IO, [MEM, OLDT]                 // 3: ->[T]
         b       fix_r
 out_io: cmp     OLDT, #IO_EMIT                  // 2: ->io[T]
@@ -276,6 +293,11 @@ fix_r:  tbz     RD, #63, next
         ldr     R, [RS]                         // popped: refill R
         b       next
 
+#ifdef STRICT
+unaligned:
+        mov     w10, #'!'
+        str     w10, [UART]
+#endif
 halt:   wfi
         b       halt
 
