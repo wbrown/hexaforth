@@ -15,6 +15,11 @@
 // need the next word, and only the low 16 bits are rotated, for an
 // instruction that is not at the start of a cell.
 //
+// With PLANES set, each lane is built from eight memories one bit wide.  A
+// block RAM is then used at its deepest and narrowest, so that far fewer of
+// them have to be chosen between on the way out.  This form cannot be
+// loaded from INIT.
+//
 // Only the low address bits are used, so an address past the end wraps.
 // rok low makes a read return zero and wok low makes a write do nothing;
 // the CPU uses them for device-port accesses that fall outside the memory.
@@ -24,7 +29,8 @@ module hf_mem #(
     parameter W  = 64,              // cell width
     parameter MB = 17,              // log2 of the size in bytes
     parameter INIT = "",            // if set, lane k is loaded from INIT<k>.hex
-    parameter ALIGNED = 0           // if set, cells are only accessed aligned
+    parameter ALIGNED = 0,          // if set, cells are only accessed aligned
+    parameter PLANES = 0            // if set, each lane is eight one-bit memories
 ) (
     input  wire        clk,
     input  wire [W-1:0] raddr,      // byte address
@@ -50,9 +56,7 @@ module hf_mem #(
     genvar k;
     generate
         for (k = 0; k < LANES; k = k + 1) begin : lane
-            reg [7:0] m [0:(1<<AW)-1];
-            reg [7:0] q;
-            initial if (INIT != "") $readmemh($sformatf("%s%0d.hex", INIT, k), m);
+            wire [7:0] q;
             // Lanes before the offset hold bytes from the next word.
             /* verilator lint_off CMPCONST */
             wire [AW-1:0] rw = rword + {{(AW-1){1'b0}}, !ALIGNED && k[LB-1:0] < roff};
@@ -60,9 +64,26 @@ module hf_mem #(
             /* verilator lint_on CMPCONST */
             // The data byte this lane takes: byte (k - offset) modulo the lanes.
             wire [LB-1:0] j = k[LB-1:0] - woff;
-            always @(posedge clk) begin
-                if (dwe[j] && wok) m[ww] <= dwdata[8*j +: 8];
-                q <= rok ? m[rw] : 8'd0;
+            if (PLANES) begin : planes
+                genvar b;
+                for (b = 0; b < 8; b = b + 1) begin : plane
+                    reg m [0:(1<<AW)-1];
+                    reg qb;
+                    always @(posedge clk) begin
+                        if (dwe[j] && wok) m[ww] <= dwdata[8*j + b];
+                        qb <= rok ? m[rw] : 1'b0;
+                    end
+                    assign q[b] = qb;
+                end
+            end else begin : bytes
+                reg [7:0] m [0:(1<<AW)-1];
+                reg [7:0] qq;
+                initial if (INIT != "") $readmemh($sformatf("%s%0d.hex", INIT, k), m);
+                always @(posedge clk) begin
+                    if (dwe[j] && wok) m[ww] <= dwdata[8*j +: 8];
+                    qq <= rok ? m[rw] : 8'd0;
+                end
+                assign q = qq;
             end
             assign dq[8*k +: 8] = q;
         end

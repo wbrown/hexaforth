@@ -81,18 +81,27 @@ struct Machine {
         return top.halted;
     }
 
-    // The stacks are shift registers: cell i from the bottom is found by
-    // its distance from the top.
+    // Cell i from the bottom of a stack.  As memories the stacks hold it at
+    // index i; as shift registers, at its distance from the top.
     int64_t dcell(int i) {
         int sp = top.dbg_dsp;
         if (i == sp - 1) return top.dbg_t;
         if (i == sp - 2) return top.dbg_n;
-        return top.rootp->hexaforth__DOT__dtail[sp - 3 - i];
+#if STACKRAM
+        return top.rootp->hexaforth__DOT__sram__DOT__dmem[i];
+#else
+        return top.rootp->hexaforth__DOT__sreg__DOT__dtail[sp - 3 - i];
+#endif
     }
 
     int64_t rcell(int i) {
         int sp = top.dbg_rsp;
-        return i == sp - 1 ? (int64_t)top.dbg_r : (int64_t)top.rootp->hexaforth__DOT__rtail[sp - 2 - i];
+        if (i == sp - 1) return top.dbg_r;
+#if STACKRAM
+        return top.rootp->hexaforth__DOT__sram__DOT__rmem[i];
+#else
+        return top.rootp->hexaforth__DOT__sreg__DOT__rtail[sp - 2 - i];
+#endif
     }
 };
 
