@@ -266,9 +266,13 @@ more gives zero at every size, which `w!` and the dictionary search rely on.
 
 `rtl/hexaforth.v` is the CPU in Verilog, with the same semantics as `vm.c`
 and a cell width set by its `W` parameter. A plain instruction takes one
-cycle; shifts, multiply and memory reads take more. `rtl/hf_mem.v` is its
-memory, one byte lane per byte of a cell so that an unaligned cell access
-takes one cycle. `rtl/soc.v` joins them for synthesis.
+cycle; a shift or a memory read takes two and a multiply three. As in the
+J1a, the memory has one read port: it normally fetches the next instruction
+while the current one executes, and an instruction that needs data borrows
+it for a cycle. `rtl/hf_mem.v` is the memory, one byte lane per byte of a
+cell so that an unaligned cell access takes one cycle; with `ALIGNED=1` it
+takes only aligned cell accesses, which is all the nucleus makes.
+`rtl/soc.v` joins them for synthesis.
 
 - `make -C rtl test W=64` (or 32, or 16) replays differential cases from
   `baremetal/difftest_dump.c`, built for that cell width, on the Verilog
