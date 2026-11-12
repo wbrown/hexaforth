@@ -640,9 +640,84 @@ header c,
     d# 1 tallot
 ;
 
+: (.) ( u -- )
+    base @ u/mod
+    ?dup if (.) then
+    dup d# 10 < if [char] 0 else d# 55 then + emit
+;
+
+header .
+: . ( n -- )
+    dup 0< if [char] - emit negate then
+    (.) space
+;
+
+\ catch saves the data stack depth, the previous handler and the DO loop
+\ offset on the return stack, and records the return stack depth at that
+\ point in `handler`.  throw cuts the return stack back to that depth, which
+\ leaves those cells on top, then restores the data stack depth with the
+\ xt's cell replaced by the throw code.
+
+create handler 0 ,
+
+header throw
+: throw ( n -- )
+    ?dup if
+        handler @ ?dup if
+            IO-RSP io!
+            r> rO !
+            r> handler !
+            r> swap >r
+            IO-SP io!
+            drop r>
+            exit
+        then
+        [char] e emit
+        [char] r emit
+        [char] r emit
+        [char] o emit
+        [char] r emit
+        [char] : emit
+        space
+        .
+        d# 0 state !
+        d# 0 sourceid !
+        d# 0 IO-RSP io!     \ empty both stacks before restarting
+        d# 0 IO-SP io!
+        d# 1 execute        \ word 1 of the boot vector: quit
+    then
+;
+
+: -throw ( a b -- ) \ if a is nonzero, throw -b
+    negate and throw
+;
+
+\ Code is paged: 4096 words (8KB) to a page, page 0 being the kernel.  A
+\ branch reaches the kernel or its own page, so a definition has to fit in
+\ one page.  New definitions start in a fresh page when the current one is
+\ nearly full, and compile, picks a near or far call, so none of this shows
+\ in ordinary use.
+
+$20000 constant CODE-END  \ xts are 16 bits in a header: 64K words of code
+
 : code,
+    cp @ d# 2 + h# 1fff and 0= if   \ the last slot of a page stays empty
+        d# -8 throw                 \ ran off the end of the page
+    then
     cp @ w!
     d# 2 cp +!
+;
+
+: newpage? ( -- ) \ before a definition: move on if under 1KB is left here
+    cp @ h# 1fff and h# 1c00 u> if
+        cp @ h# 1fff or 1+ cp !
+    then
+    cp @ CODE-END u< 0= d# 8 -throw
+;
+
+: target ( -- field ) \ branch target field for the code about to be compiled
+    cp @ 2/
+    dup d# 12 rshift if h# fff and h# 1000 or then
 ;
 
 : attach
@@ -668,13 +743,14 @@ header s,
 ;
 
 : mkheader
+    newpage?
     calign
     here lastword !
     forth w@ w,
     parse-name
     s,
     calign
-    cp @ 2/ w,              \ xt: word address
+    cp @ 2/ w,              \ xt: the word address, on any page
     cp @ 2/ thisxt !
     sync
 ;
@@ -703,6 +779,7 @@ header :
 
 header :noname
 :noname
+    newpage?
     calign cp @ 2/
     dup thisxt !
     d# 0 lastword !
@@ -726,6 +803,45 @@ inline-operand
     r> r> rO ! >r
 ;
 
+\ Literals: 12-bit immediates with a shift selector (0/12/24/36 bits) and an
+\ add flag.  The first non-zero segment pushes, later ones add.
+
+: segs, ( u48 addflag -- ) \ addflag: h# 4000 to add to T, 0 to push
+    >r d# 0
+    begin ( u shift )
+        over h# fff and ?dup if
+            over d# 12 lshift or
+            r> or h# 8000 or code,
+            h# 4000 >r
+        then
+        1+ swap d# 12 rshift swap
+        over 0=
+    until
+    2drop
+    r> 0= if h# 8000 code, then \ nothing emitted: push zero
+;
+
+header-imm 2literal
+: 2literal
+    swap DOUBLE
+header-imm literal
+: tliteral
+    dup 0< if
+        invert tliteral
+        inline: invert
+        exit
+    then
+    dup d# 48 rshift ?dup if \ wider than 48 bits: high part, shift, add the rest
+        tliteral
+        d# 48 tliteral
+        inline: lshift
+        d# 16 lshift d# 16 rshift
+        h# 4000 segs,
+        exit
+    then
+    d# 0 segs,
+;
+
 \ Where the most recent created word's exit is.  The literal in front of it
 \ is 1-4 instructions long, so `create` records the spot.
 create doesexit 0 ,
@@ -735,7 +851,20 @@ create doesexit 0 ,
 \ does>, and the defining word returns to its own caller.
 header does>
 : (does>)
-    r> doesexit @ w!
+    r>                                  ( xt of the code after does> )
+    dup d# 12 rshift 0= if              \ in the kernel
+        doesexit @ w! exit
+    then
+    dup doesexit @ 2/ xor d# 12 rshift 0= if    \ on the created word's page
+        h# fff and h# 1000 or doesexit @ w! exit
+    then
+    \ On another page: replace the exit with a jump by xt.  That is longer,
+    \ so the created word has to be the last code compiled.
+    doesexit @ d# 2 + cp @ <> d# 22 -throw
+    doesexit @ cp !
+    tliteral
+    inline: >r
+    h# 7403 code,
 ;
 
 \ May ; turn this call into a jump?  Not for words that take their own
@@ -786,14 +915,14 @@ header-imm ahead
 header-imm then
 : tthen
     dup uw@
-    cp @ 2/ or
+    target or
     swap w!
     sync
 ;
 
 header-imm begin
 : tbegin
-    cp @ 2/
+    target
 ;
 
 header-imm again
@@ -825,8 +954,16 @@ header compile,
         dup 2* isliteral if
             2* uw@ code,
         else
-            h# 4000 or
-            code,
+            dup d# 12 rshift 0= if              \ kernel: reachable from anywhere
+                h# 4000 or code,
+            else
+                dup cp @ 2/ xor d# 12 rshift 0= if  \ this page
+                    h# fff and h# 5000 or code,
+                else                            \ another page: go by xt
+                    tliteral
+                    ['] execute h# 4000 or code,
+                then
+            then
         then
     then
 ;
@@ -890,8 +1027,11 @@ header-imm do
     begin
         dup
     while
-        dup uw@ swap        ( next leafptr )
-        cp @ 2/ swap w!
+        dup uw@ dup if     \ link: page offset of the previous leave, marked
+            h# 1fff and cp @ h# 1fff invert and or
+        then
+        swap                ( next leafptr )
+        target swap w!
     repeat
     drop
     leaves !
@@ -931,8 +1071,12 @@ header-imm +loop
 header-imm leave
 : leave
     inline: r>
+;fallthru
+\ Reserve a forward jump and chain it for resolveleaves.  The slot holds the
+\ page offset of the previous one in the chain, marked so it is never zero.
+: leaf,
     cp @
-    leaves @ code,
+    leaves @ dup if h# 1fff and h# 4000 or then code,
     leaves !
 ;
 
@@ -941,9 +1085,7 @@ header-imm ?do
     leaves @ d# 0 leaves !
     ['] (?do) compile,
     tif
-        cp @
-        leaves @ code,
-        leaves !
+        leaf,
     tthen
     tbegin
     inline: >r
@@ -979,18 +1121,6 @@ header decimal
     base !
 ;
 
-: (.) ( u -- )
-    base @ u/mod
-    ?dup if (.) then
-    dup d# 10 < if [char] 0 else d# 55 then + emit
-;
-
-header .
-: . ( n -- )
-    dup 0< if [char] - emit negate then
-    (.) space
-;
-
 header !        :noname     !        ;
 header +        :noname     +        ;
 header xor      :noname     xor      ;
@@ -1023,85 +1153,6 @@ header-imm r@   :noname     inline: r@ noop ;
 \   (doubleAlso) ( c-addr u -- x 1 | x x 2 )
 \               If the string is legal, give a single or double cell number
 \               and size of the number.
-
-\ catch saves the data stack depth, the previous handler and the DO loop
-\ offset on the return stack, and records the return stack depth at that
-\ point in `handler`.  throw cuts the return stack back to that depth, which
-\ leaves those cells on top, then restores the data stack depth with the
-\ xt's cell replaced by the throw code.
-
-create handler 0 ,
-
-header throw
-: throw ( n -- )
-    ?dup if
-        handler @ ?dup if
-            IO-RSP io!
-            r> rO !
-            r> handler !
-            r> swap >r
-            IO-SP io!
-            drop r>
-            exit
-        then
-        [char] e emit
-        [char] r emit
-        [char] r emit
-        [char] o emit
-        [char] r emit
-        [char] : emit
-        space
-        .
-        t[
-        d# 0 sourceid !
-        d# 0 IO-RSP io!     \ empty both stacks before restarting
-        d# 0 IO-SP io!
-        d# 1 execute        \ word 1 of the boot vector: quit
-    then
-;
-
-: -throw ( a b -- ) \ if a is nonzero, throw -b
-    negate and throw
-;
-
-\ Literals: 12-bit immediates with a shift selector (0/12/24/36 bits) and an
-\ add flag.  The first non-zero segment pushes, later ones add.
-
-: segs, ( u48 addflag -- ) \ addflag: h# 4000 to add to T, 0 to push
-    >r d# 0
-    begin ( u shift )
-        over h# fff and ?dup if
-            over d# 12 lshift or
-            r> or h# 8000 or code,
-            h# 4000 >r
-        then
-        1+ swap d# 12 rshift swap
-        over 0=
-    until
-    2drop
-    r> 0= if h# 8000 code, then \ nothing emitted: push zero
-;
-
-header-imm 2literal
-: 2literal
-    swap DOUBLE
-header-imm literal
-: tliteral
-    dup 0< if
-        invert tliteral
-        inline: invert
-        exit
-    then
-    dup d# 48 rshift ?dup if \ wider than 48 bits: high part, shift, add the rest
-        tliteral
-        d# 48 tliteral
-        inline: lshift
-        d# 16 lshift d# 16 rshift
-        h# 4000 segs,
-        exit
-    then
-    d# 0 segs,
-;
 
 \ A created word is the literal address of its data field, then exit.
 
@@ -1292,5 +1343,5 @@ meta
     link @ t,
     link @ t' forth t!
     there  t' dp t!
-    tcp @  t' cp t!
+    $10000 t' cp t!         \ run-time definitions go in the code pages
 target

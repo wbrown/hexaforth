@@ -4,38 +4,37 @@
 // `image` and becomes VM byte address 0.
 //
 // VM address space (byte addresses, relative to `image`):
-//   0x0000-0x1fff  kernel code, always mapped        (word addrs 0x0000-0x0fff)
-//   0x2000-0x3fff  code window                       (word addrs 0x1000-0x1fff)
-//   DSTACK_BASE    data stack, grows up
-//   RSTACK_BASE    return stack, grows up
+//   0x00000-0x01fff  page 0: kernel code
+//   0x04000-0x0ffff  dictionary and data
+//   0x10000-0x1ffff  code pages for definitions made at run time
+//   DSTACK_BASE      data stack, grows up
+//   RSTACK_BASE      return stack, grows up
 //
-// Code window: instruction *fetches* from word addresses 0x1000-0x1fff are
-// redirected to whichever 8KB block was last written to the BANK port.
-// Data accesses are never redirected - the data space is flat, so a block
-// is compiled into at its real address and then mapped for execution.
-// At reset the window maps 0x2000, i.e. the identity mapping.
+// Code is paged.  The program counter is a flat word address and a page is
+// 4096 words (8KB).  A 13-bit branch target with bit 12 clear is an absolute
+// address in the kernel, reachable from anywhere; with bit 12 set it is an
+// offset within the page the branch itself is in.  Return addresses and
+// execution tokens are full program counters, so `exit` and `execute` cross
+// pages with no extra state.
 //
 // IO ports:
 //   0xf1 write   UART transmit            (emit)
 //   0xe0 read    UART receive, blocking   (key)
-//   0xb0 write   byte address of the 8KB block to map into the code window
 //   0xd0 read    data stack depth      write: set it, reloading T
 //   0xd1 read    return stack depth    write: set it, reloading R
 
         .equ    UART_BASE,   0x09000000      // PL011 on QEMU `virt`
         .equ    UART_FR,     0x18
-        .equ    DSTACK_BASE, 0xf000          // 256 cells each
-        .equ    RSTACK_BASE, 0xf800
-        .equ    MEM_TOP,     0x20000         // zeroed up to here at boot
+        .equ    DSTACK_BASE, 0x20000         // 256 cells each
+        .equ    RSTACK_BASE, 0x20800
+        .equ    MEM_TOP,     0x21000         // zeroed up to here at boot
 
         .equ    IO_EMIT,     0xf1
         .equ    IO_KEY,      0xe0
-        .equ    IO_BANK,     0xb0
         .equ    IO_SP,       0xd0
         .equ    IO_RSP,      0xd1
 
 MEM     .req    x19     // host address of VM byte 0
-BANK    .req    x20     // fetch base for the code window
 PC      .req    x21     // word address of next instruction
 T       .req    x22     // top of data stack
 R       .req    x23     // top of return stack
@@ -62,22 +61,22 @@ _start:
         mov     UART, #UART_BASE
         add     DS, MEM, #DSTACK_BASE
         add     RS, DS, #(RSTACK_BASE - DSTACK_BASE)
-        mov     BANK, MEM
         mov     PC, #0
         mov     T, #0
         mov     R, #0
 
 next:
-        tst     PC, #0x1000
-        csel    x10, BANK, MEM, ne
-        ldrh    INSw, [x10, PC, lsl #1]
+        ldrh    INSw, [MEM, PC, lsl #1]
         add     PC, PC, #1
         tbnz    INSw, #15, literal
         ubfx    w10, INSw, #13, #2              // op_type
-        and     x12, INS, #0x1fff               // branch target
         cbnz    w10, 1f
         cbz     INSw, halt
-jump:   mov     PC, x12
+jump:   tbnz    INSw, #12, 2f
+        and     PC, INS, #0xfff                 // bit 12 clear: kernel, absolute
+        b       next
+2:      sub     PC, PC, #1                      // bit 12 set: same page as the branch
+        bfxil   PC, INS, #0, #12
         b       next
 1:      cmp     w10, #2
         b.eq    call
@@ -203,12 +202,7 @@ out_io: cmp     OLDT, #IO_EMIT                  // 2: ->io[T]
         tbnz    w12, #5, 1b                     // TXFF: transmit FIFO full
         str     w10, [UART]
         b       fix_r
-2:      cmp     OLDT, #IO_BANK
-        b.ne    3f
-        add     BANK, MEM, IO
-        sub     BANK, BANK, #0x2000
-        b       fix_r
-3:      add     x12, MEM, IO, lsl #3            // new stack pointer, less its base
+2:      add     x12, MEM, IO, lsl #3            // new stack pointer, less its base
         cmp     OLDT, #IO_SP
         b.ne    4f
         add     DS, x12, #DSTACK_BASE

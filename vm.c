@@ -60,19 +60,32 @@ static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
 }
 
 #ifdef DEBUG
-void print_state(context *ctx, int16_t RSP, int16_t SP, int16_t EIP, int16_t R, int16_t T) {
+void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, int64_t T) {
     char disasm[160];
     char rstack_repr[80];
     char dstack_repr[80];
     mini_stack(RSP, R, ctx->RSTACK, rstack_repr);
     mini_stack(SP, T, ctx->DSTACK, dstack_repr);
     debug_address(disasm, ctx, EIP);
-    dprintf("EXEC[0x%0.4x]: %s S%-26s R%s\n", EIP, disasm, dstack_repr, rstack_repr);
+    dprintf("EXEC[0x%0.4x]: %s S%-26s R%s\n", (unsigned)EIP, disasm, dstack_repr, rstack_repr);
 }
 #endif
 
+// Code is paged.  The program counter is a flat word address, and a page is
+// 4096 words (8KB).  Page 0 is the kernel.  A 13-bit branch target with bit 12
+// clear is an absolute address in the kernel, reachable from anywhere; with
+// bit 12 set it is an offset within the page the branch itself is in.  Return
+// addresses and execution tokens are full program counters, so `exit` and
+// `execute` cross pages with no extra state.
+static inline int64_t branch(int64_t next_pc, uint16_t target) {
+    if (target & 0x1000) {
+        return ((next_pc - 1) & ~(int64_t)0xfff) | (target & 0xfff);
+    }
+    return target;
+}
+
 int vm(context *ctx) {
-    register int16_t EIP = ctx->EIP;        // EIP = execution pointer
+    register int64_t EIP = ctx->EIP;        // EIP = execution pointer
     register int16_t SP = 0;                // SP = data stack pointer
     register int16_t RSP = 0;               // RSP = return stack pointer
     register int64_t T = ctx->DSTACK[SP];   // T = Top Of Stack / TOS
@@ -112,13 +125,13 @@ int vm(context *ctx) {
                 bool RES=(uint64_t)T;
                 T=ctx->DSTACK[SP-1];
                 if (!RES) {
-                    EIP = ins.jmp.target;
+                    EIP = branch(EIP, ins.jmp.target);
                 }
                 break;
             }
             case OP_TYPE_JMP:
                 // Unconditional jump
-                EIP = ins.jmp.target;
+                EIP = branch(EIP, ins.jmp.target);
                 break;
             case OP_TYPE_CALL:
                 // Unconditional call
@@ -126,7 +139,7 @@ int vm(context *ctx) {
                 R = EIP;
                 ctx->RSTACK[RSP] = EIP;
                 RSP++;
-                EIP = ins.jmp.target;
+                EIP = branch(EIP, ins.jmp.target);
                 break;
             case OP_TYPE_ALU: {
                 N = ctx->DSTACK[SP-2];
