@@ -35,7 +35,7 @@ struct Machine {
     std::vector<uint8_t> mem = std::vector<uint8_t>(MEM);
     std::vector<uint8_t> in, out;
     size_t in_at = 0;
-    uint64_t rdata = 0;
+    uint64_t rdata = 0, rnext = 0;
     uint64_t cycles = 0, executed = 0;
 
     uint64_t read(uint64_t a, int n) {
@@ -61,7 +61,12 @@ struct Machine {
         executed += top.dbg_exec;
         top.clk = 1;
         top.eval();
+#if LAT == 2
+        rdata = rnext;
+        rnext = next_rdata;
+#else
         rdata = next_rdata;
+#endif
         cycles++;
     }
 
@@ -69,6 +74,7 @@ struct Machine {
         top.rst = 1;
         top.start_pc = pc;
         rdata = 0;
+        rnext = 0;
         tick();
         top.rst = 0;
         out.clear();

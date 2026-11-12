@@ -30,7 +30,9 @@ module hf_mem #(
     parameter MB = 17,              // log2 of the size in bytes
     parameter INIT = "",            // if set, lane k is loaded from INIT<k>.hex
     parameter ALIGNED = 0,          // if set, cells are only accessed aligned
-    parameter PLANES = 0            // if set, each lane is eight one-bit memories
+    parameter PLANES = 0,           // if set, each lane is eight one-bit memories
+    parameter LAT = 1               // cycles from address to data: 1, or 2 with
+                                    // the output registered
 ) (
     input  wire        clk,
     input  wire [W-1:0] raddr,      // byte address
@@ -95,5 +97,14 @@ module hf_mem #(
     wire [2*W-1:0] twice = {dq, dq};
     wire [W-1:0]   rot = twice[8*roff_q +: W];
     localparam [W-1:0] LOW16 = 'hffff;
-    assign rdata = ALIGNED ? ((dq & ~LOW16) | (rot & LOW16)) : rot;
+    wire [W-1:0]   rd1 = ALIGNED ? ((dq & ~LOW16) | (rot & LOW16)) : rot;
+    generate
+        if (LAT == 2) begin : outreg
+            reg [W-1:0] rd2;
+            always @(posedge clk) rd2 <= rd1;
+            assign rdata = rd2;
+        end else begin : direct
+            assign rdata = rd1;
+        end
+    endgenerate
 endmodule
