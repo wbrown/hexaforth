@@ -3,7 +3,7 @@
 $32 constant TCOLS
 $10 constant TROWS
 
-create tbuf 800 allot
+create tbuf #800 allot
 create tcol 0 ,
 create trow 0 ,
 create ti 0 ,
@@ -62,9 +62,9 @@ create ty0 0 ,
 \ stack is kept in `ust` between lines: it is pushed above eight spare
 \ cells before the line runs and collected again afterwards.
 
-create line 80 allot
+create line #80 allot
 create llen 0 ,
-create ust 256 allot
+create ust #256 allot
 create un 0 ,
 create ubase 0 ,
 

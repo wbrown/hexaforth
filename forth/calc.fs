@@ -4,7 +4,7 @@
 \ number is being entered.  + - * / work on the top two, n negates, x swaps
 \ and d drops.  The buttons send the same keys.
 
-create cst 128 allot
+create cst #128 allot
 create cn 0 ,
 create cacc 0 ,
 create centry 0 ,

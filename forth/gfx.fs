@@ -80,7 +80,7 @@ create ty 0 ,
 \ Text built with the ordinary output words: sb-begin sends emit to a
 \ buffer, sb-end puts it back, sb-draw puts the buffer on the screen.
 
-create sb 64 allot
+create sb #64 allot
 create sbn 0 ,
 create sb-old 0 ,
 

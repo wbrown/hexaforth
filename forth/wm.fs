@@ -10,7 +10,7 @@
 \ keyboard.  Painting is back to front with no clipping between windows, so
 \ only the front window may draw outside a full repaint.
 
-create wins 64 allot
+create wins #64 allot
 create nwin 0 ,
 create cw 0 ,           \ the window being drawn
 

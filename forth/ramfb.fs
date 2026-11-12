@@ -10,7 +10,7 @@ $09020000 constant FWCFG
 
 create fb        0 ,    \ the pixels
 create fb-stride 0 ,    \ bytes per row
-create fwc 64 allot     \ a directory entry, or the DMA request and the config
+create fwc #64 allot    \ a directory entry, or the DMA request and the config
 
 create ramfb-name 'e' c, 't' c, 'c' c, '/' c, 'r' c, 'a' c, 'm' c, 'f' c,
 
