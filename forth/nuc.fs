@@ -3,44 +3,6 @@ $00e0 constant IO-IN
 $00d0 constant IO-SP    \ data stack depth
 $00d1 constant IO-RSP   \ return stack depth
 
-\ meta
-\     $3f80 org 
-\ target
-\ 
-\ : b.key
-\     begin
-\         UART-STATUS io@
-\         d# 4 and
-\     until
-\     UART-D io@
-\ ;
-\ 
-\ : b.32
-\     b.key
-\     b.key d# 8 lshift or
-\     b.key d# 16 lshift or
-\     b.key d# 24 lshift or
-\ ;
-\ 
-\ : section
-\     b.32 b.32
-\     begin
-\         2dupxor
-\     while
-\         b.32 over !
-\         d# 4 +
-\     repeat
-\     drop drop
-\ ;
-\ 
-\ : bootloader
-\     begin
-\         b.key d# 27 =
-\     until
-\ 
-\     section section
-\ ;
-
 meta
     4 org 
 target
@@ -60,10 +22,6 @@ header 0<       :noname     0<       ;
 header 0>       : 0>        d# 0 > ;
 header 0<>      : 0<>       d# 0 <> ;
 header u>       :noname     u>       ;
-
-: off
-    d# 0 swap !
-;
 
 header key      :noname     key      ;
 header emit     :noname     emit     ;
@@ -124,7 +82,7 @@ header lo16  : lo16 ( dw -- s ) d# 48 lshift d# 48 rshift ;
 
 header uw@
 : uw@
-    w@
+    @ h# ffff and
 ;
 
 header w!
@@ -133,10 +91,6 @@ header w!
     r@ @ d# -1 d# 16 lshift and
     or r> !
 ;
-
-: w+!   ( u a -- ) \ like +! but for 16-bit a
-    tuck uw@ + swap w!
-; 
 
 header count
 : count
@@ -174,7 +128,6 @@ create state    0 ,
 create delim    0 ,
 create rO       0 ,
 create leaves   0 ,
-create tethered 0 ,
 create tib $80 allot
 
 header dp    :noname dp ;
@@ -183,12 +136,6 @@ header state :noname state ;
 header base  :noname base ;
 header >in   :noname >in  ;
 header forth :noname forth ;
-
-\ tethered mode flag
-header tth
-: tth
-    tethered
-;
 
 : nextword
     uw@ d# -2 and
@@ -206,21 +153,6 @@ header words : words
     repeat
     drop
 ;
-
-\ header dump : dump ( addr u -- )
-\     cr over hex4
-\     begin  ( addr u )
-\         ?dup
-\     while
-\         over c@ space hex2
-\         1- swap 1+   ( u' addr' )
-\         dup h# f and 0= if  ( next line? )
-\             cr dup hex4
-\         then
-\         swap
-\     repeat
-\     drop cr
-\ ;
 
 header negate   :noname     negate   ;
 header -        : -         negate + ; 
@@ -342,18 +274,6 @@ header d2/
     or r> 2/
 ;
 
-\ : snap
-\     cr depth hex2 space
-\     begin
-\         depth
-\     while
-\         .
-\     repeat
-\     cr
-\     [char] # emit
-\     begin again
-\ ;
-
 create scratch 0 ,
 
 \ One step per bit of a cell: six DOUBLEs = 64 steps.
@@ -380,8 +300,15 @@ header *        :noname     *        ;
 
 \ see Hacker's Delight (2nd ed) 9-4 "Unsigned Long Division"
 
-: divstep  \ ( y x z )
-    DOUBLE DOUBLE DOUBLE DOUBLE DOUBLE DOUBLE
+\ One step per bit.  The DOUBLEs nest, so entering part-way down runs fewer
+\ steps: div32 and div16 are for dividends already shifted to the top of y.
+
+: divstep  \ ( y x z )   64 steps
+    DOUBLE
+: div32                  \ 32 steps
+    DOUBLE
+: div16                  \ 16 steps
+    DOUBLE DOUBLE DOUBLE DOUBLE
     >r
     dup 0< >r
     2dup d+
@@ -398,6 +325,22 @@ header um/mod
     drop swap 
 ; 
 
+\ Single-cell divide.  A dividend that fits in 16 or 32 bits is shifted to
+\ the top of the cell first, so only that many steps are needed.
+: u/mod ( u1 u2 -- rem quot )
+    >r
+    dup d# 16 rshift 0= if
+        d# 48 lshift d# 0 r> div16
+    else
+        dup d# 32 rshift 0= if
+            d# 32 lshift d# 0 r> div32
+        else
+            d# 0 r> divstep
+        then
+    then
+    drop swap
+;
+
 \ Unicode-friendly ACCEPT contibuted by Matthias Koch
 
 : delchar ( addr len -- addr len )
@@ -412,8 +355,6 @@ header um/mod
 
 header accept
 : accept
-    tethered @ if d# 30 emit then
-    
     >r d# 0  ( addr len R: maxlen )
 
     begin
@@ -426,7 +367,7 @@ header accept
         if
             over r@ u<
             if
-                tethered @ 0= if dup emit then
+                dup emit
                 >r 2dup + r@ swap c! 1+ r>
             then
         then
@@ -501,21 +442,47 @@ header calign
     uw@ d# 1 and 2* 1-
 ;
 
+\ A header starts with a 16-bit link, the name length, and the name.  One
+\ 64-bit fetch therefore sees the link, the length and the first five
+\ characters together.  namekey builds the value those bytes must have for a
+\ name, and a mask selecting the length and as many characters as the name
+\ has (up to five), ignoring letter case.  Both are shifted past the link.
+
+: namekey ( c-addr u -- mask key )
+    dup d# 5 min d# 3 lshift
+    d# 1 swap lshift 1-
+    h# dfdfdfdfdf and
+    d# 8 lshift h# ff or d# 16 lshift       ( c-addr u mask )
+    >r
+    swap @ d# 8 lshift or                   \ characters above the length
+    d# 16 lshift r@ and
+    r> swap
+;
+
+\ Most entries are rejected by one fetch, mask and compare.  Survivors are
+\ confirmed by sameword, which also checks names longer than five.
+
 header sfind
-: sfind
+: sfind ( c-addr u -- c-addr u 0 | xt flag )
+    2dup namekey >r                         ( c-addr u mask ) ( r: key )
     forth uw@
     begin
         dup
     while
-        sameword
-        if 
-            nip nip
-            dup >xt
-            swap isimmediate
-            exit
+        2dup @and r@ = if
+            >r -rot r>                      ( mask c-addr u wp )
+            sameword if
+                >r 2drop drop r>
+                rdrop
+                dup >xt
+                swap isimmediate
+                exit
+            then
+            >r rot r>                       ( c-addr u mask wp )
         then
-        nextword
+        @ h# fffe and                       \ next entry, less its immediate flag
     repeat
+    nip rdrop
 ;
 
 : digit? ( c -- u f )
@@ -527,7 +494,12 @@ header sfind
 
 : ud* ( ud1 u -- ud2 ) \ ud2 is the product of ud1 and u
     tuck * >r
-    um* r> +
+    2dup or d# 32 rshift if     \ both under 2^32: the product fits one cell
+        um*
+    else
+        * d# 0
+    then
+    r> +
 ;
 
 header >number
@@ -799,9 +771,6 @@ header-imm ;
     t[
 ;
 
-\ : ubranch   h# 0000 or tw, ;
-\ : 0branch   h# 2000 or tw, ;
-
 header-imm if
 : tif
     cp @
@@ -1011,9 +980,9 @@ header decimal
 ;
 
 : (.) ( u -- )
-    d# 0 base @ um/mod
+    base @ u/mod
     ?dup if (.) then
-    hex1
+    dup d# 10 < if [char] 0 else d# 55 then + emit
 ;
 
 header .
@@ -1311,7 +1280,6 @@ header quit
 
 : main
     decimal
-    tethered off
     "cold" d# 4 sfind if
         execute
     else
