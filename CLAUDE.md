@@ -227,19 +227,42 @@ pointer events through QMP, and checks the screen: text is read back by
 matching font cells, and the image viewer is compared with a reference
 dither computed on the host.
 
+### Machine Sizes
+
+The cell width and address width are properties of the machine definition.
+`vm_constants.h` has `CELL_BITS` (64, 32 or 16: the width of a stack cell,
+of the ALU, and of `@` and `!`) and `ADDR_BITS` (the address space in bytes,
+as a power of two). `baseword_fs_gen` writes both into `basewords.fs` as
+`cell-bits` and `addr-bits`, and `cross.fs` derives everything else from
+them: the size `,` lays down, alignment, double literals, and where run-time
+code pages go. `nuc.fs` reads them through words `cross.fs` provides:
+`CELL`, `CELLSHIFT`, `TOPBIT`, `HALFBITS`, `CODE-BASE`, `CODE-SIZE`, and the
+flags `W64?`, `W32?`, `W32+?` for `[if]`.
+
+`util/build-machine.sh CELL_BITS [ADDR_BITS]` builds the generator, the
+nucleus and the reference VM for a size, into `build/`. The default
+(checked-in `basewords.fs`, plain `make`) is 64-bit cells and 128KB.
+
+At 32 and 16 bits only the kernel is built: `system.fs` (drivers and the
+desktop) is written for 64-bit cells. With a 16-bit cell the address space
+is 64KB and run-time code goes at `0xc000`. A shift by the cell width or
+more gives zero at every size, which `w!` and the dictionary search rely on.
+
 ### Hardware (`rtl/`)
 
-`rtl/hexaforth.v` is the CPU in Verilog, with the same semantics as `vm.c`:
-one cycle per instruction, plus one for each memory read. `rtl/hf_mem.v` is
-its memory, eight byte lanes so that unaligned 64-bit access takes one
-cycle. `rtl/soc.v` joins them for synthesis.
+`rtl/hexaforth.v` is the CPU in Verilog, with the same semantics as `vm.c`
+and a cell width set by its `W` parameter. A plain instruction takes one
+cycle; shifts, multiply and memory reads take more. `rtl/hf_mem.v` is its
+memory, one byte lane per byte of a cell so that an unaligned cell access
+takes one cycle. `rtl/soc.v` joins them for synthesis.
 
-- `make -C rtl test` replays the differential cases from
-  `baremetal/difftest_dump.c` on the Verilog CPU under Verilator, checks the
-  memory against a byte-array model, and boots the nucleus on the whole
-  system
-- `make -C rtl synth` synthesises for an ECP5 FPGA with Yosys and nextpnr
-  and reports size and clock speed
+- `make -C rtl test W=64` (or 32, or 16) replays differential cases from
+  `baremetal/difftest_dump.c`, built for that cell width, on the Verilog
+  CPU under Verilator, and boots a nucleus built for that width on the CPU
+  and on the whole system, comparing output with the reference VM
+- `make -C rtl test-mem` checks the memory against a byte-array model
+- `make -C rtl synth W=32 A=24` synthesises for an ECP5 FPGA with Yosys and
+  nextpnr and reports size and clock speed; `A` is the address width
 
 ## Cross-Compiling Programs
 

@@ -11,8 +11,7 @@
 #include <vector>
 
 int main() {
-    const int AW = 14;
-    const uint64_t SIZE = 8ull << AW;
+    const uint64_t SIZE = 1ull << 17;
     Vhf_mem top;
     std::vector<uint8_t> model(SIZE);
     uint64_t want_d = 0;

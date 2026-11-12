@@ -9,6 +9,10 @@ void generate_basewords_fs(const char* path) {
     init_opcodes(FORTH_WORDS);
     FILE* out = fopen(path, "w");
 
+    fprintf(out, "\\ machine sizes, from vm_constants.h\n");
+    fprintf(out, "#%d constant cell-bits\n", CELL_BITS);
+    fprintf(out, "#%d constant addr-bits\n", ADDR_BITS);
+
     forth_op* curr_op = &INS_FIELDS[0];
 
     while(strlen(curr_op->repr)) {

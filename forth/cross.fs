@@ -169,6 +169,28 @@ wordlist constant target-wordlist
 
 next-arg included       \ include the machine.fs
 
+( The machine's sizes                                                 )
+
+\ The machine file defines cell-bits (64, 32 or 16: the width of a stack
+\ cell, of the ALU, and of @ and !) and addr-bits (the address space in
+\ bytes, as a power of two).  Everything here that depends on either is
+\ derived from them, and the target program can test them: see W64? below.
+
+cell-bits 8 / constant cell-bytes
+cell-bits #64 = [if] -1 [else] 1 cell-bits lshift 1- [then] constant cell-mask
+
+\ Where code compiled at run time goes: the top quarter of a 64KB address
+\ space, or the 64KB after the first when there is room.  Execution tokens
+\ are 16 bits in a dictionary header, so code cannot go higher than that.
+addr-bits #16 > [if] $10000 [else] $c000 [then] constant code-base
+addr-bits #16 > [if] $10000 [else] $4000 [then] constant code-size
+
+: tcell! ( x a -- ) \ store one target cell
+    cell-bytes 0 do
+        over i 8 * rshift over i + tc!
+    loop
+    2drop ;
+
 ( Language basics for target                 JCB 19:08 05/02/12)
 
 warnings off
@@ -417,11 +439,11 @@ variable lastdef    \ body of the most recent target colon definition
 :: :noname
 ;
 
-\ Target data cells are 64 bits: `@` and `!` move 8 bytes.
-: tcalign   tdp @ 7 + -8 and tdp ! ;
+\ A target data cell is cell-bytes wide: that is what `@` and `!` move.
+: tcalign   tdp @ cell-bytes 1- + cell-bytes negate and tdp ! ;
 :: ,
     tcalign
-    there islegal tflash + !  8 tdp +!
+    there tcell!  cell-bytes tdp +!
 ;
 
 :: c,
@@ -521,7 +543,12 @@ variable lastdef    \ body of the most recent target colon definition
         2drop drop literal
     else
         1 = swap c@ [char] . = and if
-            swap literal literal  \ double: lo hi, one cell each
+            cell-bits #64 = if
+                swap literal literal        \ double: lo hi, one cell each
+            else
+                drop dup cell-mask and literal
+                cell-bits rshift cell-mask and literal
+            then
         else
             -1 abort" bad number"
         then
@@ -532,6 +559,19 @@ warnings on
 :: h# bl parse 16 base>number ;
 :: ['] ' >body @ literal ;  \ xt = word address
 :: [char] char literal ;
+
+\ The machine's sizes, for the target program.  The first group compile a
+\ literal; the second leave a flag for [if].
+:: CELL       cell-bytes literal ;              \ bytes in a cell
+:: CELLSHIFT  cell-bytes 2 = if 1 else cell-bytes 4 = if 2 else 3 then then literal ;
+:: TOPBIT     cell-bits 1- literal ;            \ index of the sign bit
+:: HALFBITS   cell-bits 2/ literal ;
+:: TOP16      cell-bits #16 - literal ;         \ shift that puts 16 bits at the top
+:: CODE-BASE  code-base literal ;
+:: CODE-SIZE  code-size literal ;
+:: W64?   cell-bits #64 = ;
+:: W32?   cell-bits #32 = ;
+:: W32+?  cell-bits #32 >= ;
 
 :: asm-0branch
     ' >body @
