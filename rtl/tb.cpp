@@ -7,8 +7,8 @@
 //                          sends, then cycle and instruction counts
 //
 // The memory here is a plain byte array with the timing the CPU expects:
-// addresses are sampled on the clock edge and data is back in the next
-// cycle.  rtl/hf_mem.v, the real memory, is checked against the same model
+// one read port, whose address is sampled on the clock edge and whose data
+// is back in the next cycle, and one write port.  rtl/hf_mem.v, the real memory, is checked against the same model
 // by tb_mem.cpp.
 
 #include "Vhexaforth.h"
@@ -35,7 +35,6 @@ struct Machine {
     std::vector<uint8_t> mem = std::vector<uint8_t>(MEM);
     std::vector<uint8_t> in, out;
     size_t in_at = 0;
-    uint16_t idata = 0;
     uint64_t rdata = 0;
     uint64_t cycles = 0, executed = 0;
 
@@ -47,24 +46,21 @@ struct Machine {
     }
 
     void tick() {
-        top.idata = idata;
-        top.drdata = rdata;
+        top.rdata = rdata;
         top.tx_ready = 1;
         top.rx_valid = in_at < in.size();
         top.rx_data = in_at < in.size() ? in[in_at] : 0;
         top.clk = 0;
         top.eval();
-        uint16_t next_idata = (uint16_t)read((uint64_t)top.iaddr * 2, 2);
-        uint64_t next_rdata = top.dre ? (top.dok ? read(top.daddr, W / 8) : 0) : rdata;
+        uint64_t next_rdata = top.rok ? read(top.raddr, W / 8) : 0;
         for (int i = 0; i < W / 8; i++)
-            if ((top.dwe >> i & 1) && top.dok && top.daddr + i < MEM)
-                mem[top.daddr + i] = (uint64_t)top.dwdata >> (8 * i);
+            if ((top.dwe >> i & 1) && top.wok && top.waddr + i < MEM)
+                mem[top.waddr + i] = (uint64_t)top.dwdata >> (8 * i);
         if (top.tx_valid) out.push_back(top.tx_data);
         if (top.rx_ready) in_at++;
         executed += top.dbg_exec;
         top.clk = 1;
         top.eval();
-        idata = next_idata;
         rdata = next_rdata;
         cycles++;
     }
@@ -72,7 +68,6 @@ struct Machine {
     void reset(uint32_t pc) {
         top.rst = 1;
         top.start_pc = pc;
-        idata = 0;
         rdata = 0;
         tick();
         top.rst = 0;

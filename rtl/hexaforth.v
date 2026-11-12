@@ -7,9 +7,13 @@
 //
 // The structure follows James Bowman's J1a in four ways:
 //
-//   - The ALU sees only registers.  A memory read is latched before it is
-//     used, so no path runs from the memory, through arithmetic, and back
-//     to a memory address in one cycle.
+//   - The memory has one read port, and what comes out of it is whatever
+//     was asked for in the cycle before: usually the next instruction,
+//     fetched while this one executes, and sometimes data.  A fetch of
+//     data borrows the port for a cycle while the instruction that wants
+//     it waits in a register, and the data then goes straight into the
+//     ALU, as an instruction goes straight into the decoder.  Nothing read
+//     from the memory decides a memory address in the same cycle.
 //   - The stacks are shift registers, not memories.  T, N and R are
 //     registers, and the cells beneath them sit at fixed positions with no
 //     pointer arithmetic or addressing in front of them.
@@ -23,12 +27,11 @@
 //     +  dup  >r  swap  !  literals  jumps  calls      1 cycle
 //     shifts                                           2 cycles
 //     *                                                3 cycles
-//     @  +!  @+   (one memory read)                    4 cycles
-//     @@          (two memory reads)                   7 cycles
+//     @  +!  @+   (one memory read)                    2 cycles
+//     @@          (two memory reads)                   4 cycles
 //
-// The data memory port is registered on the way out as well as on the way
-// back, so that neither the instruction decode nor the ALU is in the path to
-// the memory.  A store therefore lands one cycle after its instruction.
+// A store is registered on its way to the memory and lands one cycle after
+// its instruction; a read of data waits for a store in flight.
 //
 // IO ports, as in vm.c:
 //     0xf1 write   UART transmit         0xe0 read   UART receive (waits)
@@ -47,19 +50,20 @@ module hexaforth #(
     input  wire        rst,
     input  wire [PCW-1:0] start_pc,
 
-    // Instruction memory: word address out, instruction back next cycle.
-    output wire [PCW-1:0] iaddr,
-    input  wire [15:0] idata,
+    // Read port: a byte address out, the cell there back the next cycle.
+    // An instruction is the low 16 bits of the cell at twice its address.
+    // rok is low for a device-port read outside the memory, which must
+    // read zero.
+    output reg  [W-1:0] raddr,
+    output reg         rok,
+    input  wire [W-1:0] rdata,
 
-    // Data memory: byte address, any alignment.  Read data back the cycle
-    // after the address is presented.  dok is low for a device-port access
-    // outside the memory, which must read zero and write nothing.
-    output reg  [W-1:0] daddr,
-    output reg         dok,
-    output reg         dre,
+    // Write port.  wok is low for a device-port write outside the memory,
+    // which must write nothing.
+    output reg  [W-1:0] waddr,
+    output reg         wok,
     output reg  [W/8-1:0] dwe,      // one bit per byte written
     output reg  [W-1:0] dwdata,
-    input  wire [W-1:0] drdata,
 
     output reg         tx_valid,
     output wire [7:0]  tx_data,
@@ -76,7 +80,7 @@ module hexaforth #(
     output wire        dbg_exec
 );
     // ------------------------------------------------------------ state
-    reg [PCW-1:0] pc;               // address of the instruction in idata
+    reg [PCW-1:0] pc;               // address of the instruction being decoded
     reg [W-1:0] T, N, R;
     reg [7:0]  dsp, rsp;            // stack depths, for the depth ports
     reg [W-1:0] ioa;                 // latched address for the device ports
@@ -90,17 +94,22 @@ module hexaforth #(
     reg [2:0]  state;
     reg [7:0]  newdepth;
 
-    // Work done ahead of executing the instruction in idata.
+    // What the read port is showing: an instruction, or data asked for by
+    // the instruction now waiting in `hold`.
+    localparam RD_INS = 2'd0, RD_A = 2'd1, RD_B = 2'd2;
+    reg [1:0]  rd_kind;
+    reg        held;                // the instruction is in `hold`
+    reg [15:0] hold;
+
+    // Work done ahead of executing the instruction.
     reg        have_a, have_b;      // memory reads latched
-    reg [1:0]  rd_wait;             // cycles until a read in flight is back
-    reg        rd_is_b;
     reg [1:0]  slow_cnt;            // steps of a shift or multiply done
     reg [W-1:0] a_val, b_val;        // [T], and [IN] or a device read
     reg [W-1:0] sh_res, mul_ll, mul_res;
     reg [W/2-1:0] mul_x;
 
     // ----------------------------------------------------------- decode
-    wire [15:0] ins     = idata;
+    wire [15:0] ins     = held ? hold : rdata[15:0];
     wire        is_lit  = ins[15];
     wire [1:0]  op_type = ins[14:13];
     wire        is_alu  = !is_lit && op_type == 2'd3;
@@ -113,14 +122,24 @@ module hexaforth #(
 
     // ------------------------------------------------- input mux and ALU
     wire        need_a = is_alu && in_mux == 2'd2;
+    wire [W-1:0] a_now  = have_a ? a_val : rdata;    // [T], latched or just read
+    wire [W-1:0] b_now  = have_b ? b_val : rdata;
     wire [W-1:0] in     = in_mux == 2'd0 ? N :
+                         in_mux == 2'd1 ? T :
+                         in_mux == 2'd2 ? a_now : R;
+
+    // IN as it decides anything about sequencing or addressing: never
+    // straight from the memory.  An instruction whose IN is [T] and which
+    // then uses IN as an address or a port waits for [T] to be latched.
+    wire        ab_op   = alu_op == 4'd14 || alu_op == 4'd15;
+    wire [W-1:0] in_ctl = in_mux == 2'd0 ? N :
                          in_mux == 2'd1 ? T :
                          in_mux == 2'd2 ? a_val : R;
 
     // Port numbers are small: compare the low byte once the rest is zero.
-    wire        in_small = in[W-1:8] == 0;
-    wire        dev_port = in_small && in[7:4] == 4'hc &&
-                           (in[3:0] == 1 || in[3:0] == 2 || in[3:0] == 4 || in[3:0] == 8);
+    wire        in_small = in_ctl[W-1:8] == 0;
+    wire        dev_port = in_small && in_ctl[7:4] == 4'hc &&
+                           (in_ctl[3:0] == 1 || in_ctl[3:0] == 2 || in_ctl[3:0] == 4 || in_ctl[3:0] == 8);
     wire        need_b   = is_alu && (alu_op == 4'd14 || (alu_op == 4'd15 && dev_port));
     wire        is_shift = is_alu && (alu_op == 4'd12 || alu_op == 4'd13);
     wire        is_mul   = is_alu && alu_op == 4'd7;
@@ -139,13 +158,13 @@ module hexaforth #(
     reg  [W-1:0] io_in;
     always @* begin
         io_in = 0;
-        if (in_small) case (in[7:0])
+        if (in_small) case (in_ctl[7:0])
             8'he0: io_in = {{(W-8){1'b0}}, rx_data};
             8'he1: io_in = {W{rx_valid}};
-            8'hc1: io_in = b_val & M8;
-            8'hc2: io_in = b_val & M16;
-            8'hc4: io_in = b_val & M32;
-            8'hc8: io_in = b_val;
+            8'hc1: io_in = b_now & M8;
+            8'hc2: io_in = b_now & M16;
+            8'hc4: io_in = b_now & M32;
+            8'hc8: io_in = b_now;
             8'hd0: io_in = {{(W-8){1'b0}}, dsp};
             8'hd1: io_in = {{(W-8){1'b0}}, rsp};
             default: ;
@@ -166,7 +185,7 @@ module hexaforth #(
             4'd10: out = {W{slt}};
             4'd11: out = {W{ult}};
             4'd12, 4'd13: out = sh_res;
-            4'd14: out = b_val;
+            4'd14: out = b_now;
             default: out = io_in;
         endcase
     end
@@ -183,7 +202,7 @@ module hexaforth #(
     wire        tx_wr   = io_wr && port_small && port[7:0] == 8'hf1;
     wire        dev_wr  = io_wr && port_small && port[7:4] == 4'hc &&
                           (port[3:0] == 1 || port[3:0] == 2 || port[3:0] == 4 || port[3:0] == 8);
-    wire        rx_rd   = is_alu && alu_op == 4'd15 && in_small && in[7:0] == 8'he0;
+    wire        rx_rd   = is_alu && alu_op == 4'd15 && in_small && in_ctl[7:0] == 8'he0;
 
     // ------------------------------------------------- next state values
     wire [W-1:0] lit = {{(W-12){1'b0}}, ins[11:0]} << (ins[13:12] * 12);
@@ -250,38 +269,49 @@ module hexaforth #(
     wire is_halt  = running && ins == 16'd0;
     assign halted = state == S_HALT;
 
-    wire ready     = running && !is_halt && rd_wait == 0;
-    wire want_a    = ready && need_a && !have_a;
-    wire want_b    = ready && !want_a && need_b && !have_b;
-    wire want_slow = ready && !want_a && !want_b && slow_cnt != slow_need;
+    // [T] can be used in the cycle it arrives, unless the instruction goes
+    // on to use it as an address or a port number.  [IN] and device reads
+    // can always be used as they arrive.
+    wire ready     = running && !is_halt;
+    wire wr_busy   = dwe != 0;                  // a store is landing this cycle
+    wire a_here    = have_a || (rd_kind == RD_A && !ab_op);
+    wire a_ok      = !need_a || a_here;
+    wire b_here    = have_b || rd_kind == RD_B;
+    wire b_ok      = !need_b || b_here;
+    wire want_a    = ready && need_a && !a_here && rd_kind != RD_A && !wr_busy;
+    wire want_b    = ready && a_ok && !b_ok && !wr_busy;
+    wire want_slow = ready && a_ok && b_ok && slow_cnt != slow_need;
     wire waiting   = (tx_wr && !tx_ready) || (rx_rd && !rx_valid);
-    wire execute   = ready && !want_a && !want_b && !want_slow && !waiting;
+    wire execute   = ready && a_ok && b_ok && !want_slow && !waiting;
 
-    assign iaddr   = (state == S_BOOT) ? start_pc : execute ? pc_next : pc;
+    wire       ioa_ok = (ioa >> MB) == 0;
+    wire [PCW-1:0] fetch = (state == S_BOOT) ? start_pc : execute ? pc_next : pc;
+    always @* begin
+        raddr = {{(W-PCW-1){1'b0}}, fetch, 1'b0};  rok = 1;
+        if (want_a) raddr = T;
+        else if (want_b) begin
+            if (alu_op == 4'd14) raddr = in_ctl;
+            else begin raddr = ioa;  rok = ioa_ok; end
+        end
+    end
+
     assign tx_data = out[7:0];
     assign dbg_t = T;  assign dbg_n = N;  assign dbg_r = R;
     assign dbg_dsp = dsp;  assign dbg_rsp = rsp;  assign dbg_exec = execute;
 
-    // The request to the data memory, registered before it leaves.  A
-    // device write wider than a cell writes a cell.
+    // A store, registered before it leaves.  A device write wider than a
+    // cell writes a cell.
     localparam [7:0] WB1 = 8'h01, WB2 = 8'h03, WB4 = 8'h0f, WB8 = 8'hff;
     wire [3:0] wbytes = port[3:0];
-    wire       ioa_ok = (ioa >> MB) == 0;
     reg  [W-1:0] daddr_c;
-    reg         dok_c, dre_c;
+    reg         dok_c;
     reg  [W/8-1:0] dwe_c;
     always @* begin
-        daddr_c = T;  dok_c = 1;  dre_c = 0;  dwe_c = 0;
+        daddr_c = t1;  dok_c = 1;  dwe_c = 0;
         tx_valid = 0;  rx_ready = 0;
-        if (want_a) begin
-            dre_c = 1;
-        end else if (want_b) begin
-            if (alu_op == 4'd14) daddr_c = in;
-            else begin daddr_c = ioa;  dok_c = ioa_ok; end
-            dre_c = 1;
-        end else if (execute) begin
+        if (execute) begin
             if (is_alu && out_mux == 2'd3) begin
-                daddr_c = t1;  dwe_c = {(W/8){1'b1}};
+                dwe_c = {(W/8){1'b1}};
             end else if (dev_wr) begin
                 daddr_c = ioa;  dok_c = ioa_ok;
                 dwe_c = wbytes == 1 ? WB1[W/8-1:0] : wbytes == 2 ? WB2[W/8-1:0] :
@@ -293,8 +323,7 @@ module hexaforth #(
     end
 
     always @(posedge clk) begin
-        daddr <= daddr_c;  dok <= dok_c;  dwdata <= out;
-        dre <= dre_c && !rst;
+        waddr <= daddr_c;  wok <= dok_c;  dwdata <= out;
         dwe <= rst ? {(W/8){1'b0}} : dwe_c;
     end
 
@@ -340,7 +369,8 @@ module hexaforth #(
     always @(posedge clk) begin
         if (rst) begin
             state <= S_BOOT;
-            have_a <= 0;  have_b <= 0;  rd_wait <= 2'd0;  slow_cnt <= 0;
+            have_a <= 0;  have_b <= 0;  slow_cnt <= 0;
+            rd_kind <= RD_INS;  held <= 0;
             pc <= start_pc;  T <= 0;  N <= 0;  R <= 0;
             dsp <= 0;  rsp <= 0;  ioa <= 0;
         end else begin
@@ -350,18 +380,17 @@ module hexaforth #(
             S_BOOT: state <= S_RUN;
 
             S_RUN: begin
+                // Data on the read port is kept, in case the instruction
+                // does not finish in this cycle.
+                if (rd_kind == RD_A) begin a_val <= rdata;  have_a <= 1; end
+                if (rd_kind == RD_B) begin b_val <= rdata;  have_b <= 1; end
+                rd_kind <= want_a ? RD_A : want_b ? RD_B : RD_INS;
+                if (want_a || want_b) begin
+                    held <= 1;  hold <= ins;                // the port is borrowed
+                end
+
                 if (is_halt) begin
                     state <= S_HALT;
-                end else if (rd_wait != 0) begin
-                    rd_wait <= rd_wait - 1;
-                    if (rd_wait == 2'd1) begin              // the read data is here
-                        if (rd_is_b) begin b_val <= drdata;  have_b <= 1; end
-                        else         begin a_val <= drdata;  have_a <= 1; end
-                    end
-                end else if (want_a) begin
-                    rd_wait <= 2'd2;  rd_is_b <= 0;
-                end else if (want_b) begin
-                    rd_wait <= 2'd2;  rd_is_b <= 1;
                 end else if (want_slow) begin
                     slow_cnt <= slow_cnt + 1;
                     if (is_shift)
@@ -373,7 +402,7 @@ module hexaforth #(
                         mul_res <= mul_ll + {mul_x, {(W/2){1'b0}}};
                     end
                 end else if (execute) begin
-                    have_a <= 0;  have_b <= 0;  slow_cnt <= 0;
+                    have_a <= 0;  have_b <= 0;  slow_cnt <= 0;  held <= 0;
                     pc <= pc_next;
                     T <= t_next;  N <= n_next;  R <= r_next;
                     if (io_wr && port_small && port[7:0] == 8'hc0) ioa <= out;
