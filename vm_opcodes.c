@@ -154,7 +154,7 @@ bool init_opcodes(word_node* opcodes) {
         bool string = false;
 
         // Loop through the characters in our buffer.
-        for(int i=0; i<=input_len; i++) {
+        for(int i=0; i<input_len; i++) {
            if (input[i]==' ' || input[i] == '\0') {
                 // We replace spaces with null bytes to indicate to C that it's
                 // the termination of the string.

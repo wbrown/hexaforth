@@ -1,0 +1,208 @@
+// hexaforth.S - bare-metal AArch64 hexaforth: boot stub, UART, inner loop.
+//
+// Same instruction semantics as vm.c.  The Forth image is appended at
+// `image` and becomes VM byte address 0.
+//
+// VM address space (byte addresses, relative to `image`):
+//   0x0000-0x1fff  kernel code, always mapped        (word addrs 0x0000-0x0fff)
+//   0x2000-0x3fff  code window                       (word addrs 0x1000-0x1fff)
+//   DSTACK_BASE    data stack, grows up
+//   RSTACK_BASE    return stack, grows up
+//
+// Code window: instruction *fetches* from word addresses 0x1000-0x1fff are
+// redirected to whichever 8KB block was last written to the BANK port.
+// Data accesses are never redirected - the data space is flat, so a block
+// is compiled into at its real address and then mapped for execution.
+// At reset the window maps 0x2000, i.e. the identity mapping.
+//
+// IO ports:
+//   0xf1 write   UART transmit            (emit)
+//   0xe0 read    UART receive, blocking   (key)
+//   0xb0 write   byte address of the 8KB block to map into the code window
+
+        .equ    UART_BASE,   0x09000000      // PL011 on QEMU `virt`
+        .equ    UART_FR,     0x18
+        .equ    DSTACK_BASE, 0xf000          // 256 cells each
+        .equ    RSTACK_BASE, 0xf800
+        .equ    MEM_TOP,     0x20000         // zeroed up to here at boot
+
+        .equ    IO_EMIT,     0xf1
+        .equ    IO_KEY,      0xe0
+        .equ    IO_BANK,     0xb0
+
+MEM     .req    x19     // host address of VM byte 0
+BANK    .req    x20     // fetch base for the code window
+PC      .req    x21     // word address of next instruction
+T       .req    x22     // top of data stack
+R       .req    x23     // top of return stack
+DS      .req    x24     // data stack pointer; DS[-1] is N
+RS      .req    x25     // return stack pointer
+UART    .req    x26
+INS     .req    x9      // current instruction
+INSw    .req    w9
+IO      .req    x10     // IN on the way into the ALU, OUT on the way out
+N       .req    x11
+D       .req    x13     // signed data stack delta
+RD      .req    x14     // signed return stack delta
+OLDT    .req    x15
+
+        .text
+        .globl  _start, next, halt
+_start:
+        adr     MEM, image
+        adr     x0, image_end
+        add     x1, MEM, #MEM_TOP
+1:      str     xzr, [x0], #8
+        cmp     x0, x1
+        b.lo    1b
+        mov     UART, #UART_BASE
+        add     DS, MEM, #DSTACK_BASE
+        add     RS, DS, #(RSTACK_BASE - DSTACK_BASE)
+        mov     BANK, MEM
+        mov     PC, #0
+        mov     T, #0
+        mov     R, #0
+
+next:
+        tst     PC, #0x1000
+        csel    x10, BANK, MEM, ne
+        ldrh    INSw, [x10, PC, lsl #1]
+        add     PC, PC, #1
+        tbnz    INSw, #15, literal
+        ubfx    w10, INSw, #13, #2              // op_type
+        and     x12, INS, #0x1fff               // branch target
+        cbnz    w10, 1f
+        cbz     INSw, halt
+jump:   mov     PC, x12
+        b       next
+1:      cmp     w10, #2
+        b.eq    call
+        b.hi    alu
+        mov     x10, T                          // 0branch
+        ldr     T, [DS, #-8]!
+        cbz     x10, jump
+        b       next
+
+call:   str     R, [RS], #8
+        mov     R, PC
+        b       jump
+
+literal:
+        ubfx    w10, INSw, #12, #2              // shift selector
+        and     x12, INS, #0xfff
+        add     w10, w10, w10, lsl #1
+        lsl     w10, w10, #2                    // * 12
+        lsl     x12, x12, x10
+        tbnz    INSw, #14, 1f                   // imm+ : add to T
+        str     T, [DS], #8
+        mov     T, #0
+1:      add     T, T, x12
+        b       next
+
+alu:    ldur    N, [DS, #-8]
+        ubfx    w12, INSw, #10, #2              // in_mux
+        cmp     w12, #1
+        csel    IO, N, T, lo                    // 0: N   1: T
+        b.ls    1f
+        mov     IO, R                           // 3: R
+        tbnz    w12, #0, 1f
+        ldr     IO, [MEM, T]                    // 2: [T]
+1:      ubfx    w12, INSw, #4, #4               // alu_op
+        adr     x16, alu_ops
+        add     x16, x16, x12, lsl #3
+        cmp     N, IO                           // flags for the compare ops
+        br      x16
+
+        // Sixteen two-instruction slots, indexed by alu_op.
+alu_ops:
+        b       alu_done                        //  0  IN->
+        nop
+        stur    T, [DS, #-8]                    //  1  T<>N,IN->
+        b       swap_t
+        stur    T, [DS, #-8]                    //  2  T->N,IN->
+        b       alu_done
+        add     IO, IO, N                       //  3  IN+N
+        b       alu_done
+        and     IO, IO, N                       //  4  IN&N
+        b       alu_done
+        orr     IO, IO, N                       //  5  IN|N
+        b       alu_done
+        eor     IO, IO, N                       //  6  IN^N
+        b       alu_done
+        mul     IO, IO, N                       //  7  IN*N
+        b       alu_done
+        mvn     IO, IO                          //  8  ~IN
+        b       alu_done
+        csetm   IO, eq                          //  9  IN==N
+        b       alu_done
+        csetm   IO, lt                          // 10  N<IN
+        b       alu_done
+        csetm   IO, lo                          // 11  Nu<IN
+        b       alu_done
+        lsr     IO, IO, T                       // 12  IN>>T
+        b       alu_done
+        lsl     IO, IO, T                       // 13  IN<<T
+        b       alu_done
+        ldr     IO, [MEM, IO]                   // 14  [IN]
+        b       alu_done
+        cmp     IO, #IO_KEY                     // 15  io[IN]
+        b.eq    key
+        mov     IO, #0
+        b       alu_done
+key:    ldr     w12, [UART, #UART_FR]
+        tbnz    w12, #4, key                    // RXFE: nothing received yet
+        ldr     w10, [UART]
+        and     IO, IO, #0xff
+        b       alu_done
+swap_t: mov     T, N
+
+alu_done:
+        tst     INSw, #0x1000                   // RET: R->PC
+        csel    PC, R, PC, ne
+        sbfx    D, INS, #2, #2
+        sbfx    RD, INS, #0, #2
+        add     DS, DS, D, lsl #3
+        add     RS, RS, RD, lsl #3
+        cmp     D, #0
+        b.le    1f
+        stur    T, [DS, #-8]                    // pushed: old T becomes N
+1:      cmp     RD, #0
+        b.le    1f
+        stur    R, [RS, #-8]
+1:      mov     OLDT, T
+        tbz     D, #63, 1f
+        ldr     T, [DS]                         // popped: refill T
+1:      ubfx    w12, INSw, #8, #2               // out_mux
+        cbz     w12, out_t
+        cmp     w12, #2
+        b.eq    out_io
+        b.hi    out_mem
+        mov     R, IO                           // 1: ->R
+        b       next
+out_mem:
+        str     IO, [MEM, OLDT]                 // 3: ->[T]
+        b       fix_r
+out_io: cmp     OLDT, #IO_EMIT                  // 2: ->io[T]
+        b.ne    2f
+1:      ldr     w12, [UART, #UART_FR]
+        tbnz    w12, #5, 1b                     // TXFF: transmit FIFO full
+        str     w10, [UART]
+        b       fix_r
+2:      cmp     OLDT, #IO_BANK
+        b.ne    fix_r
+        add     BANK, MEM, IO
+        sub     BANK, BANK, #0x2000
+        b       fix_r
+out_t:  mov     T, IO                           // 0: ->T
+fix_r:  tbz     RD, #63, next
+        ldr     R, [RS]                         // popped: refill R
+        b       next
+
+halt:   wfi
+        b       halt
+
+        .balign 16
+native_end:
+image:  .incbin IMAGE
+        .balign 8
+image_end:
