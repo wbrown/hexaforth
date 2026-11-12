@@ -421,6 +421,8 @@ def split_runs(code, entries):
             if run:
                 items.append(("run", start, run))
                 run = []
+            if w == 0 and i and code[i - 1] == 0:
+                continue                # padding between code regions
             items.append(("ctl", i, w))
     if run:
         items.append(("run", start, run))
@@ -439,8 +441,23 @@ def compare_images(plain_path, opt_path):
     moved = {a[1]: b[1] for a, b in zip(plain, opt)}
 
     def translate(run):
-        return [0x8000 | moved[w & 0xFFF] if w & 0xF000 == 0x8000 and (w & 0xFFF) in moved
-                and moved[w & 0xFFF] < 0x1000 else w for w in run]
+        """Rewrite literals that are code addresses: one instruction for the
+        kernel, a shifted push and an add for addresses above 4095."""
+        out, i = [], 0
+        while i < len(run):
+            w = run[i]
+            nxt = run[i + 1] if i + 1 < len(run) else 0
+            if w & 0xF000 == 0x8000 and (w & 0xFFF) in moved and moved[w & 0xFFF] < 0x1000:
+                out.append(0x8000 | moved[w & 0xFFF])
+            elif w & 0xF000 == 0x9000 and nxt & 0xF000 == 0xC000 and \
+                    ((w & 0xFFF) << 12 | nxt & 0xFFF) in moved:
+                to = moved[(w & 0xFFF) << 12 | nxt & 0xFFF]
+                out += [0x9000 | to >> 12, 0xC000 | to & 0xFFF]
+                i += 1
+            else:
+                out.append(w)
+            i += 1
+        return out
 
     bad = runs = 0
     for (kind, at_a, a), (_, at_b, b) in zip(plain, opt):

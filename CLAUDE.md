@@ -184,6 +184,25 @@ same-page target and `literal xt` + `call execute` for another page.
 if a definition runs off the end of its page. Execution tokens are stored in
 16 bits in dictionary headers, which is what limits code to 64K words.
 
+### Devices, Blocks and Graphics
+
+`forth/system.fs` (included at the end of `nuc.fs`) is cross-compiled into
+code page 1 (`0x2000`). The kernel never calls into it; its words are
+reached by name or by execution token.
+
+- `machine.fs`: exact-width device register access through IO ports
+  `0xc0`-`0xc8`, `halloc` for memory above the dictionary, byte-order helpers
+- `blocks.fs`: block device interface (`'blk-read`, `'blk-write`), `block`
+  `update` `flush` `load`, and `disk-read` for byte ranges
+- `display.fs`: 1-bit display interface (`'plot`, `fb-w`, `fb-h`)
+- `virtio-blk.fs`, `ramfb.fs`: the QEMU `virt` drivers behind those interfaces
+- `tiff.fs`, `atkinson.fs`, `mandrill.fs`: uncompressed TIFF reader, Atkinson
+  dithering, and the demo
+
+In `baremetal/`, `make demo` boots QEMU with a disk and display (type
+`mandrill`), and `make demo-test` runs it headless and compares the screen
+with a reference dither computed on the host.
+
 ## Cross-Compiling Programs
 
 To create a program for hexaforth using the cross-compiler (cross.fs), follow this structure:

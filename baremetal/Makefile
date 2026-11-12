@@ -4,6 +4,8 @@
 #   make run        boot it in QEMU (Ctrl-A X to quit)
 #   make size       native code size
 #   make test       differential test against vm.c (needs python3 + unicorn)
+#   make demo       boot with a disk and display; type `mandrill`
+#   make demo-test  run the Mandrill demo headless and check the screen
 
 HEX    ?= ../build/nuc.hex
 LOAD   ?= 0x40080000
@@ -36,7 +38,28 @@ run: $(B)/hexaforth.elf
 test: $(B)/hexaforth.bin
 	python3 difftest.py
 
+# The Mandrill test image comes from the baboon-image npm package.
+$(B)/baboon.png:
+	@mkdir -p $(B)
+	cd $(B) && npm pack --silent baboon-image && tar xzf baboon-image-*.tgz package/baboon.png \
+	    && mv package/baboon.png . && rm -rf package baboon-image-*.tgz
+
+$(B)/disk.img: $(B)/baboon.png mkdisk.py block1.fs
+	python3 mkdisk.py $(B)/baboon.png $@ block1.fs
+
+DEVICES := -device ramfb -global virtio-mmio.force-legacy=false \
+           -drive file=$(B)/disk.img,if=none,format=raw,id=hd0 -device virtio-blk-device,drive=hd0
+
+# Boot with the disk and a display; type `mandrill` at the prompt.
+demo: $(B)/hexaforth.elf $(B)/disk.img
+	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 -serial mon:stdio -nic none $(DEVICES) -kernel $<
+
+# Run the demo headless, save $(B)/mandrill.png, and check it against a
+# reference dither computed on the host.
+demo-test: $(B)/hexaforth.elf $(B)/disk.img
+	python3 demo.py $< $(B)/disk.img $(B)/disk.tiff $(B)/mandrill.png
+
 clean:
 	rm -rf $(B)
 
-.PHONY: all size run test clean
+.PHONY: all size run test demo demo-test clean
