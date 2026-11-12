@@ -2,7 +2,7 @@
 
 module soc #(
     parameter AW = 14,              // 2^AW 64-bit words: 128KB at 14
-    parameter SD = 8,               // log2 of the stack depths
+    parameter DEPTH = 64,           // cells in each stack
     parameter INIT = ""             // memory image, one hex file per lane
 ) (
     input  wire       clk,
@@ -18,13 +18,13 @@ module soc #(
     wire [15:0] iaddr;
     wire [15:0] idata;
     wire [63:0] daddr, dwdata, drdata;
-    wire        dre;
+    wire        dre, dok;
     wire [7:0]  dwe;
 
-    hexaforth #(.PCW(16), .SD(SD)) cpu (
+    hexaforth #(.PCW(16), .DEPTH(DEPTH), .MB(AW + 3)) cpu (
         .clk(clk), .rst(rst), .start_pc(16'd0),
         .iaddr(iaddr), .idata(idata),
-        .daddr(daddr), .dre(dre), .dwe(dwe), .dwdata(dwdata), .drdata(drdata),
+        .daddr(daddr), .dok(dok), .dre(dre), .dwe(dwe), .dwdata(dwdata), .drdata(drdata),
         .tx_valid(tx_valid), .tx_data(tx_data), .tx_ready(tx_ready),
         .rx_valid(rx_valid), .rx_data(rx_data), .rx_ready(rx_ready),
         .halted(halted),
@@ -32,6 +32,6 @@ module soc #(
 
     hf_mem #(.AW(AW), .INIT(INIT)) mem (
         .clk(clk),
-        .daddr(daddr), .dre(dre), .dwe(dwe), .dwdata(dwdata), .drdata(drdata),
+        .daddr(daddr), .dok(dok), .dre(dre), .dwe(dwe), .dwdata(dwdata), .drdata(drdata),
         .iaddr(iaddr[AW+1:0]), .idata(idata));
 endmodule

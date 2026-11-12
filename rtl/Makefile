@@ -35,13 +35,10 @@ test: $(B)/tb $(B)/tb_mem $(B)/tb_soc $(CASES)
 	$(B)/tb_mem
 	printf '1 2 + .\n: sq dup * ; 12 sq .\n8000 execute\n' | $(B)/tb_soc
 
-# Stack depth for synthesis: 2^SYNTH_SD cells each.  The J1 used 32.
-SYNTH_SD ?= 6
-
 synth:
 	@mkdir -p $(B)
 	yosys -q -l $(B)/yosys.log -p "read_verilog soc.v hexaforth.v hf_mem.v; \
-	    chparam -set SD $(SYNTH_SD) soc; synth_ecp5 -top soc -json $(B)/soc.json"
+	    synth_ecp5 -top soc -json $(B)/soc.json"
 	@sed -n '/Number of cells/,$$p' $(B)/yosys.log | head -40
 	nextpnr-ecp5 --85k --package CABGA381 --json $(B)/soc.json --lpf-allow-unconstrained \
 	    --timing-allow-fail -q -l $(B)/nextpnr.log || true

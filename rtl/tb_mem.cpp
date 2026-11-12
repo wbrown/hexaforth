@@ -1,8 +1,8 @@
 // tb_mem.cpp - check hf_mem.v against a plain byte array.
 //
 // Random unaligned reads and writes with random byte enables on the data
-// port, and random fetches on the instruction port, including addresses at
-// and past the end of the memory.
+// port, and random fetches on the instruction port, including addresses
+// that wrap at the end of the memory and accesses with dok low.
 
 #include "Vhf_mem.h"
 #include <cstdint>
@@ -24,10 +24,11 @@ int main() {
         uint64_t a = (uint64_t)rand() % 3 == 0 ? SIZE - 12 + rand() % 24
                                               : ((uint64_t)rand() << 8 ^ rand()) % SIZE;
         bool re = rand() & 1;
+        bool ok = rand() % 8 != 0;
         uint8_t we = re ? 0 : (uint8_t)(rand() % 4 == 0 ? rand() : 0xff >> (rand() % 8));
         uint64_t data = ((uint64_t)rand() << 40) ^ ((uint64_t)rand() << 20) ^ rand();
         uint32_t ia = rand() % (SIZE / 2);
-        top.daddr = a;  top.dre = re;  top.dwe = we;  top.dwdata = data;  top.iaddr = ia;
+        top.daddr = a;  top.dok = ok;  top.dre = re;  top.dwe = we;  top.dwdata = data;  top.iaddr = ia;
         top.clk = 0;  top.eval();
         if (have && (top.drdata != want_d || top.idata != want_i)) {
             printf("FAIL at cycle %ld: data %016llx want %016llx, instruction %04x want %04x\n",
@@ -40,11 +41,11 @@ int main() {
         if (re) {
             want_d = 0;
             for (int i = 0; i < 8; i++)
-                if (a + i < SIZE) want_d |= (uint64_t)model[a + i] << (8 * i);
+                if (ok) want_d |= (uint64_t)model[(a + i) % SIZE] << (8 * i);
         }
         want_i = model[2 * ia] | model[2 * ia + 1] << 8;
         for (int i = 0; i < 8; i++)
-            if ((we >> i & 1) && a + i < SIZE) model[a + i] = data >> (8 * i);
+            if ((we >> i & 1) && ok) model[(a + i) % SIZE] = data >> (8 * i);
         have = true;
         top.clk = 1;  top.eval();
     }
