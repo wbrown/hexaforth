@@ -750,6 +750,7 @@ header :noname
     dup 2* uw@ code,
     1+ >r
 ;
+inline-operand
 
 : prev
     cp @ d# -2 +
