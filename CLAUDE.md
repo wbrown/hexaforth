@@ -227,6 +227,20 @@ pointer events through QMP, and checks the screen: text is read back by
 matching font cells, and the image viewer is compared with a reference
 dither computed on the host.
 
+### Hardware (`rtl/`)
+
+`rtl/hexaforth.v` is the CPU in Verilog, with the same semantics as `vm.c`:
+one cycle per instruction, plus one for each memory read. `rtl/hf_mem.v` is
+its memory, eight byte lanes so that unaligned 64-bit access takes one
+cycle. `rtl/soc.v` joins them for synthesis.
+
+- `make -C rtl test` replays the differential cases from
+  `baremetal/difftest_dump.c` on the Verilog CPU under Verilator, checks the
+  memory against a byte-array model, and boots the nucleus on the whole
+  system
+- `make -C rtl synth` synthesises for an ECP5 FPGA with Yosys and nextpnr
+  and reports size and clock speed
+
 ## Cross-Compiling Programs
 
 To create a program for hexaforth using the cross-compiler (cross.fs), follow this structure:
