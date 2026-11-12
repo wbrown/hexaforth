@@ -158,9 +158,23 @@ The dictionary structure inherited from J1/Swapforth uses 16-bit values, so prop
 - `2w@`: Reads two consecutive 16-bit values (e.g., for source buffer)
 - `2w!`: Writes two consecutive 16-bit values while preserving other bytes
 
-### Dictionary Structure
+### Aligned Access
 
-The Forth dictionary uses 16-bit cells for compatibility with the J1 heritage, even though hexaforth is a 64-bit system. This requires careful use of `w@` instead of `@` when reading dictionary entries, link fields, and execution tokens. The cross-compiler maintains this 16-bit structure while the VM operates with 64-bit cells.
+The nucleus only ever fetches and stores whole cells at cell-aligned
+addresses.  `c@`, `c!`, `uw@` and `w!` in `nuc.fs` are Forth words that fetch
+the cell an address is in and shift the field out of it or into it
+(`field@`, `field!`); `l@` and `l!` in `machine.fs` do the same for 32 bits.
+A field must not cross a cell boundary.  `,` aligns `here` first, and code
+is always fetched at its own word address.
+
+Dictionary headers are whole cells: a link cell, an xt cell (top bit set for
+an immediate word), then the name as a count byte and lower-case characters
+padded with zeros to a cell boundary, so lookup compares a cell at a time.
+
+To check, build the reference VM with `-DSTRICT_ALIGN` or the small kernel
+with `make -C baremetal STRICT=1`; either stops at the first unaligned access.
+The byte and 16-bit basewords in `vm_opcodes.h` (`c@`, `w@`, ...) still do
+unaligned fetches and are kept for the instruction tests.
 
 ### Code Paging
 

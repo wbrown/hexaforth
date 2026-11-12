@@ -94,17 +94,44 @@ header lo32  : lo32 ( dw -- w ) h# ffffffff and ;
 header hi16  : hi16 ( dw -- s ) d# 16 rshift h# ffff and ;
 header lo16  : lo16 ( dw -- s ) h# ffff and ;
 
-header uw@
-: uw@
-    @ h# ffff and
+\ Memory is fetched and stored a cell at a time, at cell-aligned addresses.
+\ A byte or a 16-bit field is part of a cell: these fetch the cell it is in
+\ and shift the field into place.  Instructions are 16-bit fields too, so
+\ this is also how the compiler reads and writes code.
+
+: field@ ( a mask -- x )
+    >r
+    dup ALIGN-MASK and @
+    swap OFFSET-MASK and d# 3 lshift rshift
+    r> and
 ;
 
-header w!
-: w! ( u c-addr -- ) \ store 16 bits, leaving the other 48 bits of the cell alone
-    >r lo16
-    r@ @ d# -1 d# 16 lshift and
-    or r> !
+: field! ( x a mask -- )
+    -rot                                    ( mask x a )
+    dup ALIGN-MASK and >r                   \ the cell
+    OFFSET-MASK and d# 3 lshift             ( mask x shift )
+    >r over and r>                          ( mask x' shift )
+    tuck lshift                             ( mask shift x'' )
+    -rot lshift invert                      ( x'' ~mask' )
+    r@ @ and or
+    r> !
 ;
+
+header c@
+: c@ ( a -- c )
+    dup ALIGN-MASK and @
+    swap OFFSET-MASK and d# 3 lshift rshift
+    h# ff and
+;
+
+header c!
+: c! ( c a -- ) h# ff field! ;
+
+header uw@
+: uw@ ( a -- w ) h# ffff field@ ;
+
+header w!
+: w! ( w a -- ) h# ffff field! ;
 
 header count
 : count
@@ -547,6 +574,17 @@ header fill
 
 header cmove
 : cmove ( addr1 addr2 u -- )
+    >r
+    2dup or OFFSET-MASK and 0= if           \ both cell-aligned: whole cells first
+        begin
+            r@ CELL u< 0=
+        while
+            over @ over !
+            CELL + swap CELL + swap
+            r> ALIGN-MASK + >r
+        repeat
+    then
+    r>
     bounds rot >r
     begin
         2dupxor
@@ -643,6 +681,7 @@ header allot
 
 header ,
 : t,
+    here aligned dp !
     here !
     CELL tallot
 ;
@@ -1165,8 +1204,6 @@ header io@      :noname     io@      ;
 header rshift   :noname     rshift   ;
 header lshift   :noname     lshift   ;
 header 1+       :noname     1+       ;
-header c@       :noname     c@       ;
-header c!       :noname     c!       ;
 header-imm >r   :noname     inline: >r ;
 header-imm r>   :noname     inline: r> ;
 header-imm r@   :noname     inline: r@ noop ;

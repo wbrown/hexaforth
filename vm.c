@@ -31,13 +31,30 @@ static inline uint64_t ucell(int64_t x) {
 #endif
 }
 
+// Built with -DSTRICT_ALIGN, a fetch or store that is not at a cell-aligned
+// address stops the VM.  The Forth system does not make any.
+#ifdef STRICT_ALIGN
+static int64_t strict_pc;
+static void strict(const char *what, int64_t addr) {
+    if (ucell(addr) & (CELL_BYTES - 1)) {
+        fprintf(stderr, "\nunaligned %s of %llx by the instruction at %llx\n", what,
+                (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
+        exit(3);
+    }
+}
+#else
+#define strict(what, addr)
+#endif
+
 static inline int64_t mem_load(context *ctx, int64_t addr) {
+    strict("fetch", addr);
     int64_t v = 0;
     memcpy(&v, (uint8_t *)ctx->memory + ucell(addr), CELL_BYTES);
     return cell(v);
 }
 
 static inline void mem_store(context *ctx, int64_t addr, int64_t v) {
+    strict("store", addr);
     memcpy((uint8_t *)ctx->memory + ucell(addr), &v, CELL_BYTES);
 }
 
@@ -185,6 +202,9 @@ int vm(context *ctx) {
         #endif // DEBUG
         // increment EIP to the next instruction for next cycle
         EIP++;
+#ifdef STRICT_ALIGN
+        strict_pc = EIP;
+#endif
         // == MSB set is an instruction literal.
         if (ins.lit.lit_f) {
             int64_t lit = (uint64_t)ins.lit.lit_v <<
