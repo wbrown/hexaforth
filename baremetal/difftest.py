@@ -9,7 +9,10 @@ import sys
 from unicorn import Uc, UC_ARCH_ARM64, UC_MODE_ARM, UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
 from unicorn.arm64_const import *
 
+import os
+
 B = "build"
+KERNEL = os.environ.get("KERNEL", "hexaforth")
 DSTACK, RSTACK = 0x20000, 0x20800
 UART = 0x09000000
 
@@ -20,11 +23,11 @@ subprocess.check_call(
 subprocess.check_call([f"{B}/difftest_dump", f"{B}/cases.bin"])
 
 syms = {}
-for line in subprocess.check_output(["llvm-nm", f"{B}/hexaforth.elf"], text=True).splitlines():
+for line in subprocess.check_output(["llvm-nm", f"{B}/{KERNEL}.elf"], text=True).splitlines():
     addr, _, name = line.split()
     syms[name] = int(addr, 16)
 base = syms["_start"]
-code = open(f"{B}/hexaforth.bin", "rb").read()
+code = open(f"{B}/{KERNEL}.bin", "rb").read()
 mem = syms["image"]
 
 uc = Uc(UC_ARCH_ARM64, UC_MODE_ARM)

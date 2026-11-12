@@ -199,6 +199,12 @@ reached by name or by execution token.
 - `tiff.fs`, `atkinson.fs`, `mandrill.fs`: uncompressed TIFF reader, Atkinson
   dithering, and the demo
 
+`baremetal/` has two native kernels with identical behaviour.
+`hexaforth.S` is the small one and decodes each field with compares and
+branches. `hexaforth-fast.S` decodes with two table lookups (input mux and
+ALU, then output mux and stack deltas) and executes about half as many
+native instructions; select it with `make KERNEL=hexaforth-fast <target>`.
+
 In `baremetal/`, `make demo` boots QEMU with a disk and display (type
 `mandrill`), and `make demo-test` runs it headless and compares the screen
 with a reference dither computed on the host.
