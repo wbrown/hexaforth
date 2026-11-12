@@ -14,6 +14,33 @@
 #include "vm_opcodes.h"
 #endif // DEBUG
 
+// Cells are held in 64 bits, sign-extended from CELL_BITS.
+static inline int64_t cell(int64_t x) {
+#if CELL_BITS == 64
+    return x;
+#else
+    return (int64_t)((uint64_t)x << (64 - CELL_BITS)) >> (64 - CELL_BITS);
+#endif
+}
+
+static inline uint64_t ucell(int64_t x) {
+#if CELL_BITS == 64
+    return (uint64_t)x;
+#else
+    return (uint64_t)x & ((1ull << CELL_BITS) - 1);
+#endif
+}
+
+static inline int64_t mem_load(context *ctx, int64_t addr) {
+    int64_t v = 0;
+    memcpy(&v, (uint8_t *)ctx->memory + ucell(addr), CELL_BYTES);
+    return cell(v);
+}
+
+static inline void mem_store(context *ctx, int64_t addr, int64_t v) {
+    memcpy((uint8_t *)ctx->memory + ucell(addr), &v, CELL_BYTES);
+}
+
 static inline uint8_t clz(uint64_t N) {
     return N ? 64 - __builtin_clzll(N) : -(uint64_t)INFINITY;
 }
@@ -38,12 +65,20 @@ static inline uint8_t ctz(uint64_t N) {
 #define IO_ADDR 0xc0
 
 static inline int io_width(uint64_t port) {
-    return (port == 0xc1 || port == 0xc2 || port == 0xc4 || port == 0xc8) ? (int)(port & 0xf) : 0;
+    int width = (port == 0xc1 || port == 0xc2 || port == 0xc4 || port == 0xc8) ? (int)(port & 0xf) : 0;
+    return width > CELL_BYTES ? CELL_BYTES : width;
 }
 
+// With 64-bit cells the latch holds a host address, as it holds a physical
+// address on bare metal.  A narrower cell cannot hold one, so there the
+// latch is an offset into the VM memory and port 0xc0 reads as zero.
 static inline uint8_t *io_target(context *ctx, int width) {
     uint8_t *lo = (uint8_t *)ctx->memory;
+#if CELL_BITS == 64
     uint8_t *p = (uint8_t *)(intptr_t)ctx->IOADDR;
+#else
+    uint8_t *p = lo + ucell(ctx->IOADDR);
+#endif
     return (p >= lo && p + width <= lo + sizeof(ctx->memory)) ? p : NULL;
 }
 
@@ -81,7 +116,11 @@ static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t i
 
 static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
     if (io_addr == IO_ADDR) {
+#if CELL_BITS == 64
         return (int64_t)(intptr_t)ctx->memory;
+#else
+        return 0;
+#endif
     }
     if (io_addr == 0xe1) {
         return TRUE;        // key?: reading stdin just blocks until there is one
@@ -153,9 +192,9 @@ int vm(context *ctx) {
             if (!ins.lit.lit_add) {
                 ctx->DSTACK[SP-1] = T;
                 SP++;
-                T = (int64_t)lit;
+                T = cell(lit);
             } else {
-                T += (int64_t)lit;
+                T = cell(T + lit);
             }
             continue;
         }
@@ -195,7 +234,7 @@ int vm(context *ctx) {
                         IN = T;
                         break;
                     case INPUT_LOAD_T: {
-                        IN = *(uint64_t*)((uint8_t*)(&ctx->memory[0])+T);
+                        IN = mem_load(ctx, T);
                         break;
                     }
                     case INPUT_R:
@@ -253,18 +292,18 @@ int vm(context *ctx) {
                         break;
                     case ALU_RSHIFT:
                         // `(IN>>T)->OUT`
-                        OUT = (uint64_t) IN >> T;
+                        OUT = ucell(IN) >> (T & 63);        // from the cell width up, the result is 0
                         break;
                     case ALU_LSHIFT:
                         // `(IN<<T)->OUT`
-                        OUT = (uint64_t) IN << T;
+                        OUT = ucell(IN) << (T & 63);
                         break;
                     case ALU_MUL:
                         // `(N*IN)->OUT`
                         OUT = IN * N;
                         break;
                     case ALU_LOAD: {
-                        OUT = *(uint64_t*)((uint8_t*)(&ctx->memory[0])+IN);
+                        OUT = mem_load(ctx, IN);
                         break;
                     }
                     case ALU_IO_READ:
@@ -275,14 +314,15 @@ int vm(context *ctx) {
                         break;
                     case ALU_U_GT: {
                         // `(Nu<INu)->OUT`
-                        OUT = (uint64_t) N < (uint64_t) IN ? TRUE : FALSE;
+                        OUT = ucell(N) < ucell(IN) ? TRUE : FALSE;
                         break;
                     }
                     default:
                         break;
                 };
+                OUT = cell(OUT);
                 // R->EIP flag
-                if (ins.alu.r_eip) EIP = R;
+                if (ins.alu.r_eip) EIP = ucell(R);
                 // Adjust stack depths
                 SP += ins.alu.dstack;
                 RSP += ins.alu.rstack;
@@ -325,7 +365,7 @@ int vm(context *ctx) {
                         goto resolve_dstack;
                     // `OUT->memory[T]` -- memory write
                     case OUTPUT_MEM_T:
-                        *(int64_t*)((uint8_t*)(&ctx->memory[0])+T) = OUT;
+                        mem_store(ctx, T, OUT);
                     default:
                     resolve_dstack:
                         if (ins.alu.dstack < 0) {

@@ -1,3 +1,6 @@
+\ machine sizes, from vm_constants.h
+#64 constant cell-bits
+#17 constant addr-bits
 
 \ input_mux
 : N->IN      h# 0000 ;

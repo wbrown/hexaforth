@@ -97,7 +97,8 @@ int main(int argc, char **argv) {
   init_opcodes(words);
   int n = 0;
 
-  for (int i = 0; TESTS[i].input && strlen(TESTS[i].input); i++) {
+  // The tests in tests.h are written for 64-bit cells.
+  for (int i = 0; CELL_BITS == 64 && TESTS[i].input && strlen(TESTS[i].input); i++) {
     context *ctx = calloc(1, sizeof(context));
     ctx->words = words;
     if (init_image(ctx, TESTS[i]) && compile(ctx, TESTS[i].input)) {
@@ -127,8 +128,10 @@ int main(int argc, char **argv) {
     free(ctx);
     n++;
   }
-  paging_case(f, words);
-  n++;
+  if (CELL_BITS >= 32) {        // its code pages are past 64KB
+    paging_case(f, words);
+    n++;
+  }
   fclose(f);
   fprintf(stderr, "%d cases dumped\n", n);
   return 0;

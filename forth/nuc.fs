@@ -13,8 +13,10 @@ header 1-       : 1-        d# -1 + ;
 \ below compiles the instructions themselves, where the peephole can fuse
 \ them, instead of a call.
 header 0=       :noname     0=       ;
-header cell+    : cell+     d# 8 + ;        \ 64-bit cells = 8 bytes
-header cells    : cells     d# 3 lshift ;   \ multiply by 8 for 64-bit
+\ CELL, CELLSHIFT, TOPBIT, HALFBITS and the W64? W32? W32+? tests come from
+\ cross.fs, which takes the machine's cell width from basewords.fs.
+header cell+    : cell+     CELL + ;
+header cells    : cells     CELLSHIFT lshift ;
 
 header <>       :noname     <>       ;
 header >        :noname     >        ;
@@ -88,9 +90,9 @@ header min      : min   2dup< if drop else nip then ;
 header max      : max   2dup< if nip else drop then ;
 
 header hi32  :noname hi32 ;
-header lo32  : lo32 ( dw -- w ) d# 32 lshift d# 32 rshift ;
-header hi16  : hi16 ( dw -- s ) d# 32 lshift d# 48 rshift ;
-header lo16  : lo16 ( dw -- s ) d# 48 lshift d# 48 rshift ;
+header lo32  : lo32 ( dw -- w ) h# ffffffff and ;
+header hi16  : hi16 ( dw -- s ) d# 16 rshift h# ffff and ;
+header lo16  : lo16 ( dw -- s ) h# ffff and ;
 
 header uw@
 : uw@
@@ -186,7 +188,7 @@ header /string
 
 header aligned
 : aligned
-    d# 7 + d# -8 and
+    CELL 1- + CELL negate and
 ; 
 
 header d+
@@ -287,18 +289,25 @@ header d2*
 header d2/
 : d2/
     >r d# 1 rshift r@
-    d# 63 lshift
+    TOPBIT lshift
     or r> 2/
 ;
 
 create scratch 0 ,
 
-\ One step per bit of a cell: six DOUBLEs = 64 steps.
+\ One step per bit of a cell.  Each DOUBLE runs what follows twice, so four
+\ of them are 16 steps, five 32 and six 64.
 
 : mulstep ( ud u1 -- ud u1 )
-    DOUBLE DOUBLE DOUBLE DOUBLE DOUBLE DOUBLE
+W64? [if]
+    DOUBLE
+[then]
+W32+? [if]
+    DOUBLE
+[then]
+    DOUBLE DOUBLE DOUBLE DOUBLE
     >r
-    d# 1 lshift over d# 63 rshift + swap d# 1 lshift swap
+    d# 1 lshift over TOPBIT rshift + swap d# 1 lshift swap
     r@ d# 0 < if 
         scratch @ d# 0 d+ 
     then 
@@ -320,11 +329,15 @@ header *        :noname     *        ;
 \ One step per bit.  The DOUBLEs nest, so entering part-way down runs fewer
 \ steps: div32 and div16 are for dividends already shifted to the top of y.
 
-: divstep  \ ( y x z )   64 steps
+: divstep  \ ( y x z )   a step for every bit of a cell
+W64? [if]
     DOUBLE
 : div32                  \ 32 steps
+[then]
+W32+? [if]
     DOUBLE
 : div16                  \ 16 steps
+[then]
     DOUBLE DOUBLE DOUBLE DOUBLE
     >r
     dup 0< >r
@@ -346,15 +359,23 @@ header um/mod
 \ the top of the cell first, so only that many steps are needed.
 : u/mod ( u1 u2 -- rem quot )
     >r
+W32+? [if]
     dup d# 16 rshift 0= if
-        d# 48 lshift d# 0 r> div16
+        TOP16 lshift d# 0 r> div16
     else
+W64? [if]
         dup d# 32 rshift 0= if
             d# 32 lshift d# 0 r> div32
         else
             d# 0 r> divstep
         then
+[else]
+        d# 0 r> divstep
+[then]
     then
+[else]
+    d# 0 r> divstep
+[then]
     drop swap
 ;
 
@@ -511,7 +532,7 @@ header sfind
 
 : ud* ( ud1 u -- ud2 ) \ ud2 is the product of ud1 and u
     tuck * >r
-    2dup or d# 32 rshift if     \ both under 2^32: the product fits one cell
+    2dup or HALFBITS rshift if  \ both under half a cell: the product fits one
         um*
     else
         * d# 0
@@ -642,7 +663,7 @@ header allot
 header ,
 : t,
     here !
-    d# 8 tallot
+    CELL tallot
 ;
 
 header w,
@@ -717,7 +738,7 @@ header throw
 \ nearly full, and compile, picks a near or far call, so none of this shows
 \ in ordinary use.
 
-$20000 constant CODE-END  \ xts are 16 bits in a header: 64K words of code
+\ Run-time code goes in CODE-SIZE bytes from CODE-BASE, both from cross.fs.
 
 : code,
     cp @ d# 2 + h# 1fff and 0= if   \ the last slot of a page stays empty
@@ -731,11 +752,11 @@ $20000 constant CODE-END  \ xts are 16 bits in a header: 64K words of code
     cp @ h# 1fff and h# 1c00 u> if
         cp @ h# 1fff or 1+ cp !
     then
-    cp @ CODE-END u< 0= d# 8 -throw
+    cp @ CODE-BASE - CODE-SIZE u< 0= d# 8 -throw
 ;
 
 : target ( -- field ) \ branch target field for the code about to be compiled
-    cp @ 2/
+    cp @ d# 1 rshift
     dup d# 12 rshift if h# fff and h# 1000 or then
 ;
 
@@ -765,12 +786,12 @@ header s,
     newpage?
     calign
     here lastword !
-    forth w@ w,
+    forth uw@ w,
     parse-name
     s,
     calign
-    cp @ 2/ w,              \ xt: the word address, on any page
-    cp @ 2/ thisxt !
+    cp @ d# 1 rshift w,              \ xt: the word address, on any page
+    cp @ d# 1 rshift thisxt !
     sync
 ;
 
@@ -799,7 +820,7 @@ header :
 header :noname
 :noname
     newpage?
-    calign cp @ 2/
+    calign cp @ d# 1 rshift
     dup thisxt !
     d# 0 lastword !
     sync
@@ -874,7 +895,7 @@ header does>
     dup d# 12 rshift 0= if              \ in the kernel
         doesexit @ w! exit
     then
-    dup doesexit @ 2/ xor d# 12 rshift 0= if    \ on the created word's page
+    dup doesexit @ d# 1 rshift xor d# 12 rshift 0= if    \ on the created word's page
         h# fff and h# 1000 or doesexit @ w! exit
     then
     \ On another page: replace the exit with a jump by xt.  That is longer,
@@ -897,7 +918,7 @@ header does>
 
 header-imm exit
 : texit
-    cp @ 2/ thisxt @ <> if
+    cp @ d# 1 rshift thisxt @ <> if
         prev uw@ jumpable if
             prev
             uw@
@@ -976,7 +997,7 @@ header compile,
             dup d# 12 rshift 0= if              \ kernel: reachable from anywhere
                 h# 4000 or code,
             else
-                dup cp @ 2/ xor d# 12 rshift 0= if  \ this page
+                dup cp @ d# 1 rshift xor d# 12 rshift 0= if  \ this page
                     h# fff and h# 5000 or code,
                 else                            \ another page: go by xt
                     tliteral
@@ -1362,16 +1383,20 @@ header quit
 \ Everything below is compiled into code page 1.  The kernel never calls it
 \ directly: these words are reached by name from the prompt, or through an
 \ execution token.
+\ It is written for 64-bit cells: the drivers and the display work in
+\ 64-bit quantities throughout.
+W64? [if]
 meta
     $2000 org
 target
 
 include system.fs
+[then]
 
 meta
     link @ t,
-    link @ t' forth t!
-    there  t' dp t!
-    tcp @ $10000 max $1fff + $1fff invert and
-    t' cp t!                \ run-time definitions start on the next free code page
+    link @ t' forth tcell!
+    there  t' dp tcell!
+    tcp @ code-base max $1fff + $1fff invert and
+    t' cp tcell!            \ run-time definitions start on the next free code page
 target

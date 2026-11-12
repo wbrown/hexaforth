@@ -19,7 +19,16 @@
 #include <string>
 #include <vector>
 
-static const size_t MEM = 1 << 17;      // 128KB, as the CPU's MB parameter
+// Built once for each machine size: W is the cell width and MB the log2 of
+// the memory size, matching the CPU's parameters.
+#ifndef W
+#define W 64
+#endif
+#ifndef MB
+#define MB 17
+#endif
+static const size_t MEM = (size_t)1 << MB;
+static const uint64_t CELL_MASK = W == 64 ? ~0ull : (1ull << W) - 1;
 
 struct Machine {
     Vhexaforth top;
@@ -46,10 +55,10 @@ struct Machine {
         top.clk = 0;
         top.eval();
         uint16_t next_idata = (uint16_t)read((uint64_t)top.iaddr * 2, 2);
-        uint64_t next_rdata = top.dre ? (top.dok ? read(top.daddr, 8) : 0) : rdata;
-        for (int i = 0; i < 8; i++)
+        uint64_t next_rdata = top.dre ? (top.dok ? read(top.daddr, W / 8) : 0) : rdata;
+        for (int i = 0; i < W / 8; i++)
             if ((top.dwe >> i & 1) && top.dok && top.daddr + i < MEM)
-                mem[top.daddr + i] = top.dwdata >> (8 * i);
+                mem[top.daddr + i] = (uint64_t)top.dwdata >> (8 * i);
         if (top.tx_valid) out.push_back(top.tx_data);
         if (top.rx_ready) in_at++;
         executed += top.dbg_exec;
@@ -123,8 +132,9 @@ static int run_cases(const char *path) {
         if (!want_r.empty()) fread(want_r.data(), 8, want_r.size(), f);
         std::vector<uint8_t> want_out = bytes(f, u32(f));
         std::vector<uint8_t> want_mem = bytes(f, mem_len);
-        total++;
 
+        if (mem_len > MEM) continue;        // does not fit this machine
+        total++;
         std::fill(m->mem.begin(), m->mem.end(), 0);
         memcpy(m->mem.data(), image.data(), mem_len);
         m->reset(eip);
@@ -132,10 +142,10 @@ static int run_cases(const char *path) {
         if (!m->run(200000)) problem += " did not halt;";
         if ((int)m->top.dbg_dsp != (sp & 0xff)) problem += " data depth;";
         else for (int i = 0; i < sp; i++)
-            if (m->dcell(i) != want_d[i]) { problem += " data stack;"; break; }
+            if ((m->dcell(i) ^ want_d[i]) & CELL_MASK) { problem += " data stack;"; break; }
         if ((int)m->top.dbg_rsp != (rsp & 0xff)) problem += " return depth;";
         else for (int i = 0; i < rsp; i++)
-            if (m->rcell(i) != want_r[i]) { problem += " return stack;"; break; }
+            if ((m->rcell(i) ^ want_r[i]) & CELL_MASK) { problem += " return stack;"; break; }
         if (memcmp(m->mem.data(), want_mem.data(), mem_len)) problem += " memory;";
         if (m->out != want_out) problem += " output;";
         if (!problem.empty() && ++failed <= 20)

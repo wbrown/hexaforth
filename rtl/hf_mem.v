@@ -1,11 +1,12 @@
-// hf_mem.v - byte-addressed memory with unaligned 64-bit access in one cycle.
+// hf_mem.v - byte-addressed memory with unaligned cell access in one cycle.
 //
-// The memory is eight byte-wide lanes; lane k holds every byte whose address
-// is k modulo 8.  Eight consecutive bytes always fall one in each lane, so
-// an unaligned 64-bit access is eight ordinary lane accesses, in lanes'
-// own word or the next, followed by a rotation.  No access ever takes two
-// cycles, which is what the dictionary search and the 16-bit fields in
-// headers rely on.
+// The memory is one byte-wide lane for each byte of a cell: 8 lanes for a
+// 64-bit cell, 4 for 32, 2 for 16.  Lane k holds every byte whose address is
+// k modulo the cell size.  The bytes of a cell at any address always fall
+// one in each lane, so an unaligned access is an ordinary access on every
+// lane, in its own word or the next, followed by a rotation.  No access
+// takes two cycles, which is what the dictionary search and the 16-bit
+// fields in headers rely on.
 //
 // Each lane has a second port for instruction fetch.  An instruction is two
 // bytes at an even address, so it comes from two neighbouring lanes of one
@@ -16,43 +17,48 @@
 // for device-port accesses that fall outside the memory.
 
 module hf_mem #(
-    parameter AW = 14,              // log2 of the size in 64-bit words
+    parameter W  = 64,              // cell width
+    parameter MB = 17,              // log2 of the size in bytes
     parameter INIT = ""             // if set, lane k is loaded from INIT<k>.hex
 ) (
     input  wire        clk,
-    input  wire [63:0] daddr,       // byte address
+    input  wire [W-1:0] daddr,      // byte address
     input  wire        dok,
     input  wire        dre,
-    input  wire [7:0]  dwe,
-    input  wire [63:0] dwdata,
-    output wire [63:0] drdata,
-    input  wire [AW+1:0] iaddr,     // 16-bit word address
+    input  wire [W/8-1:0] dwe,
+    input  wire [W-1:0] dwdata,
+    output wire [W-1:0] drdata,
+    input  wire [MB-2:0] iaddr,     // 16-bit word address
     output wire [15:0] idata
 );
-    wire [2:0]    off  = daddr[2:0];
-    wire [AW-1:0] word = daddr[AW+2:3];
+    localparam LANES = W / 8;
+    localparam LB = $clog2(LANES);  // address bits that pick a lane
+    localparam AW = MB - LB;        // address bits that pick a word
 
-    reg  [2:0]  off_q;
-    reg  [1:0]  isel_q;
-    wire [63:0] dq;                 // lane outputs, lane 0 in the low byte
-    wire [63:0] iq;
+    wire [LB-1:0] off  = daddr[LB-1:0];
+    wire [AW-1:0] word = daddr[MB-1:LB];
+    wire [MB-1:0] ibyte = {iaddr, 1'b0};
+
+    reg  [LB-1:0] off_q, ioff_q;
+    wire [W-1:0]  dq;               // lane outputs, lane 0 in the low byte
+    wire [W-1:0]  iq;
 
     genvar k;
     generate
-        for (k = 0; k < 8; k = k + 1) begin : lane
+        for (k = 0; k < LANES; k = k + 1) begin : lane
             reg [7:0] m [0:(1<<AW)-1];
             reg [7:0] q, qi;
             initial if (INIT != "") $readmemh($sformatf("%s%0d.hex", INIT, k), m);
             // Lanes before the offset hold bytes from the next word.
             /* verilator lint_off CMPCONST */
-            wire [AW-1:0] w = word + {{(AW-1){1'b0}}, k[2:0] < off};
+            wire [AW-1:0] w = word + {{(AW-1){1'b0}}, k[LB-1:0] < off};
             /* verilator lint_on CMPCONST */
-            // The data byte this lane takes: byte (k - off) mod 8.
-            wire [2:0]  j  = k[2:0] - off;
+            // The data byte this lane takes: byte (k - off) modulo the lanes.
+            wire [LB-1:0] j = k[LB-1:0] - off;
             always @(posedge clk) begin
                 if (dwe[j] && dok) m[w] <= dwdata[8*j +: 8];
                 if (dre) q <= dok ? m[w] : 8'd0;            // held between reads
-                qi <= m[iaddr[AW+1:2]];
+                qi <= m[ibyte[MB-1:LB]];
             end
             assign dq[8*k +: 8] = q;
             assign iq[8*k +: 8] = qi;
@@ -61,11 +67,11 @@ module hf_mem #(
 
     always @(posedge clk) begin
         if (dre) off_q <= off;      // held with the data between reads
-        isel_q <= iaddr[1:0];
+        ioff_q <= ibyte[LB-1:0];
     end
 
     // Rotate the lanes back into address order.
-    wire [127:0] twice = {dq, dq};
-    assign drdata = twice[8*off_q +: 64];
-    assign idata  = iq[16*isel_q +: 16];
+    wire [2*W-1:0] twice = {dq, dq};
+    assign drdata = twice[8*off_q +: W];
+    assign idata  = iq[8*ioff_q +: 16];
 endmodule

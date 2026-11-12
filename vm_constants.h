@@ -7,6 +7,19 @@
 
 #include <stdint.h>
 
+// The machine's two sizes.  CELL_BITS is the width of a stack cell, of the
+// ALU and of a memory fetch or store: 64, 32 or 16.  ADDR_BITS is the size
+// of the address space in bytes, as a power of two; it cannot exceed
+// CELL_BITS, since an address is a cell.  Both reach the Forth toolchain
+// through the generated basewords.fs.
+#ifndef CELL_BITS
+#define CELL_BITS 64
+#endif
+#ifndef ADDR_BITS
+#define ADDR_BITS (CELL_BITS < 17 ? CELL_BITS : 17)
+#endif
+#define CELL_BYTES (CELL_BITS / 8)
+
 #define HX      "$"
 #define BYTE    uint8_t
 #define SBYTE   int8_t
@@ -16,7 +29,7 @@
 #define TRUE    0xffffffffffffffff
 #define FALSE   0x0000000000000000
 
-static const CELL CELL_SZ = 64;
+static const CELL CELL_SZ = CELL_BITS;
 static const WORD UART_D = 0x1000;
 static const WORD UART_STATUS = 0x2000;
 static const CELL LIT_BITS = 12;
