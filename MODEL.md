@@ -18,6 +18,9 @@ which they reach the toolchain and the other implementations.
 | `DISP_BASE` | the cell where the bitmap starts | `0x4000` |
 | `DISP_LEFT` | which bit of a cell is the leftmost pixel: `low` or `high` | `low` |
 | `DISP_INK` | whether a set bit is `black` or `white` | `black` |
+| `DISP_STRIDE` | cells from one row to the next in the same bank | 12 |
+| `DISP_BANKS` | how many banks the rows are dealt into | 1 |
+| `DISP_BANK_STEP` | cells from the start of one bank to the next | 0 |
 
 Where this file says a thing is undefined, implementations may differ, and a
 program that does it is wrong. The strict builds stop at the first such
@@ -118,8 +121,9 @@ it out, the Verilog scans it out as video, and on QEMU a bridge copies it
 into the true-colour buffer that `ramfb` wants. The bridge is a separate
 assembler file from the kernel, so that another display can take its place.
 
-The size, the order of the pixels in a cell and the meaning of a set bit
-are properties of the machine, because real displays differ in all three.
+The size, the order of the pixels in a cell, the meaning of a set bit and
+where each row is are properties of the machine, because real displays
+differ in all four.
 The hosted machine's display is 768 by 576, which is 12 cells of 64 bits to
 a row; a smaller machine takes a size to suit, such as 384 by 288.  On the
 hosted machine pixel x of a row is bit x of its cell, so the leftmost pixel
@@ -127,12 +131,23 @@ is the lowest bit, and a set bit is black, so memory that is all zero is a
 blank page.  A machine built around an existing display takes that
 display's order and polarity instead of converting on the way out.
 
-A row is a whole number of cells and rows follow one another in memory.
+A row starts on a cell and is `DISP_STRIDE` cells long.  Rows are dealt in
+turn into `DISP_BANKS` banks, so row y is in bank y mod `DISP_BANKS`, and is
+row y / `DISP_BANKS` of that bank:
 
-The Forth system does not assume an order or a polarity.  The toolchain
-takes both from the machine definition: the font is generated with its
-pixels in the machine's order, and the words that make a mask for a pixel
-and that set or clear ink are defined to suit.
+    row y starts at  DISP_BASE + (y mod DISP_BANKS) * DISP_BANK_STEP
+                               + (y / DISP_BANKS) * DISP_STRIDE
+
+With one bank, as on the hosted machine, the rows simply follow one another.
+A Hercules card has four banks: with 16-bit cells its rows are 45 cells and
+its banks are 4,096 cells apart.
+
+The Forth system does not assume an order, a polarity or a row layout.  The
+toolchain takes them from the machine definition: the font is generated
+with its pixels in the machine's order, and three words are defined to
+suit, on which all drawing is built: the address of a row, the mask for a
+pixel, and setting or clearing ink.  No drawing code steps from one row to
+the next by adding to an address.
 
 The bitmap starts at a cell address that is one shifted literal, a 12-bit
 value shifted left by 12, so that the address is one instruction and adding
