@@ -400,33 +400,46 @@ module hexaforth #(
     // into the ROM therefore costs nothing, and the memory's read port is
     // left free for data.  The memory still holds the same instructions,
     // for anything that reads them as data.
-    wire        in_rom = KROM != "" && fetch[PCW-1:KB] == 0;
-    wire [15:0] romq;
+    //
+    // Whether this instruction completes, and whether it jumps, are known
+    // late in the cycle.  So the ROM is read twice, at the next address in
+    // line and at the address a jump would go to, and the choice between
+    // the two is the last thing made.
+    wire [PCW-1:0] btarget = op_type == 2'd3 ? R[PCW-1:0] : target;
+    wire        rom_s = KROM != "" && fpc[PCW-1:KB] == 0;
+    wire        rom_b = KROM != "" && btarget[PCW-1:KB] == 0;
+    wire [15:0] romq_s, romq_b;
     generate
         if (KROM != "") begin : krom
             (* rom_style = "logic" *) reg [15:0] m [0:(1<<KB)-1];
             initial $readmemh(KROM, m);
-            assign romq = m[fetch[KB-1:0]];
+            assign romq_s = m[fpc[KB-1:0]];
+            assign romq_b = m[btarget[KB-1:0]];
         end else begin : nokrom
-            assign romq = 16'd0;
+            assign romq_s = 16'd0;
+            assign romq_b = 16'd0;
         end
     endgenerate
-    wire [CW-1:0] drom = dec(romq);
+    wire [CW-1:0] drom_s = dec(romq_s);
+    wire [CW-1:0] drom_b = dec(romq_b);
 
+    wire       in_rom    = jump ? rom_b : rom_s;
     wire       issue_rom = room && in_rom;
     wire       issue  = room && !in_rom && !want_a && !want_b;
     wire [1:0] kreq   = want_a ? K_A : want_b ? K_B : issue ? K_INS : K_NONE;
 
-    // Instructions arriving at this clock edge, oldest first: the one
-    // waiting in nxt, one from the memory, one from the ROM.  There are
-    // never more than two, and never more than there is room for.
+    // Instructions arriving at this clock edge when there is no jump,
+    // oldest first: the one waiting in nxt, one from the memory, one from
+    // the ROM.  There are never more than two, and never more than there
+    // is room for.
     wire        a1v = k1 == K_INS;
-    wire        firstv  = nxtv || a1v || issue_rom;
-    wire [15:0] first   = nxtv ? nxt : a1v ? rpre[15:0] : romq;
-    wire [CW-1:0] firstd = nxtv ? pdn : a1v ? dpre : drom;
-    wire        secondv = (nxtv && a1v) || ((nxtv || a1v) && issue_rom);
-    wire [15:0] second  = (nxtv && a1v) ? rpre[15:0] : romq;
-    wire [CW-1:0] secondd = (nxtv && a1v) ? dpre : drom;
+    wire        a2v = state != S_HALT && left < LAT && rom_s;
+    wire        firstv  = nxtv || a1v || a2v;
+    wire [15:0] first   = nxtv ? nxt : a1v ? rpre[15:0] : romq_s;
+    wire [CW-1:0] firstd = nxtv ? pdn : a1v ? dpre : drom_s;
+    wire        secondv = (nxtv && a1v) || ((nxtv || a1v) && a2v);
+    wire [15:0] second  = (nxtv && a1v) ? rpre[15:0] : romq_s;
+    wire [CW-1:0] secondd = (nxtv && a1v) ? dpre : drom_s;
 
     always @* begin
         raddr = {{(W-PCW-1){1'b0}}, fetch, 1'b0};  rok = 1;
@@ -581,8 +594,8 @@ module hexaforth #(
             // Where the current instruction and the one after it wait.
             if (LAT == 2) begin
                 if (jump) begin                         // what follows is dropped;
-                    ir <= romq;  pd <= drom;            // a target in the ROM is here already
-                    irv <= issue_rom;  nxtv <= 0;
+                    ir <= romq_b;  pd <= drom_b;        // a target in the ROM is here already
+                    irv <= rom_b;  nxtv <= 0;
                 end else if (execute || !irv) begin     // ir is free: refill it
                     ir <= first;  pd <= firstd;  irv <= firstv;
                     nxt <= second;  pdn <= secondd;  nxtv <= secondv;
