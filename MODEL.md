@@ -67,7 +67,10 @@ and the image viewer already work this way.
 not part of the machine and are not needed by the system. They can be
 provided as a library of ordinary Forth words for programs that want them.
 How that library represents the address of a character is its own affair
-and puts no constraint on the model.
+and puts no constraint on the model. One way is a segment: a variable,
+kept for each task, holds the cell where character addresses start, and
+`c@` works out the cell and the shift from there. A program's text can
+then be anywhere in memory.
 
 ## Display
 
