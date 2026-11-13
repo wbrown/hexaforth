@@ -1530,12 +1530,12 @@ include system.fs
 [then]
 
 meta
-    link @ t,
+    >hdr  link @ t,  hdr>               \ the newest header, last in the image
     t' main-task t' main-task tvar!     \ the first task, in a ring of one
     t' main-task t' up tvar!
     link @ t' forth tvar!
     llink @ t' labels tvar!
-    there  t' dp tvar!
+    thp @  t' dp tvar!                  \ the dictionary carries on after the headers
     tcp @ 2/ code-base max $fff + $fff invert and
     t' cp tvar!             \ run-time definitions start on the next free code page
 target

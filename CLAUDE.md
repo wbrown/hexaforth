@@ -217,12 +217,16 @@ Return addresses and execution tokens are full program counters, so `exit`
 and `execute` cross pages with no extra state. Memory layout:
 
 - instructions `0x0000-0x0fff`: kernel code (cross-compiled)
-- bytes `0x04000-0x0ffff` of the image: dictionary and data
+- bytes `0x04000-0x07fff` of the image: data. `cross.fs` lays variables
+  and tables down here, so that a variable is in the first 4,096 cells and
+  its address is one instruction
+- bytes `0x08000-0x0ffff`: dictionary headers and labels, and after them
+  the dictionary made at run time
 - instructions `0x8000-0xffff`: eight code pages for definitions made at
   run time
 
-On a 64-bit machine these are cells `0-0x3ff`, `0x800-0x1fff` and
-`0x2000-0x3fff`; the display is at cell `0x4000` and `halloc` gives out
+On a 64-bit machine these are cells `0-0x3ff`, `0x800-0xfff`,
+`0x1000-0x1fff` and `0x2000-0x3fff`; the display is at cell `0x4000` and `halloc` gives out
 memory from cell `0x6000`.
 
 In `nuc.fs`, `compile,` emits a one-instruction call for a kernel or

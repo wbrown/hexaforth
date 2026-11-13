@@ -27,4 +27,4 @@ fi
 for f in hex lst; do [ -f build/nuc.$f.keep ] && mv build/nuc.$f.keep build/nuc.$f; done
 [ -f build/nuc-$C-$A.hex ] || { tail -8 build/cross-$C-$A.log; exit 1; }
 gcc -O2 -w -fcommon $D -o build/hexaforth-$C-$A main.c vm.c vm_opcodes.c vm_debug.c util/stack.c -lm
-echo "build/nuc-$C-$A.hex: $(tr -c 'a-zA-Z0-9 ' ' ' < build/cross-$C-$A.log | grep -o 'tdp [0-9A-F]* tcp [0-9A-F]*')"
+echo "build/nuc-$C-$A.hex: $(tr -c 'a-zA-Z0-9 ' ' ' < build/cross-$C-$A.log | grep -o 'tdp [0-9A-F]* thp [0-9A-F]* tcp [0-9A-F]*')"
