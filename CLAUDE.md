@@ -230,7 +230,7 @@ reached by name or by execution token.
     `or-mode` `xor-mode` `bic-mode`; a pattern is eight rows of eight
     pixels (`p-white` `p-black` `p-gray` `p-ltgray` `p-dkgray`)
   - `copy-bits` copies a rectangle of a bitmap to the screen at any
-    alignment; `scroll-rect` moves what is in a rectangle
+    alignment
   - a font is a *strike* (all glyphs side by side, and a table of where
     each starts), so it may be proportional: `mono` is Unifont, `sans` is
     DejaVu Sans Bold. `px,` in `cross.fs` lays a strike down in the
@@ -238,8 +238,12 @@ reached by name or by execution token.
     row of each glyph. `draw-text` gathers a row of a string's glyphs into
     a cell and stores it when full
 - `region.fs`: regions, as rows of where a shape goes in and out, with
-  `rect-rgn`, `rgn-and`, `rgn-or`, `rgn-diff`. `rgn-clip!` clips a port to
-  one: drawing makes a mask of the region for the row it is on
+  `rect-rgn`, `rgn-and`, `rgn-or`, `rgn-diff`, `rgn-offset`, `rgn-box`.
+  `rgn-clip!` clips a port to one: drawing makes a mask of the region for
+  the row it is on. `scroll-rect` moves what is in a rectangle: a pixel
+  moves only if where it comes from and where it goes can both be seen, and
+  the places left with nothing are made white and returned as the region
+  `scroll-update`, to be drawn again (`inval-rgn`)
 - `virtio-blk.fs`: the QEMU `virt` block driver
 - `tiff.fs`, `atkinson.fs`, `mandrill.fs`: uncompressed TIFF reader, Atkinson
   dithering, and the demo

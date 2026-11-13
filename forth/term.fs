@@ -19,28 +19,26 @@ create twin 0 ,         \ the window it is in, once that is known
 
 header tclear : tclear ( -- ) tbuf d# 800 d# 32 fill  d# 0 tcol !  d# 0 trow ! ;
 
-\ The text moves up a line.  If the window is in front, so that all of it
-\ is on the screen, the picture of the text is moved too, and only the last
-\ two lines are put out of date: the new one, and the one the cursor was
-\ on.  What was already out of date is painted first, so that what moves is
-\ the text as it was.
+\ The text moves up a line.  The picture of it is moved too, where the
+\ window can be seen, and what could not be moved is put out of date: the
+\ new line, the line the cursor was on, and whatever would have come from
+\ under another window.  What was already out of date is painted first, so
+\ that what moves is the text as it was.
 : tscroll ( -- )
-    twin @ dup if top = then
-    dup if refresh then
+    twin @ if refresh then
     tbuf TCOLS + tbuf TCOLS TROWS 1- * cmove
     tbuf TCOLS TROWS 1- * + TCOLS d# 32 fill
-    if
-        cursor-off
-        twin @ c# 8 + @ port!
-        twin @ content origin!
-        noclip  d# 2 d# 2 TCOLS d# 3 lshift TROWS d# 4 lshift clip-to
-        d# 2 d# 2 TCOLS d# 3 lshift TROWS d# 4 lshift  d# 0 d# -16  scroll-rect
-        screen-port @ port!
-        cursor-show
-        d# 2  TROWS d# 2 - d# 4 lshift d# 2 +  TCOLS d# 3 lshift  d# 32  twin @ win-inval
-    else
-        twin @ ?dup if inval-window then
-    then
+    twin @ 0= if exit then
+    cursor-off
+    twin @ c# 8 + @ port!
+    twin @ content origin!
+    noclip  d# 2 d# 2 TCOLS d# 3 lshift TROWS d# 4 lshift clip-to
+    twin @ c# 9 + @ rgn-clip!                       \ where the window can be seen
+    d# 2 d# 2 TCOLS d# 3 lshift TROWS d# 4 lshift  d# 0 d# -16  scroll-rect
+    screen-port @ port!
+    cursor-show
+    scroll-update @ inval-rgn
+    d# 2  TROWS d# 2 - d# 4 lshift d# 2 +  TCOLS d# 3 lshift  d# 16  twin @ win-inval
 ;
 
 : tnewline ( -- )

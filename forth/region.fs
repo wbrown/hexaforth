@@ -134,3 +134,106 @@ create qo 0 ,           \ where the next crossing of the answer goes
 header rgn-and  : rgn-and  ( a b to -- ) d# 0 rgn-op ;  \ what is in both
 header rgn-or   : rgn-or   ( a b to -- ) d# 1 rgn-op ;  \ what is in either
 header rgn-diff : rgn-diff ( a b to -- ) d# 2 rgn-op ;  \ what is in a and not in b
+
+create odx 0 ,
+create ody 0 ,
+
+header rgn-offset : rgn-offset ( dx dy rgn -- ) \ move it
+    >r ody ! odx !
+    r@ 1+ r> @ bounds
+    begin
+        2dupxor
+    while
+        ody @ over +!
+        dup CELL2 + over CELL + @ bounds
+        begin
+            2dupxor
+        while
+            odx @ over +!  1+
+        repeat
+        2drop
+        dup CELL + @ + CELL2 +
+    repeat
+    2drop
+;
+
+create bx0 0 ,
+create bx1 0 ,
+create by0 0 ,
+create by1 0 ,
+
+header rgn-box : rgn-box ( rgn -- x y w h ) \ the rectangle around it
+    FAR bx0 !  FAR negate bx1 !
+    dup 1+ swap @ bounds
+    dup @ by0 !
+    begin
+        2dupxor
+    while
+        dup @ by1 !
+        dup CELL + @ if
+            dup CELL2 + @ bx0 @ min bx0 !
+            dup dup CELL + @ + 1+ @ bx1 @ max bx1 !
+        then
+        dup CELL + @ + CELL2 +
+    repeat
+    2drop
+    bx0 @ by0 @  bx1 @ bx0 @ -  by1 @ by0 @ -
+;
+
+\ ---- scrolling
+\
+\ scroll-rect moves what is in a rectangle of the port.  Only what can be
+\ seen can be moved: a pixel is moved to a place if both the place and
+\ where it comes from are in the rectangle, in the clip rectangle and in
+\ the clip region.  The places that are in all three but have nothing to
+\ come from are made white and left as a region in scroll-update, for
+\ whoever called to draw again: the strip that was uncovered, and whatever
+\ would have come from under something else.
+
+header scroll-update create scroll-update 0 ,   \ a region, on the screen
+
+create sdx 0 ,
+create sdy 0 ,
+create srx 0 ,
+create sry 0 ,
+create srw 0 ,
+create srh 0 ,
+create s-rect 0 ,       \ regions: the rectangle,
+create s-clip 0 ,       \ the clip rectangle,
+create s-both 0 ,       \ what is in both,
+create s-all 0 ,        \ and in the clip region too: where pixels may be
+create s-from 0 ,       \ that, moved
+create s-move 0 ,       \ the places that have a pixel to come to them
+create s-old 0 ,        \ the port's clip region
+
+: scroll-regions ( -- )
+    s-rect @ if exit then
+    new-rgn s-rect !  new-rgn s-clip !  new-rgn s-both !  new-rgn s-all !
+    new-rgn s-from !  new-rgn s-move !  new-rgn scroll-update !
+;
+
+header scroll-rect : scroll-rect ( x y w h dx dy -- )
+    sdy ! sdx ! srh ! srw ! sry ! srx !
+    scroll-regions
+    srx @ ox @ +  sry @ oy @ +  srw @ srh @  s-rect @ rect-rgn
+    clip @  clip CELL + @  clip CELL2 + @ clip @ -  clip c# 3 + @ clip CELL + @ -
+    s-clip @ rect-rgn
+    s-rect @ s-clip @ s-both @ rgn-and
+    clip-rgn @ if
+        s-both @ clip-rgn @ s-all @ rgn-and
+    else
+        s-both @ s-all @ rgn-copy
+    then
+    s-all @ s-from @ rgn-copy
+    sdx @ sdy @ s-from @ rgn-offset
+    s-all @ s-from @ s-move @ rgn-and
+    s-all @ s-move @ scroll-update @ rgn-diff
+    clip-rgn @ s-old !
+    s-move @ rgn-clip!
+    copy-mode
+    screen srx @ sry @  srx @ sdx @ +  sry @ sdy @ +  srw @ srh @ copy-bits
+    scroll-update @ rgn-clip!
+    p-white pattern !
+    srx @ sry @ srw @ srh @ pat-rect
+    s-old @ rgn-clip!
+;
