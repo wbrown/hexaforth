@@ -40,7 +40,7 @@ static char* OUTPUT_MUX_REPR[] = {
 
 // === Representation of various flags
 static char* LIT_SHIFT_REPR[] = {
-        "", "imm<<12", "imm<<24", "imm<<36"
+        "", "imm<<12", "imm<<24", "var"
 };
 
 static char* DSTACK_REPR[] = {
@@ -119,7 +119,6 @@ static forth_op INS_FIELDS[] = {
         {"imm+",       FIELD, {{.lit.lit_add = true}}},
         {"imm<<12",    FIELD, {{.lit.lit_shifts = 0x1}}},
         {"imm<<24",    FIELD, {{.lit.lit_shifts = 0x2}}},
-        {"imm<<36",    FIELD, {{.lit.lit_shifts = 0x3}}},
         {"imm",        TERM,  {{.lit.lit_f = true}}},
         {"op_type",    COMMT, {{}}},
         {"ubranch",    TERM,  {{.alu.op_type = OP_TYPE_JMP}}},

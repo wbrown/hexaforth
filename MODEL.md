@@ -14,6 +14,7 @@ which they reach the toolchain and the other implementations.
 | `CELL_BITS` | width of a stack cell, the ALU, and a fetch or store: 64, 32 or 16 | 64 |
 | `ADDR_BITS` | memory is 2^`ADDR_BITS` cells | 22 |
 | `STACK_CELLS` | cells in each of the two stacks | 256 |
+| `VAR_BASE` | the first of the 4,096 cells that one instruction can fetch or store | byte `0x4000` of the image, as a cell |
 | `DISP_W`, `DISP_H` | the display's size in pixels; 0 for no display | 768, 576 |
 | `DISP_BASE` | the cell where the bitmap starts | `0x4000` |
 | `DISP_LEFT_LOW` | 1 if the leftmost pixel of a cell is its lowest bit, 0 if its highest | 1 |
@@ -78,6 +79,19 @@ first 32,768 cells, which is where the kernel keeps its text; a program
 that wants text anywhere would use a segment instead: a variable, kept for
 each task, holds the cell where character addresses start, and `c@` works
 out the cell and the shift from there.
+
+## Variables
+
+A literal instruction is twelve bits and a shift of 0, 12 or 24, pushed or
+added to the top of the stack.  The fourth value of its shift field makes
+it something else: the twelve bits pick one of the 4,096 cells from
+`VAR_BASE`, and the instruction pushes what is in that cell, or, with the
+add flag set, stores the top of the stack there and drops it.  So a
+variable among those cells is fetched or stored in one instruction.
+
+`VAR_BASE` is where the image's data starts, so that is where the Forth
+system keeps its variables; dictionary headers are kept above them.  A
+number wider than 36 bits is made with a shift.
 
 ## Code
 

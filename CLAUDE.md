@@ -93,11 +93,18 @@ The literal system is specifically designed for efficient 64-bit value encoding:
 
 **Structure**: Each 16-bit literal instruction contains:
 - 12-bit immediate value (0-4095)
-- 2-bit shift selector (0, 12, 24, or 36 bit shifts)
+- 2-bit shift selector (0, 12 or 24 bit shifts)
 - 1-bit add flag (push new value vs. add to existing)
 
+The fourth value of the shift selector is not a literal: the instruction
+fetches the cell at `VAR_BASE` plus its twelve bits, or with the add flag
+set stores the top of the stack there. `VAR_BASE` is where the image's data
+starts, and `cross.fs` keeps variables in the 4,096 cells from it, so
+`var @` and `var !` are one instruction each (`fold-var`). See `MODEL.md`.
+
 **Key Features**:
-- Can encode any 48-bit value in 1-4 instructions
+- Can encode any 36-bit value in 1-3 instructions; a wider one is its high
+  part, a shift of 36, and the rest added
 - Zero-segment optimization (e.g., 32768 = `8<<12` in one instruction)
 - Negative numbers encoded as positive + invert
 - `lit_add` flag enables inline operations (e.g., `1+` as single instruction)
@@ -105,7 +112,7 @@ The literal system is specifically designed for efficient 64-bit value encoding:
 **Examples**:
 - `20`: One instruction (direct 12-bit value)
 - `-24923`: Two instructions (347 + 6<<12, then invert)
-- `0x123456789ABC`: Four instructions (12 bits at a time)
+- `0x123456789ABC`: Six instructions (the high nine bits, 36, `lshift`, then three adds)
 
 This complements the dataflow architecture by allowing efficient constant generation that can flow directly to any destination without stack overhead.
 
@@ -195,8 +202,8 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,866 bytes
-with 64-bit cells, 4,064 with 32 and 4,028 with 16, against the 4,096 the
+task that runs past its part of a stack. The kernel's code is 3,970 bytes
+with 64-bit cells, 3,976 with 32 and 3,940 with 16, against the 4,096 the
 kernel ROM holds.
 
 On the desktop the Forth window's interpreter is a task with the upper half
@@ -217,16 +224,19 @@ Return addresses and execution tokens are full program counters, so `exit`
 and `execute` cross pages with no extra state. Memory layout:
 
 - instructions `0x0000-0x0fff`: kernel code (cross-compiled)
-- bytes `0x04000-0x07fff` of the image: data. `cross.fs` lays variables
-  and tables down here, so that a variable is in the first 4,096 cells and
-  its address is one instruction
-- bytes `0x08000-0x0ffff`: dictionary headers and labels, and after them
-  the dictionary made at run time
+- bytes `0x04000-0x09fff` of the image: data. `cross.fs` lays variables
+  and tables down here, and data made at run time (`here`, `,`, `allot`,
+  `variable`) carries on after it
+- bytes `0x0a000-0x0ffff`: dictionary headers and labels, and after them
+  the headers made at run time. The nucleus keeps two pointers, `dp` for
+  data and `hdp` for headers, as `cross.fs` does, so that variables stay
+  in the cells that one instruction fetches and stores; making a header
+  throws -8 if the data has reached the headers
 - instructions `0x8000-0xffff`: eight code pages for definitions made at
   run time
 
-On a 64-bit machine these are cells `0-0x3ff`, `0x800-0xfff`,
-`0x1000-0x1fff` and `0x2000-0x3fff`; the display is at cell `0x4000` and `halloc` gives out
+On a 64-bit machine these are cells `0-0x3ff`, `0x800-0x13ff`,
+`0x1400-0x1fff` and `0x2000-0x3fff`; the display is at cell `0x4000` and `halloc` gives out
 memory from cell `0x6000`.
 
 In `nuc.fs`, `compile,` emits a one-instruction call for a kernel or
@@ -344,6 +354,12 @@ with `-DBRIDGE` calls `bridge_init` at boot and `bridge_poll` whenever the
 machine asks for a key or whether one is waiting. `vm.c` and the Verilog do
 not show the bitmap yet.
 
+`test/prompt_test.py VM IMAGE.hex [CELL_BITS]` types Forth at the nucleus's
+prompt on the reference VM and checks what comes back: definitions, wide
+numbers, that the nucleus's compiler uses the variable instructions and
+does not join across a loop's start, and tasks. Run it at each cell width
+after changing `nuc.fs`.
+
 `test/display_test.py VM IMAGE.hex [SEED [COUNT]]` checks the drawing
 words: it draws a random sequence of fills, text, copies and scrolls, in
 ports with random origins, clip rectangles and clip regions, on the
@@ -373,6 +389,9 @@ symbolic model of `vm.c`; `--verify` runs every entry on the VM as well.
   instruction allowed as the first there are 450,000, so those are left out
 - `exit` folds into the instruction before it, `+` into a literal, and an
   add of a constant into a literal or another add of the same shift
+- `@` or `!` after the address of a variable becomes the one instruction
+  that fetches or stores it. The nucleus's own compiler does this too
+  (`var,` in `nuc.fs`), and never across a place a branch lands on
 
 After changing any of this, build with and without `PEEPHOLE=off` and run
 `python3 util/insn_map.py --compare plain.hex optimised.hex`: every

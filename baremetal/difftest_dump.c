@@ -8,7 +8,8 @@
 //      from a fixed machine state in which every stack cell and every
 //      memory cell it can reach holds a valid data address;
 //   3. paged code: calls, jumps and returns between the kernel and two
-//      code pages.
+//      code pages;
+//   4. the instructions that fetch and store a variable.
 #include "../test/compiler.h"
 #include "../test/tests.h"
 #include "../test/vm_test.h"
@@ -91,6 +92,25 @@ static void paging_case(FILE *f, word_node *words) {
   free(ctx);
 }
 
+// A literal instruction with a shift field of 3 fetches or stores one of
+// the 4,096 cells from VAR_BASE.  The first and the last of them, and one
+// between, stored and fetched back; one that was never stored reads zero.
+static void variable_case(FILE *f, word_node *words) {
+  context *ctx = calloc(1, sizeof(context));
+  ctx->words = words;
+  uint16_t *m = ctx->memory;
+  int i = 0;
+  m[i++] = 0x8123;  m[i++] = 0xf005;    // h# 123, store it in variable 5
+  m[i++] = 0xb005;  m[i++] = 0xb006;    // fetch 5, fetch 6
+  m[i++] = 0x8007;  m[i++] = 0xffff;    // 7, store it in variable 4095
+  m[i++] = 0xbfff;                      // fetch it
+  m[i++] = 0x8fff;  m[i++] = 0xf000;    // h# fff, store it in variable 0
+  m[i++] = 0xb000;  m[i++] = 0xb005;    // fetch 0, fetch 5
+  m[i++] = 0xc001;                      // 1+, so the top is plainly a number
+  run_and_dump_n(f, ctx, "variables", "", 0x4000 + 4096 * CELL_BYTES);
+  free(ctx);
+}
+
 int main(int argc, char **argv) {
   FILE *f = fopen(argv[1], "wb");
   word_node *words = calloc(256, sizeof(word_node));
@@ -138,6 +158,8 @@ int main(int argc, char **argv) {
     paging_case(f, words);
     n++;
   }
+  variable_case(f, words);
+  n++;
   fclose(f);
   fprintf(stderr, "%d cases dumped\n", n);
   return 0;

@@ -37,6 +37,7 @@ import tempfile
 from collections import Counter, defaultdict
 
 MASK = (1 << 64) - 1
+VAR_BASE = 0x800                    # as vm_constants.h, with 64-bit cells
 
 IN_MUX = ["N->IN", "T->IN", "[T]->IN", "R->IN"]
 ALU_OPS = ["IN->", "T<>N,IN->", "T->N,IN->", "IN+N", "IN&N", "IN|N", "IN^N", "IN*N",
@@ -46,7 +47,7 @@ DELTA = {0: 0, 1: 1, 3: -1, 2: -2}          # 2-bit signed field -> delta
 DELTA_BITS = {v: k for k, v in DELTA.items()}
 
 FIELDS = {"d+0": 0, "d+1": 4, "d-1": 0xC, "d-2": 8, "r+0": 0, "r+1": 1, "r-1": 3, "r-2": 2,
-          "RET": 0x1000, "imm+": 0x4000, "imm<<12": 0x1000, "imm<<24": 0x2000, "imm<<36": 0x3000,
+          "RET": 0x1000, "imm+": 0x4000, "imm<<12": 0x1000, "imm<<24": 0x2000,
           "T|N": 0x400 | 5 << 4, "~T": 0x400 | 8 << 4, "N<<T": 13 << 4}
 FIELDS.update({n: i << 10 for i, n in enumerate(IN_MUX)})
 FIELDS.update({n: i << 4 for i, n in enumerate(ALU_OPS)})
@@ -148,6 +149,13 @@ class State:
             raise Underflow()
 
     def literal(self, ins):
+        if ins >> 12 & 3 == 3:              # a variable: fetch it, or store T in it
+            addr = VAR_BASE + (ins & 0xFFF)
+            if ins & 0x4000:
+                self.mem = ("store", self.mem, addr, self.d.pop())
+            else:
+                self.d.append(self.load(addr))
+            return
         value = (ins & 0xFFF) << 12 * (ins >> 12 & 3)
         if ins & 0x4000:
             self.d[-1] = add(self.d[-1], value)

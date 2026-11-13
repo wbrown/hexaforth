@@ -223,7 +223,10 @@ const char* lookup_opcode(word_node words[], instruction ins) {
 // string and return it.
 char* instruction_to_str(instruction ins) {
     char *ret_str;
-    if (ins.lit.lit_f) {
+    if (ins.lit.lit_f && ins.lit.lit_shifts == 3) {
+        asprintf(&ret_str, "%6d  %-7s %-8s %25s %-7s",
+                 ins.lit.lit_v, "var", ins.lit.lit_add ? "!" : "@", "", "imm");
+    } else if (ins.lit.lit_f) {
         asprintf(&ret_str,
                  "%6d  %-7s %-8s %25s %-7s",
                  ins.lit.lit_v,

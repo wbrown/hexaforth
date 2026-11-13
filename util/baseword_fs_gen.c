@@ -13,6 +13,7 @@ void generate_basewords_fs(const char* path) {
     fprintf(out, "#%d constant cell-bits\n", CELL_BITS);
     fprintf(out, "#%d constant addr-bits\n", ADDR_BITS);
     fprintf(out, "#%d constant stack-cells\n", STACK_CELLS);
+    fprintf(out, "#%d constant var-base\n", (int)VAR_BASE);
     fprintf(out, "#%d constant disp-w\n", DISP_W);
     fprintf(out, "#%d constant disp-h\n", DISP_H);
     fprintf(out, "#%d constant disp-base\n", DISP_BASE);

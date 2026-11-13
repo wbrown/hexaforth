@@ -72,6 +72,8 @@ create k-exit   ," exit"
 create k-plus   ," +"
 create k-halt   ," halt"
 create k-tick   ," [']"
+create k-fetch  ," @"
+create k-store  ," !"
 
 : tok ( addr u xt -- )
     squiet @ if drop 2drop exit then
@@ -178,11 +180,12 @@ create hv 0 ,
 
 : hval ( xt -- n true | false ) \ the number, if the code there only pushes one
     hp !
-    hp @ ins@ dup h# c000 and h# 8000 <> if drop false exit then
+    hp @ ins@ dup h# c000 and h# 8000 <>  over h# 3000 and h# 3000 = or
+    if drop false exit then
     lv hv !
     begin
         d# 1 hp +!
-        hp @ ins@ dup h# c000 and h# c000 =
+        hp @ ins@ dup h# c000 and h# c000 =  over h# 3000 and h# 3000 <> and
     while
         lv hv +!
     repeat
@@ -329,6 +332,12 @@ create hv 0 ,
 ;
 
 : s-lit ( w -- )
+    dup h# 3000 and h# 3000 = if                    \ a variable, fetched or stored
+        sflush
+        dup h# fff and VARS + sacc !  true slit !  sflush
+        h# 4000 and if k-store wt snl else k-fetch wt then
+        exit
+    then
     dup h# fff and over d# 12 rshift d# 3 and d# 12 * lshift
     swap h# 4000 and if
         slit @ if sacc +! else snum k-plus wt then

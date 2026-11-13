@@ -232,6 +232,19 @@ int vm(context *ctx) {
 #endif
         // == MSB set is an instruction literal.
         if (ins.lit.lit_f) {
+            if (ins.lit.lit_shifts == 3) {      // a variable: fetch it, or store T in it
+                int64_t addr = VAR_BASE + ins.lit.lit_v;
+                if (!ins.lit.lit_add) {
+                    ctx->DSTACK[SP-1] = T;
+                    SP++;
+                    T = mem_load(ctx, addr);
+                } else {
+                    mem_store(ctx, addr, T);
+                    SP--;
+                    T = ctx->DSTACK[SP-1];
+                }
+                continue;
+            }
             int64_t lit = (uint64_t)ins.lit.lit_v <<
                               (ins.lit.lit_shifts * LIT_BITS);
             if (!ins.lit.lit_add) {

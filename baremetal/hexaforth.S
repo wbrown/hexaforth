@@ -36,6 +36,7 @@
 #define AT(r)   [MEM, r, lsl #3]
         .equ    DSTACK_BASE, 8 << ADDR_BITS
         .equ    KERNEL_ROM,  0x200           // strict: no store below this
+        .equ    VAR_BASE,    0x800           // the first of the cells one instruction reaches
         .equ    RSTACK_OFF,  0x800           // 256 cells each
         .equ    STACKS_SIZE, 0x1000
 
@@ -136,6 +137,8 @@ call:   str     R, [RS], #8
 literal:
         ubfx    w10, INSw, #12, #2              // shift selector
         and     x12, INS, #0xfff
+        cmp     w10, #3
+        b.eq    variable
         add     w10, w10, w10, lsl #1
         lsl     w10, w10, #2                    // * 12
         lsl     x12, x12, x10
@@ -144,6 +147,21 @@ literal:
         INRANGE DS, 0
         mov     T, #0
 1:      add     T, T, x12
+        b       next
+
+// A shift selector of 3 is not a literal: the twelve bits pick one of the
+// 4,096 cells from VAR_BASE, which is fetched, or has T stored in it.
+variable:
+        add     x12, x12, #VAR_BASE
+        INMEM   x12
+        tbnz    INSw, #14, 1f
+        str     T, [DS], #8                     // fetch: push it
+        INRANGE DS, 0
+        ldr     T, AT(x12)
+        b       next
+1:      str     T, AT(x12)                      // store: T goes, and is popped
+        ldr     T, [DS, #-8]!
+        INRANGE DS, 0
         b       next
 
 alu:    ldur    N, [DS, #-8]
