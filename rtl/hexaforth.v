@@ -145,21 +145,99 @@ module hexaforth #(
     wire [1:0]  dfield  = ins[3:2];             // 0: +0  1: +1  3: -1  2: -2
     wire [1:0]  rfield  = ins[1:0];
 
+    // ------------------------------------------------------- predecode
+    // The selects of the datapath's muxes, worked out from an instruction.
+    // With LAT = 2 this is done as the instruction is loaded and kept in a
+    // register beside it, so that the datapath does not wait for it.
+    localparam KEEP = 2'd0, PUSH = 2'd1, POP1 = 2'd2, POP2 = 2'd3;
+    localparam TS_T = 3'd0, TS_N = 3'd1, TS_DS3 = 3'd2, TS_LIT = 3'd3, TS_ADD = 3'd4, TS_OUT = 3'd5;
+    localparam NS_N = 2'd0, NS_T = 2'd1, NS_DS3 = 2'd2, NS_DS4 = 2'd3;
+    localparam RS_R = 3'd0, RS_PC = 3'd1, RS_RS2 = 3'd2, RS_RS3 = 3'd3, RS_OUT = 3'd4;
+    localparam ES_IN = 3'd0, ES_LOGIC = 3'd1, ES_MUL = 3'd2, ES_SH = 3'd3, ES_B = 3'd4, ES_IO = 3'd5;
+    localparam CW = 28;
+
+    function [CW-1:0] dec(input [15:0] i);
+        reg       lit, alu, swap, t2n, sub;
+        reg [1:0] op, om, df, rf, fk, lop, nsel, dins, rins;
+        reg [3:0] ao, insel;
+        reg [2:0] early, tsel, rsel;
+        begin
+            lit = i[15];  op = i[14:13];  alu = !lit && op == 2'd3;
+            om = i[9:8];  ao = i[7:4];  df = i[3:2];  rf = i[1:0];
+            swap = alu && ao == 4'd1;
+            t2n  = alu && (ao == 4'd1 || ao == 4'd2);
+            sub  = ao == 4'd9 || ao == 4'd10 || ao == 4'd11;
+            insel = 4'd1 << i[11:10];
+            fk = ao[1:0] - 2'd1;                        // 9: =   10: <   11: u<
+            case (ao)
+                4'd4, 4'd5, 4'd6, 4'd8: early = ES_LOGIC;
+                4'd7:         early = ES_MUL;
+                4'd12, 4'd13: early = ES_SH;
+                4'd14:        early = ES_B;
+                4'd15:        early = ES_IO;
+                default:      early = ES_IN;
+            endcase
+            lop = ao == 4'd4 ? 2'd0 : ao == 4'd5 ? 2'd1 : ao == 4'd6 ? 2'd2 : 2'd3;
+
+            tsel = TS_T;  nsel = NS_N;  rsel = RS_R;  dins = KEEP;  rins = KEEP;
+            if (lit) begin
+                if (i[14]) tsel = TS_ADD;
+                else begin dins = PUSH;  nsel = NS_T;  tsel = TS_LIT; end
+            end else if (op == 2'd1) begin              // 0branch pops
+                dins = POP1;  tsel = TS_N;  nsel = NS_DS3;
+            end else if (op == 2'd2) begin              // call pushes the return
+                rins = PUSH;  rsel = RS_PC;
+            end else if (alu) begin
+                case (df)
+                    2'd1: begin dins = PUSH;  nsel = swap ? NS_N : NS_T;  tsel = swap ? TS_N : TS_T; end
+                    2'd3: begin dins = POP1;  tsel = t2n ? TS_T : TS_N;  nsel = NS_DS3; end
+                    2'd2: begin dins = POP2;  tsel = TS_DS3;  nsel = NS_DS4; end
+                    default: begin tsel = swap ? TS_N : TS_T;  nsel = t2n ? NS_T : NS_N; end
+                endcase
+                case (rf)
+                    2'd1: rins = PUSH;
+                    2'd3: begin rins = POP1;  rsel = RS_RS2; end
+                    2'd2: begin rins = POP2;  rsel = RS_RS3; end
+                    default: ;
+                endcase
+                if (om == 2'd0) tsel = TS_OUT;
+                if (om == 2'd1) rsel = RS_OUT;
+            end
+            dec = {swap, t2n, rins, dins, rsel, nsel, tsel, lop, early, fk, sub, ao == 4'd3, insel, sub};
+        end
+    endfunction
+
+    reg  [CW-1:0] pd, pdn;          // LAT 2: predecode of ir and of nxt
+    wire [CW-1:0] dpre = dec(rpre[15:0]);
+    wire [CW-1:0] c = LAT == 2 ? pd : dec(ins);
+    wire        c_sub   = c[0];
+    wire [3:0]  c_insel = c[4:1];               // one-hot: N, T, [T], R
+    wire        c_osum  = c[5];
+    wire        c_oflag = c[6];
+    wire [1:0]  c_fk    = c[8:7];
+    wire [2:0]  c_early = c[11:9];
+    wire [1:0]  c_lop   = c[13:12];
+    wire [2:0]  c_tsel  = c[16:14];
+    wire [1:0]  c_nsel  = c[18:17];
+    wire [2:0]  c_rsel  = c[21:19];
+    wire [1:0]  d_ins   = c[23:22];             // what this instruction does to each tail
+    wire [1:0]  r_ins   = c[25:24];
+    wire        c_t2n   = c[26];
+    wire        c_swap  = c[27];
+
     // ------------------------------------------------- input mux and ALU
     wire        need_a = is_alu && in_mux == 2'd2;
     wire [W-1:0] a_now  = have_a ? a_val : rdata;    // [T], latched or just read
     wire [W-1:0] b_now  = have_b ? b_val : rdata;
-    wire [W-1:0] in     = in_mux == 2'd0 ? N :
-                         in_mux == 2'd1 ? T :
-                         in_mux == 2'd2 ? a_now : R;
+    wire [W-1:0] in     = ({W{c_insel[0]}} & N) | ({W{c_insel[1]}} & T) |
+                         ({W{c_insel[2]}} & a_now) | ({W{c_insel[3]}} & R);
 
     // IN as it decides anything about sequencing or addressing: never
     // straight from the memory.  An instruction whose IN is [T] and which
     // then uses IN as an address or a port waits for [T] to be latched.
     wire        ab_op   = alu_op == 4'd14 || alu_op == 4'd15;
-    wire [W-1:0] in_ctl = in_mux == 2'd0 ? N :
-                         in_mux == 2'd1 ? T :
-                         in_mux == 2'd2 ? a_val : R;
+    wire [W-1:0] in_ctl = ({W{c_insel[0]}} & N) | ({W{c_insel[1]}} & T) |
+                         ({W{c_insel[2]}} & a_val) | ({W{c_insel[3]}} & R);
 
     // Port numbers are small: compare the low byte once the rest is zero.
     wire        in_small = in_ctl[W-1:8] == 0;
@@ -171,11 +249,11 @@ module hexaforth #(
     wire [1:0]  slow_need = is_mul ? 2'd2 : is_shift ? 2'd1 : 2'd0;
 
     // One adder: IN + N, or N - IN for the three comparisons.
-    wire        sub = alu_op == 4'd9 || alu_op == 4'd10 || alu_op == 4'd11;
+    wire        sub = c_sub;
     wire [W:0]  sum = {1'b0, N} + {1'b0, sub ? ~in : in} + {{W{1'b0}}, sub};
     wire        ult = !sum[W];                              // N u< IN: a borrow
     wire        slt = (N[W-1] ^ in[W-1]) ? N[W-1] : ult;
-    wire        eq  = sum[W-1:0] == 0;
+    wire        eq  = N == in;                  // not through the adder
 
     // Device reads are at most a cell wide.
     localparam [W-1:0] M8 = 64'hff, M16 = 64'hffff, M32 = 64'hffffffff;
@@ -196,29 +274,31 @@ module hexaforth #(
         endcase
     end
 
-    reg [W-1:0] out;
+    // Everything but the adder's results is ready early, so those are
+    // chosen first, and the sum or a comparison is chosen last.
+    reg [W-1:0] logic_out, early;
     always @* begin
-        case (alu_op)
-            4'd0, 4'd1, 4'd2: out = in;                     // pass through
-            4'd3:  out = sum[W-1:0];
-            4'd4:  out = in & N;
-            4'd5:  out = in | N;
-            4'd6:  out = in ^ N;
-            4'd7:  out = mul_res;
-            4'd8:  out = ~in;
-            4'd9:  out = {W{eq}};
-            4'd10: out = {W{slt}};
-            4'd11: out = {W{ult}};
-            4'd12, 4'd13: out = sh_res;
-            4'd14: out = b_now;
-            default: out = io_in;
+        case (c_lop)
+            2'd0: logic_out = in & N;
+            2'd1: logic_out = in | N;
+            2'd2: logic_out = in ^ N;
+            default: logic_out = ~in;
+        endcase
+        case (c_early)
+            ES_LOGIC: early = logic_out;
+            ES_MUL:   early = mul_res;
+            ES_SH:    early = sh_res;
+            ES_B:     early = b_now;
+            ES_IO:    early = io_in;
+            default:  early = in;                           // pass through
         endcase
     end
+    wire        flag = c_fk == 2'd0 ? eq : c_fk == 2'd1 ? slt : ult;
+    wire [W-1:0] out = c_osum ? sum[W-1:0] : c_oflag ? {W{flag}} : early;
 
     // The side channel: T->N and T<>N move T into N while IN passes through.
-    wire        t_to_n = is_alu && (alu_op == 4'd1 || alu_op == 4'd2);
-    wire [W-1:0] n1 = t_to_n ? T : N;
-    wire [W-1:0] t1 = (is_alu && alu_op == 4'd1) ? N : T;
+    wire [W-1:0] n1 = c_t2n ? T : N;
+    wire [W-1:0] t1 = c_swap ? N : T;
 
     // ------------------------------------------------------- IO writes
     wire        io_wr   = is_alu && out_mux == 2'd2;
@@ -233,40 +313,29 @@ module hexaforth #(
     wire [W-1:0] lit = {{(W-12){1'b0}}, ins[11:0]} << (ins[13:12] * 12);
     wire [W:0]   pc_wide = {{(W+1-PCW){1'b0}}, pc};
 
-    localparam KEEP = 2'd0, PUSH = 2'd1, POP1 = 2'd2, POP2 = 2'd3;
-
     reg  [W-1:0] t_next, n_next, r_next;
-    reg  [1:0]  d_ins, r_ins;                   // what this instruction does to each tail
-
     always @* begin
-        t_next = T;  n_next = N;  r_next = R;
-        d_ins = KEEP;  r_ins = KEEP;
-        if (is_lit) begin
-            if (ins[14]) begin
-                t_next = T + lit;
-            end else begin
-                d_ins = PUSH;  n_next = T;  t_next = lit;
-            end
-        end else if (op_type == 2'd1) begin             // 0branch pops
-            d_ins = POP1;  t_next = N;  n_next = ds3;
-        end else if (op_type == 2'd2) begin             // call pushes the return
-            r_ins = PUSH;  r_next = pc_wide[W-1:0] + 1;
-        end else if (is_alu) begin
-            case (dfield)
-                2'd1: begin d_ins = PUSH;  n_next = t1;  t_next = t1; end
-                2'd3: begin d_ins = POP1;  t_next = n1;  n_next = ds3; end
-                2'd2: begin d_ins = POP2;  t_next = ds3;  n_next = ds4; end
-                default: begin t_next = t1;  n_next = n1; end
-            endcase
-            case (rfield)
-                2'd1: r_ins = PUSH;
-                2'd3: begin r_ins = POP1;  r_next = rs2; end
-                2'd2: begin r_ins = POP2;  r_next = rs3; end
-                default: ;
-            endcase
-            if (out_mux == 2'd0) t_next = out;
-            if (out_mux == 2'd1) r_next = out;
-        end
+        case (c_tsel)
+            TS_N:    t_next = N;
+            TS_DS3:  t_next = ds3;
+            TS_LIT:  t_next = lit;
+            TS_ADD:  t_next = T + lit;
+            TS_OUT:  t_next = out;
+            default: t_next = T;
+        endcase
+        case (c_nsel)
+            NS_T:    n_next = T;
+            NS_DS3:  n_next = ds3;
+            NS_DS4:  n_next = ds4;
+            default: n_next = N;
+        endcase
+        case (c_rsel)
+            RS_PC:   r_next = pc_wide[W-1:0] + 1;
+            RS_RS2:  r_next = rs2;
+            RS_RS3:  r_next = rs3;
+            RS_OUT:  r_next = out;
+            default: r_next = R;
+        endcase
     end
 
     // Branch targets: bit 12 clear is the kernel; set is this page.
@@ -368,7 +437,7 @@ module hexaforth #(
     reg [1:0]  d_op, r_op;
     reg [W-1:0] d_in;
     always @* begin
-        d_op = KEEP;  r_op = KEEP;  d_in = is_lit ? N : n1;
+        d_op = KEEP;  r_op = KEEP;  d_in = n1;
         if (execute) begin
             d_op = d_ins;  r_op = r_ins;
         end else if (state == S_SP) begin
@@ -478,13 +547,13 @@ module hexaforth #(
                     irv <= 0;  nxtv <= 0;               // what follows is dropped
                 end else if (execute || !irv) begin     // ir is free: refill it
                     if (nxtv) begin
-                        ir <= nxt;  irv <= 1;
-                        nxtv <= k1 == K_INS;  nxt <= rpre[15:0];
+                        ir <= nxt;  pd <= pdn;  irv <= 1;
+                        nxtv <= k1 == K_INS;  nxt <= rpre[15:0];  pdn <= dpre;
                     end else begin
-                        ir <= rpre[15:0];  irv <= k1 == K_INS;
+                        ir <= rpre[15:0];  pd <= dpre;  irv <= k1 == K_INS;
                     end
                 end else if (k1 == K_INS) begin
-                    nxt <= rpre[15:0];  nxtv <= 1;
+                    nxt <= rpre[15:0];  pdn <= dpre;  nxtv <= 1;
                 end
             end else begin
                 if (jump || execute) held <= 0;
