@@ -19,6 +19,8 @@ header desktop
         d# 30 d# 290 d# 518 d# 300 t-edit
         ['] edit-draw ['] edit-key d# 0 window drop
     then
+    d# 140 d# 318 d# 482 d# 276 t-words
+    ['] words-draw ['] words-key ['] words-click window drop
     d# 640 d# 300 d# 138 d# 238 t-calc
     ['] calc-draw ['] calc-key ['] calc-click window drop
     tclear

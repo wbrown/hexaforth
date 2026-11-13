@@ -35,6 +35,7 @@ def load_font():
 
 
 FONT = load_font()
+UNDERLINED = {glyph[:15]: c for glyph, c in FONT.items()}   # the bottom row is the underline
 
 
 def dither(tiff_path):
@@ -168,7 +169,8 @@ def read_text(shot, x0, y0, cols, rows):
                 sum((0 if px[x0 + c * 8 + b, y0 + r * 16 + y] else 1) << (7 - b) for b in range(8))
                 for y in range(16))
             inverse = bytes(v ^ 0xFF for v in glyph)
-            line += FONT.get(glyph) or FONT.get(inverse) or "?"
+            line += (FONT.get(glyph) or FONT.get(inverse)
+                     or UNDERLINED.get(glyph[:15]) or "?")   # a link is underlined
         lines.append(line.rstrip())
     return lines
 
@@ -240,11 +242,37 @@ def main():
         check("window moves when dragged", text[0] == "Mandrill", repr(text))
 
         # ^W brings the back window to the front: after the clicks above
-        # that is the Forth window.
+        # that is the Words window.  Its content starts at 140+1, 318+19;
+        # the definition is 112 further in.  sq, defined in the Forth
+        # window above, is the newest word and so the first listed.
+        m.key("w", "ctrl")
+        m.click(143 + 8, 337 + 8)                       # the name "sq"
+        m.move(790, 30)
+        shot = m.screenshot(f"{out}/8-words.png")
+        names = read_text(shot, 143, 337, 13, 16)
+        source = read_text(shot, 253, 337, 46, 16)
+        check("Words window lists the dictionary", names[:3] == ["sq", "cold", "desktop"], repr(names[:3]))
+        check("Words window decompiles", source[0] == ": sq dup * ;", repr(source[0]))
+        m.click(253 + 5 * 8 + 4, 337 + 8)              # the link "dup"
+        m.move(790, 30)
+        shot = m.screenshot(f"{out}/9-link.png")
+        source = read_text(shot, 253, 337, 46, 16)
+        check("a word in a definition is a link", source[0] == ": dup dup ;", repr(source[0]))
+        m.key("backspace")
+        shot = m.screenshot(f"{out}/10-back.png")
+        source = read_text(shot, 253, 337, 46, 16)
+        check("Backspace goes back", source[0] == ": sq dup * ;", repr(source[0]))
+        m.key("down")
+        shot = m.screenshot(f"{out}/10-down.png")
+        source = read_text(shot, 253, 337, 46, 16)
+        check("Down moves to the next word", source[0] == ": cold $9A54 catch drop ;" or
+              (source[0].startswith(": cold ") and source[0].endswith(" catch drop ;")), repr(source[0]))
+
+        # ^W again: the Forth window.
         m.key("w", "ctrl")
         m.type("depth . 7 8\r")
         m.type("+ . depth .\r")
-        shot = m.screenshot(f"{out}/8-cycled.png")
+        shot = m.screenshot(f"{out}/11-cycled.png")
         text = read_text(shot, 15, 53, 50, 16)
         check("^W cycles windows and the Forth stack persists",
               text[7] == "0  ok" and text[9] == "15 0  ok", repr(text[6:10]))
