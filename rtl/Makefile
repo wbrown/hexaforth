@@ -48,7 +48,7 @@ $(B)/tb_soc: soc.v hexaforth.v hf_mem.v tb_soc.cpp lanes.py $(HEX)
 	@mkdir -p $(B)
 	python3 lanes.py $(HEX) $(B)/lane $(W) $(SIMMB)
 	verilator $(VFLAGS) --cc soc.v hexaforth.v hf_mem.v --top-module soc -GW=$(W) -GMB=$(SIMMB) -GALIGNED=$(ALIGNED) -GSTACKRAM=$(STACKRAM) -GLAT=$(LAT) \
-	    -GINIT='"$(B)/lane"' $(if $(filter 1,$(KROM)),-GKROM='"$(B)/lanekrom.hex"') --exe $(CURDIR)/tb_soc.cpp --Mdir $(B)/soc -o ../tb_soc \
+	    -GINIT='"$(B)/lane"' $(if $(filter 1,$(KROM)),+define+HF_KROM -I$(B)) --exe $(CURDIR)/tb_soc.cpp --Mdir $(B)/soc -o ../tb_soc \
 	    --build -j 4 > $(B)/build.log 2>&1 || (cat $(B)/build.log; false)
 
 # Cases from the reference VM built for this cell width.
@@ -80,8 +80,8 @@ S       := build/synth-w$(W)-a$(A)-m$(MEMBITS)$(if $(filter 1,$(ALIGNED)),-align
 synth: $(if $(filter 1,$(KROM)),$(HEX))
 	@mkdir -p $(S)
 	$(if $(filter 1,$(KROM)),python3 lanes.py $(HEX) $(S)/lane $(W) $(SIMMB))
-	yosys -q -l $(S)/yosys.log -p "read_verilog soc.v hexaforth.v hf_mem.v; \
-	    chparam -set W $(W) -set MB $(MEMBITS) -set PCW $$(($(A)-1)) -set ALIGNED $(ALIGNED) -set STACKRAM $(STACKRAM) -set PLANES $(PLANES) -set LAT $(LAT) $(if $(filter 1,$(KROM)),-set KROM \"$(S)/lanekrom.hex\") soc; \
+	yosys -q -l $(S)/yosys.log -p "read_verilog $(if $(filter 1,$(KROM)),-DHF_KROM -I$(S)) soc.v hexaforth.v hf_mem.v; \
+	    chparam -set W $(W) -set MB $(MEMBITS) -set PCW $$(($(A)-1)) -set ALIGNED $(ALIGNED) -set STACKRAM $(STACKRAM) -set PLANES $(PLANES) -set LAT $(LAT) soc; \
 	    synth_ecp5 -top soc -json $(S)/soc.json"
 	nextpnr-ecp5 --85k --package CABGA381 --json $(S)/soc.json --lpf-allow-unconstrained \
 	    --timing-allow-fail -q -l $(S)/nextpnr.log || true

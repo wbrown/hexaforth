@@ -9,8 +9,7 @@ module soc #(
     parameter ALIGNED = 0,          // the memory takes only aligned cell accesses
     parameter STACKRAM = 1,         // stacks in distributed RAM, or shift registers
     parameter PLANES = 0,           // memory built from one-bit-wide block RAMs
-    parameter LAT = 1,              // memory read latency: 1, or 2 with a registered output
-    parameter KROM = ""             // image of the first 4KB of the kernel, as a ROM
+    parameter LAT = 1               // memory read latency: 1, or 2 with a registered output
 ) (
     input  wire       clk,
     input  wire       rst,
@@ -26,7 +25,7 @@ module soc #(
     wire         rok, wok;
     wire [W/8-1:0] dwe;
 
-    hexaforth #(.W(W), .PCW(PCW), .DEPTH(DEPTH), .MB(MB), .STACKRAM(STACKRAM), .LAT(LAT), .KROM(KROM)) cpu (
+    hexaforth #(.W(W), .PCW(PCW), .DEPTH(DEPTH), .MB(MB), .STACKRAM(STACKRAM), .LAT(LAT)) cpu (
         .clk(clk), .rst(rst), .start_pc({PCW{1'b0}}),
         .raddr(raddr), .rok(rok), .rdata(rdata), .rpre(rpre),
         .waddr(waddr), .wok(wok), .dwe(dwe), .dwdata(dwdata),

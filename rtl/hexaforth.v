@@ -48,10 +48,7 @@ module hexaforth #(
     parameter DEPTH = 64,           // cells in each stack below T, N and R
     parameter MB    = 17,           // log2 of the memory size in bytes
     parameter STACKRAM = 1,         // stacks in distributed RAM, or shift registers
-    parameter LAT   = 1,            // cycles from a read address to its data: 1 or 2
-    parameter KROM  = "",           // if set, the start of the kernel is also a ROM,
-                                    // loaded from this file; needs LAT = 2
-    parameter KB    = 11            // log2 of the ROM's size in instructions (4KB)
+    parameter LAT   = 1             // cycles from a read address to its data: 1 or 2
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -405,21 +402,23 @@ module hexaforth #(
     // late in the cycle.  So the ROM is read twice, at the next address in
     // line and at the address a jump would go to, and the choice between
     // the two is the last thing made.
+    //
+    // The ROM is compiled in when HF_KROM is defined (and needs LAT = 2).
+    // Its contents are the function kromf in lanekrom.vh, which lanes.py
+    // writes from a nucleus image: a function and not a memory, so that
+    // the tools leave it as logic behind the address registers.
+    localparam KB = 11;             // log2 of the ROM's size in instructions (4KB)
     wire [PCW-1:0] btarget = op_type == 2'd3 ? R[PCW-1:0] : target;
-    wire        rom_s = KROM != "" && fpc[PCW-1:KB] == 0;
-    wire        rom_b = KROM != "" && btarget[PCW-1:KB] == 0;
-    wire [15:0] romq_s, romq_b;
-    generate
-        if (KROM != "") begin : krom
-            (* rom_style = "logic" *) reg [15:0] m [0:(1<<KB)-1];
-            initial $readmemh(KROM, m);
-            assign romq_s = m[fpc[KB-1:0]];
-            assign romq_b = m[btarget[KB-1:0]];
-        end else begin : nokrom
-            assign romq_s = 16'd0;
-            assign romq_b = 16'd0;
-        end
-    endgenerate
+`ifdef HF_KROM
+`include "lanekrom.vh"
+    wire        rom_s = fpc[PCW-1:KB] == 0;
+    wire        rom_b = btarget[PCW-1:KB] == 0;
+    wire [15:0] romq_s = kromf(fpc[KB-1:0]);
+    wire [15:0] romq_b = kromf(btarget[KB-1:0]);
+`else
+    wire        rom_s = 0, rom_b = 0;
+    wire [15:0] romq_s = 16'd0, romq_b = 16'd0;
+`endif
     wire [CW-1:0] drom_s = dec(romq_s);
     wire [CW-1:0] drom_b = dec(romq_b);
 
