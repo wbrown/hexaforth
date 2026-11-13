@@ -15,7 +15,7 @@ create bmh 0 ,          \ rows
     swap c!
 ;
 
-: view-load ( blk# -- ) \ dither the TIFF starting at a block
+header view-load : view-load ( blk# -- ) \ dither the TIFF starting at a block
     tiff-open tiff-decode
     tw @ d# 63 + d# 6 rshift d# 3 lshift bmw !
     th @ bmh !
@@ -26,7 +26,7 @@ create bmh 0 ,          \ rows
     r> 'plot !
 ;
 
-: view-draw ( win -- )
+header view-draw : view-draw ( win -- )
     content ty0 ! tx0 !
     bm @ 0= if exit then
     bm @
@@ -56,4 +56,4 @@ create bmh 0 ,          \ rows
     drop
 ;
 
-: ignore-key ( c win -- ) 2drop ;
+header ignore-key : ignore-key ( c win -- ) 2drop ;

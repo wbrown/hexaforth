@@ -5,8 +5,8 @@
 
 create tiff-base 0 ,    \ device byte offset of the file
 create tiff-be   0 ,    \ true for a big-endian file
-create tw      0 ,      \ width, height
-create th      0 ,
+header tw create tw      0 ,      \ width, height
+header th create th      0 ,
 create tspp    0 ,      \ samples per pixel
 create tphoto  0 ,      \ 0: white is zero  1: black is zero  2: RGB
 create tcomp   0 ,      \ compression
@@ -14,7 +14,7 @@ create tstrips 0 ,      \ file offsets of the StripOffsets and
 create tcounts 0 ,      \ StripByteCounts directory entries
 create tscratch 0 ,
 create raw     0 ,      \ the strips as stored
-create gray    0 ,      \ the decoded image
+header gray create gray    0 ,      \ the decoded image
 
 : tbytes ( off n -- a ) \ n bytes of the file, in tscratch
     tscratch swap rot tiff-base @ + disk-read

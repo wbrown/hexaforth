@@ -5,7 +5,7 @@
 \ Each entry is four cells: the instruction, then a counted string in 24
 \ bytes.  A zero ends the table.
 
-create fused
+header fused create fused
 $6000 ,  $08 c, $64 c, $72 c, $6f c, $70 c, $20 c, $64 c, $75 c, $70 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c,  \ drop dup
 $6014 ,  $08 c, $73 c, $77 c, $61 c, $70 c, $20 c, $64 c, $75 c, $70 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c,  \ swap dup
 $6024 ,  $09 c, $74 c, $75 c, $63 c, $6b c, $20 c, $73 c, $77 c, $61 c, $70 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c, $00 c,  \ tuck swap

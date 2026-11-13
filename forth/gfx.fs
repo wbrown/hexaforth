@@ -7,13 +7,13 @@
     over + fb-w @ min over -
 ;
 
-: hline ( on? x y n -- )
+header hline : hline ( on? x y n -- )
     over fb-h @ u< 0= if 2drop 2drop exit then
     swap >r clip-span r> swap
     dup 0> if hspan else 2drop 2drop then
 ;
 
-: fill-rect ( on? x y w h -- )
+header fill-rect : fill-rect ( on? x y w h -- )
     begin
         dup 0>
     while
@@ -29,7 +29,7 @@ create gy 0 ,
 create gw 0 ,
 create gh 0 ,
 
-: frame-rect ( on? x y w h -- ) \ a one-pixel outline
+header frame-rect : frame-rect ( on? x y w h -- ) \ a one-pixel outline
     gh ! gw ! gy ! gx !
     dup gx @ gy @ gw @ hline
     dup gx @ gy @ gh @ + 1- gw @ hline
@@ -37,7 +37,7 @@ create gh 0 ,
     gx @ gw @ + 1- gy @ d# 1 gh @ fill-rect
 ;
 
-: cblit8 ( bits x y -- ) \ blit8, dropped if any of it is off the screen
+header cblit8 : cblit8 ( bits x y -- ) \ blit8, dropped if any of it is off the screen
     over fb-w @ d# 8 - u> over fb-h @ u< 0= or if drop 2drop exit then
     blit8
 ;
@@ -46,9 +46,9 @@ create gh 0 ,
 \ `bold` set each stroke is a pixel wider, and with `italic` set the top
 \ half of each character leans a pixel to the right.
 
-create inverse 0 ,
-create bold 0 ,
-create italic 0 ,
+header inverse create inverse 0 ,
+header bold create bold 0 ,
+header italic create italic 0 ,
 create slant 0 ,        \ true while the half being drawn leans
 
 \ A glyph is 16 rows of 8 pixels: two cells, eight rows in each, the top
@@ -70,7 +70,7 @@ create slant 0 ,        \ true while the half being drawn leans
     2drop
 ;
 
-: draw-char ( c x y -- )
+header draw-char : draw-char ( c x y -- )
     over fb-w @ d# 8 - u> over fb-h @ d# 16 - u> or if drop 2drop exit then
     rot d# 32 - dup d# 94 u> if drop d# 0 then
     d# 4 lshift font +                              ( x y glyph )
@@ -85,7 +85,7 @@ create slant 0 ,        \ true while the half being drawn leans
 create tx 0 ,
 create ty 0 ,
 
-: draw-text ( addr u x y -- )
+header draw-text : draw-text ( addr u x y -- )
     ty ! tx !
     bounds
     begin
@@ -101,14 +101,14 @@ create ty 0 ,
 \ Text built with the ordinary output words: sb-begin sends emit to a
 \ buffer, sb-end puts it back, sb-draw puts the buffer on the screen.
 
-create sb #64 allot
-create sbn 0 ,
+header sb create sb #64 allot
+header sbn create sbn 0 ,
 create sb-old 0 ,
 
 : sb-emit ( c -- )
     sbn @ d# 63 < if sb sbn @ + c! d# 1 sbn +! else drop then
 ;
 
-: sb-begin ( -- ) d# 0 sbn !  'emit @ sb-old !  ['] sb-emit 'emit ! ;
-: sb-end   ( -- ) sb-old @ 'emit ! ;
-: sb-draw  ( x y -- ) >r >r sb sbn @ r> r> draw-text ;
+header sb-begin : sb-begin ( -- ) d# 0 sbn !  'emit @ sb-old !  ['] sb-emit 'emit ! ;
+header sb-end : sb-end   ( -- ) sb-old @ 'emit ! ;
+header sb-draw : sb-draw  ( x y -- ) >r >r sb sbn @ r> r> draw-text ;

@@ -10,7 +10,7 @@ create t-keys ," ^S save  ^L load  PgUp PgDn"
 
 : eaddr ( -- a ) eblk @ block ecy @ d# 6 lshift + ecx @ + ;
 
-: edit-draw ( win -- )
+header edit-draw : edit-draw ( win -- )
     content ty0 ! tx0 !
     d# 0 ti !
     begin
@@ -34,7 +34,7 @@ create t-keys ," ^S save  ^L load  PgUp PgDn"
     tx0 @ d# 2 + ty0 @ d# 263 + sb-draw
 ;
 
-: edit-key ( c win -- )
+header edit-key : edit-key ( c win -- )
     drop
     dup d# 128 = if drop ecy @ 1- d# 0 max ecy ! exit then
     dup d# 129 = if drop ecy @ 1+ d# 15 min ecy ! exit then

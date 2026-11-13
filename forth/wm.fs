@@ -11,7 +11,7 @@
 \ only the front window may draw outside a full repaint.
 
 create wins #64 allot
-create nwin 0 ,
+header nwin create nwin 0 ,
 create cw 0 ,           \ the window being drawn
 
 : top ( -- win ) nwin @ 1- cells wins + @ ;
@@ -26,7 +26,7 @@ header window
     r>
 ;
 
-: content ( win -- x y ) \ top left of the area inside the frame
+header content : content ( win -- x y ) \ top left of the area inside the frame
     dup @ 1+ swap d# 8 + @ d# 19 +
 ;
 
@@ -209,7 +209,7 @@ create quitting 0 ,
 
 \ ---- events from the input devices
 
-: on-event ( type code value -- )
+header on-event : on-event ( type code value -- )
     rot
     dup d# 3 = if                                   \ absolute position
         drop
@@ -233,7 +233,7 @@ create quitting 0 ,
 
 : uart-poll ( -- ) key? if key on-key then ;
 
-: event-loop ( -- )
+header event-loop : event-loop ( -- )
     d# 0 quitting !
     repaint
     begin

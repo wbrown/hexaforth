@@ -34,8 +34,8 @@ header key?
 
 \ Output goes through a vector, so it can be sent to a window.
 
-create 'emit 0 ,
-: uart-emit ( c -- ) emit ;
+header 'emit create 'emit 0 ,
+header uart-emit : uart-emit ( c -- ) emit ;
 
 header emit
 : emit ( c -- ) 'emit @ >r ;      \ as execute: return into the vector
@@ -59,7 +59,7 @@ header bl
 : hex8 dup d# 16 rshift DOUBLE
 : hex4 dup d# 8 rshift DOUBLE
 : hex2 dup d# 4 rshift DOUBLE
-: hex1
+header hex1 : hex1
     h# f and
     dup d# 10 < if
         [char] 0
@@ -99,14 +99,14 @@ header lo16  : lo16 ( dw -- s ) h# ffff and ;
 \ and shift the field into place.  Instructions are 16-bit fields too, so
 \ this is also how the compiler reads and writes code.
 
-: field@ ( a mask -- x )
+header field@ : field@ ( a mask -- x )
     >r
     dup ALIGN-MASK and @
     swap OFFSET-MASK and d# 3 lshift rshift
     r> and
 ;
 
-: field! ( x a mask -- )
+header field! : field! ( x a mask -- )
     -rot                                    ( mask x a )
     dup ALIGN-MASK and >r                   \ the cell
     OFFSET-MASK and d# 3 lshift             ( mask x shift )
@@ -164,7 +164,7 @@ create lastword 0 ,
 create thisxt   0 ,
 create syncpt   0 ,
 create sourceC  0 , 0 ,
-create sourceid 0 ,
+header sourceid create sourceid 0 ,
 create >in      0 ,
 create state    0 ,
 create delim    0 ,
@@ -201,8 +201,8 @@ header here     : here      dp @ ;
 \ The data stack depth.  adepth is the true depth; depth is what a program
 \ sees, measured from sbase, which the desktop raises while it runs a line
 \ of Forth above its own work.
-create sbase 0 ,
-: adepth ( -- n ) IO-SP io@ 1- ;            \ less the port number itself
+header sbase create sbase 0 ,
+header adepth : adepth ( -- n ) IO-SP io@ 1- ;            \ less the port number itself
 header depth    : depth     adepth sbase @ - ;
 
 header /string
@@ -381,7 +381,7 @@ header um/mod
 
 \ Single-cell divide.  A dividend that fits in 16 or 32 bits is shifted to
 \ the top of the cell first, so only that many steps are needed.
-: u/mod ( u1 u2 -- rem quot )
+header u/mod : u/mod ( u1 u2 -- rem quot )
     >r
 W32+? [if]
     dup d# 16 rshift 0= if
@@ -444,7 +444,7 @@ header accept
 ;
 
 : 3rd   >r over r> swap ;
-: 3dup  3rd 3rd 3rd ;
+header 3dup : 3dup  3rd 3rd 3rd ;
 
 : lower ( c1 -- c2 ) \ c2 is the lower-case of c1
     h# 40 over <
@@ -750,7 +750,7 @@ header throw
     then
 ;
 
-: -throw ( a b -- ) \ if a is nonzero, throw -b
+header -throw : -throw ( a b -- ) \ if a is nonzero, throw -b
     negate and throw
 ;
 
@@ -852,7 +852,7 @@ header :noname
     t]
 ;
 
-: inline: \ copy the instruction after the call, and skip it
+header inline: : inline: \ copy the instruction after the call, and skip it
     r>
     dup 2* uw@ code,
     1+ >r

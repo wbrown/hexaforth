@@ -237,6 +237,13 @@ call to a headerless word and a headerless variable are shown by name. A
 label for code holds its execution token, and one for `create`d data holds
 the data's address with the top bit set. `see` accepts a label's name too.
 
+A word that another file uses has a header, so that it can be typed at the
+prompt and used in new definitions: the drawing, window, block and device
+words are all in the dictionary. A word used only inside its own file has
+no header and gets a label. `header name create name` is allowed in
+`cross.fs`: it lays down code that pushes the data's address, for the
+header to point at.
+
 `cross.fs` compiles a call to another code page as `literal xt` +
 `call execute`, so code past the kernel needs only an `org` per page and
 each page's code to fit in 8KB. Run-time definitions start on the page after
