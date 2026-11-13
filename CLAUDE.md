@@ -278,7 +278,7 @@ shift registers instead. `PLANES=1` builds the memory from one-bit-wide
 block RAMs, which was tried for clock speed and gains little.
 `LAT=2` registers the memory's output: about 29% more cycles (a cycle lost
 on every jump, call, return and taken branch, and on every memory read) for
-a clock about 45% faster on an ECP5.
+a clock 55-70% faster on an ECP5 (61, 57 and 46 MHz at 16, 32 and 64 bits).
 
 - `make -C rtl test W=64` (or 32, or 16) replays differential cases from
   `baremetal/difftest_dump.c`, built for that cell width, on the Verilog
