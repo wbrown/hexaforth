@@ -2,6 +2,7 @@
 """Check the drawing words in forth/display.fs against a model of them.
 
     display_test.py VM IMAGE.hex [SEED [COUNT]]
+    OPS="scroll region rect text" display_test.py ...   only those operations
 
 Draws the same random sequence of fills, text, copies and scrolls twice,
 in ports with random origins, clip rectangles and clip regions:
@@ -9,6 +10,7 @@ on the reference VM, by typing Forth at its prompt, and here, a pixel at a
 time.  The VM then prints its bitmap and the two are compared.  The display
 is in the VM's memory, so nothing has to show it.
 """
+import os
 import random
 import re
 import struct
@@ -90,33 +92,36 @@ class Model:
                     self.px[dy + j][dx + i] = self.mode(self.px[dy + j][dx + i], old[sy + j][sx + i])
 
     def scroll_rect(self, x, y, w, h, dx, dy):
-        saved = self.clip
-        self.clip_to(x, y, w, h)
+        # A pixel moves to a place if the place and where it comes from can
+        # both be drawn in and are both in the rectangle; a place that can be
+        # drawn in and has nothing to come to it is made white.
+        x, y = x + self.ox, y + self.oy
+
+        def movable(i, j):
+            return x <= i < x + w and y <= j < y + h and self.visible(i, j)
+
+        old = [row[:] for row in self.px]
+        for j in range(max(y, 0), min(y + h, H)):
+            for i in range(max(x, 0), min(x + w, W)):
+                if movable(i, j):
+                    self.px[j][i] = old[j - dy][i - dx] if movable(i - dx, j - dy) else 0
         self.mode = MODES["copy-mode"]
-        self.copy_bits(x, y, x + dx, y + dy, w, h)
         self.pattern = PATTERNS["p-white"]
-        if dy > 0:
-            self.pat_rect(x, y, w, dy)
-        if dy < 0:
-            self.pat_rect(x, y + h + dy, w, -dy)
-        if dx > 0:
-            self.pat_rect(x, y, dx, h)
-        if dx < 0:
-            self.pat_rect(x + w + dx, y, -dx, h)
-        self.clip = saved
 
 
 def session(seed, count):
     """The Forth to type, and the model after doing the same."""
     rng = random.Random(seed)
+    only = os.environ.get("OPS", "").split()        # to try some operations harder
     m = Model()
     lines = ["display-init", ": tb here 64 + >c ;", ": ch tb + c! ;",
              "new-rgn constant ra", "new-rgn constant rb", "new-rgn constant rc",
              "new-rgn constant rd", "new-rgn constant re",
              ": dump hex 576 0 do i row 12 0 do dup i + @ . loop drop cr loop decimal ;"]
     for _ in range(count):
-        op = rng.choice(["rect"] * 4 + ["text"] * 4 + ["copy", "scroll", "clip", "noclip", "mode", "origin", "font", "region", "region", "noregion",
-                                                      "pattern", "style"])
+        op = rng.choice(only or ["rect"] * 4 + ["text"] * 4 + [
+            "copy", "scroll", "clip", "noclip", "mode", "origin", "font", "region", "region",
+            "noregion", "pattern", "style"])
         if op == "rect":
             x, y = rng.randint(-40, W), rng.randint(-40, H)
             w, h = rng.choice([1, 7, 64, 130, 300]), rng.choice([1, 3, 16, 60])

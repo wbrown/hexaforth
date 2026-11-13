@@ -260,16 +260,6 @@ header clip-to : clip-to ( x y w h -- ) \ what is in both this and the clip rect
     r> + clip c# 3 + @ min clip c# 3 + !
 ;
 
-create oclip 0 , 0 , 0 , 0 ,
-: clip-save ( -- )
-    clip @ oclip !  clip CELL + @ oclip CELL + !
-    clip CELL2 + @ oclip CELL2 + !  clip c# 3 + @ oclip c# 3 + !
-;
-: clip-restore ( -- )
-    oclip @ clip !  oclip CELL + @ clip CELL + !
-    oclip CELL2 + @ clip CELL2 + !  oclip c# 3 + @ clip c# 3 + !
-;
-
 : clip-span ( x n -- x' n' ) \ n' is not positive if nothing is left
     over clip @ < if + clip @ tuck - then
     over + clip CELL2 + @ min over -
@@ -299,7 +289,8 @@ header pat-rect : pat-rect ( x y w h -- )
 \ A bitmap is two cells: where its first row is, and how many cells from
 \ one row to the next.  `screen` is the display, whose rows are where the
 \ machine puts them.  copy-bits copies a rectangle of a bitmap to the
-\ screen, in the mode.
+\ screen, in the mode.  (scroll-rect, which moves part of the screen, is
+\ in region.fs.)
 \
 \ A row of the source is first copied aside, so that a row copied onto
 \ itself comes out right whichever way it moves; the rows are taken from
@@ -377,27 +368,6 @@ header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
         bw @ hn !  row-out
         d# 1 br +!
     repeat
-;
-
-create sdx 0 ,
-create sdy 0 ,
-create srx 0 ,
-create sry 0 ,
-create srw 0 ,
-create srh 0 ,
-
-header scroll-rect : scroll-rect ( x y w h dx dy -- ) \ move what is in a rectangle; what is uncovered is white
-    sdy ! sdx ! srh ! srw ! sry ! srx !
-    clip-save
-    srx @ sry @ srw @ srh @ clip-to
-    copy-mode
-    screen srx @ sry @  srx @ sdx @ +  sry @ sdy @ +  srw @ srh @ copy-bits
-    p-white pattern !
-    sdy @ 0> if srx @ sry @ srw @ sdy @ pat-rect then
-    sdy @ 0< if srx @ sry @ srh @ + sdy @ + srw @ sdy @ negate pat-rect then
-    sdx @ 0> if srx @ sry @ sdx @ srh @ pat-rect then
-    sdx @ 0< if srx @ srw @ + sdx @ + sry @ sdx @ negate srh @ pat-rect then
-    clip-restore
 ;
 
 \ Eight pixels at x: the part of them in the cell x is in, and the part

@@ -101,12 +101,12 @@ create rwin 0 ,         \ a rectangle
     new-rgn rcov !  new-rgn rtmp !  new-rgn rwin !
 ;
 
-header inval-rect : inval-rect ( x y w h -- ) \ on the screen
-    rd @ if
-        2over 2over rwin @ rect-rgn
-        rd @ rwin @ rtmp @ rgn-or
-        rd @ rtmp @ rd ! rtmp !
-    then
+: dirty-rgn ( rgn -- ) \ add it to the region that is out of date
+    rd @ swap rtmp @ rgn-or
+    rd @ rtmp @ rd ! rtmp !
+;
+
+: dirty-box ( x y w h -- ) \ and to the rectangle around that
     >r >r
     dirty CELL2 + @ dirty @ > if                    \ as well as what is there
         over dirty @ min dirty !
@@ -119,6 +119,17 @@ header inval-rect : inval-rect ( x y w h -- ) \ on the screen
         swap r> + dirty CELL2 + !
         r> + dirty c# 3 + !
     then
+;
+
+header inval-rect : inval-rect ( x y w h -- ) \ on the screen
+    rd @ if 2over 2over rwin @ rect-rgn  rwin @ dirty-rgn then
+    dirty-box
+;
+
+header inval-rgn : inval-rgn ( rgn -- ) \ on the screen
+    dup rgn-empty? if drop exit then
+    dup dirty-rgn
+    rgn-box dirty-box
 ;
 
 header inval-window : inval-window ( win -- ) \ frame and all
