@@ -4,17 +4,17 @@
 \ driver can be swapped without touching the code that uses it:
 \
 \   block device   blk-read blk-write    ( buf blk# -- )   1024-byte blocks
-\   display        plot  fb-w  fb-h      ( on? x y -- )    1 bit per pixel
 \
-\ A driver's init word stores its routines in the interface's vectors.
+\ A driver's init word stores its routines in the interface's vectors.  The
+\ display needs no driver: it is a bitmap in memory, and display.fs draws
+\ in it.
 
 include machine.fs      \ device registers, high memory, byte-order helpers
 include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD, disk-read
-include display.fs      \ display interface
+include display.fs      \ the display: a bitmap in memory
 include virtio.fs       \ shared by the virtio drivers
 include virtio-blk.fs   \ block driver
 include virtio-input.fs \ keyboard and pointer driver
-include ramfb.fs        \ display driver: QEMU ramfb
 include tiff.fs         \ uncompressed TIFF from blocks into memory
 include atkinson.fs     \ Atkinson dithering to the display
 include mandrill.fs     \ the demo, without the desktop

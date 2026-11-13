@@ -197,7 +197,8 @@ and `execute` cross pages with no extra state. Memory layout:
   run time
 
 On a 64-bit machine these are cells `0-0x3ff`, `0x800-0x1fff` and
-`0x2000-0x3fff`, and `halloc` gives out memory from cell `0x20000`.
+`0x2000-0x3fff`; the display is at cell `0x4000` and `halloc` gives out
+memory from cell `0x6000`.
 
 In `nuc.fs`, `compile,` emits a one-instruction call for a kernel or
 same-page target and `literal xt` + `call execute` for another page.
@@ -215,8 +216,14 @@ reached by name or by execution token.
   `0xc0`-`0xc8`, `halloc` for memory above the dictionary, byte-order helpers
 - `blocks.fs`: block device interface (`'blk-read`, `'blk-write`), `block`
   `update` `flush` `load`, and `disk-read` for byte ranges
-- `display.fs`: 1-bit display interface (`'plot`, `fb-w`, `fb-h`)
-- `virtio-blk.fs`, `ramfb.fs`: the QEMU `virt` drivers behind those interfaces
+- `display.fs`: the display, a bitmap in memory of the size, place, bit
+  order, polarity and row layout that `vm_constants.h` gives (see
+  `MODEL.md`). `row`, `ink`, `paper`, `plot`, `hspan`, `blit8` and `xor8`
+  are all the drawing there is, and nothing outside this file knows the
+  layout. A flag of true is white. Eight pixels are a byte in the display's
+  order; `p,` and `glyph,` in `cross.fs` lay such bytes down from ones
+  written with the leftmost pixel highest, which is how `font.fs` has them
+- `virtio-blk.fs`: the QEMU `virt` block driver
 - `tiff.fs`, `atkinson.fs`, `mandrill.fs`: uncompressed TIFF reader, Atkinson
   dithering, and the demo
 
@@ -268,6 +275,15 @@ branches. `hexaforth-fast.S` decodes with two table lookups (input mux and
 ALU, then output mux and stack deltas) and executes about half as many
 native instructions; select it with `make KERNEL=hexaforth-fast <target>`.
 
+QEMU has no 1-bit display, so `baremetal/ramfb.S` is a bridge: it sets up
+`ramfb` through the firmware configuration device and copies the bitmap
+into 32-bit pixels, a changed cell at a time, at most 32 times a second. It
+is a separate file from the kernel, linked in front of it for the
+`-display` builds that `make demo` and `make demo-test` use; a kernel built
+with `-DBRIDGE` calls `bridge_init` at boot and `bridge_poll` whenever the
+machine asks for a key or whether one is waiting. `vm.c` and the Verilog do
+not show the bitmap yet.
+
 In `baremetal/`, `make demo` boots QEMU into the desktop with a disk,
 keyboard and tablet. `make demo-test` runs it headless, sends key and
 pointer events through QMP, and checks the screen: text is read back by
@@ -293,8 +309,9 @@ nucleus and the reference VM for a size, into `build/`. The default
 At 32 and 16 bits only the kernel is built: `system.fs` (drivers and the
 desktop) is written for 64-bit cells. With a 16-bit cell memory is 65,536
 cells, run-time code goes at instruction `0x6000`, and an execution token is
-15 bits, since the top bit of its cell in a header is the immediate flag. A shift by the cell width or
-more gives zero at every size, which `w!` and the dictionary search rely on.
+15 bits, since the top bit of its cell in a header is the immediate flag. A shift count is taken modulo 64, so a shift by
+16 to 63 gives zero where cells are 16 or 32 bits, which `w!` and the
+dictionary search rely on, but a shift by 64 shifts by nothing.
 
 ### Hardware (`rtl/`)
 

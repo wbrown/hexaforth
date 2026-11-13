@@ -94,6 +94,10 @@ _start:
 1:      str     xzr, [x0], #8
         cmp     x0, x1
         b.lo    1b
+#ifdef BRIDGE
+        mov     x0, MEM                         // the display, if there is a bridge to one
+        bl      bridge_init
+#endif
         mov     UART, #UART_BASE
         mov     DS, STK
         add     RS, STK, #RSTACK_OFF
@@ -197,7 +201,11 @@ alu_ops:
         b       alu_done
         cmp     IO, #IO_KEY                     // 15  io[IN]
         b.ne    io_read
-key:    ldr     w12, [UART, #UART_FR]
+key:
+#ifdef BRIDGE
+        bl      bridge_poll
+#endif
+        ldr     w12, [UART, #UART_FR]
         tbnz    w12, #4, key                    // RXFE: nothing received yet
         ldr     w10, [UART]
         and     IO, IO, #0xff
@@ -205,6 +213,9 @@ key:    ldr     w12, [UART, #UART_FR]
 io_read:
         cmp     IO, #IO_KEYQ
         b.ne    7f
+#ifdef BRIDGE
+        bl      bridge_poll
+#endif
         ldr     w12, [UART, #UART_FR]
         tst     w12, #0x10                      // RXFE clear: something is waiting
         csetm   IO, eq

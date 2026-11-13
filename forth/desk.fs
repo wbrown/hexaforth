@@ -8,20 +8,20 @@ create t-up   ," desktop"
 
 header desktop
 : desktop ( -- ) \ runs until ^Q
-    d# 800 d# 600 ramfb-init
+    display-init
     ['] on-event 'event !
     input-init
     d# 0 nwin !
     ['] vblk-init catch 0= if                       \ these two need the disk
         d# 16 ['] view-load catch if drop then
-        d# 270 d# 40 d# 514 d# 532 t-view
+        d# 250 d# 40 d# 514 d# 532 t-view
         ['] view-draw ['] ignore-key d# 0 window drop
-        d# 30 d# 290 d# 518 d# 300 t-edit
+        d# 30 d# 270 d# 518 d# 300 t-edit
         ['] edit-draw ['] edit-key d# 0 window drop
     then
-    d# 140 d# 318 d# 482 d# 276 t-words
+    d# 140 d# 296 d# 482 d# 276 t-words
     ['] words-draw ['] words-key ['] words-click window drop
-    d# 640 d# 300 d# 138 d# 238 t-calc
+    d# 626 d# 300 d# 138 d# 238 t-calc
     ['] calc-draw ['] calc-key ['] calc-click window drop
     tclear term-ok
     d# 12 d# 32 d# 406 d# 280 t-repl

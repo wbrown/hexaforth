@@ -31,10 +31,23 @@ $(B)/%.o: %.S $(B)/image.bin
 $(B)/%.elf: $(B)/%.o
 	ld.lld -Ttext=$(LOAD) -e _start -o $@ $<
 
+# The same kernel with a display: built to call the bridge, and linked after
+# ramfb.S, since the machine's memory runs on from the end of the kernel.
+$(B)/%-display.o: %.S $(B)/image.bin
+	clang $(TARGET) -c -DIMAGE='"$(B)/image.bin"' $(if $(STRICT),-DSTRICT) -DBRIDGE \
+	    -DADDR_BITS=$(ADDR_BITS) $< -o $@
+
+$(B)/ramfb.o: ramfb.S
+	@mkdir -p $(B)
+	clang $(TARGET) -c $< -o $@
+
+$(B)/%-display.elf: $(B)/ramfb.o $(B)/%-display.o
+	ld.lld -Ttext=$(LOAD) -e _start -o $@ $^
+
 $(B)/%.bin: $(B)/%.elf
 	llvm-objcopy -O binary $< $@
 
-.PRECIOUS: $(B)/%.o $(B)/%.elf
+.PRECIOUS: $(B)/%.o $(B)/%.elf $(B)/%-display.o $(B)/%-display.elf
 
 size: $(B)/$(KERNEL).elf
 	@llvm-nm --radix=d $< | awk '/ native_end$$/{e=$$1} / _start$$/{s=$$1} \
@@ -63,12 +76,12 @@ DEVICES := -device ramfb -global virtio-mmio.force-legacy=false \
 # Boot into the desktop.  Needs a QEMU with a graphical display; the serial
 # console also types into the front window.  ^Q leaves the desktop for the
 # serial prompt.
-demo: $(B)/$(KERNEL).elf $(B)/disk.img
+demo: $(B)/$(KERNEL)-display.elf $(B)/disk.img
 	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 -serial mon:stdio -nic none $(DEVICES) -kernel $<
 
 # Boot headless, drive the desktop with key and pointer events, and check
 # the screen.  Screenshots are left in $(B)/gui.
-demo-test: $(B)/$(KERNEL).elf $(B)/disk.img
+demo-test: $(B)/$(KERNEL)-display.elf $(B)/disk.img
 	cp $(B)/disk.img $(B)/gui.img
 	python3 guitest.py $< $(B)/gui.img $(B)/disk.tiff $(B)/gui
 

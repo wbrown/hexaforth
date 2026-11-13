@@ -16,7 +16,7 @@ header reg64! : reg64! ( x pa -- ) h# c0 io!  h# c8 io! ;
 
 \ Memory above the dictionary, for buffers too big for it.  Never freed.
 
-create himem $100000 ,      \ in bytes
+create himem $30000 ,       \ in bytes: cell $6000, after the display
 
 header halloc
 : halloc ( u -- a ) \ u bytes, 16-byte aligned; a is the address of a cell
