@@ -21,13 +21,13 @@ module soc #(
     output wire       rx_ready,
     output wire       halted
 );
-    wire [W-1:0] raddr, rdata, waddr, dwdata;
+    wire [W-1:0] raddr, rdata, rpre, waddr, dwdata;
     wire         rok, wok;
     wire [W/8-1:0] dwe;
 
     hexaforth #(.W(W), .PCW(PCW), .DEPTH(DEPTH), .MB(MB), .STACKRAM(STACKRAM), .LAT(LAT)) cpu (
         .clk(clk), .rst(rst), .start_pc({PCW{1'b0}}),
-        .raddr(raddr), .rok(rok), .rdata(rdata),
+        .raddr(raddr), .rok(rok), .rdata(rdata), .rpre(rpre),
         .waddr(waddr), .wok(wok), .dwe(dwe), .dwdata(dwdata),
         .tx_valid(tx_valid), .tx_data(tx_data), .tx_ready(tx_ready),
         .rx_valid(rx_valid), .rx_data(rx_data), .rx_ready(rx_ready),
@@ -36,6 +36,6 @@ module soc #(
 
     hf_mem #(.W(W), .MB(MB), .INIT(INIT), .ALIGNED(ALIGNED), .PLANES(PLANES), .LAT(LAT)) mem (
         .clk(clk),
-        .raddr(raddr), .rok(rok), .rdata(rdata),
+        .raddr(raddr), .rok(rok), .rdata(rdata), .rpre(rpre),
         .waddr(waddr), .wok(wok), .dwe(dwe), .dwdata(dwdata));
 endmodule

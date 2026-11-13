@@ -61,6 +61,9 @@ module hexaforth #(
     output reg  [W-1:0] raddr,
     output reg         rok,
     input  wire [W-1:0] rdata,
+    // With LAT = 2, the memory's output before its register: what rdata
+    // will be in the next cycle.  The instruction register loads from it.
+    input  wire [W-1:0] rpre,
 
     // Write port.  wok is low for a device-port write outside the memory,
     // which must write nothing.
@@ -97,21 +100,28 @@ module hexaforth #(
     reg [2:0]  state;
     reg [7:0]  newdepth;
 
-    // What was asked of the read port in the last cycle (k1) and the one
-    // before (k2): nothing, an instruction, [T], or [IN] or a device read.
-    // With LAT cycles of latency, what rdata shows now is k1 or k2.
+    // What was asked of the read port in the last cycle (k1): nothing, an
+    // instruction, [T], or [IN] or a device read.  k2 is the same a cycle
+    // on, for data when LAT = 2.
     //
-    // Instructions are asked for ahead of need, LAT of them at most, and
-    // come back in order.  One that arrives while the one before it is
-    // still unfinished waits in `nxt`, and an instruction that takes more
-    // than a cycle moves to `hold`, so the read port never has to stand
-    // still or be asked twice.
+    // LAT = 1.  rdata shows what k1 asked for.  An instruction is decoded
+    // straight from rdata, and one that takes more than a cycle moves to
+    // `hold` so that the port is free.
+    //
+    // LAT = 2.  Instructions are asked for two ahead and come back in
+    // order.  The memory's output register for them is the instruction
+    // register `ir` here, which the decoder reads directly; what goes into
+    // it is chosen before the clock edge, not after.  An instruction that
+    // comes back while `ir` is still busy waits in `nxt`.  Data comes back
+    // through the memory's own output register, a cycle after k1.
     localparam K_NONE = 2'd0, K_INS = 2'd1, K_A = 2'd2, K_B = 2'd3;
     reg [1:0]  k1, k2;
-    wire [1:0] arr = LAT == 2 ? k2 : k1;
-    reg        held;                // the current instruction is in `hold`
+    wire [1:0] arr = LAT == 2 ? k2 : k1;        // the data rdata shows, if any
+    reg        held;                // LAT 1: the current instruction is in `hold`
     reg [15:0] hold;
-    reg        nxtv;                // the one after it is in `nxt`
+    reg        irv;                 // LAT 2: the current instruction is in `ir`
+    reg [15:0] ir;
+    reg        nxtv;                // LAT 2: the one after it is in `nxt`
     reg [15:0] nxt;
     reg [PCW-1:0] fpc;              // the next instruction to ask for
 
@@ -123,8 +133,8 @@ module hexaforth #(
     reg [W/2-1:0] mul_x;
 
     // ----------------------------------------------------------- decode
-    wire        have_cur = held || nxtv || arr == K_INS;
-    wire [15:0] ins     = held ? hold : nxtv ? nxt : rdata[15:0];
+    wire        have_cur = LAT == 2 ? irv : (held || k1 == K_INS);
+    wire [15:0] ins     = LAT == 2 ? ir : (held ? hold : rdata[15:0]);
     wire        is_lit  = ins[15];
     wire [1:0]  op_type = ins[14:13];
     wire        is_alu  = !is_lit && op_type == 2'd3;
@@ -305,8 +315,7 @@ module hexaforth #(
 
     // Instructions in hand or on their way.  Another is asked for whenever
     // that leaves fewer than LAT after this cycle and the port is free.
-    wire [1:0] others = {1'b0, held && nxtv} + {1'b0, (held || nxtv) && arr == K_INS}
-                      + {1'b0, LAT == 2 && k1 == K_INS};
+    wire [1:0] others = LAT == 2 ? {1'b0, nxtv} + {1'b0, k1 == K_INS} : 2'd0;
     wire [1:0] total  = {1'b0, have_cur} + others;
     wire [1:0] left   = total - {1'b0, execute};
     wire       issue  = state != S_HALT && !want_a && !want_b && (jump || left < LAT);
@@ -448,7 +457,7 @@ module hexaforth #(
         if (rst) begin
             state <= S_BOOT;
             have_a <= 0;  have_b <= 0;  slow_cnt <= 0;
-            k1 <= K_NONE;  k2 <= K_NONE;  held <= 0;  nxtv <= 0;
+            k1 <= K_NONE;  k2 <= K_NONE;  held <= 0;  irv <= 0;  nxtv <= 0;
             pc <= start_pc;  fpc <= start_pc;  T <= 0;  N <= 0;  R <= 0;
             dsp <= 0;  rsp <= 0;  ioa <= 0;
         end else begin
@@ -458,19 +467,28 @@ module hexaforth #(
             // The read port.  Data is kept, in case the instruction does
             // not finish in the cycle it arrives.
             k1 <= kreq;
-            k2 <= jump ? K_NONE : k1;
+            k2 <= (k1 == K_A || k1 == K_B) ? k1 : K_NONE;
             if (issue) fpc <= fetch + 1;
             if (arr == K_A) begin a_val <= rdata;  have_a <= 1; end
             if (arr == K_B) begin b_val <= rdata;  have_b <= 1; end
 
             // Where the current instruction and the one after it wait.
-            if (jump) begin
-                held <= 0;  nxtv <= 0;
+            if (LAT == 2) begin
+                if (jump) begin
+                    irv <= 0;  nxtv <= 0;               // what follows is dropped
+                end else if (execute || !irv) begin     // ir is free: refill it
+                    if (nxtv) begin
+                        ir <= nxt;  irv <= 1;
+                        nxtv <= k1 == K_INS;  nxt <= rpre[15:0];
+                    end else begin
+                        ir <= rpre[15:0];  irv <= k1 == K_INS;
+                    end
+                end else if (k1 == K_INS) begin
+                    nxt <= rpre[15:0];  nxtv <= 1;
+                end
             end else begin
-                if (execute) held <= 0;
+                if (jump || execute) held <= 0;
                 else if (have_cur) begin hold <= ins;  held <= 1; end
-                if (arr == K_INS && (held || nxtv)) begin nxt <= rdata[15:0];  nxtv <= 1; end
-                else if (!held) nxtv <= 0;
             end
 
             case (state)
