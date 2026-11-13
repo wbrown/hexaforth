@@ -37,6 +37,7 @@ def load_font():
 FONT = load_font()
 UNDERLINED = {glyph[:15]: c for glyph, c in FONT.items()}   # the bottom row is the underline
 BOLD = {bytes(r | r >> 1 for r in glyph[:15]): c for glyph, c in FONT.items()}
+ITALIC = {bytes(r >> 1 for r in glyph[:8]) + glyph[8:15]: c for glyph, c in FONT.items()}
 
 
 def dither(tiff_path):
@@ -172,7 +173,8 @@ def read_text(shot, x0, y0, cols, rows):
             inverse = bytes(v ^ 0xFF for v in glyph)
             line += (FONT.get(glyph) or FONT.get(inverse)
                      or UNDERLINED.get(glyph[:15])           # a link is underlined
-                     or BOLD.get(glyph[:15]) or "?")         # and a fused word is bold
+                     or BOLD.get(glyph[:15])                 # a fused word is bold
+                     or ITALIC.get(glyph[:15]) or "?")       # and a label leans
         lines.append(line.rstrip())
     return lines
 
@@ -275,6 +277,7 @@ def main():
         source = read_text(shot, 253, 337, 45, 16)
         check("a fused instruction is shown as its words",
               source[0] == ": atkinson" and source[8].endswith(" @ < while"), repr(source[8]))
+        check("a headerless variable is shown by its label", source[1] == "  aoy !", repr(source[1]))
 
         # ^W again: the Forth window.
         m.key("w", "ctrl")
