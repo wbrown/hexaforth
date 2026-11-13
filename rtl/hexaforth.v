@@ -14,9 +14,9 @@
 //     it waits in a register, and the data then goes straight into the
 //     ALU, as an instruction goes straight into the decoder.  Nothing read
 //     from the memory decides a memory address in the same cycle.
-//   - The stacks are shift registers, not memories.  T, N and R are
-//     registers, and the cells beneath them sit at fixed positions with no
-//     pointer arithmetic or addressing in front of them.
+//   - T, N and R are registers, and so are the next cell of each stack.
+//     The cells beneath them are in two small memories read without a
+//     clock, at addresses that come straight from the stack depths.
 //   - One adder serves +, =, < and u<.
 //   - The costly operations take extra cycles instead of setting the clock
 //     period: shifts are computed into a register first, and the multiply
@@ -45,9 +45,8 @@
 module hexaforth #(
     parameter W     = 64,           // cell width: 64, 32 or 16
     parameter PCW   = 16,           // program counter width, in words; at most W
-    parameter DEPTH = 64,           // cells in each stack below T, N and R
+    parameter DEPTH = 256,          // cells in each stack: STACK_CELLS in vm_constants.h
     parameter MB    = 17,           // log2 of the memory size in bytes
-    parameter STACKRAM = 1,         // stacks in distributed RAM, or shift registers
     parameter LAT   = 1             // cycles from a read address to its data: 1 or 2
 ) (
     input  wire        clk,
@@ -99,6 +98,7 @@ module hexaforth #(
     localparam S_BOOT = 0, S_RUN = 1, S_HALT = 2, S_SP = 3, S_RSP = 4;
     reg [2:0]  state;
     reg [7:0]  newdepth;
+    reg [2:0]  dstep;               // how far a depth being set has got
 
     // What was asked of the read port in the last cycle (k1): nothing, an
     // instruction, [T], or [IN] or a device read.  k2 is the same a cycle
@@ -491,82 +491,51 @@ module hexaforth #(
             d_op = d_ins;  r_op = r_ins;
         end else if (state == S_SP) begin
             d_in = N;
-            if (dsp > newdepth) d_op = POP1;
-            else if (dsp < newdepth) d_op = PUSH;
+            if (dstep < 3) d_op = PUSH;
+            else if (dstep > 3) d_op = POP1;
         end else if (state == S_RSP) begin
-            if (rsp > newdepth) r_op = POP1;
-            else if (rsp < newdepth) r_op = PUSH;
+            if (dstep < 2) r_op = PUSH;
+            else if (dstep > 2) r_op = POP1;
         end
     end
 
-    // The stacks below the registers, in one of two forms.
-    //
-    // As memories, read without a clock: cell i from the bottom of the data
+    // The stacks below the registers.  Cell i from the bottom of the data
     // stack is dmem[i].  The cell under N and the cell under R are kept in
     // registers as well (s3 and r2), so the memories are read only to
-    // refill those, at addresses that come straight from the depth and
-    // do not wait for the instruction to be decoded; and they are written
-    // only from those registers.  On an FPGA these are small LUT memories,
-    // not flip-flops.
+    // refill those, at addresses that come straight from the depth and do
+    // not wait for the instruction to be decoded; and they are written only
+    // from those registers.  On an FPGA these are small LUT memories.
     //
-    // As shift registers: dtail[0] is the cell under N and rtail[0] the
-    // cell under R, and a push or pop moves every cell along.
+    // So the top three cells of the data stack (T, N, s3) and the top two of
+    // the return stack (R, r2) are in registers and not yet in the memory.
     localparam SB = $clog2(DEPTH);
-    generate
-        if (STACKRAM) begin : sram
-            reg [W-1:0] dmem [0:DEPTH-1] /* verilator public_flat_rd */;
-            reg [W-1:0] rmem [0:DEPTH-1] /* verilator public_flat_rd */;
-            reg [W-1:0] s3 /* verilator public_flat_rd */;
-            reg [W-1:0] r2 /* verilator public_flat_rd */;
-            wire [SB-1:0] dp = dsp[SB-1:0], rp = rsp[SB-1:0];
-            wire [SB-1:0] da3 = dp - 2'd3, da4 = dp - 3'd4, da5 = dp - 3'd5;
-            wire [SB-1:0] ra2 = rp - 2'd2, ra3 = rp - 2'd3, ra4 = rp - 3'd4;
-            wire [W-1:0] dq4 = dmem[da4], dq5 = dmem[da5];
-            wire [W-1:0] rq3 = rmem[ra3], rq4 = rmem[ra4];
-            assign ds3 = s3;
-            assign ds4 = dq4;
-            assign rs2 = r2;
-            assign rs3 = rq3;
-            always @(posedge clk) begin
-                case (d_op)
-                    PUSH: begin dmem[da3] <= s3;  s3 <= d_in; end
-                    POP1: s3 <= dq4;
-                    POP2: s3 <= dq5;
-                    default: ;
-                endcase
-                case (r_op)
-                    PUSH: begin rmem[ra2] <= r2;  r2 <= R; end
-                    POP1: r2 <= rq3;
-                    POP2: r2 <= rq4;
-                    default: ;
-                endcase
-            end
-        end else begin : sreg
-            reg [W-1:0] dtail [0:DEPTH-1] /* verilator public_flat_rd */;
-            reg [W-1:0] rtail [0:DEPTH-1] /* verilator public_flat_rd */;
-            assign ds3 = dtail[0];
-            assign ds4 = dtail[1];
-            assign rs2 = rtail[0];
-            assign rs3 = rtail[1];
-            integer k;
-            always @(posedge clk) begin
-                for (k = 0; k < DEPTH; k = k + 1) begin
-                    case (d_op)
-                        PUSH: dtail[k] <= k == 0 ? d_in : dtail[k - 1];
-                        POP1: dtail[k] <= k + 1 < DEPTH ? dtail[k + 1] : {W{1'b0}};
-                        POP2: dtail[k] <= k + 2 < DEPTH ? dtail[k + 2] : {W{1'b0}};
-                        default: ;
-                    endcase
-                    case (r_op)
-                        PUSH: rtail[k] <= k == 0 ? R : rtail[k - 1];
-                        POP1: rtail[k] <= k + 1 < DEPTH ? rtail[k + 1] : {W{1'b0}};
-                        POP2: rtail[k] <= k + 2 < DEPTH ? rtail[k + 2] : {W{1'b0}};
-                        default: ;
-                    endcase
-                end
-            end
-        end
-    endgenerate
+    reg [W-1:0] dmem [0:DEPTH-1] /* verilator public_flat_rd */;
+    reg [W-1:0] rmem [0:DEPTH-1] /* verilator public_flat_rd */;
+    reg [W-1:0] s3 /* verilator public_flat_rd */;
+    reg [W-1:0] r2 /* verilator public_flat_rd */;
+    wire [SB-1:0] dp = dsp[SB-1:0], rp = rsp[SB-1:0];
+    wire [SB-1:0] da3 = dp - 2'd3, da4 = dp - 3'd4, da5 = dp - 3'd5;
+    wire [SB-1:0] ra2 = rp - 2'd2, ra3 = rp - 2'd3, ra4 = rp - 3'd4;
+    wire [W-1:0] dq4 = dmem[da4], dq5 = dmem[da5];
+    wire [W-1:0] rq3 = rmem[ra3], rq4 = rmem[ra4];
+    assign ds3 = s3;
+    assign ds4 = dq4;
+    assign rs2 = r2;
+    assign rs3 = rq3;
+    always @(posedge clk) begin
+        case (d_op)
+            PUSH: begin dmem[da3] <= s3;  s3 <= d_in; end
+            POP1: s3 <= dq4;
+            POP2: s3 <= dq5;
+            default: ;
+        endcase
+        case (r_op)
+            PUSH: begin rmem[ra2] <= r2;  r2 <= R; end
+            POP1: r2 <= rq3;
+            POP2: r2 <= rq4;
+            default: ;
+        endcase
+    end
 
     wire [7:0] dsp_step = d_op == PUSH ? 8'd1 : d_op == POP1 ? 8'hff : d_op == POP2 ? 8'hfe : 8'd0;
     wire [7:0] rsp_step = r_op == PUSH ? 8'd1 : r_op == POP1 ? 8'hff : r_op == POP2 ? 8'hfe : 8'd0;
@@ -627,22 +596,34 @@ module hexaforth #(
                     pc <= pc_next;
                     T <= t_next;  N <= n_next;  R <= r_next;
                     if (io_wr && port_small && port[7:0] == 8'hc0) ioa <= out;
-                    if (io_wr && port_small && port[7:0] == 8'hd0) begin newdepth <= out[7:0];  state <= S_SP; end
-                    if (io_wr && port_small && port[7:0] == 8'hd1) begin newdepth <= out[7:0];  state <= S_RSP; end
+                    if (io_wr && port_small && port[7:0] == 8'hd0) begin newdepth <= out[7:0];  dstep <= 0;  state <= S_SP; end
+                    if (io_wr && port_small && port[7:0] == 8'hd1) begin newdepth <= out[7:0];  dstep <= 0;  state <= S_RSP; end
                 end
             end
 
-            // Setting a stack depth: pop, or push, one cell a cycle until
-            // the depth is the one asked for.
+            // Setting a stack depth changes only the depth; no cell changes.
+            // The cells held in registers are first pushed down into the
+            // memory, with three pushes of nothing in particular.  The depth
+            // is then set three above the one asked for, and three pops
+            // bring the registers back from the memory.  The return stack
+            // keeps two cells in registers, so it takes two of each.
             S_SP: begin
-                if (dsp > newdepth)      begin T <= N;  N <= ds3; end
-                else if (dsp < newdepth) begin N <= T; end
-                else state <= S_RUN;
+                dstep <= dstep + 1;
+                if (dstep < 3) N <= T;
+                else if (dstep == 3) dsp <= newdepth + 8'd3;
+                else begin
+                    T <= N;  N <= ds3;
+                    if (dstep == 6) state <= S_RUN;
+                end
             end
 
             S_RSP: begin
-                if (rsp > newdepth) R <= rs2;
-                else if (rsp == newdepth) state <= S_RUN;
+                dstep <= dstep + 1;
+                if (dstep == 2) rsp <= newdepth + 8'd2;
+                else if (dstep > 2) begin
+                    R <= rs2;
+                    if (dstep == 4) state <= S_RUN;
+                end
             end
 
             default: ;

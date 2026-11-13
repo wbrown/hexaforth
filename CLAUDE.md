@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## The machine model
+
+`MODEL.md` says what the machine is: the stacks, memory and display that
+`vm.c`, the AArch64 kernels and the Verilog must all provide in the same
+way. Read it before changing any of the three, and keep them to it.
+
 ## IMPORTANT: Read UNDERSTANDING.md First
 
 Before working with this codebase, read `UNDERSTANDING.md` which provides deep insights into:
@@ -171,8 +177,9 @@ Dictionary headers are whole cells: a link cell, an xt cell (top bit set for
 an immediate word), then the name as a count byte and lower-case characters
 padded with zeros to a cell boundary, so lookup compares a cell at a time.
 
-To check, build the reference VM with `-DSTRICT_ALIGN` or the small kernel
-with `make -C baremetal STRICT=1`; either stops at the first unaligned access.
+To check, build the reference VM with `-DSTRICT` or the small kernel with
+`make -C baremetal STRICT=1`; either stops at the first unaligned access,
+and at a stack leaving its `STACK_CELLS` cells.
 The byte and 16-bit basewords in `vm_opcodes.h` (`c@`, `w@`, ...) still do
 unaligned fetches and are kept for the instruction tests.
 
@@ -299,8 +306,7 @@ it for a cycle. `rtl/hf_mem.v` is the memory, one byte lane per byte of a
 cell so that an unaligned cell access takes one cycle; with `ALIGNED=1` it
 takes only aligned cell accesses, which is all the nucleus makes.
 `rtl/soc.v` joins them for synthesis. The stacks below T, N and R are
-memories read without a clock (LUT RAM on an FPGA); `STACKRAM=0` makes them
-shift registers instead. `PLANES=1` builds the memory from one-bit-wide
+memories read without a clock (LUT RAM on an FPGA). `PLANES=1` builds the memory from one-bit-wide
 block RAMs, which was tried for clock speed and gains little.
 `LAT=2` registers the memory's output: about 29% more cycles (a cycle lost
 on every jump, call, return and taken branch, and on every memory read) for

@@ -31,6 +31,12 @@ static inline uint64_t ucell(int64_t x) {
 #endif
 }
 
+// -DSTRICT turns on every check the Forth system is meant to pass.
+#ifdef STRICT
+#define STRICT_ALIGN
+#define STRICT_STACK
+#endif
+
 // Built with -DSTRICT_ALIGN, a fetch or store that is not at a cell-aligned
 // address stops the VM.  The Forth system does not make any.
 #ifdef STRICT_ALIGN
@@ -77,7 +83,10 @@ static inline uint8_t ctz(uint64_t N) {
 
 // Stack depth ports.  Reading gives the depth of the data or return stack
 // as the instruction starts (so `port io@` counts the port number itself).
-// Writing sets the depth; T or R is reloaded from the new top cell.
+// Writing sets the depth and changes nothing else: every cell keeps its
+// value, whether it is covered or uncovered by the change, so lowering a
+// depth and raising it again gives back the same stack.  T and R are only
+// copies of the top cells, and are written back before a depth moves.
 #define IO_SP  0xd0
 #define IO_RSP 0xd1
 
@@ -355,6 +364,13 @@ int vm(context *ctx) {
                 // Adjust stack depths
                 SP += ins.alu.dstack;
                 RSP += ins.alu.rstack;
+#ifdef STRICT_STACK
+                if (SP < 0 || SP > STACK_CELLS || RSP < 0 || RSP > STACK_CELLS) {
+                    fprintf(stderr, "\nstack out of range (data %d, return %d) at %llx\n",
+                            SP, RSP, (unsigned long long)EIP - 1);
+                    exit(3);
+                }
+#endif
                 // Update NOS (Next On Stack) if stack size was incremented
                 if (ins.alu.dstack > 0) {
                     ctx->DSTACK[SP - 2] = T;
@@ -378,11 +394,13 @@ int vm(context *ctx) {
                     // `OUT->io[T]` IO write op.
                     case OUTPUT_IO_T:
                         if (T == IO_SP) {
+                            if (ins.alu.dstack >= 0) ctx->DSTACK[SP - 1] = T;
                             SP = OUT;
                             T = ctx->DSTACK[SP - 1];
                             goto resolve_rstack;
                         }
                         if (T == IO_RSP) {
+                            if (ins.alu.rstack >= 0) ctx->RSTACK[RSP - 1] = R;
                             RSP = OUT;
                             R = ctx->RSTACK[RSP - 1];
                             goto resolve_dstack;

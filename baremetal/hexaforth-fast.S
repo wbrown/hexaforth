@@ -246,6 +246,9 @@ s2_\out\()_\d\()_\r:
   .elseif \out == 1                             // ->R
         mov     R, OUT
   .elseif \out == 2
+    .if \r < 2
+        str     R, [RS]                         // in case the port moves the return stack
+    .endif
         bl      io_write
     .if \r >= 2
         ldr     R, [RS]
@@ -346,6 +349,7 @@ io_write:                                       // port in x15, value in OUT
 7:      add     x12, MEM, OUT, lsl #3           // new stack pointer, less its base
         cmp     x15, #IO_SP
         b.ne    8f
+        str     T, [DS]                         // T back to its cell first
         add     DS, x12, #DSTACK_BASE
         ldr     T, [DS]
         ret
