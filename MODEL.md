@@ -12,7 +12,7 @@ which they reach the toolchain and the other implementations.
 | Name | Meaning | Default |
 |---|---|---|
 | `CELL_BITS` | width of a stack cell, the ALU, and a fetch or store: 64, 32 or 16 | 64 |
-| `ADDR_BITS` | memory is 2^`ADDR_BITS` cells | to be set |
+| `ADDR_BITS` | memory is 2^`ADDR_BITS` cells | 22 |
 | `STACK_CELLS` | cells in each of the two stacks | 256 |
 | `DISP_W`, `DISP_H` | the display's size in pixels; 0 for no display | 768, 576 |
 | `DISP_BASE` | the cell where the bitmap starts | `0x4000` |
@@ -52,8 +52,6 @@ set the depth to that position, push or pop, and set the depth back.
 
 ## Memory
 
-Decided; not yet true of the implementations, which still count bytes.
-
 1. Memory is an array of cells. An address is the number of a cell, from 0.
    `@` and `!` fetch and store one cell. There is no smaller unit: nothing
    in the machine counts bytes. Code is addressed by instruction, data by
@@ -64,20 +62,22 @@ Decided; not yet true of the implementations, which still count bytes.
 
 So a machine with 16-bit cells can have 65,536 of them, which is 128KB.
 
-Text is a convention of the Forth system, not of the machine. A string is
-the address of a cell and a count of characters, packed into cells from the
-low end. Words that deal with whole strings work a cell at a time; words
-that deal with characters fetch a cell and shift. Dictionary names, glyphs
-and the image viewer already work this way.
+Text is a convention of the Forth system, not of the machine. Characters
+are packed into cells from the low end. Words that deal with whole strings
+can work a cell at a time, as the dictionary search, the glyphs and the
+image viewer do; words that deal with characters fetch a cell and shift.
 
 `c@`, `c!`, `char+` and the rest of standard Forth's character words are
-not part of the machine and are not needed by the system. They can be
-provided as a library of ordinary Forth words for programs that want them.
-How that library represents the address of a character is its own affair
-and puts no constraint on the model. One way is a segment: a variable,
-kept for each task, holds the cell where character addresses start, and
-`c@` works out the cell and the shift from there. A program's text can
-then be anywhere in memory.
+not part of the machine. They are ordinary Forth words, and how they
+represent the address of a character is their own affair and puts no
+constraint on the model. The system as it stands uses the simplest
+representation: the address of a character is the address of its cell
+times the bytes in a cell, plus its place in the cell. That reaches all of
+memory when cells are 64 or 32 bits. When they are 16 bits it reaches the
+first 32,768 cells, which is where the kernel keeps its text; a program
+that wants text anywhere would use a segment instead: a variable, kept for
+each task, holds the cell where character addresses start, and `c@` works
+out the cell and the shift from there.
 
 ## Code
 

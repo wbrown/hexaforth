@@ -394,10 +394,10 @@ def dictionary_names(path):
     raw = b"".join(struct.pack("<I", int(l, 16)) for l in open(path) if l.strip())
     cells = struct.unpack(f"<{len(raw) // 2}H", raw)
     names = set()
-    link = cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
+    link = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
     while link:
         names.add(raw[link + 17:link + 17 + raw[link + 16]].decode("latin-1"))
-        link = struct.unpack_from("<Q", raw, link)[0]
+        link = 8 * struct.unpack_from("<Q", raw, link)[0]
     return names
 
 
@@ -466,17 +466,18 @@ def load_image(path):
     code = cells[:0x2000] + [0] * 0x6000 + cells[0x8000:0x10000]
     code = code[:max(i for i, w in enumerate(code) if w) + 1]
     # Headers are 64-bit cells: link, then xt with the immediate flag on top.
+    # A link is the address of a cell, which is 8 bytes.
     entries = set()
     labels = 0
-    link = cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
+    link = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
     while link:
         xt = struct.unpack_from("<Q", raw, link + 8)[0] & 0xFFFF
         entries.add(xt)
         if raw[link + 16:link + 23] == b"\x06labels":
             # The word pushes the address of the variable that heads the label chain.
             where = sum((w & 0xFFF) << 12 * (w >> 12 & 3) for w in cells[xt:xt + 2] if w & 0x8000)
-            labels = struct.unpack_from("<Q", raw, where)[0]
-        link = struct.unpack_from("<Q", raw, link)[0]
+            labels = 8 * struct.unpack_from("<Q", raw, 8 * where)[0]
+        link = 8 * struct.unpack_from("<Q", raw, link)[0]
     # Labels name the definitions that have no header.  One for code holds
     # its execution token; one for data has the top bit set.
     global LABELLED
@@ -485,7 +486,7 @@ def load_image(path):
         value = struct.unpack_from("<Q", raw, labels + 8)[0]
         if not value >> 63:
             entries.add(value & 0xFFFF)
-        labels = struct.unpack_from("<Q", raw, labels)[0]
+        labels = 8 * struct.unpack_from("<Q", raw, labels)[0]
     return code, entries
 
 
