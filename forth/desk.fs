@@ -23,7 +23,7 @@ header desktop
     ['] words-draw ['] words-key ['] words-click window drop
     d# 640 d# 300 d# 138 d# 238 t-calc
     ['] calc-draw ['] calc-key ['] calc-click window drop
-    tclear
+    tclear term-ok
     d# 12 d# 32 d# 406 d# 280 t-repl
     ['] term-draw ['] repl-key d# 0 window drop
     t-up count type cr

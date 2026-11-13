@@ -66,6 +66,11 @@ create ust #256 allot
 create un 0 ,
 create ubase 0 ,
 
+\ The prompt: ok, and a new line to type on.  The window opens with one.
+header term-ok : term-ok ( -- )
+    [char] o term-emit [char] k term-emit d# 10 term-emit
+;
+
 : repl-run ( -- )
     ['] term-emit 'emit !
     adepth ubase !
@@ -94,7 +99,7 @@ create ubase 0 ,
     repeat
     drop
     ubase @ IO-SP io!
-    space [char] o emit [char] k emit cr
+    space term-ok
     ['] uart-emit 'emit !
 ;
 
