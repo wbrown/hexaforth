@@ -375,9 +375,12 @@ module hexaforth #(
     // The stacks below the registers, in one of two forms.
     //
     // As memories, read without a clock: cell i from the bottom of the data
-    // stack is dmem[i], so the cell under N is at depth - 3, and a push
-    // writes at depth - 2.  Only the depth changes on a pop.  On an FPGA
-    // these are small LUT memories, not flip-flops.
+    // stack is dmem[i].  The cell under N and the cell under R are kept in
+    // registers as well (s3 and r2), so the memories are read only to
+    // refill those, at addresses that come straight from the depth and
+    // do not wait for the instruction to be decoded; and they are written
+    // only from those registers.  On an FPGA these are small LUT memories,
+    // not flip-flops.
     //
     // As shift registers: dtail[0] is the cell under N and rtail[0] the
     // cell under R, and a push or pop moves every cell along.
@@ -386,17 +389,30 @@ module hexaforth #(
         if (STACKRAM) begin : sram
             reg [W-1:0] dmem [0:DEPTH-1] /* verilator public_flat_rd */;
             reg [W-1:0] rmem [0:DEPTH-1] /* verilator public_flat_rd */;
-            wire [SB-1:0] d3 = dsp[SB-1:0] - 2'd3, d4 = dsp[SB-1:0] - 3'd4;
-            wire [SB-1:0] dw = dsp[SB-1:0] - 2'd2;
-            wire [SB-1:0] r2 = rsp[SB-1:0] - 2'd2, r3 = rsp[SB-1:0] - 2'd3;
-            wire [SB-1:0] rw = rsp[SB-1:0] - 2'd1;
-            assign ds3 = dmem[d3];
-            assign ds4 = dmem[d4];
-            assign rs2 = rmem[r2];
-            assign rs3 = rmem[r3];
+            reg [W-1:0] s3 /* verilator public_flat_rd */;
+            reg [W-1:0] r2 /* verilator public_flat_rd */;
+            wire [SB-1:0] dp = dsp[SB-1:0], rp = rsp[SB-1:0];
+            wire [SB-1:0] da3 = dp - 2'd3, da4 = dp - 3'd4, da5 = dp - 3'd5;
+            wire [SB-1:0] ra2 = rp - 2'd2, ra3 = rp - 2'd3, ra4 = rp - 3'd4;
+            wire [W-1:0] dq4 = dmem[da4], dq5 = dmem[da5];
+            wire [W-1:0] rq3 = rmem[ra3], rq4 = rmem[ra4];
+            assign ds3 = s3;
+            assign ds4 = dq4;
+            assign rs2 = r2;
+            assign rs3 = rq3;
             always @(posedge clk) begin
-                if (d_op == PUSH) dmem[dw] <= d_in;
-                if (r_op == PUSH) rmem[rw] <= R;
+                case (d_op)
+                    PUSH: begin dmem[da3] <= s3;  s3 <= d_in; end
+                    POP1: s3 <= dq4;
+                    POP2: s3 <= dq5;
+                    default: ;
+                endcase
+                case (r_op)
+                    PUSH: begin rmem[ra2] <= r2;  r2 <= R; end
+                    POP1: r2 <= rq3;
+                    POP2: r2 <= rq4;
+                    default: ;
+                endcase
             end
         end else begin : sreg
             reg [W-1:0] dtail [0:DEPTH-1] /* verilator public_flat_rd */;
