@@ -4,6 +4,8 @@
 \ plot vector at the bitmap while atkinson runs.  Painting the window is
 \ then a matter of copying it to the screen, a cell of 64 pixels at a time.
 
+create vi 0 ,           \ a loop counter
+
 create bm  0 ,          \ the bitmap, or 0
 create bmw 0 ,          \ bytes per row, a whole number of cells
 create bmh 0 ,          \ rows
@@ -27,12 +29,12 @@ header view-load : view-load ( blk# -- ) \ dither the TIFF starting at a block
 ;
 
 header view-draw : view-draw ( win -- )
-    content ty0 ! tx0 !
+    drop
     bm @ 0= if exit then
     bm @
-    d# 0 ti !
+    d# 0 vi !
     begin
-        ti @ bmh @ <
+        vi @ bmh @ <
     while
         d# 0
         begin
@@ -44,14 +46,14 @@ header view-draw : view-draw ( win -- )
                 dup
             while
                 >r >r
-                r@ h# ff and  over d# 3 lshift tx0 @ +  ty0 @ ti @ +  cblit8
+                r@ h# ff and  over d# 3 lshift ox @ +  oy @ vi @ +  cblit8
                 1+ r> d# 8 rshift r> 1-
             repeat
             2drop
             swap cell+ swap
         repeat
         drop
-        d# 1 ti +!
+        d# 1 vi +!
     repeat
     drop
 ;
