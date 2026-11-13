@@ -161,7 +161,7 @@ create k-halt   ," halt"
         dup nfw @ <
     while
         dup cells sfw + @ spc @ = if
-            k-then wt
+            sflush k-then wt                \ a number before it comes first
             d# -1 over cells sfw + !
         then
         1+
@@ -174,7 +174,7 @@ create k-halt   ," halt"
     begin
         dup nbg @ <
     while
-        dup cells sbg + @ spc @ = if k-begin wt then
+        dup cells sbg + @ spc @ = if sflush k-begin wt then
         1+
     repeat
     drop
