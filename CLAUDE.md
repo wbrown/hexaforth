@@ -221,6 +221,8 @@ The desktop is cross-compiled into code pages 8 and 9 (`0x10000` up):
 - `gfx.fs`, `wm.fs`: clipped rectangles and text; windows, pointer, event loop
 - `term.fs`, `edit.fs`, `view.fs`, `calc.fs`: the Forth window, block
   editor, image viewer and RPN calculator
+- `see.fs`: a decompiler (`see name`), and the Words window, which lists
+  the dictionary and shows a definition with each word in it as a link
 - `desk.fs`: `desktop`, and `cold`, which the kernel runs at boot
 
 `cross.fs` compiles a call to another code page as `literal xt` +

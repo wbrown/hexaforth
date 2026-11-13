@@ -40,4 +40,5 @@ include term.fs         \ text area and the Forth window
 include edit.fs         \ block editor
 include view.fs         \ image viewer
 include calc.fs         \ RPN calculator
+include see.fs          \ decompiler and the dictionary browser
 include desk.fs         \ the desktop itself
