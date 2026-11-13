@@ -39,8 +39,9 @@
         .equ    IO_SP,       0xd0
         .equ    IO_RSP,      0xd1
 
-// Built with -DSTRICT, a fetch or store that is not at a cell-aligned address
-// sends '!' and halts.  The Forth system does not make any.
+// Built with -DSTRICT, a fetch or store that is not at a cell-aligned address,
+// or a store into the first 4KB of the kernel, sends '!' and halts.  The
+// Forth system does not make any.
         .macro  ALIGNED reg
 #ifdef STRICT
         tst     \reg, #7
@@ -246,6 +247,10 @@ alu_done:
         b       next
 out_mem:
         ALIGNED OLDT
+#ifdef STRICT
+        cmp     OLDT, #0x1000                   // the first 4KB is never written
+        b.lo    unaligned
+#endif
         str     IO, [MEM, OLDT]                 // 3: ->[T]
         b       fix_r
 out_io: cmp     OLDT, #IO_EMIT                  // 2: ->io[T]

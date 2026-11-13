@@ -48,7 +48,10 @@ module hexaforth #(
     parameter DEPTH = 64,           // cells in each stack below T, N and R
     parameter MB    = 17,           // log2 of the memory size in bytes
     parameter STACKRAM = 1,         // stacks in distributed RAM, or shift registers
-    parameter LAT   = 1             // cycles from a read address to its data: 1 or 2
+    parameter LAT   = 1,            // cycles from a read address to its data: 1 or 2
+    parameter KROM  = "",           // if set, the start of the kernel is also a ROM,
+                                    // loaded from this file; needs LAT = 2
+    parameter KB    = 11            // log2 of the ROM's size in instructions (4KB)
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -387,10 +390,44 @@ module hexaforth #(
     wire [1:0] others = LAT == 2 ? {1'b0, nxtv} + {1'b0, k1 == K_INS} : 2'd0;
     wire [1:0] total  = {1'b0, have_cur} + others;
     wire [1:0] left   = total - {1'b0, execute};
-    wire       issue  = state != S_HALT && !want_a && !want_b && (jump || left < LAT);
+    wire       room   = state != S_HALT && (jump || left < LAT);
+    wire [PCW-1:0] fetch = jump ? pc_next : fpc;
+
+    // The kernel ROM.  The first 2^KB instructions of the kernel are never
+    // written, so they can also be had from logic, without a clock: an
+    // instruction there is in the instruction register the cycle after it
+    // is asked for, where the memory takes two.  A jump, call or return
+    // into the ROM therefore costs nothing, and the memory's read port is
+    // left free for data.  The memory still holds the same instructions,
+    // for anything that reads them as data.
+    wire        in_rom = KROM != "" && fetch[PCW-1:KB] == 0;
+    wire [15:0] romq;
+    generate
+        if (KROM != "") begin : krom
+            (* rom_style = "logic" *) reg [15:0] m [0:(1<<KB)-1];
+            initial $readmemh(KROM, m);
+            assign romq = m[fetch[KB-1:0]];
+        end else begin : nokrom
+            assign romq = 16'd0;
+        end
+    endgenerate
+    wire [CW-1:0] drom = dec(romq);
+
+    wire       issue_rom = room && in_rom;
+    wire       issue  = room && !in_rom && !want_a && !want_b;
     wire [1:0] kreq   = want_a ? K_A : want_b ? K_B : issue ? K_INS : K_NONE;
 
-    wire [PCW-1:0] fetch = jump ? pc_next : fpc;
+    // Instructions arriving at this clock edge, oldest first: the one
+    // waiting in nxt, one from the memory, one from the ROM.  There are
+    // never more than two, and never more than there is room for.
+    wire        a1v = k1 == K_INS;
+    wire        firstv  = nxtv || a1v || issue_rom;
+    wire [15:0] first   = nxtv ? nxt : a1v ? rpre[15:0] : romq;
+    wire [CW-1:0] firstd = nxtv ? pdn : a1v ? dpre : drom;
+    wire        secondv = (nxtv && a1v) || ((nxtv || a1v) && issue_rom);
+    wire [15:0] second  = (nxtv && a1v) ? rpre[15:0] : romq;
+    wire [CW-1:0] secondd = (nxtv && a1v) ? dpre : drom;
+
     always @* begin
         raddr = {{(W-PCW-1){1'b0}}, fetch, 1'b0};  rok = 1;
         if (want_a) raddr = T;
@@ -537,23 +574,20 @@ module hexaforth #(
             // not finish in the cycle it arrives.
             k1 <= kreq;
             k2 <= (k1 == K_A || k1 == K_B) ? k1 : K_NONE;
-            if (issue) fpc <= fetch + 1;
+            if (issue || issue_rom) fpc <= fetch + 1;
             if (arr == K_A) begin a_val <= rdata;  have_a <= 1; end
             if (arr == K_B) begin b_val <= rdata;  have_b <= 1; end
 
             // Where the current instruction and the one after it wait.
             if (LAT == 2) begin
-                if (jump) begin
-                    irv <= 0;  nxtv <= 0;               // what follows is dropped
+                if (jump) begin                         // what follows is dropped;
+                    ir <= romq;  pd <= drom;            // a target in the ROM is here already
+                    irv <= issue_rom;  nxtv <= 0;
                 end else if (execute || !irv) begin     // ir is free: refill it
-                    if (nxtv) begin
-                        ir <= nxt;  pd <= pdn;  irv <= 1;
-                        nxtv <= k1 == K_INS;  nxt <= rpre[15:0];  pdn <= dpre;
-                    end else begin
-                        ir <= rpre[15:0];  pd <= dpre;  irv <= k1 == K_INS;
-                    end
-                end else if (k1 == K_INS) begin
-                    nxt <= rpre[15:0];  pdn <= dpre;  nxtv <= 1;
+                    ir <= first;  pd <= firstd;  irv <= firstv;
+                    nxt <= second;  pdn <= secondd;  nxtv <= secondv;
+                end else if (firstv) begin
+                    nxt <= first;  pdn <= firstd;  nxtv <= 1;
                 end
             end else begin
                 if (jump || execute) held <= 0;

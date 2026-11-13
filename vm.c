@@ -53,8 +53,17 @@ static inline int64_t mem_load(context *ctx, int64_t addr) {
     return cell(v);
 }
 
+// Built with -DROM_BYTES=n, a store below address n stops the VM: that part
+// of the kernel can then be a ROM.  The Forth system keeps every variable
+// above the kernel and makes no such store.
 static inline void mem_store(context *ctx, int64_t addr, int64_t v) {
     strict("store", addr);
+#ifdef ROM_BYTES
+    if (ucell(addr) < ROM_BYTES) {
+        fprintf(stderr, "\nstore to the kernel at %llx\n", (unsigned long long)ucell(addr));
+        exit(3);
+    }
+#endif
     memcpy((uint8_t *)ctx->memory + ucell(addr), &v, CELL_BYTES);
 }
 

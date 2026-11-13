@@ -16,8 +16,9 @@ ALIGNED ?= 0
 STACKRAM ?= 1
 PLANES  ?= 0
 LAT     ?= 1
+KROM    ?= 0
 SIMMB   := $(if $(filter 16,$(W)),16,17)
-B       := build/w$(W)$(if $(filter 1,$(ALIGNED)),-aligned)$(if $(filter 0,$(STACKRAM)),-shift)$(if $(filter 2,$(LAT)),-lat2)
+B       := build/w$(W)$(if $(filter 1,$(ALIGNED)),-aligned)$(if $(filter 0,$(STACKRAM)),-shift)$(if $(filter 2,$(LAT)),-lat2)$(if $(filter 1,$(KROM)),-krom)
 TOP     := ..
 CASES   := $(B)/cases.bin
 HEX     := $(TOP)/build/nuc-$(W)-$(SIMMB).hex
@@ -47,7 +48,7 @@ $(B)/tb_soc: soc.v hexaforth.v hf_mem.v tb_soc.cpp lanes.py $(HEX)
 	@mkdir -p $(B)
 	python3 lanes.py $(HEX) $(B)/lane $(W) $(SIMMB)
 	verilator $(VFLAGS) --cc soc.v hexaforth.v hf_mem.v --top-module soc -GW=$(W) -GMB=$(SIMMB) -GALIGNED=$(ALIGNED) -GSTACKRAM=$(STACKRAM) -GLAT=$(LAT) \
-	    -GINIT='"$(B)/lane"' --exe $(CURDIR)/tb_soc.cpp --Mdir $(B)/soc -o ../tb_soc \
+	    -GINIT='"$(B)/lane"' $(if $(filter 1,$(KROM)),-GKROM='"$(B)/lanekrom.hex"') --exe $(CURDIR)/tb_soc.cpp --Mdir $(B)/soc -o ../tb_soc \
 	    --build -j 4 > $(B)/build.log 2>&1 || (cat $(B)/build.log; false)
 
 # Cases from the reference VM built for this cell width.
@@ -74,16 +75,17 @@ test-mem: build/w64/tb_mem
 # Synthesis.
 A       ?= $(if $(filter 16,$(W)),16,17)
 MEMBITS ?= $(if $(filter 16,$(W)),16,17)
-S       := build/synth-w$(W)-a$(A)-m$(MEMBITS)$(if $(filter 1,$(ALIGNED)),-aligned)$(if $(filter 0,$(STACKRAM)),-shift)$(if $(filter 1,$(PLANES)),-planes)$(if $(filter 2,$(LAT)),-lat2)
+S       := build/synth-w$(W)-a$(A)-m$(MEMBITS)$(if $(filter 1,$(ALIGNED)),-aligned)$(if $(filter 0,$(STACKRAM)),-shift)$(if $(filter 1,$(PLANES)),-planes)$(if $(filter 2,$(LAT)),-lat2)$(if $(filter 1,$(KROM)),-krom)
 
-synth:
+synth: $(if $(filter 1,$(KROM)),$(HEX))
 	@mkdir -p $(S)
+	$(if $(filter 1,$(KROM)),python3 lanes.py $(HEX) $(S)/lane $(W) $(SIMMB))
 	yosys -q -l $(S)/yosys.log -p "read_verilog soc.v hexaforth.v hf_mem.v; \
-	    chparam -set W $(W) -set MB $(MEMBITS) -set PCW $$(($(A)-1)) -set ALIGNED $(ALIGNED) -set STACKRAM $(STACKRAM) -set PLANES $(PLANES) -set LAT $(LAT) soc; \
+	    chparam -set W $(W) -set MB $(MEMBITS) -set PCW $$(($(A)-1)) -set ALIGNED $(ALIGNED) -set STACKRAM $(STACKRAM) -set PLANES $(PLANES) -set LAT $(LAT) $(if $(filter 1,$(KROM)),-set KROM \"$(S)/lanekrom.hex\") soc; \
 	    synth_ecp5 -top soc -json $(S)/soc.json"
 	nextpnr-ecp5 --85k --package CABGA381 --json $(S)/soc.json --lpf-allow-unconstrained \
 	    --timing-allow-fail -q -l $(S)/nextpnr.log || true
-	@echo "W=$(W) A=$(A) ALIGNED=$(ALIGNED) STACKRAM=$(STACKRAM) PLANES=$(PLANES) LAT=$(LAT) memory 2^$(MEMBITS) bytes:" \
+	@echo "W=$(W) A=$(A) ALIGNED=$(ALIGNED) STACKRAM=$(STACKRAM) PLANES=$(PLANES) LAT=$(LAT) KROM=$(KROM) memory 2^$(MEMBITS) bytes:" \
 	    $$(grep -E "Total LUT4s" $(S)/nextpnr.log | tail -1 | awk '{print $$4}' | cut -d/ -f1) LUTs, \
 	    $$(grep -E "TRELLIS_FF:" $(S)/nextpnr.log | tail -1 | awk '{print $$3}' | cut -d/ -f1) flip-flops, \
 	    $$(grep -E "Max frequency for clock" $(S)/nextpnr.log | tail -1 | awk '{print $$7}') MHz \
