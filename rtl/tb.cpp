@@ -94,6 +94,7 @@ struct Machine {
         if (i == sp - 1) return top.dbg_t;
         if (i == sp - 2) return top.dbg_n;
 #if STACKRAM
+        if (i == sp - 3) return top.rootp->hexaforth__DOT__sram__DOT__s3;
         return top.rootp->hexaforth__DOT__sram__DOT__dmem[i];
 #else
         return top.rootp->hexaforth__DOT__sreg__DOT__dtail[sp - 3 - i];
@@ -104,6 +105,7 @@ struct Machine {
         int sp = top.dbg_rsp;
         if (i == sp - 1) return top.dbg_r;
 #if STACKRAM
+        if (i == sp - 2) return top.rootp->hexaforth__DOT__sram__DOT__r2;
         return top.rootp->hexaforth__DOT__sram__DOT__rmem[i];
 #else
         return top.rootp->hexaforth__DOT__sreg__DOT__rtail[sp - 2 - i];
