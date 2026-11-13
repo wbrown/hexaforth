@@ -368,7 +368,13 @@ create hv 0 ,
 ;
 
 : s-jump ( w -- )
-    sflush starget
+    starget
+    slit @ if                                       \ a far call that does not come back
+        dup ['] execute = sacc @ code? and if
+            drop d# 0 slit !  sacc @ slink stail exit
+        then
+    then
+    sflush
     dup spc @ > if
         dup fw-else if reach snl s- k-else wt snl s+ exit then
         slink stail exit
@@ -519,7 +525,7 @@ create lku 0 ,
 create crow 0 ,
 create ccol 0 ,
 create wtmp 0 ,
-create t-words ," Words"
+header t-words create t-words ," Words"
 
 : nwords ( -- n )
     d# 0 forth @
@@ -609,7 +615,7 @@ create t-words ," Words"
 
 : gnl ( -- ) d# 1 srow +! ;
 
-: words-draw ( win -- )
+header words-draw : words-draw ( win -- )
     content ty0 ! tx0 !
     winit @ 0= if true winit !  d# 0 wpick then
     wxt @ xt>hdr ?dup if hdr>i else d# -1 then wsel !
@@ -633,7 +639,7 @@ create t-words ," Words"
     srow @ 1+ wrows !
 ;
 
-: words-key ( c win -- )
+header words-key : words-key ( c win -- )
     drop
     dup d# 128 = if drop wsel @ 1- wpick exit then
     dup d# 129 = if drop wsel @ 1+ wpick exit then
@@ -644,7 +650,7 @@ create t-words ," Words"
     d# 8 = if wback then
 ;
 
-: words-click ( x y win -- )
+header words-click : words-click ( x y win -- )
     drop d# 4 rshift crow !
     dup d# 108 < if drop crow @ wtop @ + wpick exit then
     d# 112 - d# 3 rshift ccol !

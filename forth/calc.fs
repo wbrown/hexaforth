@@ -29,7 +29,7 @@ create cbtn ," 789/456*123-0nE+dx< "
     r> 0< if negate then
 ;
 
-: calc-key ( c win -- )
+header calc-key : calc-key ( c win -- )
     drop
     dup [char] 0 - d# 10 u< if
         [char] 0 - cacc @ d# 10 * + cacc !
@@ -60,7 +60,7 @@ create cbtn ," 789/456*123-0nE+dx< "
     drop
 ;
 
-: calc-draw ( win -- )
+header calc-draw : calc-draw ( win -- )
     content ty0 ! tx0 !
     d# 0 ti !                                       \ the top four, oldest first
     begin
@@ -96,7 +96,7 @@ create cbtn ," 789/456*123-0nE+dx< "
     repeat
 ;
 
-: calc-click ( x y win -- )
+header calc-click : calc-click ( x y win -- )
     drop
     d# 96 - dup 0< if 2drop exit then
     d# 24 u/mod nip dup d# 4 > if 2drop exit then   ( x row )

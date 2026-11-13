@@ -4,7 +4,7 @@
 \ and 32 bits), using Linux input codes.  This driver hands each one to the
 \ 'event vector and does not care which device it came from.
 
-create 'event 0 ,       \ ( type code value -- )
+header 'event create 'event 0 ,       \ ( type code value -- )
 create idevs  0 , 0 , 0 , 0 ,
 create nidev  0 ,
 

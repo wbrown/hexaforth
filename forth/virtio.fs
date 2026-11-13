@@ -6,13 +6,13 @@
 
 $0a000000 constant VIRTIO0
 
-create vdev  0 ,        \ machine address of the registers being worked on
+header vdev create vdev  0 ,        \ machine address of the registers being worked on
 create vkind 0 ,
 
-: vreg@ ( off -- x ) vdev @ + reg32@ ;
-: vreg! ( x off -- ) vdev @ + reg32! ;
+header vreg@ : vreg@ ( off -- x ) vdev @ + reg32@ ;
+header vreg! : vreg! ( x off -- ) vdev @ + reg32! ;
 
-: vprobe ( id slot -- slot true | false ) \ next device of this kind, from slot
+header vprobe : vprobe ( id slot -- slot true | false ) \ next device of this kind, from slot
     swap vkind !
     begin
         dup d# 32 <
@@ -29,7 +29,7 @@ create vkind 0 ,
 
 : vstatus+ ( bit -- ) h# 70 vreg@ or h# 70 vreg! ;
 
-: vhello ( -- ) \ reset, then negotiate VERSION_1 and nothing else
+header vhello : vhello ( -- ) \ reset, then negotiate VERSION_1 and nothing else
     d# 0 h# 70 vreg!
     d# 1 vstatus+  d# 2 vstatus+            \ acknowledge, driver
     d# 1 h# 24 vreg!  d# 1 h# 20 vreg!      \ features 32-63: VERSION_1
@@ -38,7 +38,7 @@ create vkind 0 ,
     h# 70 vreg@ d# 8 and 0= d# 37 -throw
 ;
 
-: vqueue ( n -- desc avail used ) \ set up queue 0 with n descriptors
+header vqueue : vqueue ( n -- desc avail used ) \ set up queue 0 with n descriptors
     d# 0 h# 30 vreg!
     dup h# 38 vreg!
     dup d# 4 lshift halloc
@@ -51,4 +51,4 @@ create vkind 0 ,
     d# 1 h# 44 vreg!                        \ queue ready
 ;
 
-: vgo ( -- ) d# 4 vstatus+ ;                \ driver ok
+header vgo : vgo ( -- ) d# 4 vstatus+ ;                \ driver ok

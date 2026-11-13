@@ -2,8 +2,8 @@
 
 \ A block is 1024 bytes.  A driver stores its routines here.
 
-create 'blk-read  0 ,   \ ( buf blk# -- )
-create 'blk-write 0 ,   \ ( buf blk# -- )
+header 'blk-read create 'blk-read  0 ,   \ ( buf blk# -- )
+header 'blk-write create 'blk-write 0 ,   \ ( buf blk# -- )
 
 : blk-read  ( buf blk# -- ) 'blk-read  @ dup 0= d# 37 -throw execute ;
 : blk-write ( buf blk# -- ) 'blk-write @ dup 0= d# 37 -throw execute ;
@@ -11,7 +11,7 @@ create 'blk-write 0 ,   \ ( buf blk# -- )
 \ One block buffer.
 
 create blk-buf   0 ,    \ its address, once allocated
-create blk-cur   -1 ,   \ the block it holds
+header blk-cur create blk-cur   -1 ,   \ the block it holds
 create blk-dirty 0 ,
 
 header flush

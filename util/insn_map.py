@@ -449,7 +449,7 @@ def write_fused(image, path, words, classes, canonical):
                 "\\ from the instructions in a built image.  Do not edit.\n\\\n"
                 "\\ Each entry is four cells: the instruction, then a counted string in 24\n"
                 "\\ bytes.  A zero ends the table.\n\n"
-                "create fused\n")
+                "header fused create fused\n")
         for ins, text in rows:
             field = bytes([len(text)]) + text.encode() + bytes(23 - len(text))
             f.write(f"${ins:04x} ,  " + " ".join(f"${b:02x} c," for b in field) + f"  \\ {text}\n")

@@ -414,10 +414,12 @@ cell-bits 64 = constant labelling
     true named !  tcp @ named-cp !
 ;
 
-: wants-label? ( -- f ) \ and the next definition will have to be asked again
-    named @ tcp @ named-cp @ = and 0=  labelling and
+: named? ( -- f ) \ and the next definition will have to be asked again
+    named @ tcp @ named-cp @ = and
     false named !
 ;
+
+: wants-label? ( -- f ) named? 0= labelling and ;
 
 : (label) ( x "name" -- a ) \ a label for the name that follows; a is where x went
     tcalign
@@ -537,12 +539,18 @@ variable lastdef    \ body of the most recent target colon definition
     does>   @ literal
 ;
 
+\ A header in front of create names the data.  The header points at code,
+\ so code is laid down for it that pushes the data's address, as a word
+\ made with create at run time has.
 :: create
-    wants-label? if
+    named? dup >r 0= labelling and if
         0 (label)
         there 1 cell-bits 1- lshift or swap tcell!
     then
     tcalign
+    r> if
+        there literal  s" exit" evaluate  label
+    then
     create there ,
     does>   @ literal
 ;

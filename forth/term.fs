@@ -10,7 +10,7 @@ create ti 0 ,
 create tx0 0 ,
 create ty0 0 ,
 
-: tclear ( -- ) tbuf d# 800 d# 32 fill  d# 0 tcol !  d# 0 trow ! ;
+header tclear : tclear ( -- ) tbuf d# 800 d# 32 fill  d# 0 tcol !  d# 0 trow ! ;
 
 : tscroll ( -- )
     tbuf TCOLS + tbuf TCOLS TROWS 1- * cmove
@@ -37,7 +37,7 @@ create ty0 0 ,
     tcol @ 1+ dup TCOLS = if drop tnewline else tcol ! then
 ;
 
-: term-draw ( win -- )
+header term-draw : term-draw ( win -- )
     content ty0 ! tx0 !
     d# 0 ti !
     begin
@@ -100,7 +100,7 @@ create ubase 0 ,
     ['] uart-emit 'emit !
 ;
 
-: repl-key ( c win -- )
+header repl-key : repl-key ( c win -- )
     drop
     dup d# 13 = if
         drop

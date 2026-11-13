@@ -271,7 +271,13 @@ def main():
         source = read_text(shot, 253, 337, 46, 16)
         check("Down moves to the next word", source[0] == ": cold" and source[1].endswith(" catch drop")
               and source[2] == ";", repr(source[:3]))
-        m.click(143 + 8, 337 + 8 * 16 + 8)             # "atkinson", eight names down
+        for _ in range(16):                             # page down to "atkinson"
+            names = read_text(m.screenshot(f"{out}/10-list.png", settle=1.0), 143, 337, 13, 16)
+            if "atkinson" in names:
+                break
+            m.key("pgdn")
+        check("PgDn pages through the dictionary", "atkinson" in names, repr(names[:4]))
+        m.click(143 + 8, 337 + names.index("atkinson") * 16 + 8 if "atkinson" in names else 345)
         m.move(790, 30)
         shot = m.screenshot(f"{out}/10-fused.png")
         source = read_text(shot, 253, 337, 45, 16)
