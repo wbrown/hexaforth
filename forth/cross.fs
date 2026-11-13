@@ -559,9 +559,21 @@ variable lastdef    \ body of the most recent target colon definition
     tcalign
     pixels cell-bytes 0 do dup tc, loop drop
 ;
-:: glyph, ( rows -- ) \ eight rows of a glyph, the first in the low byte
+\ 64 pixels of a bitmap, written with the leftmost highest, as the cells
+\ the display would hold them in.
+:: px, ( pixels -- )
     tcalign
-    8 0 do dup i 8 * rshift $ff and pixels tc, loop drop
+    8 cell-bytes / 0 do                             \ a cell at a time, from the left
+        cell-bytes 0 do
+            dup
+            disp-left-low if
+                56 j cell-bytes * i + 8 * - rshift $ff and pixels
+            else
+                56 j cell-bytes * cell-bytes 1- i - + 8 * - rshift $ff and
+            then
+            tc,
+        loop
+    loop drop
 ;
 
 \ ," text" lays down a counted string in data space.
@@ -684,6 +696,10 @@ warnings on
 :: d# bl parse 10 base>number ;
 :: h# bl parse 16 base>number ;
 :: ['] ' >body @ literal ;  \ xt = word address
+
+\ n at: data name  makes name the address n cells past where data is, as a
+\ number compiled in line.
+:: at: ( n "data" "name" -- ) ' >body @ + create , does> @ literal ;
 :: [char] char literal ;
 
 \ The machine's sizes, for the target program.  The first group compile a
@@ -720,7 +736,6 @@ warnings on
 :: PXCELL         cell-bits literal ;
 :: PXMASK         cell-bits 1- literal ;
 :: PXSHIFT        byte-shift 3 + literal ;
-:: GLYPH-CELLS    16 cell-bytes / literal ;       \ a glyph is 16 bytes
 :: DISP-BASE      disp-base literal ;
 :: DISP-STRIDE    disp-stride literal ;
 :: DISP-BANKS     disp-banks literal ;
