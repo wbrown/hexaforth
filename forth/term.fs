@@ -8,10 +8,19 @@ create tcells #800 allot
 create tcol 0 ,
 create trow 0 ,
 create ti 0 ,
+create twin 0 ,         \ the window it is in, once that is known
+
+\ What has changed is put out of date a character at a time.
+: tmark ( -- ) \ the character the cursor is at
+    twin @ ?dup if
+        >r  tcol @ d# 3 lshift d# 2 +  trow @ d# 4 lshift d# 2 +  d# 8 d# 16  r> win-inval
+    then
+;
 
 header tclear : tclear ( -- ) tbuf d# 800 d# 32 fill  d# 0 tcol !  d# 0 trow ! ;
 
 : tscroll ( -- )
+    twin @ ?dup if inval-window then
     tbuf TCOLS + tbuf TCOLS TROWS 1- * cmove
     tbuf TCOLS TROWS 1- * + TCOLS d# 32 fill
 ;
@@ -21,7 +30,7 @@ header tclear : tclear ( -- ) tbuf d# 800 d# 32 fill  d# 0 tcol !  d# 0 trow ! ;
     trow @ 1+ dup TROWS = if drop tscroll else trow ! then
 ;
 
-: term-emit ( c -- )
+: (term-emit) ( c -- )
     dup d# 10 = if drop tnewline exit then
     dup d# 13 = if drop exit then
     dup d# 8 = if
@@ -35,6 +44,8 @@ header tclear : tclear ( -- ) tbuf d# 800 d# 32 fill  d# 0 tcol !  d# 0 trow ! ;
     trow @ TCOLS * tcol @ + tbuf + c!
     tcol @ 1+ dup TCOLS = if drop tnewline else tcol ! then
 ;
+
+: term-emit ( c -- ) tmark (term-emit) tmark ; \ where the cursor was, and where it is
 
 header term-draw : term-draw ( win -- )
     drop
@@ -106,7 +117,7 @@ header term-ok : term-ok ( -- )
 ;
 
 header repl-key : repl-key ( c win -- )
-    drop
+    twin !
     dup d# 13 = if
         drop
         d# 10 term-emit

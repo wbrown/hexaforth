@@ -7,8 +7,14 @@
 \     click  ( x y win -- )     a click in the content, or 0 for none
 \
 \ `wins` holds the windows from back to front.  The front one has the
-\ keyboard.  Painting is back to front with no clipping between windows, so
-\ only the front window may draw outside a full repaint.
+\ keyboard.
+\
+\ Nothing draws when something changes.  What has changed is added to a
+\ rectangle of the screen that is out of date (inval-rect, win-inval), and
+\ the event loop then paints that rectangle: the desk and every window
+\ that touches it, from back to front, clipped to it.  A key or a click
+\ puts the whole of the front window out of date, unless the window's
+\ routine said more exactly what changed.
 
 create wins #64 allot
 header nwin create nwin 0 ,
@@ -70,6 +76,44 @@ create arrow
 
 create t-menu ," hexaforth"
 
+\ ---- what is out of date
+
+create dirty 0 , 0 , 0 , 0 ,    \ left, top, and past the right and bottom; empty if no wider than 0
+create urect 0 , 0 , 0 , 0 ,    \ the same, for what is being painted
+create auto 0 ,                 \ true if the front window is to be put out of date
+
+header inval-rect : inval-rect ( x y w h -- ) \ on the screen
+    >r >r
+    dirty CELL2 + @ dirty @ > if                    \ as well as what is there
+        over dirty @ min dirty !
+        dup dirty CELL + @ min dirty CELL + !
+        swap r> + dirty CELL2 + @ max dirty CELL2 + !
+        r> + dirty c# 3 + @ max dirty c# 3 + !
+    else
+        over dirty !
+        dup dirty CELL + !
+        swap r> + dirty CELL2 + !
+        r> + dirty c# 3 + !
+    then
+;
+
+header inval-window : inval-window ( win -- ) \ frame and all
+    >r r@ @ r@ CELL + @ r@ CELL2 + @ r> c# 3 + @ inval-rect
+;
+
+: uclip ( -- ) \ clip to what is being painted
+    urect @ clip !  urect CELL + @ clip CELL + !
+    urect CELL2 + @ clip CELL2 + !  urect c# 3 + @ clip c# 3 + !
+;
+
+: touches? ( win -- f ) \ is any of it being painted?
+    >r
+    r@ @ urect CELL2 + @ <
+    r@ @ r@ CELL2 + @ + urect @ > and
+    r@ CELL + @ urect c# 3 + @ < and
+    r@ CELL + @ r> c# 3 + @ + urect CELL + @ > and
+;
+
 : draw-frame ( front? -- ) \ frame and title of cw
     true  cw.x cw.y cw.w cw.h fill-rect
     false cw.x cw.y cw.w cw.h frame-rect
@@ -87,7 +131,7 @@ create t-menu ," hexaforth"
     1+ nwin @ = draw-frame
     cw @ c# 8 + @ port!                             \ the window's own port:
     cw @ content origin!                            \ its content, and no more
-    noclip  d# 0 d# 0 cw.w d# 2 - cw.h d# 20 - clip-to
+    uclip  d# 0 d# 0 cw.w d# 2 - cw.h d# 20 - clip-to
     cw @ dup c# 5 + @ execute
     screen-port @ port!
 ;
@@ -102,21 +146,36 @@ create t-menu ," hexaforth"
     d# 0 d# 20 fb-w @ fb-h @ d# 20 - pat-rect
 ;
 
-: repaint ( -- )
+header win-inval : win-inval ( x y w h win -- ) \ in a window's content
+    >r 2swap r> content
+    rot + >r + r> 2swap inval-rect
+    d# 0 auto !
+;
+
+header refresh : refresh ( -- ) \ paint what is out of date
+    dirty CELL2 + @ dirty @ > 0= if exit then
+    dirty @ d# 0 max urect !
+    dirty CELL + @ d# 0 max urect CELL + !
+    dirty CELL2 + @ fb-w @ min urect CELL2 + !
+    dirty c# 3 + @ fb-h @ min urect c# 3 + !
+    d# 0 dirty !  d# 0 dirty CELL2 + !
     cursor-off
+    uclip
     draw-desk
     d# 0
     begin
         dup nwin @ <
     while
-        dup draw-window
+        dup cells wins + @ touches? if dup draw-window uclip then
         1+
     repeat
     drop
+    noclip
     cursor-show
 ;
 
-: redraw-top ( -- ) cursor-off nwin @ 1- draw-window cursor-show ;
+: repaint ( -- ) d# 0 d# 0 fb-w @ fb-h @ inval-rect ;
+: redraw-top ( -- ) top inval-window ;
 
 \ ---- which window, and bringing one to the front
 
@@ -159,7 +218,7 @@ create dy0 0 ,
 : press ( -- )
     mx @ hx !  my @ hy !
     win-at dup 0< if drop exit then
-    dup 1+ nwin @ <> if raise repaint else drop then
+    dup 1+ nwin @ <> if raise redraw-top else drop then
     top cw !
     hy @ cw.y - d# 19 < if
         true dragging !  mx @ dx0 !  my @ dy0 !
@@ -167,18 +226,20 @@ create dy0 0 ,
     then
     top c# 7 + @ ?dup if
         >r
+        true auto !
         hx @ cw.x - 1-  hy @ cw.y - d# 19 -  top
         r> execute
-        redraw-top
+        auto @ if redraw-top then
     then
 ;
 
 : release ( -- )
     dragging @ if
         d# 0 dragging !
+        redraw-top refresh                          \ where it was
         mx @ dx0 @ - top +!
         my @ dy0 @ - top CELL + +!
-        repaint
+        redraw-top                                  \ and where it is
     then
 ;
 
@@ -192,11 +253,12 @@ create quitting 0 ,
     dup d# 17 = if drop true quitting ! exit then   \ ^Q: leave the desktop
     dup d# 23 = if                                  \ ^W: next window
         drop
-        nwin @ d# 1 > if d# 0 raise repaint then
+        nwin @ d# 1 > if d# 0 raise redraw-top then
         exit
     then
+    true auto !
     top dup c# 6 + @ execute
-    redraw-top
+    auto @ if redraw-top then
 ;
 
 : shift-key? ( code -- f ) dup d# 42 = swap d# 54 = or ;
@@ -234,6 +296,7 @@ header event-loop : event-loop ( -- )
     begin
         input-poll
         uart-poll
+        refresh
         quitting @
     until
 ;
