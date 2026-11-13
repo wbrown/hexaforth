@@ -200,7 +200,33 @@ warnings off
 :: \ postpone \ ;
 
 :: org          org ;
-:: include      include ;
+\ Each file included is measured: the code it compiled and the data it laid
+\ down, with the bytes of that data that are dictionary headers and labels.
+\ The figures go to the .sizes file beside the image, one line a file, a
+\ file's line coming after those of the files it includes.
+variable hdr-bytes  0 hdr-bytes !
+variable lbl-bytes  0 lbl-bytes !
+variable sizes      0 sizes !
+
+: size-field ( n -- ) s>d <# bl hold #s #> sizes @ write-file throw ;
+
+: size-line ( a u code data headers labels -- )
+    sizes @ 0= if 2drop 2drop 2drop exit then
+    base @ >r decimal
+    2>r 2>r
+    sizes @ write-file throw  s"  " sizes @ write-file throw
+    2r> swap size-field size-field
+    2r> swap size-field size-field
+    s" " sizes @ write-line throw
+    r> base !
+;
+
+:: include
+    parse-name save-mem { a u }
+    tcp @ tdp @ hdr-bytes @ lbl-bytes @ { c d h l }
+    a u included
+    a u  tcp @ c -  tdp @ d -  hdr-bytes @ h -  lbl-bytes @ l -  size-line
+;
 :: included     included ;
 :: marker       marker ;
 :: [if]         postpone [if] ;
@@ -407,10 +433,12 @@ cell-bits 64 = constant labelling
 
 : (header) ( immediate? "name" -- )
     label
+    there >r
     tcalign
     there  link @ tcell,  link !
     tcp @ 2/ swap if 1 cell-bits 1- lshift or then tcell,
     bl parse tname,
+    there r> - hdr-bytes +!
     true named !  tcp @ named-cp !
 ;
 
@@ -422,10 +450,12 @@ cell-bits 64 = constant labelling
 : wants-label? ( -- f ) named? 0= labelling and ;
 
 : (label) ( x "name" -- a ) \ a label for the name that follows; a is where x went
+    there >r
     tcalign
     there  llink @ tcell,  llink !
     there swap tcell,
     wordstr tname,
+    there r> - lbl-bytes +!
 ;
 
 :: header       false (header) ;
@@ -715,6 +745,7 @@ next-arg 2dup .trim >str constant prefix.
 ;
 :noname
     s" lst" out-suffix lst !
+    s" sizes" out-suffix sizes !
 ; execute
 
 
@@ -750,6 +781,8 @@ decimal
     file close-file
 ;
 
+s" (all)" tcp @ tdp @ $4000 - hdr-bytes @ lbl-bytes @ size-line
+sizes @ close-file throw
 dumpall.32
 ." tdp " tdp @ .
 ." tcp " tcp @ .

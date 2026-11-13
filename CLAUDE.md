@@ -244,6 +244,11 @@ no header and gets a label. `header name create name` is allowed in
 `cross.fs`: it lays down code that pushes the data's address, for the
 header to point at.
 
+The window manager sets `ox` and `oy` to the top left of a window's content
+before calling its draw routine. Each build writes `build/<name>.sizes`:
+for every file included, the bytes of code it compiled and of data it laid
+down, and how much of that data is dictionary headers and labels.
+
 `cross.fs` compiles a call to another code page as `literal xt` +
 `call execute`, so code past the kernel needs only an `org` per page and
 each page's code to fit in 8KB. Run-time definitions start on the page after

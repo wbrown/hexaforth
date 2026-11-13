@@ -7,8 +7,6 @@ create tbuf #800 allot
 create tcol 0 ,
 create trow 0 ,
 create ti 0 ,
-create tx0 0 ,
-create ty0 0 ,
 
 header tclear : tclear ( -- ) tbuf d# 800 d# 32 fill  d# 0 tcol !  d# 0 trow ! ;
 
@@ -38,19 +36,19 @@ header tclear : tclear ( -- ) tbuf d# 800 d# 32 fill  d# 0 tcol !  d# 0 trow ! ;
 ;
 
 header term-draw : term-draw ( win -- )
-    content ty0 ! tx0 !
+    drop
     d# 0 ti !
     begin
         ti @ TROWS <
     while
         ti @ TCOLS * tbuf + TCOLS
-        tx0 @ d# 2 +  ty0 @ d# 2 + ti @ d# 4 lshift +  draw-text
+        ox @ d# 2 +  oy @ d# 2 + ti @ d# 4 lshift +  draw-text
         d# 1 ti +!
     repeat
     true inverse !                                  \ the cursor: a solid cell
     d# 32
-    tx0 @ d# 2 + tcol @ d# 3 lshift +
-    ty0 @ d# 2 + trow @ d# 4 lshift +
+    ox @ d# 2 + tcol @ d# 3 lshift +
+    oy @ d# 2 + trow @ d# 4 lshift +
     draw-char
     d# 0 inverse !
 ;

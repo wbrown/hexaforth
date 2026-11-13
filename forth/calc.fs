@@ -4,6 +4,8 @@
 \ number is being entered.  + - * / work on the top two, n negates, x swaps
 \ and d drops.  The buttons send the same keys.
 
+create ci 0 ,           \ a loop counter
+
 create cst #128 allot
 create cn 0 ,
 create cacc 0 ,
@@ -61,38 +63,38 @@ header calc-key : calc-key ( c win -- )
 ;
 
 header calc-draw : calc-draw ( win -- )
-    content ty0 ! tx0 !
-    d# 0 ti !                                       \ the top four, oldest first
+    drop
+    d# 0 ci !                                       \ the top four, oldest first
     begin
-        ti @ d# 4 <
+        ci @ d# 4 <
     while
-        cn @ d# 4 - ti @ + dup 0< 0= if
+        cn @ d# 4 - ci @ + dup 0< 0= if
             sb-begin cells cst + @ . sb-end
-            tx0 @ d# 6 +  ty0 @ d# 4 + ti @ d# 4 lshift +  sb-draw
+            ox @ d# 6 +  oy @ d# 4 + ci @ d# 4 lshift +  sb-draw
         else
             drop
         then
-        d# 1 ti +!
+        d# 1 ci +!
     repeat
     sb-begin
     [char] > emit space
     centry @ if cacc @ . then
     sb-end
-    tx0 @ d# 6 + ty0 @ d# 72 + sb-draw
-    false tx0 @ ty0 @ d# 92 + d# 136 hline
-    d# 0 ti !                                       \ 4 x 5 buttons of 34 x 24
+    ox @ d# 6 + oy @ d# 72 + sb-draw
+    false ox @ oy @ d# 92 + d# 136 hline
+    d# 0 ci !                                       \ 4 x 5 buttons of 34 x 24
     begin
-        ti @ d# 20 <
+        ci @ d# 20 <
     while
         false
-        tx0 @ ti @ d# 3 and d# 34 * +
-        ty0 @ d# 96 + ti @ d# 2 rshift d# 24 * +
+        ox @ ci @ d# 3 and d# 34 * +
+        oy @ d# 96 + ci @ d# 2 rshift d# 24 * +
         d# 33 d# 23 frame-rect
-        cbtn 1+ ti @ + c@
-        tx0 @ ti @ d# 3 and d# 34 * + d# 13 +
-        ty0 @ d# 96 + ti @ d# 2 rshift d# 24 * + d# 4 +
+        cbtn 1+ ci @ + c@
+        ox @ ci @ d# 3 and d# 34 * + d# 13 +
+        oy @ d# 96 + ci @ d# 2 rshift d# 24 * + d# 4 +
         draw-char
-        d# 1 ti +!
+        d# 1 ci +!
     repeat
 ;
 

@@ -30,6 +30,8 @@
 \ routine in 'nl starts a new line; the indent to give the next token is
 \ in sind, and sfresh is true while nothing is on the line yet.
 
+create wi 0 ,           \ a loop counter
+
 create 'tok 0 ,
 create 'nl 0 ,
 create sind 0 ,
@@ -592,8 +594,8 @@ header t-words create t-words ," Words"
         sind @ 1+ 2* scol !  d# 1 srow +!
     then
     srow @ wsrc @ - dup d# 16 u< if
-        d# 4 lshift ty0 @ + lky !
-        scol @ d# 3 lshift tx0 @ + d# 112 + lkx !
+        d# 4 lshift oy @ + lky !
+        scol @ d# 3 lshift ox @ + d# 112 + lkx !
         sbold @ bold !  sital @ italic !
         lkx @ lky @ draw-text
         d# 0 bold !  d# 0 italic !
@@ -616,23 +618,23 @@ header t-words create t-words ," Words"
 : gnl ( -- ) d# 1 srow +! ;
 
 header words-draw : words-draw ( win -- )
-    content ty0 ! tx0 !
+    drop
     winit @ 0= if true winit !  d# 0 wpick then
     wxt @ xt>hdr ?dup if hdr>i else d# -1 then wsel !
-    d# 0 ti !
+    d# 0 wi !
     wtop @ nth
     begin
-        dup 0<> ti @ d# 16 < and
+        dup 0<> wi @ d# 16 < and
     while
-        ti @ wtop @ + wsel @ = inverse !
+        wi @ wtop @ + wsel @ = inverse !
         dup CELL2 + count d# 13 min
-        tx0 @ d# 2 +  ty0 @ ti @ d# 4 lshift +  draw-text
+        ox @ d# 2 +  oy @ wi @ d# 4 lshift +  draw-text
         d# 0 inverse !
         @
-        d# 1 ti +!
+        d# 1 wi +!
     repeat
     drop
-    false tx0 @ d# 108 + ty0 @ d# 1 d# 256 fill-rect
+    false ox @ d# 108 + oy @ d# 1 d# 256 fill-rect
     d# 0 scol !  d# 0 srow !  d# 0 nlk !
     ['] gtok 'tok !  ['] gnl 'nl !
     wxt @ sdecomp
