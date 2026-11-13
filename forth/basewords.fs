@@ -1,6 +1,15 @@
 \ machine sizes, from vm_constants.h
 #64 constant cell-bits
 #17 constant addr-bits
+#256 constant stack-cells
+#768 constant disp-w
+#576 constant disp-h
+#16384 constant disp-base
+#1 constant disp-left-low
+#1 constant disp-ink-black
+#12 constant disp-stride
+#1 constant disp-banks
+#0 constant disp-bank-step
 
 \ input_mux
 : N->IN      h# 0000 ;

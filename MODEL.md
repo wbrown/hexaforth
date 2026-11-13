@@ -16,8 +16,8 @@ which they reach the toolchain and the other implementations.
 | `STACK_CELLS` | cells in each of the two stacks | 256 |
 | `DISP_W`, `DISP_H` | the display's size in pixels; 0 for no display | 768, 576 |
 | `DISP_BASE` | the cell where the bitmap starts | `0x4000` |
-| `DISP_LEFT` | which bit of a cell is the leftmost pixel: `low` or `high` | `low` |
-| `DISP_INK` | whether a set bit is `black` or `white` | `black` |
+| `DISP_LEFT_LOW` | 1 if the leftmost pixel of a cell is its lowest bit, 0 if its highest | 1 |
+| `DISP_INK_BLACK` | 1 if a set bit is black, 0 if it is white | 1 |
 | `DISP_STRIDE` | cells from one row to the next in the same bank | 12 |
 | `DISP_BANKS` | how many banks the rows are dealt into | 1 |
 | `DISP_BANK_STEP` | cells from the start of one bank to the next | 0 |
@@ -148,6 +148,13 @@ with its pixels in the machine's order, and three words are defined to
 suit, on which all drawing is built: the address of a row, the mask for a
 pixel, and setting or clearing ink.  No drawing code steps from one row to
 the next by adding to an address.
+
+A display has to suit the cell it is drawn with, and a definition that does
+not is refused when it is built, by `vm_constants.h` and again by
+`cross.fs`: the width must be a whole number of cells, the stride must
+cover a row, banks must not overlap, and the base must be a single shifted
+literal.  So 720 by 348 in four banks, a Hercules card, is accepted for a
+machine with 16-bit cells and refused for one with 64.
 
 The bitmap starts at a cell address that is one shifted literal, a 12-bit
 value shifted left by 12, so that the address is one instruction and adding
