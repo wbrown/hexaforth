@@ -199,7 +199,9 @@ and `execute` cross pages with no extra state. Memory layout:
 - `0x04000-0x0ffff`: dictionary and data
 - `0x10000-0x1ffff`: eight code pages for definitions made at run time
 
-In `nuc.fs`, `compile,` emits a one-instruction call for a kernel or
+The compiler in `nuc.fs` addresses code by instruction: `cp`, a branch
+origin and an execution token are all instruction numbers, and `i@` and `i!`
+fetch and store one. `compile,` emits a one-instruction call for a kernel or
 same-page target and `literal xt` + `call execute` for another page.
 `newpage?` starts a fresh page when under 1KB is left, and `code,` throws -8
 if a definition runs off the end of its page. Execution tokens are stored in
