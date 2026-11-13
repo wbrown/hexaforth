@@ -20,6 +20,15 @@
 #endif
 #define CELL_BYTES (CELL_BITS / 8)
 
+// What an address counts.  With ADDR_CELLS an address is the number of a
+// cell, as MODEL.md has it, and memory is 2^ADDR_BITS cells.  Without, it
+// is the number of a byte and memory is 128KB.  The second is how the
+// machine was, and is here only until everything has moved to the first.
+#ifndef ADDR_CELLS
+#define ADDR_CELLS 0
+#endif
+#define MEM_BYTES (ADDR_CELLS ? ((uint64_t)CELL_BYTES << ADDR_BITS) : 131072)
+
 // Each of the two stacks is this many cells.  The stacks are not part of
 // memory: they are reached by pushing, popping and the depth ports.  Going
 // past either end is undefined; a strict build stops there.

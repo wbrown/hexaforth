@@ -14,7 +14,7 @@ typedef struct { int EIP;
     int        SP;
     int        RSP;
     int        DBGP;
-    uint16_t   memory[65536];
+    uint16_t   memory[MEM_BYTES / 2];
     int64_t    DSTACK_park;
     int64_t    DSTACK[STACK_CELLS];
     int64_t    RSTACK_park;
