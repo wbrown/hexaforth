@@ -130,23 +130,172 @@ header slab
 \ Plain white or black, for the words that take a flag.
 header solid : solid ( on? -- ) if p-white else p-black then pattern !  copy-mode ;
 
+\ ---- clipping
+\
+\ Everything from here on draws only inside the clip rectangle, which is
+\ never bigger than the screen.
+
+header clip create clip 0 , 0 , 0 , 0 ,     \ left, top, and past the right and bottom
+
+header clip! : clip! ( x y w h -- )
+    >r >r
+    over d# 0 max clip !
+    dup d# 0 max clip CELL + !
+    swap r> + fb-w @ min clip CELL2 + !
+    r> + fb-h @ min clip c# 3 + !
+;
+
+header noclip : noclip ( -- ) d# 0 d# 0 fb-w @ fb-h @ clip! ;
+
+header clip-to : clip-to ( x y w h -- ) \ what is in both this and the clip rectangle
+    >r >r
+    over clip @ max clip !
+    dup clip CELL + @ max clip CELL + !
+    swap r> + clip CELL2 + @ min clip CELL2 + !
+    r> + clip c# 3 + @ min clip c# 3 + !
+;
+
+create oclip 0 , 0 , 0 , 0 ,
+: clip-save ( -- )
+    clip @ oclip !  clip CELL + @ oclip CELL + !
+    clip CELL2 + @ oclip CELL2 + !  clip c# 3 + @ oclip c# 3 + !
+;
+: clip-restore ( -- )
+    oclip @ clip !  oclip CELL + @ clip CELL + !
+    oclip CELL2 + @ clip CELL2 + !  oclip c# 3 + @ clip c# 3 + !
+;
+
+: clip-span ( x n -- x' n' ) \ n' is not positive if nothing is left
+    over clip @ < if + clip @ tuck - then
+    over + clip CELL2 + @ min over -
+;
+
+header pat-hline : pat-hline ( x y n -- )
+    over dup clip CELL + @ < swap clip c# 3 + @ < 0= or if drop 2drop exit then
+    swap >r clip-span r> swap
+    dup 0> if slab else drop 2drop then
+;
+
+header pat-rect : pat-rect ( x y w h -- )
+    begin
+        dup 0>
+    while
+        >r >r
+        2dup r@ pat-hline
+        1+ r> r> 1-
+    repeat
+    2drop 2drop
+;
+
+\ ---- copying
+\
+\ A bitmap is two cells: where its first row is, and how many cells from
+\ one row to the next.  `screen` is the display, whose rows are where the
+\ machine puts them.  copy-bits copies a rectangle of a bitmap to the
+\ screen, in the mode.
+\
+\ A row of the source is first copied aside, so that a row copied onto
+\ itself comes out right whichever way it moves; the rows are taken from
+\ the bottom up when they move down.  The source and the destination are
+\ seldom lined up, so each cell of the destination is made from two of the
+\ source, by a shift that is the same for every cell.
+
+header screen create screen 0 , 0 ,
+
+create sbm 0 ,          \ the source, and where in it
+create ssx 0 ,
+create ssy 0 ,
+create bdx 0 ,          \ where on the screen
+create bdy 0 ,
+create bw 0 ,
+create bh 0 ,
+create br 0 ,           \ the row being copied
+create boff 0 ,         \ pixels to shift the source left by
+create bi0 0 ,          \ and the cell of rowbuf the first cell comes from
+create bp 0 ,
+create rowbuf  meta disp-stride 4 + cell-bytes * target allot
+
+: src-row ( y -- a )
+    sbm @ @ ?dup if swap sbm @ CELL + @ * + else row then
+;
+
+: row-aside ( y -- ) \ the cells of a source row that are wanted, into rowbuf from its second
+    src-row ssx @ PXSHIFT rshift +
+    rowbuf 1+
+    ssx @ PXMASK and bw @ + PXMASK + PXSHIFT rshift 1+
+    begin
+        dup
+    while
+        >r over @ over ! 1+ swap 1+ swap r> 1-
+    repeat
+    drop 2drop
+;
+
+: row-out ( -- ) \ hn pixels from rowbuf to the row at ba, bn
+    bi0 @ rowbuf + bp !
+    begin
+        hn @ 0>
+    while
+        PXCELL bn @ - hn @ min
+        dup leftn bn @ PIXR                         ( pixels mask )
+        bp @ @
+        boff @ if
+            boff @ PIXL  bp @ 1+ @ PXCELL boff @ - PIXR  or
+        then
+        RAW>SRC swap ba @ 'mode @ execute
+        negate hn +!
+        d# 0 bn !  d# 1 ba +!  d# 1 bp +!
+    repeat
+;
+
+header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
+    bh ! bw ! bdy ! bdx ! ssy ! ssx ! sbm !
+    clip @ bdx @ - d# 0 max  dup bdx +!  dup ssx +!  negate bw +!
+    clip CELL + @ bdy @ - d# 0 max  dup bdy +!  dup ssy +!  negate bh +!
+    clip CELL2 + @ bdx @ - bw @ min bw !
+    clip c# 3 + @ bdy @ - bh @ min bh !
+    bw @ 0>  bh @ 0>  and 0= if exit then
+    ssx @ PXMASK and  bdx @ PXMASK and -  PXCELL +
+    dup PXMASK and boff !  PXSHIFT rshift bi0 !
+    d# 0 br !
+    begin
+        br @ bh @ <
+    while
+        ssy @ bdy @ < if bh @ 1- br @ - else br @ then  ( row )
+        dup ssy @ + row-aside
+        bdx @ swap bdy @ + prow ba ! bn !
+        bw @ hn !  row-out
+        d# 1 br +!
+    repeat
+;
+
+create sdx 0 ,
+create sdy 0 ,
+create srx 0 ,
+create sry 0 ,
+create srw 0 ,
+create srh 0 ,
+
+header scroll-rect : scroll-rect ( x y w h dx dy -- ) \ move what is in a rectangle; what is uncovered is white
+    sdy ! sdx ! srh ! srw ! sry ! srx !
+    clip-save
+    srx @ sry @ srw @ srh @ clip-to
+    copy-mode
+    screen srx @ sry @  srx @ sdx @ +  sry @ sdy @ +  srw @ srh @ copy-bits
+    p-white pattern !
+    sdy @ 0> if srx @ sry @ srw @ sdy @ pat-rect then
+    sdy @ 0< if srx @ sry @ srh @ + sdy @ + srw @ sdy @ negate pat-rect then
+    sdx @ 0> if srx @ sry @ sdx @ srh @ pat-rect then
+    sdx @ 0< if srx @ srw @ + sdx @ + sry @ sdx @ negate srh @ pat-rect then
+    clip-restore
+;
+
 \ Eight pixels at x: the part of them in the cell x is in, and the part
 \ that runs over into the next, which is nothing unless x is in the last
 \ seven pixels of the cell.
 : over8 ( bits -- here next )
     dup bn @ PIXR swap
     bn @ PXCELL d# 8 - > if PXCELL bn @ - PIXL else drop d# 0 then
-;
-
-header blit8
-: blit8 ( bits x y -- ) \ draw eight pixels; a set bit is white
-    prow ba ! bn !
-INK-BLACK? [if]
-    h# ff xor
-[then]
-    EDGE over8  M8 over8                            ( here next mhere mnext )
-    ?dup if rot swap ba @ 1+ seg! else nip then
-    ba @ seg!
 ;
 
 header xor8
@@ -158,7 +307,7 @@ header xor8
 ;
 
 header display-init
-: display-init ( -- ) ['] dplot 'plot !  p-black pattern !  copy-mode ;
+: display-init ( -- ) ['] dplot 'plot !  p-black pattern !  copy-mode  noclip ;
 
 \ ---- text
 \
@@ -193,12 +342,13 @@ create styled 0 ,       \ true if the rows need more than copying
 create da 0 ,           \ the cell being gathered
 create acc 0 ,          \ its pixels so far
 create hi 0 ,           \ how far across the cell they reach
-create m 0 ,            \ the pixels of the cell that are the string's
-create lo 0 ,           \ the first cell: where the string starts in it,
-create lmask 0 ,        \ and its pixels from there on
-create emask 0 ,        \ the last cell: its pixels up to the string's end
+create cx 0 ,           \ where on the screen the cell starts
+create vx0 0 ,          \ the pixels of the row that are drawn: from here
+create vx1 0 ,          \ to here
+create r0 0 ,           \ and the rows of the glyphs: from this
+create r1 0 ,           \ to this
 create gn 0 ,           \ how many glyphs
-create gbuf  meta disp-w 8 / cell-bytes * target allot  \ and where each is
+create gbuf  meta disp-w 8 / 2 + cell-bytes * target allot  \ and where each is
 
 : glyphs ( -- ) \ find the glyph of each character
     d# 0 gn !
@@ -223,14 +373,15 @@ INK-BLACK? [if] [else]
 [then]
 ;
 
-: put ( -- ) \ store a cell that has been filled, and start on the next
-    m @ 1+ if
-        acc @ m @ da @ seg!                         \ the first, if it is not all text
-        d# -1 m !
-    else
+: put ( -- ) \ store the cell gathered, and start on the next
+    cx @ vx0 @ < 0=  cx @ PXCELL + vx1 @ > 0=  and if
         acc @ da @ !
+    else                                            \ at an end: only the pixels to be drawn
+        vx1 @ cx @ - d# 0 max PXCELL min leftn
+        vx0 @ cx @ - d# 0 max PXCELL min leftn invert and
+        ?dup if acc @ over and swap da @ seg! then
     then
-    d# 1 da +!  d# 0 hi !  d# 0 acc !
+    d# 1 da +!  PXCELL cx +!  d# 0 hi !  d# 0 acc !
 ;
 
 : +row ( bits -- ) \ eight more pixels
@@ -248,15 +399,21 @@ INK-BLACK? [if] [else]
     rdrop
 ;
 
-header draw-text : draw-text ( addr u x y -- ) \ whole characters, where they fit
+header draw-text : draw-text ( addr u x y -- ) \ clipped to the pixel
     ty ! tx ! tu ! ta !
-    ty @ fb-h @ d# 16 - u> if exit then
-    begin                                           \ off the left
-        tu @ 0>  tx @ 0<  and
-    while
+    clip CELL + @ ty @ - d# 0 max r0 !
+    clip c# 3 + @ ty @ - d# 16 min r1 !
+    r0 @ r1 @ < 0= if exit then
+    tx @ clip @ max vx0 !
+    tu @ d# 3 lshift tx @ +  clip CELL2 + @ min vx1 !
+    vx0 @ vx1 @ < 0= if exit then
+    vx0 @ tx @ - d# 3 rshift                        \ characters wholly off the left
+    dup ta +!  dup negate tu +!  d# 3 lshift tx +!
+    tx @ 0< if                                      \ and one cut by the screen's edge
         d# 1 ta +!  d# -1 tu +!  d# 8 tx +!
-    repeat
-    fb-w @ tx @ - d# 0 max d# 3 rshift tu @ min tu ! \ off the right
+        tx @ vx0 !
+    then
+    vx1 @ tx @ - d# 7 + d# 3 rshift tu !            \ and off the right
     tu @ 0> 0= if exit then
     glyphs
     italic @ bold @ or inverse @ or
@@ -264,15 +421,13 @@ INK-BLACK? [if] [else]
     drop true
 [then]
     styled !
-    tx @ PXMASK and lo !
-    lo @ leftn invert lmask !
-    tu @ d# 3 lshift lo @ + PXMASK and leftn emask !
-    d# 0 tr !
+    r0 @ tr !
     begin
-        tr @ d# 16 <
+        tr @ r1 @ <
     while
         ty @ tr @ + row  tx @ PXSHIFT rshift +  da !
-        lo @ hi !  lmask @ m !
+        tx @ PXMASK invert and cx !
+        tx @ PXMASK and hi !
         d# 0 acc !
         tr @ BYTESHIFT rshift roff !
         tr @ OFFSET-MASK and d# 3 lshift rsh !
@@ -286,7 +441,7 @@ INK-BLACK? [if] [else]
             1+
         repeat
         2drop
-        hi @ if acc @  m @ emask @ and  da @ seg! then  \ the last, if it is not full
+        hi @ if put then
         d# 1 tr +!
     repeat
 ;
