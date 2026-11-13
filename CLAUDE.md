@@ -219,8 +219,12 @@ reached by name or by execution token.
 - `display.fs`: the display, a bitmap in memory of the size, place, bit
   order, polarity and row layout that `vm_constants.h` gives (see
   `MODEL.md`). `row`, `ink`, `paper`, `plot`, `hspan`, `blit8` and `xor8`
-  are all the drawing there is, and nothing outside this file knows the
-  layout. A flag of true is white. Eight pixels are a byte in the display's
+  are the drawing of pixels, and `draw-text` and `draw-char` the drawing
+  of text; nothing outside this file knows the layout. A cell is as many
+  pixels across as it has bits (`PXCELL`, `PXSHIFT`, `PXMASK`). Text is
+  drawn a row of pixels at a time: the rows of the characters are gathered
+  into a cell and stored when it is full, and only the two ends of a string
+  are merged with what is there. A flag of true is white. Eight pixels are a byte in the display's
   order; `p,` and `glyph,` in `cross.fs` lay such bytes down from ones
   written with the leftmost pixel highest, which is how `font.fs` has them
 - `virtio-blk.fs`: the QEMU `virt` block driver

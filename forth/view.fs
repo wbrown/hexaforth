@@ -12,17 +12,17 @@ create bmh 0 ,          \ rows
 
 \ The bitmap has its pixels in the display's order, and a set bit is white.
 : bm-plot ( on? x y -- )
-    bmw @ * over d# 6 rshift + bm @ +               ( on? x a )
-    swap d# 63 and LEFT1 swap PIXR                  ( on? a mask )
+    bmw @ * over PXSHIFT rshift + bm @ +            ( on? x a )
+    swap PXMASK and LEFT1 swap PIXR                 ( on? a mask )
     rot if over @ or else invert over @ and then
     swap !
 ;
 
 header view-load : view-load ( blk# -- ) \ dither the TIFF starting at a block
     tiff-open tiff-decode
-    tw @ d# 63 + d# 6 rshift bmw !
+    tw @ PXMASK + PXSHIFT rshift bmw !
     th @ bmh !
-    bmw @ bmh @ * d# 3 lshift halloc bm !
+    bmw @ bmh @ * >c halloc bm !
     'plot @ >r
     ['] bm-plot 'plot !
     d# 0 d# 0 atkinson
@@ -41,8 +41,8 @@ header view-draw : view-draw ( win -- )
         begin
             dup bmw @ <
         while
-            over @  over d# 6 lshift ox @ +         ( a i cell x )
-            d# 8                                    \ eight pixels at a time, from the left
+            over @  over PXSHIFT lshift ox @ +      ( a i cell x )
+            CELLB                                   \ eight pixels at a time, from the left
             begin
                 dup
             while

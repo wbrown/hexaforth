@@ -11,6 +11,7 @@ header desktop
     display-init
     ['] on-event 'event !
     input-init
+    nidev @ 0= d# 37 -throw                         \ nothing to work it with
     d# 0 nwin !
     ['] vblk-init catch 0= if                       \ these two need the disk
         d# 16 ['] view-load catch if drop then
@@ -31,7 +32,8 @@ header desktop
 ;
 
 \ The kernel runs a word called cold, if there is one, before its own
-\ prompt.  With no display this fails at once and the serial prompt follows.
+\ prompt.  With no keyboard or pointer this fails at once and the serial
+\ prompt follows.
 
 header cold
 : cold ( -- ) ['] desktop catch drop ;

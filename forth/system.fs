@@ -11,7 +11,8 @@
 
 include machine.fs      \ device registers, high memory, byte-order helpers
 include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD, disk-read
-include display.fs      \ the display: a bitmap in memory
+include font.fs         \ 8x16 glyphs
+include display.fs      \ the display: a bitmap in memory, and text on it
 include virtio.fs       \ shared by the virtio drivers
 include virtio-blk.fs   \ block driver
 include virtio-input.fs \ keyboard and pointer driver
@@ -27,9 +28,8 @@ meta
     $10000 org
 target
 
-include font.fs         \ 8x16 glyphs
 include keymap.fs       \ key codes to ASCII
-include gfx.fs          \ rectangles and text
+include gfx.fs          \ rectangles, and text from the output words
 include wm.fs           \ windows, pointer, event loop
 
 meta

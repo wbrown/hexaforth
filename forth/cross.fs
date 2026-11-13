@@ -554,9 +554,9 @@ variable lastdef    \ body of the most recent target colon definition
         0 swap 8 0 do dup 1 and rot 2* or swap 2/ loop drop
     then ;
 :: p,  pixels tc, ;
-:: glyph, ( cell -- )
+:: glyph, ( rows -- ) \ eight rows of a glyph, the first in the low byte
     tcalign
-    cell-bytes 0 do dup i 8 * rshift $ff and pixels tc, loop drop
+    8 0 do dup i 8 * rshift $ff and pixels tc, loop drop
 ;
 
 \ ," text" lays down a counted string in data space.
@@ -707,6 +707,12 @@ warnings on
 \ on the screen; EDGE takes a byte of eight pixels to the left end of a
 \ cell, LEFT8 takes the leftmost eight of a cell as a byte, LEFT1 is the
 \ leftmost pixel of a cell and M8 its leftmost eight.
+\ A cell is PXCELL pixels across: pixel x of a row is PXMASK and x pixels
+\ into the cell PXSHIFT rshift x along it.
+:: PXCELL         cell-bits literal ;
+:: PXMASK         cell-bits 1- literal ;
+:: PXSHIFT        byte-shift 3 + literal ;
+:: GLYPH-CELLS    16 cell-bytes / literal ;       \ a glyph is 16 bytes
 :: DISP-BASE      disp-base literal ;
 :: DISP-STRIDE    disp-stride literal ;
 :: DISP-BANKS     disp-banks literal ;
