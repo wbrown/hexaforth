@@ -12,7 +12,7 @@ which they reach the toolchain and the other implementations.
 | Name | Meaning | Default |
 |---|---|---|
 | `CELL_BITS` | width of a stack cell, the ALU, and a fetch or store: 64, 32 or 16 | 64 |
-| `ADDR_BITS` | memory is 2^`ADDR_BITS` bytes | 17 |
+| `ADDR_BITS` | memory is 2^`ADDR_BITS` cells | to be set |
 | `STACK_CELLS` | cells in each of the two stacks | 256 |
 
 Where this file says a thing is undefined, implementations may differ, and a
@@ -45,22 +45,29 @@ set the depth to that position, push or pop, and set the depth back.
 
 ## Memory
 
-Decided in outline; the layout question is open.
+Decided; not yet true of the implementations, which still count bytes.
 
-1. Memory is exactly 2^`ADDR_BITS` bytes, addressed from 0. Nothing else is
-   reached with `@` and `!`.
-2. A fetch or store outside memory is undefined.
+1. Memory is an array of cells. An address is the number of a cell, from 0.
+   `@` and `!` fetch and store one cell. There is no smaller unit: nothing
+   in the machine counts bytes. Code is addressed by instruction, data by
+   cell, and the stacks by cell.
+2. Memory is exactly 2^`ADDR_BITS` cells. A fetch or store outside it is
+   undefined.
 3. Devices are not in memory. They are reached through the ports.
 
-Not yet true of the implementations. The AArch64 kernels run with all the
-RAM QEMU gives them, and the desktop allocates from `0x100000` upward with
-`halloc`; `vm.c` has no memory there and does not check; the Verilog memory
-wraps. Under this model the desktop is a machine with a larger `ADDR_BITS`.
+So a machine with 16-bit cells can have 65,536 of them, which is 128KB.
 
-Open: `ADDR_BITS` also fixes the layout of the first 128KB, where code must
-stay because an execution token is stored in 16 bits. Raising it must not
-move the code pages, so the size of memory and the layout of the image need
-to be separate things in `cross.fs`.
+Text is a convention of the Forth system, not of the machine. A string is
+the address of a cell and a count of characters, packed into cells from the
+low end. Words that deal with whole strings work a cell at a time; words
+that deal with characters fetch a cell and shift. Dictionary names, glyphs
+and the image viewer already work this way.
+
+`c@`, `c!`, `char+` and the rest of standard Forth's character words are
+not part of the machine and are not needed by the system. They can be
+provided as a library of ordinary Forth words for programs that want them.
+How that library represents the address of a character is its own affair
+and puts no constraint on the model.
 
 ## Display
 
@@ -73,9 +80,12 @@ it out, the Verilog scans it out as video, and on QEMU a bridge copies it
 into the true-colour buffer that `ramfb` wants. The bridge is a separate
 assembler file from the kernel, so that another display can take its place.
 
-Open: the resolution and the cells in a row; which bit of a cell is the
-leftmost pixel; whether a set bit is black or white; and where in memory
-the bitmap is.
+Decided: the hosted machine's display is 768 by 576, which is 12 cells of
+64 bits to a row; a smaller machine takes a size to suit, such as 384 by
+288.  Pixel x of a row is bit x of its cell, so the leftmost pixel is the
+lowest bit.  A set bit is black, so memory that is all zero is a blank page.
+
+Open: where in memory the bitmap is.
 
 Not yet true of the implementations. The Forth system draws through
 `display.fs` into a driver, `ramfb.fs`, that keeps four bytes for each pixel
