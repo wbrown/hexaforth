@@ -88,26 +88,12 @@ create t-menu ," hexaforth"
     cw @ dup c# 5 + @ execute
 ;
 
-create dy 0 ,
-
-: draw-desk ( -- ) \ menu bar, then a grey made of alternating pixels
+: draw-desk ( -- ) \ menu bar, then grey
     true d# 0 d# 0 fb-w @ d# 19 fill-rect
     false d# 0 d# 19 fb-w @ hline
     t-menu >c count d# 8 d# 2 draw-text
-    d# 20 dy !
-    begin
-        dy @ fb-h @ <
-    while
-        d# 0
-        begin
-            dup fb-w @ <
-        while
-            dy @ d# 1 and if h# aa else h# 55 then over dy @ cblit8
-            d# 8 +
-        repeat
-        drop
-        d# 1 dy +!
-    repeat
+    p-gray pattern !
+    d# 0 d# 20 fb-w @ fb-h @ d# 20 - pat-rect
 ;
 
 : repaint ( -- )

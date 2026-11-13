@@ -554,6 +554,11 @@ variable lastdef    \ body of the most recent target colon definition
         0 swap 8 0 do dup 1 and rot 2* or swap 2/ loop drop
     then ;
 :: p,  pixels tc, ;
+\ A row of a pattern: eight pixels, repeated across a cell.
+:: prow, ( byte -- )
+    tcalign
+    pixels cell-bytes 0 do dup tc, loop drop
+;
 :: glyph, ( rows -- ) \ eight rows of a glyph, the first in the low byte
     tcalign
     8 0 do dup i 8 * rshift $ff and pixels tc, loop drop
