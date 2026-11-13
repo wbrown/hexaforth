@@ -140,7 +140,6 @@ create k-halt   ," halt"
 
 : h4 ( n -- ) dup d# 12 rshift hex1 dup d# 8 rshift hex1 dup d# 4 rshift hex1 hex1 ;
 
-: snum ( n -- ) sb-begin . sb-end  sb sbn @ 1- d# -1 tok ;
 : sraw ( w -- ) sb-begin [char] [ emit h4 [char] ] emit sb-end  sb sbn @ d# -1 tok ;
 : sname ( hdr -- ) \ a word, and a new line after one that stores
     dup CELL2 + count rot hxt
@@ -149,6 +148,47 @@ create k-halt   ," halt"
     r> [char] ! = if snl then
 ;
 
+\ A number in data space that some word does nothing but push is that
+\ word: a variable, or anything else made with create.  The word being
+\ shown is left as its number, since that is its whole definition.
+create hp 0 ,
+create hv 0 ,
+
+: lv ( w -- n ) dup h# fff and swap d# 12 rshift d# 3 and d# 12 * lshift ;
+
+: hval ( xt -- n true | false ) \ the number, if the code there only pushes one
+    hp !
+    hp @ ins@ dup h# c000 and h# 8000 <> if drop false exit then
+    lv hv !
+    begin
+        d# 1 hp +!
+        hp @ ins@ dup h# c000 and h# c000 =
+    while
+        lv hv +!
+    repeat
+    h# 7403 = if hv @ true else false then
+;
+
+: lit>hdr ( n -- hdr|0 )
+    stmp !  forth @
+    begin
+        dup
+    while
+        dup hxt dup sxt @ <> if
+            hval if stmp @ = if exit then then
+        else
+            drop
+        then
+        @
+    repeat
+;
+
+: snum ( n -- )
+    dup h# 4000 - h# c000 u< if
+        dup lit>hdr ?dup if nip sname exit then
+    then
+    sb-begin . sb-end  sb sbn @ 1- d# -1 tok
+;
 : slink ( xt -- ) \ a word by name, or by address if it has no name
     dup xt>hdr ?dup if nip sname exit then
     sb-begin [char] $ emit dup h4 sb-end
