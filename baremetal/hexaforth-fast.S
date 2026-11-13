@@ -20,9 +20,17 @@
 
         .equ    UART_BASE,   0x09000000      // PL011 on QEMU `virt`
         .equ    UART_FR,     0x18
-        .equ    DSTACK_BASE, 0x20000         // 256 cells each
-        .equ    RSTACK_BASE, 0x20800
-        .equ    MEM_TOP,     0x21000         // zeroed up to here at boot
+// Built with -DADDR_CELLS, an address is the number of a cell and not of a
+// byte, memory is 2^ADDR_BITS cells, and the stacks come after it.
+#ifdef ADDR_CELLS
+#define AT(r)   [MEM, r, lsl #3]
+        .equ    DSTACK_BASE, 8 << ADDR_BITS
+#else
+#define AT(r)   [MEM, r]
+        .equ    DSTACK_BASE, 0x20000
+#endif
+        .equ    RSTACK_OFF,  0x800           // 256 cells each
+        .equ    STACKS_SIZE, 0x1000
 
         .equ    IO_EMIT,     0xf1
         .equ    IO_KEY,      0xe0
@@ -42,6 +50,7 @@ UART    .req    x26
 TBL1    .req    x27     // instruction >> 4        -> first routine
 TBL2    .req    x28     // instruction & 0x3ff     -> stage 2 routine
 HB      .req    x29     // base the table offsets are relative to
+STK     .req    x18     // host address of the data stack; the return stack follows
 INS     .req    x9      // current instruction
 INSw    .req    w9
 OUT     .req    x10     // ALU result, between the stages
@@ -69,14 +78,20 @@ N       .req    x11
         .globl  _start, next, halt
 _start:
         adr     MEM, image
-        adr     x0, image_end
-        add     x1, MEM, #MEM_TOP
+        mov     x0, #DSTACK_BASE
+        add     STK, MEM, x0
+        add     x1, STK, #STACKS_SIZE
+#ifdef ADDR_CELLS
+        mov     x0, STK                         // clear the stacks,
+#else
+        adr     x0, image_end                   // and memory after the image
+#endif
 1:      str     xzr, [x0], #8
         cmp     x0, x1
         b.lo    1b
         mov     UART, #UART_BASE
-        add     DS, MEM, #DSTACK_BASE
-        add     RS, DS, #(RSTACK_BASE - DSTACK_BASE)
+        mov     DS, STK
+        add     RS, STK, #RSTACK_OFF
         adr     TBL1, tbl1
         adr     TBL2, tbl2
         adr     HB, hbase
@@ -151,7 +166,7 @@ call_\page:
         .macro  S1 in, op, src
 s1_\in\()_\op:
   .if \in == 2
-        ldr     x13, [MEM, T]
+        ldr     x13, AT(T)
   .endif
   .if (\in == 0) || ((\op >= 1) && (\op <= 7)) || ((\op >= 9) && (\op <= 11))
         ldur    N, [DS, #-8]
@@ -191,7 +206,7 @@ s1_\in\()_\op:
   .elseif \op == 13                             // IN<<T
         lsl     OUT, \src, T
   .elseif \op == 14                             // [IN]
-        ldr     OUT, [MEM, \src]
+        ldr     OUT, AT(\src)
   .else                                         // io[IN]
         mov     OUT, \src
         bl      io_read
@@ -216,7 +231,7 @@ s2_\out\()_\d\()_\r:
         tst     INSw, #0x1000                   // RET: R->PC
         csel    PC, R, PC, ne
   .if \out == 3                                 // ->[T]
-        str     OUT, [MEM, T]
+        str     OUT, AT(T)
   .elseif \out == 2                             // ->io[T]: T is the port
         mov     x15, T
   .endif
@@ -309,11 +324,10 @@ io_read:                                        // port in OUT, result in OUT
         cmp     OUT, #IO_RSP
         mov     OUT, #0
         b.ne    9f
-        sub     OUT, RS, #(RSTACK_BASE - DSTACK_BASE)
+        sub     OUT, RS, #RSTACK_OFF
         b       8f
 7:      mov     OUT, DS
-8:      sub     OUT, OUT, MEM
-        sub     OUT, OUT, #DSTACK_BASE
+8:      sub     OUT, OUT, STK
         asr     OUT, OUT, #3
 9:      ret
 
@@ -346,17 +360,16 @@ io_write:                                       // port in x15, value in OUT
         b.ne    9f
         str     OUT, [IOA]
         ret
-7:      add     x12, MEM, OUT, lsl #3           // new stack pointer, less its base
+7:      add     x12, STK, OUT, lsl #3           // new stack pointer
         cmp     x15, #IO_SP
         b.ne    8f
         str     T, [DS]                         // T back to its cell first
-        add     DS, x12, #DSTACK_BASE
+        mov     DS, x12
         ldr     T, [DS]
         ret
 8:      cmp     x15, #IO_RSP
         b.ne    9f
-        add     RS, x12, #DSTACK_BASE
-        add     RS, RS, #(RSTACK_BASE - DSTACK_BASE)
+        add     RS, x12, #RSTACK_OFF
         ldr     R, [RS]
 9:      ret
 
