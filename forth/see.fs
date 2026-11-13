@@ -13,14 +13,25 @@
 \   0branch forwards                  if      (then, where it lands)
 \   jump forwards, over an if's end   else
 \   0branch or jump backwards         until, again   (begin, where it lands)
+\   0branch forwards to just past a
+\     jump backwards                  while, and that jump is repeat
 \   jump anywhere else                a call that does not come back
 \   an instruction with RET           its word, then exit
 \
 \ An ALU instruction is named by finding a word that is that instruction
 \ and a return.  One that the peephole made, and that no word is, is shown
 \ as its number in brackets.
+\
+\ The tokens are laid out as source is written.  The name has the first
+\ line and the semicolon the last.  What is inside an if or a begin is
+\ indented, and an if, an else, a then or a store ends its line.  The
+\ routine in 'nl starts a new line; the indent to give the next token is
+\ in sind, and sfresh is true while nothing is on the line yet.
 
 create 'tok 0 ,
+create 'nl 0 ,
+create sind 0 ,
+create sfresh 0 ,
 create squiet 0 ,       \ true on the first reading
 create sxt 0 ,          \ the definition
 create spc 0 ,          \ the instruction being read
@@ -32,6 +43,8 @@ create sfw #128 allot   \ where forward branches land
 create nfw 0 ,
 create sbg #128 allot   \ where backward branches land
 create nbg 0 ,
+create swh #64 allot    \ where a while leaves its loop
+create nwh 0 ,
 create stmp 0 ,
 
 create k-colon  ," :"
@@ -44,12 +57,20 @@ create k-then   ," then"
 create k-begin  ," begin"
 create k-until  ," until"
 create k-again  ," again"
+create k-while  ," while"
+create k-repeat ," repeat"
 create k-exit   ," exit"
 create k-plus   ," +"
 create k-halt   ," halt"
 
-: tok ( addr u xt -- ) squiet @ if drop 2drop exit then 'tok @ execute ;
+: tok ( addr u xt -- )
+    squiet @ if drop 2drop exit then
+    'tok @ execute  d# 0 sfresh !
+;
 : wt  ( cstr -- ) count d# -1 tok ;
+: snl ( -- ) squiet @ sfresh @ or if exit then 'nl @ execute  true sfresh ! ;
+: s+  ( -- ) d# 1 sind +! ;
+: s-  ( -- ) sind @ 1- d# 0 max sind ! ;
 
 : ins@ ( a -- w ) 2* uw@ ;
 : hxt  ( hdr -- xt ) cell+ @ d# 1 lshift d# 1 rshift ;
@@ -116,7 +137,12 @@ create k-halt   ," halt"
 
 : snum ( n -- ) sb-begin . sb-end  sb sbn @ 1- d# -1 tok ;
 : sraw ( w -- ) sb-begin [char] [ emit h4 [char] ] emit sb-end  sb sbn @ d# -1 tok ;
-: sname ( hdr -- ) dup CELL2 + count rot hxt tok ;
+: sname ( hdr -- ) \ a word, and a new line after one that stores
+    dup CELL2 + count rot hxt
+    >r 2dup + 1- c@ r> swap >r
+    tok
+    r> [char] ! = if snl then
+;
 
 : slink ( xt -- ) \ a word by name, or by address if it has no name
     dup xt>hdr ?dup if nip sname exit then
@@ -128,13 +154,15 @@ create k-halt   ," halt"
 : stail  ( -- ) spc @ send @ < if k-exit wt then ;
 : reach  ( a -- ) smax @ max smax ! ;
 
-: starget ( w -- a ) \ where a branch at spc goes
-    dup h# 1000 and if
-        h# fff and spc @ h# fff invert and or
+: btarget ( w pc -- a ) \ where a branch at pc goes
+    over h# 1000 and if
+        h# fff invert and swap h# fff and or
     else
-        h# fff and
+        drop h# fff and
     then
 ;
+
+: starget ( w -- a ) spc @ btarget ;
 
 : fw-add ( a -- )
     nfw @ d# 16 < if nfw @ cells sfw + !  d# 1 nfw +! else drop then
@@ -161,7 +189,7 @@ create k-halt   ," halt"
         dup nfw @ <
     while
         dup cells sfw + @ spc @ = if
-            sflush k-then wt                \ a number before it comes first
+            sflush snl s- k-then wt snl     \ a number before it comes first
             d# -1 over cells sfw + !
         then
         1+
@@ -174,7 +202,7 @@ create k-halt   ," halt"
     begin
         dup nbg @ <
     while
-        dup cells sbg + @ spc @ = if sflush k-begin wt then
+        dup cells sbg + @ spc @ = if sflush snl k-begin wt snl s+ then
         1+
     repeat
     drop
@@ -199,20 +227,46 @@ create k-halt   ," halt"
     sflush slink
 ;
 
+: while? ( a -- f ) \ is the instruction before a a jump back into this word?
+    1- dup ins@
+    dup h# e000 and 0= over 0<> and 0= if 2drop false exit then
+    swap btarget
+    dup sxt @ < 0= swap spc @ > 0= and
+;
+
+: wh-add ( a -- )
+    nwh @ d# 8 < if nwh @ cells swh + !  d# 1 nwh +! else drop then
+;
+
+: wh? ( a -- f )
+    d# 0
+    begin
+        dup nwh @ <
+    while
+        2dup cells swh + @ = if 2drop true exit then
+        1+
+    repeat
+    2drop false
+;
+
 : s-jump ( w -- )
     sflush starget
     dup spc @ > if
-        dup fw-else if reach k-else wt exit then
+        dup fw-else if reach snl s- k-else wt snl s+ exit then
         slink stail exit
     then
     dup sxt @ < if slink stail exit then
-    bg-add k-again wt
+    bg-add  snl s-  spc @ 1+ wh? if k-repeat else k-again then wt  snl
 ;
 
 : s-0br ( w -- )
     sflush starget
-    dup spc @ > if dup reach fw-add k-if wt exit then
-    bg-add k-until wt
+    dup spc @ > if
+        dup reach
+        dup while? if wh-add k-while wt snl exit then
+        fw-add k-if wt snl s+ exit
+    then
+    bg-add  snl s- k-until wt snl
 ;
 
 : s-alu ( w -- )
@@ -240,7 +294,7 @@ create k-halt   ," halt"
 ;
 
 : swalk ( -- )
-    sxt @ spc !  d# 0 nfw !  d# 0 slit !
+    sxt @ spc !  d# 0 nfw !  d# 0 nwh !  d# 0 slit !  d# 1 sind !
     begin
         spc @ send @ > 0=
     while
@@ -273,34 +327,48 @@ create k-halt   ," halt"
 : sdecomp ( xt -- )
     dup sxt !  dup smax !  d# 400 + send !  d# 0 nbg !
     true squiet !  swalk  d# 0 squiet !
+    d# 0 sind !  true sfresh !
     sxt @ xt>hdr ?dup if
         k-colon wt  sname
     else
         k-noname wt
     then
+    snl
     swalk
+    snl  d# 0 sind !
     k-semi wt
     sxt @ xt>hdr ?dup if cell+ @ 0< if k-imm wt then then
 ;
 
-: ttok ( addr u xt -- ) drop type space ;
+: sspaces ( n -- )
+    begin
+        dup 0>
+    while
+        space 1-
+    repeat
+    drop
+;
+
+: ttok ( addr u xt -- ) drop  sfresh @ if sind @ 2* sspaces then  type space ;
 
 header see
-: see ( "name" -- ) tick  ['] ttok 'tok !  cr sdecomp ;
+: see ( "name" -- ) tick  ['] ttok 'tok !  ['] cr 'nl !  cr sdecomp ;
 
 \ ---- the Words window: the dictionary on the left, a definition on the right
 \
 \ Up and Down move through the dictionary, PgUp and PgDn by a page.  A click
 \ on a name shows it.  A click on an underlined word follows it, and
-\ Backspace comes back.  Left and Right scroll a long definition.
+\ Backspace comes back.  Left and Right scroll a long definition by half
+\ a window.
 
-$2e constant SCOLS      \ characters across the definition
+$2d constant SCOLS      \ characters across the definition
 
 create winit 0 ,
 create wxt 0 ,          \ the definition shown
 create wsel 0 ,         \ its place in the dictionary, or -1
 create wtop 0 ,         \ the first name listed
 create wsrc 0 ,         \ the first line of the definition shown
+create wrows 0 ,        \ how many lines it has
 create whist #64 allot
 create nhist 0 ,
 create scol 0 ,
@@ -372,7 +440,10 @@ create t-words ," Words"
 
 : gtok ( addr u xt -- )
     >r dup lku !
-    dup scol @ + SCOLS > scol @ 0<> and if d# 0 scol !  d# 1 srow +! then
+    sfresh @ if sind @ 2* scol ! then
+    dup scol @ + SCOLS >  scol @ sind @ 2* >  and if    \ wrap, a little further in
+        sind @ 1+ 2* scol !  d# 1 srow +!
+    then
     srow @ wsrc @ - dup d# 16 u< if
         d# 4 lshift ty0 @ + lky !
         scol @ d# 3 lshift tx0 @ + d# 112 + lkx !
@@ -393,6 +464,8 @@ create t-words ," Words"
     lku @ 1+ scol +!
 ;
 
+: gnl ( -- ) d# 1 srow +! ;
+
 : words-draw ( win -- )
     content ty0 ! tx0 !
     winit @ 0= if true winit !  d# 0 wpick then
@@ -412,8 +485,9 @@ create t-words ," Words"
     drop
     false tx0 @ d# 108 + ty0 @ d# 1 d# 256 fill-rect
     d# 0 scol !  d# 0 srow !  d# 0 nlk !
-    ['] gtok 'tok !
+    ['] gtok 'tok !  ['] gnl 'nl !
     wxt @ sdecomp
+    srow @ 1+ wrows !
 ;
 
 : words-key ( c win -- )
@@ -422,8 +496,8 @@ create t-words ," Words"
     dup d# 129 = if drop wsel @ 1+ wpick exit then
     dup d# 132 = if drop wsel @ d# 16 - wpick exit then
     dup d# 133 = if drop wsel @ d# 16 + wpick exit then
-    dup d# 130 = if drop wsrc @ 1- d# 0 max wsrc ! exit then
-    dup d# 131 = if drop d# 1 wsrc +! exit then
+    dup d# 130 = if drop wsrc @ d# 8 - d# 0 max wsrc ! exit then
+    dup d# 131 = if drop wsrc @ d# 8 + wrows @ 1- min wsrc ! exit then
     d# 8 = if wback then
 ;
 
