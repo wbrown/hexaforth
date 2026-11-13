@@ -70,7 +70,7 @@ header calc-draw : calc-draw ( win -- )
     while
         cn @ d# 4 - ci @ + dup 0< 0= if
             sb-begin cells cst + @ . sb-end
-            ox @ d# 6 +  oy @ d# 4 + ci @ d# 4 lshift +  sb-draw
+            d# 6  d# 4 ci @ d# 4 lshift +  sb-draw
         else
             drop
         then
@@ -80,19 +80,19 @@ header calc-draw : calc-draw ( win -- )
     [char] > emit space
     centry @ if cacc @ . then
     sb-end
-    ox @ d# 6 + oy @ d# 72 + sb-draw
-    false ox @ oy @ d# 92 + d# 136 hline
+    d# 6 d# 72 sb-draw
+    false d# 0 d# 92 d# 136 hline
     d# 0 ci !                                       \ 4 x 5 buttons of 34 x 24
     begin
         ci @ d# 20 <
     while
         false
-        ox @ ci @ d# 3 and d# 34 * +
-        oy @ d# 96 + ci @ d# 2 rshift d# 24 * +
+        ci @ d# 3 and d# 34 *
+        d# 96 ci @ d# 2 rshift d# 24 * +
         d# 33 d# 23 frame-rect
         cbtn >c 1+ ci @ + c@
-        ox @ ci @ d# 3 and d# 34 * + d# 13 +
-        oy @ d# 96 + ci @ d# 2 rshift d# 24 * + d# 4 +
+        ci @ d# 3 and d# 34 * d# 13 +
+        d# 96 ci @ d# 2 rshift d# 24 * + d# 4 +
         draw-char
         d# 1 ci +!
     repeat

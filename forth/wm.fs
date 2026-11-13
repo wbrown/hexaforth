@@ -1,8 +1,8 @@
 \ wm.fs - windows, the pointer, and the event loop
 \
-\ A window is eight cells: x, y, width, height, title (a counted string),
-\ and three routines:
-\     draw   ( win -- )         paint the content, whose top left is at ox, oy
+\ A window is nine cells: x, y, width, height, title (a counted string),
+\ three routines, and its port:
+\     draw   ( win -- )         paint the content, in the window's port
 \     key    ( c win -- )       a key, when this window is in front
 \     click  ( x y win -- )     a click in the content, or 0 for none
 \
@@ -13,14 +13,13 @@
 create wins #64 allot
 header nwin create nwin 0 ,
 create cw 0 ,           \ the window being drawn
-header ox create ox 0 , \ the top left of its content, set before its draw
-header oy create oy 0 , \   routine is called
 
 : top ( -- win ) nwin @ 1- cells wins + @ ;
 
 header window
 : window ( x y w h title draw key click -- win )
-    d# 64 halloc >r
+    d# 72 halloc >r
+    new-port r@ c# 8 + !
     r@ c# 7 + !  r@ c# 6 + !  r@ c# 5 + !  r@ c# 4 + !
     r@ c# 3 + !  r@ CELL2 + !  r@ CELL + !  r@ !
     r@ nwin @ cells wins + !
@@ -84,8 +83,11 @@ create t-menu ," hexaforth"
 : draw-window ( i -- )
     dup cells wins + @ cw !
     1+ nwin @ = draw-frame
-    cw @ content oy ! ox !
+    cw @ c# 8 + @ port!                             \ the window's own port:
+    cw @ content origin!                            \ its content, and no more
+    noclip  d# 0 d# 0 cw.w d# 2 - cw.h d# 20 - clip-to
     cw @ dup c# 5 + @ execute
+    screen-port @ port!
 ;
 
 : draw-desk ( -- ) \ menu bar, then grey

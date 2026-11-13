@@ -43,13 +43,13 @@ header term-draw : term-draw ( win -- )
         ti @ TROWS <
     while
         ti @ TCOLS * tbuf + TCOLS
-        ox @ d# 2 +  oy @ d# 2 + ti @ d# 4 lshift +  draw-text
+        d# 2  d# 2 ti @ d# 4 lshift +  draw-text
         d# 1 ti +!
     repeat
     true inverse !                                  \ the cursor: a solid cell
     d# 32
-    ox @ d# 2 + tcol @ d# 3 lshift +
-    oy @ d# 2 + trow @ d# 4 lshift +
+    d# 2 tcol @ d# 3 lshift +
+    d# 2 trow @ d# 4 lshift +
     draw-char
     d# 0 inverse !
 ;

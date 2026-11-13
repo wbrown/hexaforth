@@ -19,21 +19,21 @@ header edit-draw : edit-draw ( win -- )
         ei @ d# 16 <
     while
         eblk @ block ei @ d# 6 lshift + d# 64
-        ox @ d# 2 +  oy @ d# 2 + ei @ d# 4 lshift +  draw-text
+        d# 2  d# 2 ei @ d# 4 lshift +  draw-text
         d# 1 ei +!
     repeat
     true inverse !
     eaddr c@
-    ox @ d# 2 + ecx @ d# 3 lshift +
-    oy @ d# 2 + ecy @ d# 4 lshift +
+    d# 2 ecx @ d# 3 lshift +
+    d# 2 ecy @ d# 4 lshift +
     draw-char
     d# 0 inverse !
-    false ox @ oy @ d# 260 + d# 516 hline
+    false d# 0 d# 260 d# 516 hline
     sb-begin
     [char] b emit [char] l emit [char] o emit [char] c emit [char] k emit
     space eblk @ . space space t-keys >c count type
     sb-end
-    ox @ d# 2 + oy @ d# 263 + sb-draw
+    d# 2 d# 263 sb-draw
 ;
 
 header edit-key : edit-key ( c win -- )
