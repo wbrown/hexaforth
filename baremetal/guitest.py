@@ -307,6 +307,16 @@ def main():
         text = read_text(shot, 15, 53, 50, 16)
         check("^W cycles windows and the Forth stack persists",
               text[8] == "0  ok" and text[10] == "15 0  ok", repr(text[7:11]))
+
+        # Put the whole screen out of date from the prompt.  Every window is
+        # painted again, each only where it can be seen, so nothing outside
+        # the Forth window (12, 32, 406 by 280) may change.
+        m.type("0 0 768 576 inval-rect\r")
+        again = m.screenshot(f"{out}/12-repainted.png")
+        a, b = shot.load(), again.load()
+        moved = sum(1 for y in range(H) for x in range(W)
+                    if not (12 <= x < 418 and 32 <= y < 312) and bool(a[x, y]) != bool(b[x, y]))
+        check("a full repaint leaves the other windows as they were", moved == 0, f"{moved} pixels changed")
     finally:
         m.stop()
     print(f"screenshots in {out}/")
