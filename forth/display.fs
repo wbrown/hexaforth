@@ -28,6 +28,7 @@ header fb-h create fb-h  meta disp-h target ,
 \     ox oy       where on the screen its coordinates start
 \     clip        the rectangle it may draw in: left, top, and past the
 \                 right and bottom, on the screen
+\     clip-rgn    a region it may draw in, as well, or 0 for none
 \     pattern     what fills are made of
 \     'mode       how what is drawn meets what is there
 \     inverse bold italic     how text looks
@@ -35,9 +36,9 @@ header fb-h create fb-h  meta disp-h target ,
 \
 \ Everything that draws takes coordinates in the port.  These words are
 \ the port in use.  A port that is not in use is a record of the same
-\ twelve cells, and port! changes from one to another.
+\ thirteen cells, and port! changes from one to another.
 
-create gstate 0 , 0 ,  0 , 0 , 0 , 0 ,  0 , 0 ,  0 , 0 , 0 ,  0 ,
+create gstate 0 , 0 ,  0 , 0 , 0 , 0 ,  0 , 0 ,  0 , 0 , 0 ,  0 ,  0 ,
 
 header ox      : ox      gstate ;
 header oy      : oy      gstate CELL + ;
@@ -48,11 +49,13 @@ header inverse : inverse gstate c# 8 + ;
 header bold    : bold    gstate c# 9 + ;
 header italic  : italic  gstate c# 10 + ;
 header font    : font    gstate c# 11 + ;
+header clip-rgn : clip-rgn gstate c# 12 + ;
 
 \ Those are for the dictionary.  Code compiled here has the addresses in line.
 $0 at: gstate ox        $1 at: gstate oy        $2 at: gstate clip
 $6 at: gstate pattern   $7 at: gstate 'mode     $8 at: gstate inverse
 $9 at: gstate bold      $a at: gstate italic    $b at: gstate font
+$c at: gstate clip-rgn
 
 header origin! : origin! ( x y -- ) oy ! ox ! ;
 
@@ -143,6 +146,73 @@ LEFT-LOW? [if]
 [then]
 ;
 
+\ ---- clipping to a region
+\
+\ A region (region.fs) is clipped to a row at a time.  mrow is a row of the
+\ screen with a pixel set wherever the region is, for the rows from mk0 up
+\ to mk1, which are all the same in the region.  rmask makes it so for a
+\ row, and rm then takes out of a mask the pixels that are not in the
+\ region.  With no region neither does anything.
+
+create mrow  meta disp-stride cell-bytes * target allot
+create mk0 1 ,
+create mk1 0 ,
+create mbase 0 ,        \ the first cell of the row on the screen
+create my 0 ,
+create mfound 0 ,
+
+: mspan ( x0 x1 -- ) \ set those pixels of mrow
+    fb-w @ min swap d# 0 max tuck - hn !
+    dup PXSHIFT rshift mrow + ba !  PXMASK and bn !
+    begin
+        hn @ 0>
+    while
+        PXCELL bn @ - hn @ min
+        dup leftn bn @ PIXR  ba @ dup >r @ or r> !
+        negate hn +!
+        d# 0 bn !  d# 1 ba +!
+    repeat
+;
+
+: mfind ( y -- row|0 ) \ the row of the region that y is in; sets mk0 and mk1
+    my !
+    h# 7fffffff negate mk0 !  h# 7fffffff mk1 !
+    d# 0 mfound !
+    clip-rgn @ dup 1+ swap @ bounds                 ( end p )
+    begin
+        2dupxor
+    while
+        dup @ my @ > if @ mk1 !  drop mfound @ exit then    \ the first row below y
+        dup mfound !
+        dup CELL + @ + CELL2 +
+    repeat
+    2drop mfound @
+;
+
+: rmask ( y -- ) \ y on the screen
+    clip-rgn @ 0= if drop exit then
+    dup row mbase !
+    dup mk0 @ < 0=  over mk1 @ <  and if drop exit then
+    mrow DISP-STRIDE bounds begin 2dupxor while d# 0 over ! 1+ repeat 2drop
+    mfind ?dup if
+        dup @ mk0 !
+        dup CELL2 + swap CELL + @ bounds            ( end p )
+        begin
+            2dupxor
+        while
+            dup @ over 1+ @ mspan
+            CELL2 +
+        repeat
+        2drop
+    then
+;
+
+: rm ( mask a -- mask' a )
+    clip-rgn @ if dup mbase @ - mrow + @ rot and swap then
+;
+
+header rgn-clip! : rgn-clip! ( rgn|0 -- ) clip-rgn !  d# 1 mk0 !  d# 0 mk1 ! ;
+
 header slab
 : slab ( x y n -- )
     hn !
@@ -153,7 +223,7 @@ header slab
     while
         PXCELL bn @ - hn @ min                      ( pixels in this cell )
         dup leftn bn @ PIXR
-        psrc @ swap ba @ 'mode @ execute
+        ba @ rm  psrc @ -rot  'mode @ execute
         negate hn +!
         d# 0 bn !  d# 1 ba +!
     repeat
@@ -178,6 +248,7 @@ header clip! : clip! ( x y w h -- )
 ;
 
 header noclip : noclip ( -- ) \ the whole screen
+    d# 0 rgn-clip!
     d# 0 clip !  d# 0 clip CELL + !  fb-w @ clip CELL2 + !  fb-h @ clip c# 3 + !
 ;
 
@@ -207,6 +278,7 @@ create oclip 0 , 0 , 0 , 0 ,
 header pat-hline : pat-hline ( x y n -- )
     >r >screen r>
     over dup clip CELL + @ < swap clip c# 3 + @ < 0= or if drop 2drop exit then
+    over rmask
     swap >r clip-span r> swap
     dup 0> if slab else drop 2drop then
 ;
@@ -277,7 +349,7 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
         boff @ if
             boff @ PIXL  bp @ 1+ @ PXCELL boff @ - PIXR  or
         then
-        RAW>SRC swap ba @ 'mode @ execute
+        RAW>SRC swap ba @ rm 'mode @ execute
         negate hn +!
         d# 0 bn !  d# 1 ba +!  d# 1 bp +!
     repeat
@@ -300,6 +372,7 @@ header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
     while
         ssy @ bdy @ < if bh @ 1- br @ - else br @ then  ( row )
         dup ssy @ + row-aside
+        dup bdy @ + rmask
         bdx @ swap bdy @ + prow ba ! bn !
         bw @ hn !  row-out
         d# 1 br +!
@@ -510,12 +583,17 @@ INK-BLACK? [if] [else]
 
 : put ( -- ) \ store the cell gathered, and start on the next
     cx @ vx0 @ < 0=  cx @ PXCELL + vx1 @ > 0=  and if
-        acc @ da @ !
+        d# -1
     else                                            \ at an end: only the pixels to be drawn
         cx @ m0x @ = if m0 @ else
             cx @ m1x @ = if m1 @ else cx @ endmask then
         then
+    then
+    da @ rm drop                                    ( the pixels to store )
+    dup 1+ if
         ?dup if acc @ over and swap da @ seg! then
+    else
+        drop acc @ da @ !
     then
     d# 1 da +!  PXCELL cx +!  d# 0 hi !  d# 0 acc !
 ;
@@ -557,6 +635,7 @@ INK-BLACK? [if] [else]
     begin
         tr @ r1 @ <
     while
+        ty @ tr @ + rmask
         ty @ tr @ + row  tx @ PXSHIFT rshift +  da !
         tx @ PXMASK invert and cx !
         tx @ PXMASK and hi !
@@ -598,13 +677,14 @@ header screen-port create screen-port 0 ,
 ;
 
 header port! : port! ( port -- ) \ put the port in use away, and take up another
-    port @ ?dup if gstate swap d# 12 cells-move then
+    port @ ?dup if gstate swap d# 13 cells-move then
     dup port !
-    gstate d# 12 cells-move
+    gstate d# 13 cells-move
+    d# 1 mk0 !  d# 0 mk1 !
 ;
 
 header new-port : new-port ( -- port ) \ the whole screen, black, copying, plain text in mono
-    d# 12 cells >c halloc >r
+    d# 13 cells >c halloc >r
     mono r@ c# 11 + !
     fb-w @ r@ c# 4 + !  fb-h @ r@ c# 5 + !
     p-black r@ c# 6 + !
