@@ -31,12 +31,13 @@ header fb-h create fb-h  meta disp-h target ,
 \     pattern     what fills are made of
 \     'mode       how what is drawn meets what is there
 \     inverse bold italic     how text looks
+\     font        and what it is set in
 \
 \ Everything that draws takes coordinates in the port.  These words are
 \ the port in use.  A port that is not in use is a record of the same
-\ eleven cells, and port! changes from one to another.
+\ twelve cells, and port! changes from one to another.
 
-create gstate 0 , 0 ,  0 , 0 , 0 , 0 ,  0 , 0 ,  0 , 0 , 0 ,
+create gstate 0 , 0 ,  0 , 0 , 0 , 0 ,  0 , 0 ,  0 , 0 , 0 ,  0 ,
 
 header ox      : ox      gstate ;
 header oy      : oy      gstate CELL + ;
@@ -46,6 +47,12 @@ header 'mode   : 'mode   gstate c# 7 + ;
 header inverse : inverse gstate c# 8 + ;
 header bold    : bold    gstate c# 9 + ;
 header italic  : italic  gstate c# 10 + ;
+header font    : font    gstate c# 11 + ;
+
+\ Those are for the dictionary.  Code compiled here has the addresses in line.
+$0 at: gstate ox        $1 at: gstate oy        $2 at: gstate clip
+$6 at: gstate pattern   $7 at: gstate 'mode     $8 at: gstate inverse
+$9 at: gstate bold      $a at: gstate italic    $b at: gstate font
 
 header origin! : origin! ( x y -- ) oy ! ox ! ;
 
@@ -336,6 +343,246 @@ header xor8
     ba @ x!
 ;
 
+\ ---- text
+\
+\ Text is black on white.  With `inverse` set it is white on black, with
+\ `bold` set each stroke is a pixel wider, and with `italic` set the top
+\ half of each character leans a pixel to the right.
+\
+\ A font is a strike: all its glyphs side by side in one bitmap as high as
+\ the font, and a table of where each starts.  The record is five cells
+\ (height, first character, how many, cells in a row of the strike, and
+\ one for the system's use), the table, with one more entry for where the
+\ last glyph ends, and the strike.  A glyph is as wide as the distance to
+\ the next, so a font may be proportional or not.
+\
+\ A strike is small, but taking a glyph's row out of it is a shift and a
+\ mask across two cells.  So the first time a font is used it is opened
+\ out, into memory from halloc: two cells for each glyph, where its rows
+\ are and how wide it is, and then the rows, each in a cell of its own
+\ with the glyph at the left.  Drawing reads only that.
+
+create kf 0 ,           \ the font being opened out
+create kc 0 ,           \ what it is opened out into
+create ki 0 ,           \ the glyph
+create kr 0 ,           \ the row
+create kx 0 ,           \ where the glyph is in the strike
+create kw 0 ,           \ and how wide
+
+: krow ( -- pixels ) \ row kr of the glyph, at the left of a cell
+    kf @ c# 6 + kf @ CELL2 + @ +                    \ the strike, after the table
+    kr @ kf @ c# 3 + @ * +  kx @ PXSHIFT rshift +   ( a )
+    dup @  kx @ PXMASK and ?dup if PIXL then
+    kx @ PXMASK and kw @ + PXCELL > if
+        swap 1+ @  PXCELL kx @ PXMASK and - PIXR  or
+    else
+        nip
+    then
+    kw @ leftn and
+;
+
+: open-font ( font -- a )
+    kf !
+    kf @ CELL2 + @  dup 2*  swap kf @ @ * +  >c halloc kc !
+    d# 0 ki !
+    begin
+        ki @ kf @ CELL2 + @ <
+    while
+        kf @ c# 5 + ki @ +  dup @ kx !  1+ @ kx @ - kw !
+        kc @  kf @ CELL2 + @ 2* +  ki @ kf @ @ * +  ( rows )
+        dup kc @ ki @ 2* + !
+        kw @ kc @ ki @ 2* + CELL + !
+        d# 0 kr !
+        begin
+            kr @ kf @ @ <
+        while
+            krow over kr @ + !
+            d# 1 kr +!
+        repeat
+        drop
+        d# 1 ki +!
+    repeat
+    kc @
+;
+
+create fc 0 ,           \ the port's font, opened out,
+create ffirst 0 ,       \ its first character
+create fcount 0 ,       \ and how many it has
+
+: font-open ( -- )
+    font @ c# 4 + @ ?dup 0= if
+        font @ open-font dup font @ c# 4 + !
+    then
+    fc !
+    font @ CELL + @ ffirst !
+    font @ CELL2 + @ fcount !
+;
+
+: glyph ( c -- a ) \ a character's two cells: its rows, and its width
+    ffirst @ -
+    dup fcount @ u< 0= if drop d# 0 then
+    2* fc @ +
+;
+
+header text-width : text-width ( addr u -- n ) \ in pixels
+    font-open
+    d# 0 -rot bounds
+    begin
+        2dupxor
+    while
+        dup c@ glyph CELL + @  rot + -rot
+        1+
+    repeat
+    2drop
+;
+
+\ A string is drawn a row of pixels at a time, not a character at a time.
+\ The rows of its glyphs are gathered into a cell, and the cell is stored
+\ when it is full: one store for as many characters as fit in a cell.
+\ Only the cells at the two ends of what is drawn hold other pixels that
+\ have to be kept.  Which glyphs will be seen is worked out once for the
+\ string, and so is whether any styling is wanted.
+
+$80 constant MAX-GLYPHS  \ the most that one call will draw
+
+create ta 0 ,           \ the string
+create tu 0 ,
+create tx 0 ,           \ where the first glyph drawn goes
+create ty 0 ,
+create pen 0 ,          \ where the next glyph goes
+create tr 0 ,           \ the row being drawn
+create styled 0 ,       \ true if the rows need more than copying
+create da 0 ,           \ the cell being gathered
+create acc 0 ,          \ its pixels so far
+create hi 0 ,           \ how far across the cell they reach
+create cx 0 ,           \ where on the screen the cell starts
+create vx0 0 ,          \ the pixels of the row that are drawn: from here
+create vx1 0 ,          \ to here
+create r0 0 ,           \ and the rows of the glyphs: from this
+create r1 0 ,           \ to this
+create m0x 0 ,          \ the cell the drawing starts in,
+create m0 0 ,           \ and the pixels of it that are drawn
+create m1x 0 ,          \ the cell it ends in,
+create m1 0 ,           \ and its
+create gn 0 ,           \ how many glyphs will be seen
+create gbuf 0 ,         \ and which: a cell for each
+create gw 0 ,           \ how wide the one in hand is
+
+: glyphs ( -- ) \ note each glyph that will be seen
+    d# 0 gn !
+    tx @ pen !
+    ta @ tu @ bounds
+    begin
+        2dupxor
+    while
+        dup c@ glyph dup CELL + @ gw !              ( end a glyph )
+        pen @ gw @ + clip @ > 0=  pen @ 0<  or      \ off the left, or cut by the screen's edge
+        pen @ clip CELL2 + @ < 0= or                \ or off the right
+        gn @ MAX-GLYPHS = or  if
+            drop
+        else
+            gn @ 0= if pen @ tx ! then
+            gbuf @ gn @ + !  d# 1 gn +!
+            pen @ gw @ + vx1 !                      \ where the last one drawn ends
+        then
+        gw @ pen +!
+        1+
+    repeat
+    2drop
+;
+
+: style ( pixels n -- pixels' n ) \ a row of a glyph as it goes in the bitmap
+    >r
+    italic @ if tr @ d# 8 < if d# 1 PIXR then then
+    bold @ if dup d# 1 PIXR or then
+    r@ leftn and
+    inverse @ if r@ leftn xor then
+INK-BLACK? [if] [else]
+    r@ leftn xor
+[then]
+    r>
+;
+
+: endmask ( x -- mask ) \ the pixels that are drawn, of the cell that starts at x
+    vx1 @ over - d# 0 max PXCELL min leftn
+    vx0 @ rot - d# 0 max PXCELL min leftn invert and
+;
+
+: put ( -- ) \ store the cell gathered, and start on the next
+    cx @ vx0 @ < 0=  cx @ PXCELL + vx1 @ > 0=  and if
+        acc @ da @ !
+    else                                            \ at an end: only the pixels to be drawn
+        cx @ m0x @ = if m0 @ else
+            cx @ m1x @ = if m1 @ else cx @ endmask then
+        then
+        ?dup if acc @ over and swap da @ seg! then
+    then
+    d# 1 da +!  PXCELL cx +!  d# 0 hi !  d# 0 acc !
+;
+
+: +glyph ( pixels n -- ) \ n more pixels
+    >r
+    dup hi @ PIXR acc @ or acc !
+    hi @ r@ + dup PXCELL < if hi ! drop rdrop exit then
+    PXCELL -                                        ( pixels pixels-over )
+    put
+    ?dup if
+        dup hi !
+        r@ swap - PIXL acc !
+    else
+        drop
+    then
+    rdrop
+;
+
+header draw-text : draw-text ( addr u x y -- ) \ in the port's font, clipped to the pixel
+    ty ! tx ! tu ! ta !
+    ox @ tx +!  oy @ ty +!
+    clip CELL + @ ty @ - d# 0 max r0 !
+    clip c# 3 + @ ty @ - font @ @ min r1 !
+    r0 @ r1 @ < 0= if exit then
+    font-open
+    glyphs
+    gn @ 0= if exit then
+    tx @ clip @ max vx0 !
+    vx1 @ clip CELL2 + @ min vx1 !
+    vx0 @ PXMASK invert and  dup m0x !  endmask m0 !
+    vx1 @ 1- PXMASK invert and  dup m1x !  endmask m1 !
+    italic @ bold @ or inverse @ or
+INK-BLACK? [if] [else]
+    drop true
+[then]
+    styled !
+    r0 @ tr !
+    begin
+        tr @ r1 @ <
+    while
+        ty @ tr @ + row  tx @ PXSHIFT rshift +  da !
+        tx @ PXMASK invert and cx !
+        tx @ PXMASK and hi !
+        d# 0 acc !
+        gbuf @ gn @ bounds
+        begin
+            2dupxor
+        while
+            dup @  dup @ tr @ + @  swap CELL + @    ( pixels n )
+            styled @ if style then
+            +glyph
+            1+
+        repeat
+        2drop
+        hi @ if put then
+        d# 1 tr +!
+    repeat
+;
+
+create ch1 0 ,
+
+header draw-char : draw-char ( c x y -- )
+    rot ch1 !
+    >r >r ch1 >c d# 1 r> r> draw-text
+;
+
 \ ---- ports that are not in use
 
 header port create port 0 ,         \ the record of the port in use, or 0
@@ -351,13 +598,14 @@ header screen-port create screen-port 0 ,
 ;
 
 header port! : port! ( port -- ) \ put the port in use away, and take up another
-    port @ ?dup if gstate swap d# 11 cells-move then
+    port @ ?dup if gstate swap d# 12 cells-move then
     dup port !
-    gstate d# 11 cells-move
+    gstate d# 12 cells-move
 ;
 
-header new-port : new-port ( -- port ) \ the whole screen, black, copying, plain text
-    d# 11 cells >c halloc >r
+header new-port : new-port ( -- port ) \ the whole screen, black, copying, plain text in mono
+    d# 12 cells >c halloc >r
+    mono r@ c# 11 + !
     fb-w @ r@ c# 4 + !  fb-h @ r@ c# 5 + !
     p-black r@ c# 6 + !
     ['] m-copy r@ c# 7 + !
@@ -367,148 +615,7 @@ header new-port : new-port ( -- port ) \ the whole screen, black, copying, plain
 header display-init
 : display-init ( -- )
     ['] dplot 'plot !
+    gbuf @ 0= if MAX-GLYPHS >c halloc gbuf ! then
     d# 0 port !
     new-port dup screen-port ! port!
-;
-
-\ ---- text
-\
-\ Text is black on white.  With `inverse` set it is white on black, with
-\ `bold` set each stroke is a pixel wider, and with `italic` set the top
-\ half of each character leans a pixel to the right.
-
-
-\ A string is drawn a row of pixels at a time, not a character at a time.
-\ The rows of its characters are gathered into a cell, and the cell is
-\ stored when it is full: one store for as many characters as a cell is
-\ wide.  Only the cells at the two ends of the string hold other pixels
-\ that have to be kept.
-\
-\ Everything that is the same for every row is done once for the string:
-\ where each character's glyph is, and whether any styling is wanted.  A
-\ glyph is 16 bytes, a row of eight pixels in each, so a row is a byte of
-\ one of the glyph's cells: which cell, and how far up it, is worked out
-\ once for each row from the size of a cell.
-
-create ta 0 ,           \ the string
-create tu 0 ,
-create tx 0 ,           \ where it goes
-create ty 0 ,
-create tr 0 ,           \ the row being drawn
-create roff 0 ,         \ the cell of a glyph that row is in
-create rsh 0 ,          \ and the shift that brings it down
-create styled 0 ,       \ true if the rows need more than copying
-create da 0 ,           \ the cell being gathered
-create acc 0 ,          \ its pixels so far
-create hi 0 ,           \ how far across the cell they reach
-create cx 0 ,           \ where on the screen the cell starts
-create vx0 0 ,          \ the pixels of the row that are drawn: from here
-create vx1 0 ,          \ to here
-create r0 0 ,           \ and the rows of the glyphs: from this
-create r1 0 ,           \ to this
-create gn 0 ,           \ how many glyphs
-create gbuf  meta disp-w 8 / 2 + cell-bytes * target allot  \ and where each is
-
-: glyphs ( -- ) \ find the glyph of each character
-    d# 0 gn !
-    ta @ tu @ bounds
-    begin
-        2dupxor
-    while
-        dup c@ d# 32 - dup d# 94 u> if drop d# 0 then
-        GLYPH-CELLS * font +
-        gn @ gbuf + !  d# 1 gn +!
-        1+
-    repeat
-    2drop
-;
-
-: style ( bits -- bits' ) \ a row as it goes in the bitmap
-    italic @ if tr @ d# 8 < if d# 1 PIXR h# ff and then then
-    bold @ if dup d# 1 PIXR or h# ff and then
-    inverse @ if h# ff xor then
-INK-BLACK? [if] [else]
-    h# ff xor
-[then]
-;
-
-: put ( -- ) \ store the cell gathered, and start on the next
-    cx @ vx0 @ < 0=  cx @ PXCELL + vx1 @ > 0=  and if
-        acc @ da @ !
-    else                                            \ at an end: only the pixels to be drawn
-        vx1 @ cx @ - d# 0 max PXCELL min leftn
-        vx0 @ cx @ - d# 0 max PXCELL min leftn invert and
-        ?dup if acc @ over and swap da @ seg! then
-    then
-    d# 1 da +!  PXCELL cx +!  d# 0 hi !  d# 0 acc !
-;
-
-: +row ( bits -- ) \ eight more pixels
-    EDGE
-    dup hi @ PIXR acc @ or acc !
-    hi @ d# 8 + dup PXCELL < if hi ! drop exit then
-    PXCELL - >r                                     ( bits ) ( r: pixels over )
-    put
-    r@ if
-        d# 8 r@ - PIXL acc !
-        r@ hi !
-    else
-        drop
-    then
-    rdrop
-;
-
-header draw-text : draw-text ( addr u x y -- ) \ clipped to the pixel
-    ty ! tx ! tu ! ta !
-    ox @ tx +!  oy @ ty +!
-    clip CELL + @ ty @ - d# 0 max r0 !
-    clip c# 3 + @ ty @ - d# 16 min r1 !
-    r0 @ r1 @ < 0= if exit then
-    tx @ clip @ max vx0 !
-    tu @ d# 3 lshift tx @ +  clip CELL2 + @ min vx1 !
-    vx0 @ vx1 @ < 0= if exit then
-    vx0 @ tx @ - d# 3 rshift                        \ characters wholly off the left
-    dup ta +!  dup negate tu +!  d# 3 lshift tx +!
-    tx @ 0< if                                      \ and one cut by the screen's edge
-        d# 1 ta +!  d# -1 tu +!  d# 8 tx +!
-        tx @ vx0 !
-    then
-    vx1 @ tx @ - d# 7 + d# 3 rshift tu !            \ and off the right
-    tu @ 0> 0= if exit then
-    glyphs
-    italic @ bold @ or inverse @ or
-INK-BLACK? [if] [else]
-    drop true
-[then]
-    styled !
-    r0 @ tr !
-    begin
-        tr @ r1 @ <
-    while
-        ty @ tr @ + row  tx @ PXSHIFT rshift +  da !
-        tx @ PXMASK invert and cx !
-        tx @ PXMASK and hi !
-        d# 0 acc !
-        tr @ BYTESHIFT rshift roff !
-        tr @ OFFSET-MASK and d# 3 lshift rsh !
-        gbuf gn @ bounds
-        begin
-            2dupxor
-        while
-            dup @ roff @ + @  rsh @ rshift h# ff and
-            styled @ if style then
-            +row
-            1+
-        repeat
-        2drop
-        hi @ if put then
-        d# 1 tr +!
-    repeat
-;
-
-create ch1 0 ,
-
-header draw-char : draw-char ( c x y -- )
-    rot ch1 !
-    >r >r ch1 >c d# 1 r> r> draw-text
 ;

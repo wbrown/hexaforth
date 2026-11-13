@@ -28,13 +28,14 @@ QCODE = {" ": "spc", "\r": "ret", ".": "dot", ",": "comma", "/": "slash", "-": "
 SHIFTED = dict(zip('!@#$%^&*()_+:"<>?{}|~', "1234567890-=;',./[]\\`"))
 
 
-def load_font():
-    text = open(f"{HERE}/../forth/font.fs").read()
-    data = b"".join(struct.pack("<Q", int(v, 16)) for v in re.findall(r"\$([0-9a-f]+) glyph,", text))
-    return {data[i * 16:i * 16 + 16]: chr(32 + i) for i in range(95)}
+sys.path.insert(0, f"{HERE}/../test")
+import fontfile                                     # noqa: E402
 
-
-FONT = load_font()
+FONTS = fontfile.fonts()
+# The fixed-width font, as the 16 bytes of each glyph: the windows that hold
+# text on a grid are read back a character cell at a time.
+FONT = {bytes(sum(b << (7 - i) for i, b in enumerate(row)) for row in rows): chr(32 + n)
+        for n, (width, rows) in enumerate(FONTS["mono"])}
 UNDERLINED = {glyph[:15]: c for glyph, c in FONT.items()}   # the bottom row is the underline
 BOLD = {bytes(r | r >> 1 for r in glyph[:15]): c for glyph, c in FONT.items()}
 ITALIC = {bytes(r >> 1 for r in glyph[:8]) + glyph[8:15]: c for glyph, c in FONT.items()}
@@ -179,6 +180,19 @@ def read_text(shot, x0, y0, cols, rows):
     return lines
 
 
+def shows(shot, text, x, y, font="sans", inverse=False):
+    """Is this text on the screen at x, y?  For text that is not on a grid."""
+    px = shot.load()
+    for ch in text:
+        width, rows = FONTS[font][ord(ch) - 32]
+        for r, row in enumerate(rows):
+            for k, ink in enumerate(row):
+                if bool(px[x + k, y + r]) == bool(ink ^ inverse):   # a white pixel where ink should be
+                    return False
+        x += width
+    return True
+
+
 def main():
     elf, disk, tiff, out = sys.argv[1:5]
     os.makedirs(out, exist_ok=True)
@@ -243,8 +257,7 @@ def main():
         m.drag(500, 48, 540, 90)
         m.move(756, 24)
         shot = m.screenshot(f"{out}/7-dragged.png")
-        text = read_text(shot, 298, 84, 8, 1)
-        check("window moves when dragged", text[0] == "Mandrill", repr(text))
+        check("window moves when dragged", shows(shot, "Mandrill", 298, 84, inverse=True))
 
         # ^W brings the back window to the front: after the clicks above
         # that is the Words window.  Its content starts at 140+1, 296+19;

@@ -76,7 +76,9 @@ create t-menu ," hexaforth"
     false cw.x cw.y d# 18 + cw.w hline
     dup if false cw.x 1+ cw.y 1+ cw.w d# 2 - d# 17 fill-rect then
     inverse !
+    sans font !
     cw @ c# 4 + @ >c count  cw.x d# 8 + cw.y d# 2 + draw-text
+    mono font !
     d# 0 inverse !
 ;
 
@@ -93,7 +95,9 @@ create t-menu ," hexaforth"
 : draw-desk ( -- ) \ menu bar, then grey
     true d# 0 d# 0 fb-w @ d# 19 fill-rect
     false d# 0 d# 19 fb-w @ hline
+    sans font !
     t-menu >c count d# 8 d# 2 draw-text
+    mono font !
     p-gray pattern !
     d# 0 d# 20 fb-w @ fb-h @ d# 20 - pat-rect
 ;

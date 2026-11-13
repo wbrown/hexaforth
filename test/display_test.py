@@ -22,13 +22,10 @@ MODES = {"copy-mode": lambda d, s: s, "or-mode": lambda d, s: d | s,
          "xor-mode": lambda d, s: d ^ s, "bic-mode": lambda d, s: d & ~s & 1}
 
 
-def load_font():
-    text = open(f"{HERE}/forth/font.fs").read()
-    data = b"".join(struct.pack("<Q", int(v, 16)) for v in re.findall(r"\$([0-9a-f]+) glyph,", text))
-    return [data[i * 16:i * 16 + 16] for i in range(95)]
+sys.path.insert(0, f"{HERE}/test")
+import fontfile                                     # noqa: E402
 
-
-FONT = load_font()
+FONTS = fontfile.fonts()
 
 
 class Model:
@@ -39,6 +36,7 @@ class Model:
         self.pattern = PATTERNS["p-black"]
         self.mode = MODES["copy-mode"]
         self.style = {"inverse": 0, "bold": 0, "italic": 0}
+        self.font = "mono"
 
     def visible(self, x, y):
         x0, y0, x1, y1 = self.clip
@@ -62,24 +60,24 @@ class Model:
                     self.px[yy][xx] = self.mode(self.px[yy][xx], src)
 
     def draw_text(self, text, x, y):
-        x, y = x + self.ox, y + self.oy
-        for i, ch in enumerate(text):
-            cx = x + 8 * i
-            if cx < 0:                              # cut by the screen's edge: not drawn
-                continue
+        pen, y = x + self.ox, y + self.oy
+        for ch in text:
             code = ord(ch) - 32
-            glyph = FONT[code if 0 <= code <= 94 else 0]
-            for r in range(16):
-                b = glyph[r]
-                if self.style["italic"] and r < 8:
-                    b >>= 1
-                if self.style["bold"]:
-                    b |= b >> 1
-                if self.style["inverse"]:
-                    b ^= 0xFF
-                for k in range(8):
-                    if self.visible(cx + k, y + r):
-                        self.px[y + r][cx + k] = b >> (7 - k) & 1
+            width, rows = FONTS[self.font][code if 0 <= code <= 94 else 0]
+            # Not drawn: wholly off either side, or cut by the screen's left edge.
+            if not (pen + width <= self.clip[0] or pen < 0 or pen >= self.clip[2]):
+                for r in range(16):
+                    bits = rows[r][:]
+                    if self.style["italic"] and r < 8:
+                        bits = [0] + bits[:-1]
+                    if self.style["bold"]:
+                        bits = [b | (bits[i - 1] if i else 0) for i, b in enumerate(bits)]
+                    if self.style["inverse"]:
+                        bits = [b ^ 1 for b in bits]
+                    for k, b in enumerate(bits):
+                        if self.visible(pen + k, y + r):
+                            self.px[y + r][pen + k] = b
+            pen += width
 
     def copy_bits(self, sx, sy, dx, dy, w, h):
         sx, sy, dx, dy = sx + self.ox, sy + self.oy, dx + self.ox, dy + self.oy
@@ -113,7 +111,7 @@ def session(seed, count):
     lines = ["display-init", ": tb here 64 + >c ;", ": ch tb + c! ;",
              ": dump hex 576 0 do i row 12 0 do dup i + @ . loop drop cr loop decimal ;"]
     for _ in range(count):
-        op = rng.choice(["rect"] * 4 + ["text"] * 4 + ["copy", "scroll", "clip", "noclip", "mode", "origin",
+        op = rng.choice(["rect"] * 4 + ["text"] * 4 + ["copy", "scroll", "clip", "noclip", "mode", "origin", "font",
                                                       "pattern", "style"])
         if op == "rect":
             x, y = rng.randint(-40, W), rng.randint(-40, H)
@@ -150,6 +148,9 @@ def session(seed, count):
         elif op == "origin":
             m.ox, m.oy = rng.choice([(0, 0), (rng.randint(-30, 300), rng.randint(-30, 300))])
             lines.append(f"{m.ox} {m.oy} origin!")
+        elif op == "font":
+            m.font = rng.choice(list(FONTS))
+            lines.append(f"{m.font} font !")
         elif op == "noclip":
             lines.append("noclip")
             m.clip = (0, 0, W, H)
