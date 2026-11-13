@@ -391,12 +391,39 @@ variable link 0 link !
     tcalign
 ;
 
+\ Labels.  A definition with no header still has a name in the source, and
+\ on a 64-bit machine that name is kept in a second chain, laid out as the
+\ dictionary is, which the prompt does not search but the decompiler does.
+\ A label for code holds its execution token.  A label for something made
+\ with create holds the address of its data, with the top bit set.
+\
+\ `named` is set by a header and is still true, with the code pointer where
+\ the header left it, if the next definition is the one the header names.
+
+variable llink      0 llink !
+variable named      false named !
+variable named-cp
+cell-bits 64 = constant labelling
+
 : (header) ( immediate? "name" -- )
     label
     tcalign
     there  link @ tcell,  link !
     tcp @ 2/ swap if 1 cell-bits 1- lshift or then tcell,
     bl parse tname,
+    true named !  tcp @ named-cp !
+;
+
+: wants-label? ( -- f ) \ and the next definition will have to be asked again
+    named @ tcp @ named-cp @ = and 0=  labelling and
+    false named !
+;
+
+: (label) ( x "name" -- a ) \ a label for the name that follows; a is where x went
+    tcalign
+    there  llink @ tcell,  llink !
+    there swap tcell,
+    wordstr tname,
 ;
 
 :: header       false (header) ;
@@ -412,6 +439,7 @@ variable lastdef    \ body of the most recent target colon definition
     lst @ write-file throw
     wordstr lst @ write-line throw
 
+    wants-label? if tcp @ 2/ (label) drop then
     tcp @ wordstart !
     label
     0    literal-magnitude !        \ Reset shift counter
@@ -510,6 +538,10 @@ variable lastdef    \ body of the most recent target colon definition
 ;
 
 :: create
+    wants-label? if
+        0 (label)
+        there 1 cell-bits 1- lshift or swap tcell!
+    then
     tcalign
     create there ,
     does>   @ literal

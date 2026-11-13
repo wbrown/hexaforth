@@ -230,6 +230,13 @@ The desktop is cross-compiled into code pages 8 and 9 (`0x10000` up):
   brackets
 - `desk.fs`: `desktop`, and `cold`, which the kernel runs at boot
 
+On a 64-bit machine `cross.fs` also keeps the name of every definition that
+has no header, in a second chain headed by `labels` and laid out as the
+dictionary is. The prompt does not search it; the decompiler does, so a
+call to a headerless word and a headerless variable are shown by name. A
+label for code holds its execution token, and one for `create`d data holds
+the data's address with the top bit set. `see` accepts a label's name too.
+
 `cross.fs` compiles a call to another code page as `literal xt` +
 `call execute`, so code past the kernel needs only an `org` per page and
 each page's code to fit in 8KB. Run-time definitions start on the page after

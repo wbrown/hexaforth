@@ -67,6 +67,7 @@ create k-repeat ," repeat"
 create k-exit   ," exit"
 create k-plus   ," +"
 create k-halt   ," halt"
+create k-tick   ," [']"
 
 : tok ( addr u xt -- )
     squiet @ if drop 2drop exit then
@@ -80,7 +81,17 @@ create k-halt   ," halt"
 : ins@ ( a -- w ) 2* uw@ ;
 : hxt  ( hdr -- xt ) cell+ @ d# 1 lshift d# 1 rshift ;
 
-: xt>hdr ( xt -- hdr|0 ) \ the word that starts at xt
+: xt>lbl ( -- lbl|0 ) \ the label for the code at stmp
+    labels @
+    begin
+        dup
+    while
+        dup cell+ @ stmp @ = if exit then
+        @
+    repeat
+;
+
+: xt>hdr ( xt -- hdr|0 ) \ the word that starts at xt: in the dictionary, or a label
     stmp !  forth @
     begin
         dup
@@ -88,6 +99,11 @@ create k-halt   ," halt"
         dup hxt stmp @ = if exit then
         @
     repeat
+    drop xt>lbl
+;
+
+: data>lbl ( a -- lbl|0 ) \ the label for the data at a
+    d# 1 d# 63 lshift or stmp !  xt>lbl
 ;
 
 : ret>hdr ( w -- hdr|0 ) \ the newest word whose code is the one instruction w
@@ -183,9 +199,17 @@ create hv 0 ,
     repeat
 ;
 
+\ An execution token as a number is most often one given to catch or
+\ stored in a vector.  Code is in page 1 and from page 8 up.
+: xt? ( n -- f ) dup h# 8000 u< 0= swap h# 1001 - h# fff u< or ;
+
 : snum ( n -- )
     dup h# 4000 - h# c000 u< if
         dup lit>hdr ?dup if nip sname exit then
+        dup data>lbl ?dup if nip CELL2 + count d# -1 tok exit then
+    then
+    dup xt? if
+        dup xt>hdr ?dup if nip k-tick wt sname exit then
     then
     sb-begin . sb-end  sb sbn @ 1- d# -1 tok
 ;
@@ -447,8 +471,19 @@ create hv 0 ,
 
 : ttok ( addr u xt -- ) drop  sfresh @ if sind @ 2* sspaces then  type space ;
 
+\ SEE takes a name from the dictionary or, failing that, a label.  For a
+\ label on data it only says where the data is.
 header see
-: see ( "name" -- ) tick  ['] ttok 'tok !  ['] cr 'nl !  cr sdecomp ;
+: see ( "name" -- )
+    parse-name sfind ?dup 0= if
+        forth @ >r  labels @ forth !  sfind  r> forth !
+        dup 0= d# 13 -throw
+        0> if cr . exit then
+    else
+        drop
+    then
+    ['] ttok 'tok !  ['] cr 'nl !  cr sdecomp
+;
 
 \ ---- the Words window: the dictionary on the left, a definition on the right
 \
@@ -521,7 +556,10 @@ create t-words ," Words"
 : wshow ( xt -- )
     dup wxt !  d# 0 wsrc !
     xt>hdr ?dup if
-        hdr>i dup wtop @ - d# 16 u< 0= if dup wtop ! then drop
+        hdr>i dup 0< 0= if
+            dup wtop @ - d# 16 u< 0= if dup wtop ! then
+        then
+        drop
     then
 ;
 
