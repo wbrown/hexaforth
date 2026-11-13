@@ -135,6 +135,13 @@ module hexaforth #(
     wire        have_cur = LAT == 2 ? irv : (held || k1 == K_INS);
     wire [15:0] ins     = LAT == 2 ? ir : (held ? hold : rdata[15:0]);
     wire        is_lit  = ins[15];
+    // A literal with a shift field of 3 is not a literal: it fetches one of
+    // the 4,096 cells from VAR_BASE, or stores T in it.
+    wire        is_var  = is_lit && ins[13:12] == 2'd3;
+    wire        is_vf   = is_var && !ins[14];
+    wire        is_vs   = is_var && ins[14];
+    localparam [W-1:0] VAR_BASE = 'h4000 / (W / 8);
+    wire [W-1:0] vaddr  = VAR_BASE + {{(W-12){1'b0}}, ins[11:0]};
     wire [1:0]  op_type = ins[14:13];
     wire        is_alu  = !is_lit && op_type == 2'd3;
     wire        ret     = ins[12];
@@ -149,7 +156,8 @@ module hexaforth #(
     // With LAT = 2 this is done as the instruction is loaded and kept in a
     // register beside it, so that the datapath does not wait for it.
     localparam KEEP = 2'd0, PUSH = 2'd1, POP1 = 2'd2, POP2 = 2'd3;
-    localparam TS_T = 3'd0, TS_N = 3'd1, TS_DS3 = 3'd2, TS_LIT = 3'd3, TS_ADD = 3'd4, TS_OUT = 3'd5;
+    localparam TS_T = 3'd0, TS_N = 3'd1, TS_DS3 = 3'd2, TS_LIT = 3'd3, TS_ADD = 3'd4, TS_OUT = 3'd5,
+               TS_A = 3'd6;
     localparam NS_N = 2'd0, NS_T = 2'd1, NS_DS3 = 2'd2, NS_DS4 = 2'd3;
     localparam RS_R = 3'd0, RS_PC = 3'd1, RS_RS2 = 3'd2, RS_RS3 = 3'd3, RS_OUT = 3'd4;
     localparam ES_IN = 3'd0, ES_LOGIC = 3'd1, ES_MUL = 3'd2, ES_SH = 3'd3, ES_B = 3'd4, ES_IO = 3'd5;
@@ -179,7 +187,10 @@ module hexaforth #(
             lop = ao == 4'd4 ? 2'd0 : ao == 4'd5 ? 2'd1 : ao == 4'd6 ? 2'd2 : 2'd3;
 
             tsel = TS_T;  nsel = NS_N;  rsel = RS_R;  dins = KEEP;  rins = KEEP;
-            if (lit) begin
+            if (lit && i[13:12] == 2'd3) begin          // a variable
+                if (i[14]) begin dins = POP1;  tsel = TS_N;  nsel = NS_DS3; end     // stored: T goes
+                else begin dins = PUSH;  nsel = NS_T;  tsel = TS_A; end             // fetched: pushed
+            end else if (lit) begin
                 if (i[14]) tsel = TS_ADD;
                 else begin dins = PUSH;  nsel = NS_T;  tsel = TS_LIT; end
             end else if (op == 2'd1) begin              // 0branch pops
@@ -225,7 +236,7 @@ module hexaforth #(
     wire        c_swap  = c[27];
 
     // ------------------------------------------------- input mux and ALU
-    wire        need_a = is_alu && in_mux == 2'd2;
+    wire        need_a = (is_alu && in_mux == 2'd2) || is_vf;
     wire [W-1:0] a_now  = have_a ? a_val : rdata;    // [T], latched or just read
     wire [W-1:0] b_now  = have_b ? b_val : rdata;
     wire [W-1:0] in     = ({W{c_insel[0]}} & N) | ({W{c_insel[1]}} & T) |
@@ -234,7 +245,7 @@ module hexaforth #(
     // IN as it decides anything about sequencing or addressing: never
     // straight from the memory.  An instruction whose IN is [T] and which
     // then uses IN as an address or a port waits for [T] to be latched.
-    wire        ab_op   = alu_op == 4'd14 || alu_op == 4'd15;
+    wire        ab_op   = is_alu && (alu_op == 4'd14 || alu_op == 4'd15);
     wire [W-1:0] in_ctl = ({W{c_insel[0]}} & N) | ({W{c_insel[1]}} & T) |
                          ({W{c_insel[2]}} & a_val) | ({W{c_insel[3]}} & R);
 
@@ -320,6 +331,7 @@ module hexaforth #(
             TS_LIT:  t_next = lit;
             TS_ADD:  t_next = T + lit;
             TS_OUT:  t_next = out;
+            TS_A:    t_next = a_now;
             default: t_next = T;
         endcase
         case (c_nsel)
@@ -444,7 +456,7 @@ module hexaforth #(
     wire [W-1:0] fetch_w = {{(W-PCW){1'b0}}, fetch};
     always @* begin
         raddr = fetch_w >> ISB;  rslot = fetch[1:0] & SLOTS;  rok = 1;
-        if (want_a) begin raddr = T;  rslot = 0; end
+        if (want_a) begin raddr = is_vf ? vaddr : T;  rslot = 0; end
         else if (want_b) begin
             raddr = in_ctl;  rslot = 0;
             rok = alu_op == 4'd14;
@@ -456,14 +468,14 @@ module hexaforth #(
     assign dbg_dsp = dsp;  assign dbg_rsp = rsp;  assign dbg_exec = execute;
 
     // A store, registered before it leaves.
-    wire we_c = execute && is_alu && out_mux == 2'd3;
+    wire we_c = execute && ((is_alu && out_mux == 2'd3) || is_vs);
     always @* begin
         tx_valid = execute && tx_wr;
         rx_ready = execute && rx_rd;
     end
 
     always @(posedge clk) begin
-        waddr <= t1;  dwdata <= out;
+        waddr <= is_vs ? vaddr : t1;  dwdata <= is_vs ? T : out;
         we <= !rst && we_c;
     end
 

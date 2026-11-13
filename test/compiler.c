@@ -201,18 +201,15 @@ void insert_literal(context *ctx, int64_t n) {
     return; // Don't process further
   }
 
-  // Handle literals > 48 bits (cross.fs doesn't support this)
-  // We split into two parts: upper bits shifted left 48, then add lower 48
-  // bits
-  if (acc > 0xfffffffffff) {
-    uint64_t acc1 = acc >> 48;
-    if (acc1) { // Only generate if upper bits are non-zero (bug fix)
-      insert_literal(ctx, acc1);
-      insert_literal(ctx, 48);
-      compile_word(ctx, "lshift");
-      acc = acc << 16 >> 16; // Sign-extend lower 48 bits
-      first_ins = false;
-    }
+  // A literal instruction shifts its twelve bits by 0, 12 or 24, so one
+  // push and two adds make 36 bits.  A wider number is its high part,
+  // shifted left 36, with the low 36 bits added.  cross.fs does the same.
+  if (acc >> 36) {
+    insert_literal(ctx, acc >> 36);
+    insert_literal(ctx, 36);
+    compile_word(ctx, "lshift");
+    acc &= (1ull << 36) - 1;
+    first_ins = false;
   }
   
   // Check if we can use the invert optimization
@@ -243,7 +240,7 @@ void insert_literal(context *ctx, int64_t n) {
     uint16_t chunk = (acc >> (shifts * LIT_BITS)) & LIT_UMASK;
 
     // Skip zero chunks unless it's the only chunk (literal 0)
-    if (chunk != 0 || (shifts == 0 && shift_count == 0)) {
+    if (chunk != 0 || (shifts == 0 && shift_count == 0 && first_ins)) {
       literal.lit.lit_v = chunk;
       literal.lit.lit_shifts = shifts;
       if (!first_ins)

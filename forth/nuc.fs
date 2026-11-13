@@ -924,10 +924,10 @@ inline-operand
     r> r> rO ! >r
 ;
 
-\ Literals: 12-bit immediates with a shift selector (0/12/24/36 bits) and an
+\ Literals: 12-bit immediates with a shift selector (0/12/24 bits) and an
 \ add flag.  The first non-zero segment pushes, later ones add.
 
-: segs, ( u48 addflag -- ) \ addflag: h# 4000 to add to T, 0 to push
+: segs, ( u36 addflag -- ) \ addflag: h# 4000 to add to T, 0 to push
     >r d# 0
     begin ( u shift )
         over h# fff and ?dup if
@@ -952,11 +952,11 @@ header-imm literal
         inline: invert
         exit
     then
-    dup d# 48 rshift ?dup if \ wider than 48 bits: high part, shift, add the rest
+    dup d# 36 rshift ?dup if \ wider than 36 bits: high part, shift, add the rest
         tliteral
-        d# 48 tliteral
+        d# 36 tliteral
         inline: lshift
-        d# 16 lshift d# 16 rshift
+        d# 28 lshift d# 28 rshift
         h# 4000 segs,
         exit
     then

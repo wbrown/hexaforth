@@ -21,6 +21,12 @@
 #define CELL_BYTES (CELL_BITS / 8)
 #define MEM_BYTES ((uint64_t)CELL_BYTES << ADDR_BITS)
 
+// Where variables are.  A literal instruction whose shift field is 3 is not
+// a literal: it fetches or stores the cell at VAR_BASE plus its twelve
+// bits, so the 4,096 cells from VAR_BASE can each be fetched or stored by
+// one instruction.  VAR_BASE is where the image's data starts.
+#define VAR_BASE (0x4000 / CELL_BYTES)
+
 // Each of the two stacks is this many cells.  The stacks are not part of
 // memory: they are reached by pushing, popping and the depth ports.  Going
 // past either end is undefined; a strict build stops there.
@@ -68,8 +74,7 @@
 #define DISP_ROWS_PER_BANK ((DISP_H + DISP_BANKS - 1) / DISP_BANKS)
 #define DISP_ONE_LITERAL(a) ((a) != 0 && \
     ((((a) & 0xfff) == 0 && ((a) >> 12) < 4096) || \
-     (((a) & 0xffffff) == 0 && ((a) >> 24) < 4096) || \
-     (((a) & 0xfffffffffULL) == 0 && ((a) >> 36) < 4096)))
+     (((a) & 0xffffff) == 0 && ((a) >> 24) < 4096)))
 _Static_assert(DISP_W == 0 || DISP_W % CELL_BITS == 0,
                "display: the width is not a whole number of cells");
 _Static_assert(DISP_W == 0 || DISP_STRIDE * CELL_BITS >= DISP_W,

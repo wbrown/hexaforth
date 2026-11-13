@@ -64,6 +64,7 @@ variable tcp    0 tcp !         \ Code pointer
 \             again.
 \   n +       after a literal or another n + of the same shift is added to
 \             it, if the sum still fits: `1+ 1+` is one instruction.
+\   @ and !   after the address of a variable are one instruction with it.
 \
 \ The tables come from util/insn_map.py, which derives them from a symbolic
 \ model of vm.c and checks every entry on the VM itself.
@@ -133,12 +134,20 @@ defer tcode,
 
 \ `+` after a literal.  The literal is a push followed by any number of adds;
 \ making the push an add turns the whole of it into T += n.
+\ What kind of literal an instruction is: h# 8000 if it pushes, h# c000 if
+\ it adds, and 0 if it is not one.  A shift field of 3 makes it a fetch or
+\ a store of a variable, which is not a literal.
+: lkind ( insn -- kind )
+    dup h# 3000 and h# 3000 = if drop 0 exit then
+    h# c000 and dup h# 8000 and 0= if drop 0 then
+;
+
 : fold-lit+ ( insn -- insn false | true )
     dup h# 643c <> if false exit then
     0 begin                                 ( insn n )
         1+
         dup 2* tcp @ u> if drop false exit then
-        tcp @ over 2* - t@ h# c000 and      ( insn n kind )
+        tcp @ over 2* - t@ lkind            ( insn n kind )
         dup h# c000 =
     while
         drop
@@ -153,15 +162,42 @@ defer tcode,
 \ An add of a constant after a literal of the same shift, or after another
 \ such add: the two are one, if the sum fits in twelve bits.
 : fold-lit-lit ( insn -- insn false | true )
-    dup h# c000 and h# c000 <> if false exit then
+    dup lkind h# c000 <> if false exit then
     1 fusable? 0= if false exit then
     tcp @ 2 - t@                                    ( insn before )
-    dup h# 8000 and 0= if drop false exit then
+    dup lkind 0= if drop false exit then
     2dup xor h# 3000 and if drop false exit then
     2dup h# fff and swap h# fff and +               ( insn before sum )
     dup h# fff > if drop drop false exit then
     swap h# f000 and or  tcp @ 2 - tw!
     drop true
+;
+
+\ A fetch or a store straight after a literal that is the address of one of
+\ the 4,096 cells from var-base: the machine has one instruction for each,
+\ a literal instruction with a shift field of 3 and the cell's place in its
+\ twelve bits.  Its add flag makes it the store.
+variable fv-n
+variable fv-a
+variable fv-base    -1 fv-base !            \ var-base, once the machine file has been read
+: fold-var ( insn -- insn false | true )
+    dup h# 6800 <> over h# 6308 <> and if false exit then
+    0 fv-a !  0 fv-n !
+    begin                                   \ back over the adds to the push
+        1 fv-n +!
+        fv-n @ 2* tcp @ u> if false exit then
+        tcp @ fv-n @ 2* - t@
+        dup lkind 0= if drop false exit then
+        dup h# fff and over 12 rshift 3 and 12 * lshift fv-a +!
+        lkind h# 8000 =
+    until
+    fv-n @ fusable? 0= if false exit then
+    fv-a @ fv-base @ -
+    dup #4096 u< 0= if drop false exit then
+    swap h# 6308 = if h# f000 else h# b000 then or
+    fv-n @ retract
+    (tcode,)
+    true
 ;
 
 : fuse-pair ( insn -- insn false | true )
@@ -201,6 +237,7 @@ defer tcode,
         fold-exit   if exit then
         fold-lit+   if exit then
         fold-lit-lit if exit then
+        fold-var    if exit then
         dup h# e000 and h# 6000 = if
             fuse-pair   if exit then
             fuse-triple if exit then
@@ -225,6 +262,7 @@ next-arg included       \ include the machine.fs
 \ derived from them, and the target program can test them: see W64? below.
 
 cell-bits 8 / constant cell-bytes
+var-base fv-base !
 cell-bytes 2 = [if] 1 [else] cell-bytes 4 = [if] 2 [else] 3 [then] [then] constant byte-shift
 
 \ An address on the target is the number of a cell.  The data pointer here
@@ -234,10 +272,10 @@ cell-bytes 2 = [if] 1 [else] cell-bytes 4 = [if] 2 [else] 3 [then] [then] consta
 
 \ The display, if the machine has one, must suit the cell: see MODEL.md.
 \ vm_constants.h makes the same checks when the C is built.
-: one-literal? ( a -- f ) \ a 12-bit value shifted left by 12, 24 or 36?
+: one-literal? ( a -- f ) \ a 12-bit value shifted left by 12 or 24?
     dup 0= if exit then
     false swap
-    #37 #12 do
+    #25 #12 do
         dup 1 i lshift 1- and 0=  over i rshift #4096 u< and  rot or swap
     #12 +loop
     drop
@@ -329,7 +367,7 @@ variable sizes      0 sizes !
 \
 \       struct {
 \            WORD    lit_v: 12;      //              unsigned 12-bit integer
-\            BYTE    lit_shifts: 2;  // shifts:      {imm<<12,imm<<24,imm<<36}
+\            BYTE    lit_shifts: 2;  // shifts:      {imm<<12,imm<<24}; 3: a variable
 \            bool    lit_add: 1;     // add to T?:   {true, false}
 \            bool    lit_f: 1;       // literal?:    {true, false}
 \        } lit;
@@ -343,114 +381,38 @@ variable sizes      0 sizes !
 \ to encode +1 to +4095 in a single instruction.
 \ ===========================================================================
 
-\ Variables for tracking literal encoding state
-variable literal-magnitude   0 ,      \ Tracks how many 12-bit shifts needed (0-3)
-variable initializer-lit?    true ,   \ True if this is the first literal instruction
+\ A literal instruction is twelve bits, shifted left by 0, 12 or 24, that
+\ are pushed or added to the top of the stack: so one push and two adds
+\ make 36 bits.  A wider number is its high part, shifted left 36, with the
+\ low 36 bits added.  A negative number is the number it inverts to, and an
+\ invert.  (A shift field of 3 is not a literal: see fold-var.)
 
-: incr-lit-magnitude
-  literal-magnitude @ 1 + literal-magnitude !
-;
-
-: decr-lit-magnitude
-  literal-magnitude @ 1 - literal-magnitude !
-;
-
-: add-imm+-flag
-  initializer-lit? @ if        \ if we're the first literal written out,
-    false initializer-lit? !   \ set the flag to false
-  ELSE
-    imm+                       \ non-initializers accumulate into the last lit
-  THEN
-;
-
-: set-lit-magnitude
-  \ Convert magnitude counter (0-3) to shift encoding bits:
-  \ 0 -> 0x0000 (no shift)
-  \ 1 -> 0x1000 (shift 12, bits 12-13 = 01)
-  \ 2 -> 0x2000 (shift 24, bits 12-13 = 10)
-  \ 3 -> 0x3000 (shift 36, bits 12-13 = 11)
-  literal-magnitude @ dup if
-    12 lshift or               \ move magnitude to bits 12-13
-  else
+: chunks ( u36 push? -- ) \ lay down the chunks that are not zero, highest first
+    swap
+    3 0 do
+        dup 2 i - 12 * rshift $fff and ?dup if
+            2 i - 12 lshift or  h# 8000 or
+            2 pick 0= if h# 4000 or then
+            tcode,
+            nip false swap
+        then
+    loop
     drop
-  then
-;
-
-: literal-write? ( value -- value flag )
-  \ Decide whether to write this chunk
-  \ Write if: value is non-zero OR (mag=0 AND init=true)
-  dup 0<>                      \ value non-zero?
-  literal-magnitude @ 0=       \ mag=0?
-  initializer-lit? @ and       \ mag=0 AND init?
-  or                           \ write if non-zero OR (mag=0 AND init)
-;
-
-: should-write-chunk? ( chunk init mag -- chunk flag )
-    \ Check if chunk should be written (non-zero OR (mag=0 AND init))
-    rot dup >r          \ chunk init mag | R: chunk
-    rot                 \ mag chunk init | R: chunk  
-    swap 0<>            \ mag init chunk<>0 | R: chunk
-    rot 0=              \ init chunk<>0 mag=0 | R: chunk
-    rot and             \ chunk<>0 mag=0&init | R: chunk
-    or                  \ flag | R: chunk
-    r> swap             \ chunk flag
-;
-
-: write-chunk ( chunk mag init -- init' )
-    \ Write a chunk with given magnitude, return updated init flag
-    rot swap                     \ chunk init mag
-    over $fff and                \ chunk init mag chunk&fff
-    swap dup if                  \ chunk init chunk&fff mag
-        12 lshift or             \ chunk init encoded
-    else
-        drop                     \ chunk init chunk&fff
-    then
-    nip                          \ init encoded
-    
-    \ Add imm+ flag if not first chunk
-    over 0= if
-        imm+                     \ add accumulate flag
-    then
-    
-    h# 8000 or tcode,            \ emit instruction
-    drop false                   \ return false (not init anymore)
-;
-
-: _literal ( n -- )
-    \ Recursively encode a literal value into 12-bit chunks
-    \ Processes from MSB to LSB, writing instructions in reverse order
-    dup 0 < if
-        invert recurse            \ Handle negative: convert to positive
-        ~T alu                    \ Then add invert instruction at end
-    else
-        dup $fffffffffffff000 and if      \ Check if value needs > 12 bits (64-bit mask)
-          dup 12 rshift           \ Get upper bits (shift right by 12)
-          incr-lit-magnitude      \ Track that we need a bigger shift
-          recurse                 \ Process upper bits first (MSB to LSB)
-          $fff and                \ Mask current value to lower 12 bits
-          recurse                 \ Process lower 12 bits
-        else
-            \ Base case: value fits in 12 bits
-            literal-write? if     \ Check if should write
-              $fff and            \ Mask to 12 bits
-              set-lit-magnitude   \ Set correct magnitude bits
-              add-imm+-flag       \ Add imm+ flag if not first chunk
-              h# 8000 or          \ Set literal flag
-              tcode,              \ Write to code memory
-            else
-              drop                \ Skip zero chunks in middle of literal
-            then
-            decr-lit-magnitude
-         then
-     then
+    if h# 8000 tcode, then                  \ nothing was: push zero
 ;
 
 : literal ( n -- )
-  \ Main entry point for encoding literals up to 48 bits
-  \ NOTE: Values > 48 bits not supported (would need special handling)
-  0    literal-magnitude !        \ Reset shift counter
-  true initializer-lit?  !        \ Mark as first literal instruction
-  _literal
+    dup 0< if
+        invert recurse
+        ~T alu
+        exit
+    then
+    dup 36 rshift ?dup if
+        recurse  36 recurse  h# 60dc tcode,     \ lshift
+        $fffffffff and false chunks
+        exit
+    then
+    true chunks
 ;
 
 ( Defining words for target                  JCB 19:04 05/02/12)
@@ -559,8 +521,6 @@ variable lastdef    \ body of the most recent target colon definition
     wants-label? if tcp @ 2/ (label) drop then
     tcp @ wordstart !
     label
-    0    literal-magnitude !        \ Reset shift counter
-    true initializer-lit?  !        \ Mark as first literal instruction
     create  here lastdef !  codeptr , 0 ,
     does>   dup @ dup near? if
                 >target scall
@@ -802,6 +762,7 @@ warnings on
           else cell-bits 8 - literal s" rshift" evaluate then ;
 :: LEFT1  disp-left-low if 1 else 1 cell-bits 1- lshift then literal ;
 :: M8     disp-left-low if $ff else $ff cell-bits 8 - lshift then literal ;
+:: VARS       var-base literal ;                \ the first cell one instruction can fetch
 :: CODE-BASE  code-base literal ;
 :: CODE-SIZE  code-size literal ;
 :: W64?   cell-bits #64 = ;

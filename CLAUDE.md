@@ -93,11 +93,18 @@ The literal system is specifically designed for efficient 64-bit value encoding:
 
 **Structure**: Each 16-bit literal instruction contains:
 - 12-bit immediate value (0-4095)
-- 2-bit shift selector (0, 12, 24, or 36 bit shifts)
+- 2-bit shift selector (0, 12 or 24 bit shifts)
 - 1-bit add flag (push new value vs. add to existing)
 
+The fourth value of the shift selector is not a literal: the instruction
+fetches the cell at `VAR_BASE` plus its twelve bits, or with the add flag
+set stores the top of the stack there. `VAR_BASE` is where the image's data
+starts, and `cross.fs` keeps variables in the 4,096 cells from it, so
+`var @` and `var !` are one instruction each (`fold-var`). See `MODEL.md`.
+
 **Key Features**:
-- Can encode any 48-bit value in 1-4 instructions
+- Can encode any 36-bit value in 1-3 instructions; a wider one is its high
+  part, a shift of 36, and the rest added
 - Zero-segment optimization (e.g., 32768 = `8<<12` in one instruction)
 - Negative numbers encoded as positive + invert
 - `lit_add` flag enables inline operations (e.g., `1+` as single instruction)
@@ -105,7 +112,7 @@ The literal system is specifically designed for efficient 64-bit value encoding:
 **Examples**:
 - `20`: One instruction (direct 12-bit value)
 - `-24923`: Two instructions (347 + 6<<12, then invert)
-- `0x123456789ABC`: Four instructions (12 bits at a time)
+- `0x123456789ABC`: Six instructions (the high nine bits, 36, `lshift`, then three adds)
 
 This complements the dataflow architecture by allowing efficient constant generation that can flow directly to any destination without stack overhead.
 
@@ -195,8 +202,8 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,866 bytes
-with 64-bit cells, 4,064 with 32 and 4,028 with 16, against the 4,096 the
+task that runs past its part of a stack. The kernel's code is 3,714 bytes
+with 64-bit cells, 3,716 with 32 and 3,680 with 16, against the 4,096 the
 kernel ROM holds.
 
 On the desktop the Forth window's interpreter is a task with the upper half
@@ -373,6 +380,8 @@ symbolic model of `vm.c`; `--verify` runs every entry on the VM as well.
   instruction allowed as the first there are 450,000, so those are left out
 - `exit` folds into the instruction before it, `+` into a literal, and an
   add of a constant into a literal or another add of the same shift
+- `@` or `!` after the address of a variable becomes the one instruction
+  that fetches or stores it
 
 After changing any of this, build with and without `PEEPHOLE=off` and run
 `python3 util/insn_map.py --compare plain.hex optimised.hex`: every

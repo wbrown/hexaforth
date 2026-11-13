@@ -24,6 +24,7 @@
 // stacks come after it.
 #define AT(r)   [MEM, r, lsl #3]
         .equ    DSTACK_BASE, 8 << ADDR_BITS
+        .equ    VAR_BASE,    0x800           // the first of the cells one instruction reaches
         .equ    RSTACK_OFF,  0x800           // 256 cells each
         .equ    STACKS_SIZE, 0x1000
 
@@ -101,9 +102,21 @@ hbase:
 // ---------------------------------------------------------------- literals
 // Table bits: add flag, then the two shift bits.  A push saves T first.
 
+// A shift field of 3 is not a literal: the twelve bits pick one of the
+// 4,096 cells from VAR_BASE, which is fetched, or has T stored in it.
         .macro  LIT add, sh
 lit_\add\()_\sh:
-  .if \add
+  .if \sh == 3
+        and     x12, INS, #0xfff
+        add     x12, x12, #VAR_BASE
+    .if \add
+        str     T, AT(x12)
+        ldr     T, [DS, #-8]!
+    .else
+        str     T, [DS], #8
+        ldr     T, AT(x12)
+    .endif
+  .elseif \add
         ubfiz   x12, INS, #(12 * \sh), #12
         add     T, T, x12
   .else

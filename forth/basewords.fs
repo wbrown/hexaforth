@@ -2,6 +2,7 @@
 #64 constant cell-bits
 #22 constant addr-bits
 #256 constant stack-cells
+#2048 constant var-base
 #768 constant disp-w
 #576 constant disp-h
 #16384 constant disp-base
@@ -59,7 +60,6 @@
 : imm+       h# 4000 or ;
 : imm<<12    h# 1000 or ;
 : imm<<24    h# 2000 or ;
-: imm<<36    h# 3000 or ;
 : imm        h# 8000 or tcode, ;
 
 \ op_type

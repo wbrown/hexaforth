@@ -18,7 +18,7 @@ typedef struct {
         // 12-bit unsigned literal (values: 0-4095)
         struct {
             WORD    lit_v: 12;      //              unsigned 12-bit integer
-            BYTE    lit_shifts: 2;  // shifts:      {imm<<12,imm<<24,imm<<36}
+            BYTE    lit_shifts: 2;  // shifts:      {imm<<12,imm<<24}; 3: a variable
             bool    lit_add: 1;     // add to T?:   {true, false}
             bool    lit_f: 1;       // literal?:    {true, false}
         } lit;
