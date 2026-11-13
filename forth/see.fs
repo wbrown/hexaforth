@@ -35,6 +35,8 @@ create 'nl 0 ,
 create sind 0 ,
 create sfresh 0 ,
 create sbold 0 ,        \ true for the words of a fused instruction
+create sital 0 ,        \ true for a name that is a label, not in the dictionary
+create slab 0 ,         \ true if the last xt>hdr found a label
 create squiet 0 ,       \ true on the first reading
 create sxt 0 ,          \ the definition
 create spc 0 ,          \ the instruction being read
@@ -67,6 +69,7 @@ create k-repeat ," repeat"
 create k-exit   ," exit"
 create k-plus   ," +"
 create k-halt   ," halt"
+create k-tick   ," [']"
 
 : tok ( addr u xt -- )
     squiet @ if drop 2drop exit then
@@ -80,14 +83,29 @@ create k-halt   ," halt"
 : ins@ ( a -- w ) 2* uw@ ;
 : hxt  ( hdr -- xt ) cell+ @ d# 1 lshift d# 1 rshift ;
 
-: xt>hdr ( xt -- hdr|0 ) \ the word that starts at xt
-    stmp !  forth @
+: xt>lbl ( -- lbl|0 ) \ the label for the code at stmp
+    labels @
+    begin
+        dup
+    while
+        dup cell+ @ stmp @ = if exit then
+        @
+    repeat
+;
+
+: xt>hdr ( xt -- hdr|0 ) \ the word that starts at xt: in the dictionary, or a label
+    stmp !  d# 0 slab !  forth @
     begin
         dup
     while
         dup hxt stmp @ = if exit then
         @
     repeat
+    drop xt>lbl  dup 0<> slab !
+;
+
+: data>lbl ( a -- lbl|0 ) \ the label for the data at a
+    d# 1 d# 63 lshift or stmp !  xt>lbl
 ;
 
 : ret>hdr ( w -- hdr|0 ) \ the newest word whose code is the one instruction w
@@ -183,14 +201,27 @@ create hv 0 ,
     repeat
 ;
 
+\ A name found by xt>hdr, leaning if it is a label.
+: sxname ( hdr -- ) slab @ sital !  sname  d# 0 sital ! ;
+
+\ An execution token as a number is most often one given to catch or
+\ stored in a vector.  Code is in page 1 and from page 8 up.
+: xt? ( n -- f ) dup h# 8000 u< 0= swap h# 1001 - h# fff u< or ;
+
 : snum ( n -- )
     dup h# 4000 - h# c000 u< if
         dup lit>hdr ?dup if nip sname exit then
+        dup data>lbl ?dup if
+            nip true sital !  CELL2 + count d# -1 tok  d# 0 sital !  exit
+        then
+    then
+    dup xt? if
+        dup xt>hdr ?dup if nip k-tick wt sxname exit then
     then
     sb-begin . sb-end  sb sbn @ 1- d# -1 tok
 ;
 : slink ( xt -- ) \ a word by name, or by address if it has no name
-    dup xt>hdr ?dup if nip sname exit then
+    dup xt>hdr ?dup if nip sxname exit then
     sb-begin [char] $ emit dup h4 sb-end
     >r sb sbn @ r> tok
 ;
@@ -425,7 +456,7 @@ create hv 0 ,
     true squiet !  swalk  d# 0 squiet !
     d# 0 sind !  true sfresh !
     sxt @ xt>hdr ?dup if
-        k-colon wt  sname
+        k-colon wt  sxname
     else
         k-noname wt
     then
@@ -447,8 +478,19 @@ create hv 0 ,
 
 : ttok ( addr u xt -- ) drop  sfresh @ if sind @ 2* sspaces then  type space ;
 
+\ SEE takes a name from the dictionary or, failing that, a label.  For a
+\ label on data it only says where the data is.
 header see
-: see ( "name" -- ) tick  ['] ttok 'tok !  ['] cr 'nl !  cr sdecomp ;
+: see ( "name" -- )
+    parse-name sfind ?dup 0= if
+        forth @ >r  labels @ forth !  sfind  r> forth !
+        dup 0= d# 13 -throw
+        0> if cr . exit then
+    else
+        drop
+    then
+    ['] ttok 'tok !  ['] cr 'nl !  cr sdecomp
+;
 
 \ ---- the Words window: the dictionary on the left, a definition on the right
 \
@@ -521,7 +563,10 @@ create t-words ," Words"
 : wshow ( xt -- )
     dup wxt !  d# 0 wsrc !
     xt>hdr ?dup if
-        hdr>i dup wtop @ - d# 16 u< 0= if dup wtop ! then drop
+        hdr>i dup 0< 0= if
+            dup wtop @ - d# 16 u< 0= if dup wtop ! then
+        then
+        drop
     then
 ;
 
@@ -543,9 +588,9 @@ create t-words ," Words"
     srow @ wsrc @ - dup d# 16 u< if
         d# 4 lshift ty0 @ + lky !
         scol @ d# 3 lshift tx0 @ + d# 112 + lkx !
-        sbold @ bold !
+        sbold @ bold !  sital @ italic !
         lkx @ lky @ draw-text
-        d# 0 bold !
+        d# 0 bold !  d# 0 italic !
         r@ 0< 0= if
             false lkx @ lky @ d# 15 + lku @ d# 3 lshift hline
             nlk @ d# 96 < if

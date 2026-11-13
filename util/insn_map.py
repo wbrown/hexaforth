@@ -467,11 +467,29 @@ def load_image(path):
     code = code[:max(i for i, w in enumerate(code) if w) + 1]
     # Headers are 64-bit cells: link, then xt with the immediate flag on top.
     entries = set()
+    labels = 0
     link = cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
     while link:
-        entries.add(struct.unpack_from("<Q", raw, link + 8)[0] & 0xFFFF)
+        xt = struct.unpack_from("<Q", raw, link + 8)[0] & 0xFFFF
+        entries.add(xt)
+        if raw[link + 16:link + 23] == b"\x06labels":
+            # The word pushes the address of the variable that heads the label chain.
+            where = sum((w & 0xFFF) << 12 * (w >> 12 & 3) for w in cells[xt:xt + 2] if w & 0x8000)
+            labels = struct.unpack_from("<Q", raw, where)[0]
         link = struct.unpack_from("<Q", raw, link)[0]
+    # Labels name the definitions that have no header.  One for code holds
+    # its execution token; one for data has the top bit set.
+    global LABELLED
+    LABELLED = bool(labels)
+    while labels:
+        value = struct.unpack_from("<Q", raw, labels + 8)[0]
+        if not value >> 63:
+            entries.add(value & 0xFFFF)
+        labels = struct.unpack_from("<Q", raw, labels)[0]
     return code, entries
+
+
+LABELLED = False            # the image last loaded names every definition
 
 
 def flat_target(at, ins):
@@ -488,9 +506,11 @@ def split_runs(code, entries):
         if w and not w & 0x8000 and w >> 13 != 3:
             targets.add(flat_target(i, w))
         # A two-instruction literal that points into code past the kernel is
-        # an execution token: its word is an entry point too.
+        # an execution token: its word is an entry point too.  An image with
+        # labels names every definition, so its entry points are all known
+        # already; a number that only looks like one is the address of data.
         nxt = code[i + 1] if i + 1 < len(code) else 0
-        if w & 0xF000 == 0x9000 and nxt & 0xF000 == 0xC000:
+        if not LABELLED and w & 0xF000 == 0x9000 and nxt & 0xF000 == 0xC000:
             value = (w & 0xFFF) << 12 | nxt & 0xFFF
             if 0x1000 <= value < 0x2000 or 0x8000 <= value < len(code):
                 targets.add(value)
@@ -531,32 +551,31 @@ def compare_images(plain_path, opt_path):
 
     def translations(run):
         """The run with its code-address literals rewritten for the other
-        image.  An address above 4095 is a shifted push and an add, which is
-        unmistakable.  A kernel address is one small literal, which may just
-        as well be an ordinary constant, so each is tried both ways."""
-        out, small, i = [], [], 0
+        image, every way that can be done.  A number that is the address of
+        code in one image may just as well be an ordinary constant or the
+        address of data, so each such literal is tried both ways."""
+        parts, i = [], 0                        # (as written, rewritten or None)
         while i < len(run):
             w = run[i]
             nxt = run[i + 1] if i + 1 < len(run) else 0
             if w & 0xF000 == 0x9000 and nxt & 0xF000 == 0xC000 and \
                     ((w & 0xFFF) << 12 | nxt & 0xFFF) in moved:
                 to = moved[(w & 0xFFF) << 12 | nxt & 0xFFF]
-                out += [0x9000 | to >> 12, 0xC000 | to & 0xFFF]
+                parts.append(([w, nxt], [0x9000 | to >> 12, 0xC000 | to & 0xFFF]))
                 i += 1
             elif w & 0xF000 == 0x9000 and (w & 0xFFF) << 12 in moved and \
                     moved[(w & 0xFFF) << 12] & 0xFFF == 0:
-                out.append(0x9000 | moved[(w & 0xFFF) << 12] >> 12)
+                parts.append(([w], [0x9000 | moved[(w & 0xFFF) << 12] >> 12]))
+            elif w & 0xF000 == 0x8000 and moved.get(w & 0xFFF, 0x1000) < 0x1000 \
+                    and moved[w & 0xFFF] != w & 0xFFF:
+                parts.append(([w], [0x8000 | moved[w & 0xFFF]]))
             else:
-                if w & 0xF000 == 0x8000 and moved.get(w & 0xFFF, 0x1000) < 0x1000 \
-                        and moved[w & 0xFFF] != w & 0xFFF:
-                    small.append(len(out))
-                out.append(w)
+                parts.append(([w], None))
             i += 1
-        yield out
-        for choice in itertools.product((False, True), repeat=min(len(small), 10)):
-            if any(choice):
-                yield [0x8000 | moved[w & 0xFFF] if i in small[:10] and choice[small.index(i)] else w
-                       for i, w in enumerate(out)]
+        open_ = [n for n, (_, alt) in enumerate(parts) if alt and alt != parts[n][0]][:12]
+        for choice in itertools.product((True, False), repeat=len(open_)):
+            pick = dict(zip(open_, choice))
+            yield [w for n, (same, alt) in enumerate(parts) for w in (alt if pick.get(n) else same)]
 
     bad = runs = 0
     for (kind, at_a, a), (_, at_b, b) in zip(plain, opt):

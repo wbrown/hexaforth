@@ -157,6 +157,7 @@ create "cold"
 
 create base     $a ,
 create forth    0 ,
+create labels   0 ,         \ names of definitions that have no header
 create cp       0 ,         \ Code pointer, grows up
 create dp       0 ,         \ Data pointer, grows up
 create lastword 0 ,
@@ -177,6 +178,7 @@ header state :noname state ;
 header base  :noname base ;
 header >in   :noname >in  ;
 header forth :noname forth ;
+header labels :noname labels ;
 
 header words : words
     forth @
@@ -1417,6 +1419,7 @@ include system.fs
 meta
     link @ t,
     link @ t' forth tcell!
+    llink @ t' labels tcell!
     there  t' dp tcell!
     tcp @ code-base max $1fff + $1fff invert and
     t' cp tcell!            \ run-time definitions start on the next free code page
