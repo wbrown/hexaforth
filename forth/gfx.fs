@@ -42,9 +42,11 @@ create gh 0 ,
     blit8
 ;
 
-\ Text is black on white.  With `inverse` set it is white on black.
+\ Text is black on white.  With `inverse` set it is white on black, and with
+\ `bold` set each stroke is a pixel wider.
 
 create inverse 0 ,
+create bold 0 ,
 
 \ A glyph is 16 rows of 8 pixels: two cells, eight rows in each, the top
 \ row in the low byte.  The rows are shifted out of the cell; the font is
@@ -56,7 +58,9 @@ create inverse 0 ,
         dup
     while
         >r >r
-        2dup r@ h# ff and inverse @ 0= if h# ff xor then -rot blit8
+        2dup r@ h# ff and
+        bold @ if dup d# 1 rshift or then
+        inverse @ 0= if h# ff xor then -rot blit8
         1+ r> d# 8 rshift r> 1-
     repeat
     2drop

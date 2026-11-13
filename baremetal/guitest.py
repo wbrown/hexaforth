@@ -36,6 +36,7 @@ def load_font():
 
 FONT = load_font()
 UNDERLINED = {glyph[:15]: c for glyph, c in FONT.items()}   # the bottom row is the underline
+BOLD = {bytes(r | r >> 1 for r in glyph[:15]): c for glyph, c in FONT.items()}
 
 
 def dither(tiff_path):
@@ -170,7 +171,8 @@ def read_text(shot, x0, y0, cols, rows):
                 for y in range(16))
             inverse = bytes(v ^ 0xFF for v in glyph)
             line += (FONT.get(glyph) or FONT.get(inverse)
-                     or UNDERLINED.get(glyph[:15]) or "?")   # a link is underlined
+                     or UNDERLINED.get(glyph[:15])           # a link is underlined
+                     or BOLD.get(glyph[:15]) or "?")         # and a fused word is bold
         lines.append(line.rstrip())
     return lines
 
@@ -267,6 +269,12 @@ def main():
         source = read_text(shot, 253, 337, 46, 16)
         check("Down moves to the next word", source[0] == ": cold" and source[1].endswith(" catch drop")
               and source[2] == ";", repr(source[:3]))
+        m.click(143 + 8, 337 + 8 * 16 + 8)             # "atkinson", eight names down
+        m.move(790, 30)
+        shot = m.screenshot(f"{out}/10-fused.png")
+        source = read_text(shot, 253, 337, 45, 16)
+        check("a fused instruction is shown as its words",
+              source[0] == ": atkinson" and source[8].endswith(" @ < while"), repr(source[8]))
 
         # ^W again: the Forth window.
         m.key("w", "ctrl")
