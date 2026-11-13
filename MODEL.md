@@ -113,8 +113,6 @@ definition.
 
 ## Display
 
-Decided in outline; the details are open.
-
 The display is a bitmap in memory, one bit to a pixel, of a size set in the
 machine definition (which may be none). Drawing is fetching and storing
 cells. Each implementation shows the bitmap however it can: `vm.c` may write
@@ -163,9 +161,13 @@ it to an offset is one instruction.  On the hosted machine it is cell
 `0x4000`, which is 4 shifted by 12 and is the first cell after the 128KB
 image.  It is 6,912 cells long, and the heap starts at `0x6000`.
 
-Not yet true of the implementations. The Forth system draws through
-`display.fs` into a driver, `ramfb.fs`, that keeps four bytes for each pixel
-in memory above the image.
+The Forth system draws this way, in `display.fs`.  Of the implementations,
+the AArch64 kernels show the bitmap on QEMU through the bridge in
+`baremetal/ramfb.S`, which copies it when the machine asks for a key, at
+most 32 times a second; a program that draws for a long time without
+asking for a key is not seen until it does.  `vm.c` does not show the
+bitmap and the Verilog does not scan it out yet.  The bridge handles the
+hosted machine's order, polarity and row layout only.
 
 ## Other devices
 

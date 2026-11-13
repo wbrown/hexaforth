@@ -21,7 +21,7 @@ import time
 from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-W, H = 800, 600
+W, H = 768, 576
 QCODE = {" ": "spc", "\r": "ret", ".": "dot", ",": "comma", "/": "slash", "-": "minus",
          "=": "equal", ";": "semicolon", "'": "apostrophe", "[": "bracket_left",
          "]": "bracket_right", "\\": "backslash", "`": "grave_accent"}
@@ -30,7 +30,7 @@ SHIFTED = dict(zip('!@#$%^&*()_+:"<>?{}|~', "1234567890-=;',./[]\\`"))
 
 def load_font():
     text = open(f"{HERE}/../forth/font.fs").read()
-    data = b"".join(struct.pack("<Q", int(v, 16)) for v in re.findall(r"\$([0-9a-f]+) ,", text))
+    data = b"".join(struct.pack("<Q", int(v, 16)) for v in re.findall(r"\$([0-9a-f]+) glyph,", text))
     return {data[i * 16:i * 16 + 16]: chr(32 + i) for i in range(95)}
 
 
@@ -210,16 +210,16 @@ def main():
         m.click(700, 308)
         m.type("12\r34+")
         for bx, by in ((0, 0), (3, 1)):                 # buttons "7" and "*"
-            m.click(641 + 34 * bx + 17, 319 + 96 + 24 * by + 12)
+            m.click(627 + 34 * bx + 17, 319 + 96 + 24 * by + 12)
         shot = m.screenshot(f"{out}/3-calculator.png")
-        text = read_text(shot, 647, 323, 14, 5)
+        text = read_text(shot, 633, 323, 14, 5)
         check("calculator computes (12+34)*7", "322" in text[3], repr(text))
 
         # Editor: bring it forward, type on the first line of block 1, save.
-        m.click(480, 298)
+        m.click(480, 278)
         m.key("s", "ctrl")
         shot = m.screenshot(f"{out}/4-editor.png")
-        text = read_text(shot, 33, 311, 64, 16)
+        text = read_text(shot, 33, 291, 64, 16)
         check("editor shows block 1", text[0].startswith(": hello 104 emit"), repr(text[0]))
         m.key("down")
         m.type("( edited )")
@@ -231,57 +231,57 @@ def main():
 
         # Image viewer: bring it forward and compare with the reference dither.
         m.click(600, 48)
-        m.move(790, 30)                                 # pointer off the image
+        m.move(756, 24)                                 # pointer off the image
         shot = m.screenshot(f"{out}/6-viewer.png")
         want = dither(tiff)
         px = shot.load()
         bad = sum(1 for y in range(512) for x in range(512)
-                  if bool(px[271 + x, 59 + y]) != bool(want[y][x]))
+                  if bool(px[251 + x, 59 + y]) != bool(want[y][x]))
         check("viewer matches the reference dither", bad == 0, f"{bad} pixels differ")
 
         # Drag the viewer by its title bar: 40 right, 42 down.
         m.drag(500, 48, 540, 90)
-        m.move(790, 30)
+        m.move(756, 24)
         shot = m.screenshot(f"{out}/7-dragged.png")
-        text = read_text(shot, 318, 84, 8, 1)
+        text = read_text(shot, 298, 84, 8, 1)
         check("window moves when dragged", text[0] == "Mandrill", repr(text))
 
         # ^W brings the back window to the front: after the clicks above
-        # that is the Words window.  Its content starts at 140+1, 318+19;
+        # that is the Words window.  Its content starts at 140+1, 296+19;
         # the definition is 112 further in.  sq, defined in the Forth
         # window above, is the newest word and so the first listed.
         m.key("w", "ctrl")
-        m.click(143 + 8, 337 + 8)                       # the name "sq"
-        m.move(790, 30)
+        m.click(143 + 8, 315 + 8)                       # the name "sq"
+        m.move(756, 24)
         shot = m.screenshot(f"{out}/8-words.png")
-        names = read_text(shot, 143, 337, 13, 16)
-        source = read_text(shot, 253, 337, 46, 16)
+        names = read_text(shot, 143, 315, 13, 16)
+        source = read_text(shot, 253, 315, 46, 16)
         check("Words window lists the dictionary", names[:3] == ["sq", "cold", "desktop"], repr(names[:3]))
         check("Words window decompiles", source[:3] == [": sq", "  dup *", ";"], repr(source[:3]))
-        m.click(253 + 2 * 8 + 4, 337 + 16 + 8)         # the link "dup", on the second line
-        m.move(790, 30)
+        m.click(253 + 2 * 8 + 4, 315 + 16 + 8)         # the link "dup", on the second line
+        m.move(756, 24)
         shot = m.screenshot(f"{out}/9-link.png")
-        source = read_text(shot, 253, 337, 46, 16)
+        source = read_text(shot, 253, 315, 46, 16)
         check("a word in a definition is a link", source[:3] == [": dup", "  dup", ";"], repr(source[:3]))
         m.key("backspace")
         shot = m.screenshot(f"{out}/10-back.png")
-        source = read_text(shot, 253, 337, 46, 16)
+        source = read_text(shot, 253, 315, 46, 16)
         check("Backspace goes back", source[:3] == [": sq", "  dup *", ";"], repr(source[:3]))
         m.key("down")
         shot = m.screenshot(f"{out}/10-down.png")
-        source = read_text(shot, 253, 337, 46, 16)
+        source = read_text(shot, 253, 315, 46, 16)
         check("Down moves to the next word", source[0] == ": cold" and source[1].endswith(" catch drop")
               and source[2] == ";", repr(source[:3]))
         for _ in range(16):                             # page down to "atkinson"
-            names = read_text(m.screenshot(f"{out}/10-list.png", settle=1.0), 143, 337, 13, 16)
+            names = read_text(m.screenshot(f"{out}/10-list.png", settle=1.0), 143, 315, 13, 16)
             if "atkinson" in names:
                 break
             m.key("pgdn")
         check("PgDn pages through the dictionary", "atkinson" in names, repr(names[:4]))
-        m.click(143 + 8, 337 + names.index("atkinson") * 16 + 8 if "atkinson" in names else 345)
-        m.move(790, 30)
+        m.click(143 + 8, 315 + names.index("atkinson") * 16 + 8 if "atkinson" in names else 345)
+        m.move(756, 24)
         shot = m.screenshot(f"{out}/10-fused.png")
-        source = read_text(shot, 253, 337, 45, 16)
+        source = read_text(shot, 253, 315, 45, 16)
         check("a fused instruction is shown as its words",
               source[0] == ": atkinson" and source[8].endswith(" @ < while"), repr(source[8]))
         check("a headerless variable is shown by its label", source[1] == "  aoy !", repr(source[1]))

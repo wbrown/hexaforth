@@ -545,6 +545,20 @@ variable lastdef    \ body of the most recent target colon definition
     tc,
 ;
 
+\ Pixels are written here with the leftmost in the highest bit.  A machine
+\ whose leftmost pixel is the lowest bit of a cell has them the other way
+\ round in each byte.  p, lays down a byte of eight pixels and glyph, a
+\ cell of eight such bytes, in the machine's order.
+: pixels ( byte -- byte' )
+    disp-left-low if
+        0 swap 8 0 do dup 1 and rot 2* or swap 2/ loop drop
+    then ;
+:: p,  pixels tc, ;
+:: glyph, ( cell -- )
+    tcalign
+    cell-bytes 0 do dup i 8 * rshift $ff and pixels tc, loop drop
+;
+
 \ ," text" lays down a counted string in data space.
 :: ,"
     [char] " parse dup tc,
@@ -689,6 +703,24 @@ warnings on
 \ An instruction is a cell when cells are 16 bits, and otherwise a field.
 :: (i@)  cell-bits #16 = if s" @" else s" 2* uw@" then evaluate ;
 :: (i!)  cell-bits #16 = if s" !" else s" 2* w!" then evaluate ;
+\ The display, for display.fs.  PIXR and PIXL shift pixels right and left
+\ on the screen; EDGE takes a byte of eight pixels to the left end of a
+\ cell, LEFT8 takes the leftmost eight of a cell as a byte, LEFT1 is the
+\ leftmost pixel of a cell and M8 its leftmost eight.
+:: DISP-BASE      disp-base literal ;
+:: DISP-STRIDE    disp-stride literal ;
+:: DISP-BANKS     disp-banks literal ;
+:: DISP-BANK-STEP disp-bank-step literal ;
+:: BANKED?    disp-banks 1 > ;
+:: INK-BLACK? disp-ink-black 0<> ;
+:: LEFT-LOW?  disp-left-low 0<> ;
+:: PIXR   disp-left-low if s" lshift" else s" rshift" then evaluate ;
+:: PIXL   disp-left-low if s" rshift" else s" lshift" then evaluate ;
+:: EDGE   disp-left-low 0= if cell-bits 8 - literal s" lshift" evaluate then ;
+:: LEFT8  disp-left-low if $ff literal s" and" evaluate
+          else cell-bits 8 - literal s" rshift" evaluate then ;
+:: LEFT1  disp-left-low if 1 else 1 cell-bits 1- lshift then literal ;
+:: M8     disp-left-low if $ff else $ff cell-bits 8 - lshift then literal ;
 :: CODE-BASE  code-base literal ;
 :: CODE-SIZE  code-size literal ;
 :: W64?   cell-bits #64 = ;

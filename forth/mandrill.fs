@@ -2,7 +2,7 @@
 
 header devices
 : devices ( -- ) \ display and block device
-    d# 800 d# 600 ramfb-init
+    display-init
     vblk-init
 ;
 

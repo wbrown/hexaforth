@@ -43,8 +43,8 @@ create mx 0 ,
 create my 0 ,
 create cur-on 0 ,
 create arrow
-    $80 c, $c0 c, $e0 c, $f0 c, $f8 c, $fc c,
-    $fe c, $f0 c, $d8 c, $18 c, $0c c, $0c c,
+    $80 p, $c0 p, $e0 p, $f0 p, $f8 p, $fc p,
+    $fe p, $f0 p, $d8 p, $18 p, $0c p, $0c p,
 
 : cursor-xor ( -- )
     d# 0

@@ -52,7 +52,7 @@ header italic create italic 0 ,
 create slant 0 ,        \ true while the half being drawn leans
 
 \ A glyph is 16 rows of 8 pixels: two cells, eight rows in each, the top
-\ row in the low byte.  The rows are shifted out of the cell; the font is
+\ row in the low byte, and each row's pixels in the display's order.  The rows are shifted out of the cell; the font is
 \ never read a byte at a time.
 
 : rows8 ( x y cell -- x y' ) \ draw the eight rows held in a cell
@@ -62,8 +62,8 @@ create slant 0 ,        \ true while the half being drawn leans
     while
         >r >r
         2dup r@ h# ff and
-        slant @ if d# 1 rshift then
-        bold @ if dup d# 1 rshift or then
+        slant @ if d# 1 PIXR h# ff and then
+        bold @ if dup d# 1 PIXR or h# ff and then
         inverse @ 0= if h# ff xor then -rot blit8
         1+ r> d# 8 rshift r> 1-
     repeat

@@ -80,6 +80,10 @@ _start:
 1:      str     xzr, [x0], #8
         cmp     x0, x1
         b.lo    1b
+#ifdef BRIDGE
+        mov     x0, MEM                         // the display, if there is a bridge to one
+        bl      bridge_init
+#endif
         mov     UART, #UART_BASE
         mov     DS, STK
         add     RS, STK, #RSTACK_OFF
@@ -277,13 +281,24 @@ s2_\out\()_\d\()_\r:
 io_read:                                        // port in OUT, result in OUT
         cmp     OUT, #IO_KEY
         b.ne    2f
-1:      ldr     w12, [UART, #UART_FR]
+1:
+#ifdef BRIDGE
+        mov     x8, x30
+        bl      bridge_poll
+        mov     x30, x8
+#endif
+        ldr     w12, [UART, #UART_FR]
         tbnz    w12, #4, 1b                     // RXFE: nothing received yet
         ldr     w10, [UART]
         and     OUT, OUT, #0xff
         ret
 2:      cmp     OUT, #IO_KEYQ
         b.ne    2f
+#ifdef BRIDGE
+        mov     x8, x30
+        bl      bridge_poll
+        mov     x30, x8
+#endif
         ldr     w12, [UART, #UART_FR]
         tst     w12, #0x10                      // RXFE clear: something is waiting
         csetm   OUT, eq
