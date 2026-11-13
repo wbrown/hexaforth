@@ -17,23 +17,23 @@ create nidev  0 ,
     vhello
     d# 64 vqueue                            ( desc avail used )
     d# 48 halloc >r
-    r@ d# 24 + !  r@ d# 16 + !  r@ d# 8 + !
+    r@ c# 3 + !  r@ CELL2 + !  r@ CELL + !
     vdev @ r@ !
-    d# 0 r@ d# 32 + !
-    d# 512 halloc r@ d# 40 + !
+    d# 0 r@ c# 4 + !
+    d# 512 halloc r@ c# 5 + !
     d# 0
     begin
         dup d# 64 <
     while
-        dup d# 3 lshift r@ d# 40 + @ + >phys        ( i buffer )
-        over d# 4 lshift r@ d# 8 + @ +              ( i buffer desc )
+        dup cells r@ c# 5 + @ + >phys               ( i buffer )
+        over 2* cells r@ CELL + @ +                 ( i buffer desc )
         tuck !
-        d# 2 d# 32 lshift d# 8 or swap d# 8 + !     \ 8 bytes, device writes
-        dup dup 2* r@ d# 16 + @ + d# 4 + w!         \ offer it
+        d# 2 d# 32 lshift d# 8 or swap CELL + !     \ 8 bytes, device writes
+        dup dup 2* r@ CELL2 + @ >c + d# 4 + w!      \ offer it
         1+
     repeat
     drop
-    d# 64 r@ d# 16 + @ d# 2 + w!
+    d# 64 r@ CELL2 + @ >c d# 2 + w!
     vgo
     d# 0 h# 50 vreg!
     r> nidev @ cells idevs + !
@@ -56,19 +56,19 @@ header input-init
 : idev-poll ( dev -- )
     >r
     begin
-        r@ d# 24 + @ d# 2 + uw@  r@ d# 32 + @ <>
+        r@ c# 3 + @ >c d# 2 + uw@  r@ c# 4 + @ <>
     while
-        r@ d# 32 + @ d# 63 and d# 3 lshift
-        r@ d# 24 + @ + d# 4 + l@                    ( id )
-        dup d# 3 lshift r@ d# 40 + @ + @            ( id event )
+        r@ c# 4 + @ d# 63 and d# 3 lshift
+        r@ c# 3 + @ >c + d# 4 + l@                  ( id )
+        dup cells r@ c# 5 + @ + @                   ( id event )
         dup h# ffff and
         over d# 16 rshift h# ffff and
         rot d# 32 rshift                            ( id type code value )
         'event @ execute
-        r@ d# 16 + @ d# 2 + uw@ d# 63 and 2*        \ give the buffer back
-        r@ d# 16 + @ + d# 4 + w!
-        r@ d# 16 + @ d# 2 + dup uw@ 1+ swap w!
-        r@ d# 32 + @ 1+ h# ffff and r@ d# 32 + !
+        r@ CELL2 + @ >c d# 2 + uw@ d# 63 and 2*     \ give the buffer back
+        r@ CELL2 + @ >c + d# 4 + w!
+        r@ CELL2 + @ >c d# 2 + dup uw@ 1+ swap w!
+        r@ c# 4 + @ 1+ h# ffff and r@ c# 4 + !
         r@ @ vdev !
         d# 0 h# 50 vreg!
     repeat

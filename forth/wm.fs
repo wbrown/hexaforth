@@ -21,21 +21,21 @@ header oy create oy 0 , \   routine is called
 header window
 : window ( x y w h title draw key click -- win )
     d# 64 halloc >r
-    r@ d# 56 + !  r@ d# 48 + !  r@ d# 40 + !  r@ d# 32 + !
-    r@ d# 24 + !  r@ d# 16 + !  r@ d# 8 + !   r@ !
+    r@ c# 7 + !  r@ c# 6 + !  r@ c# 5 + !  r@ c# 4 + !
+    r@ c# 3 + !  r@ CELL2 + !  r@ CELL + !  r@ !
     r@ nwin @ cells wins + !
     d# 1 nwin +!
     r>
 ;
 
 header content : content ( win -- x y ) \ top left of the area inside the frame
-    dup @ 1+ swap d# 8 + @ d# 19 +
+    dup @ 1+ swap CELL + @ d# 19 +
 ;
 
 : cw.x cw @ @ ;
-: cw.y cw @ d# 8 + @ ;
-: cw.w cw @ d# 16 + @ ;
-: cw.h cw @ d# 24 + @ ;
+: cw.y cw @ CELL + @ ;
+: cw.w cw @ CELL2 + @ ;
+: cw.h cw @ c# 3 + @ ;
 
 \ ---- the pointer, drawn by inverting, so drawing it again removes it
 
@@ -51,7 +51,7 @@ create arrow
     begin
         dup d# 12 <
     while
-        dup arrow + c@  over my @ +  mx @ swap  xor8
+        dup arrow >c + c@  over my @ +  mx @ swap  xor8
         1+
     repeat
     drop
@@ -77,7 +77,7 @@ create t-menu ," hexaforth"
     false cw.x cw.y d# 18 + cw.w hline
     dup if false cw.x 1+ cw.y 1+ cw.w d# 2 - d# 17 fill-rect then
     inverse !
-    cw @ d# 32 + @ count  cw.x d# 8 + cw.y d# 2 + draw-text
+    cw @ c# 4 + @ >c count  cw.x d# 8 + cw.y d# 2 + draw-text
     d# 0 inverse !
 ;
 
@@ -85,7 +85,7 @@ create t-menu ," hexaforth"
     dup cells wins + @ cw !
     1+ nwin @ = draw-frame
     cw @ content oy ! ox !
-    cw @ dup d# 40 + @ execute
+    cw @ dup c# 5 + @ execute
 ;
 
 create dy 0 ,
@@ -93,7 +93,7 @@ create dy 0 ,
 : draw-desk ( -- ) \ menu bar, then a grey made of alternating pixels
     true d# 0 d# 0 fb-w @ d# 19 fill-rect
     false d# 0 d# 19 fb-w @ hline
-    t-menu count d# 8 d# 2 draw-text
+    t-menu >c count d# 8 d# 2 draw-text
     d# 20 dy !
     begin
         dy @ fb-h @ <
@@ -132,8 +132,8 @@ create hx 0 ,
 create hy 0 ,
 
 : inside? ( win -- f ) \ is hx,hy in it?
-    dup @ hx @ swap - over d# 16 + @ u<
-    swap dup d# 8 + @ hy @ swap - swap d# 24 + @ u<
+    dup @ hx @ swap - over CELL2 + @ u<
+    swap dup CELL + @ hy @ swap - swap c# 3 + @ u<
     and
 ;
 
@@ -173,7 +173,7 @@ create dy0 0 ,
         true dragging !  mx @ dx0 !  my @ dy0 !
         exit
     then
-    top d# 56 + @ ?dup if
+    top c# 7 + @ ?dup if
         >r
         hx @ cw.x - 1-  hy @ cw.y - d# 19 -  top
         r> execute
@@ -185,7 +185,7 @@ create dy0 0 ,
     dragging @ if
         d# 0 dragging !
         mx @ dx0 @ - top +!
-        my @ dy0 @ - top d# 8 + +!
+        my @ dy0 @ - top CELL + +!
         repaint
     then
 ;
@@ -203,7 +203,7 @@ create quitting 0 ,
         nwin @ d# 1 > if d# 0 raise repaint then
         exit
     then
-    top dup d# 48 + @ execute
+    top dup c# 6 + @ execute
     redraw-top
 ;
 
@@ -229,7 +229,7 @@ header on-event : on-event ( type code value -- )
     over ctrl-key?  if nip 0<> ctrl ! exit then
     0= if drop exit then                            \ a key going up
     dup d# 127 u> if drop exit then
-    shift @ if d# 128 + then keymap + c@
+    shift @ if d# 128 + then keymap >c + c@
     ctrl @ if h# 1f and then
     ?dup if on-key then
 ;

@@ -3,7 +3,8 @@
 $32 constant TCOLS
 $10 constant TROWS
 
-create tbuf #800 allot
+create tcells #800 allot
+: tbuf ( -- a ) tcells >c ;             \ the text, by the address of its first byte
 create tcol 0 ,
 create trow 0 ,
 create ti 0 ,
@@ -60,7 +61,8 @@ header term-draw : term-draw ( win -- )
 \ stack is kept in `ust` between lines: it is pushed above eight spare
 \ cells before the line runs and collected again afterwards.
 
-create line #80 allot
+create lcells #80 allot
+: line ( -- a ) lcells >c ;
 create llen 0 ,
 create ust #256 allot
 create un 0 ,

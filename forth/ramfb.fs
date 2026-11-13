@@ -20,34 +20,35 @@ create ramfb-name 'e' c, 't' c, 'c' c, '/' c, 'r' c, 'a' c, 'm' c, 'f' c,
 ;
 
 : fw-entry ( -- ) \ the next 64-byte directory entry, into fwc
-    fwc d# 64 bounds
+    fwc c# 8 bounds
     begin
         2dupxor
     while
         FWCFG reg64@ over !
-        d# 8 +
+        CELL +
     repeat
     2drop
 ;
 
 : fw-find ( -- key | 0 ) \ selector of the file etc/ramfb
     h# 19 fw-select                         \ the file directory
-    FWCFG reg32@ fwc !  fwc be32@           ( entries )
+    FWCFG reg32@ fwc !  fwc >c be32@        ( entries )
     begin
         dup
     while
         fw-entry                            \ size, select, reserved, name
-        fwc d# 8 + @ ramfb-name @ =         \ "etc/ramf"
-        fwc d# 16 + uw@ [char] b = and      \ "b", then the terminator
-        if drop fwc d# 4 + be16@ exit then
+        fwc CELL + @ ramfb-name @ =         \ "etc/ramf"
+        fwc CELL2 + @ h# ffff and [char] b = and    \ "b", then the terminator
+        if drop fwc >c d# 4 + be16@ exit then
         1-
     repeat
 ;
 
-: fb-addr ( x y -- a ) fb-stride @ * swap d# 2 lshift + fb @ + ;
+: fb-byte ( x y -- ba ) fb-stride @ * swap d# 2 lshift + fb @ (>c) + ;
+: fb-addr ( x y -- a ) fb-byte (c>) ;   \ the cell a pair of pixels is
 
 : ramfb-plot ( on? x y -- )
-    fb-addr
+    fb-byte
     swap if h# ffffff else d# 0 then
     swap l!
 ;
@@ -71,17 +72,17 @@ create pix2  0 ,  $00ffffff00000000 ,  $00ffffff ,  $00ffffff00ffffff ,
     over d# 1 and if
         odd-addr
         over d# 7 pair over hi!
-        over d# 5 pair over d# 8 + !
-        over d# 3 pair over d# 16 + !
-        over d# 1 pair over d# 24 + !
-        swap 2* d# 0 pair swap d# 32 + lo!
+        over d# 5 pair over CELL + !
+        over d# 3 pair over CELL2 + !
+        over d# 1 pair over c# 3 + !
+        swap 2* d# 0 pair swap c# 4 + lo!
         exit
     then
     fb-addr
     over d# 6 pair over !
-    over d# 4 pair over d# 8 + !
-    over d# 2 pair over d# 16 + !
-    swap d# 0 pair swap d# 24 + !
+    over d# 4 pair over CELL + !
+    over d# 2 pair over CELL2 + !
+    swap d# 0 pair swap c# 3 + !
 ;
 
 : x! ( cell a -- ) dup >r @ xor r> ! ;
@@ -90,17 +91,17 @@ create pix2  0 ,  $00ffffff00000000 ,  $00ffffff ,  $00ffffff00ffffff ,
     over d# 1 and if
         odd-addr
         over d# 7 pair over x!
-        over d# 5 pair over d# 8 + x!
-        over d# 3 pair over d# 16 + x!
-        over d# 1 pair over d# 24 + x!
-        swap 2* d# 0 pair swap d# 32 + x!
+        over d# 5 pair over CELL + x!
+        over d# 3 pair over CELL2 + x!
+        over d# 1 pair over c# 3 + x!
+        swap 2* d# 0 pair swap c# 4 + x!
         exit
     then
     fb-addr
     over d# 6 pair over x!
-    over d# 4 pair over d# 8 + x!
-    over d# 2 pair over d# 16 + x!
-    swap d# 0 pair swap d# 24 + x!
+    over d# 4 pair over CELL + x!
+    over d# 2 pair over CELL2 + x!
+    swap d# 0 pair swap c# 3 + x!
 ;
 
 : ramfb-hspan ( on? x y n -- )
@@ -110,15 +111,17 @@ create pix2  0 ,  $00ffffff00000000 ,  $00ffffff ,  $00ffffff00ffffff ,
         1+ r> r> 1- >r >r
     then
     r> fb-addr
-    swap if pix2 d# 24 + @ else d# 0 then swap      ( cell a )
+    swap if pix2 c# 3 + @ else d# 0 then swap       ( cell a )
     r>
     begin
         dup d# 1 >
     while
-        >r 2dup ! d# 8 + r> d# 2 -
+        >r 2dup ! CELL + r> d# 2 -
     repeat
-    0> if swap lo32 swap l! else 2drop then
+    0> if swap lo32 swap (>c) l! else 2drop then
 ;
+
+: fwb ( -- ba ) fwc >c ;                 \ fwc, a byte at a time
 
 header ramfb-init
 : ramfb-init ( w h -- )
@@ -127,19 +130,19 @@ header ramfb-init
     fb-stride @ fb-h @ * halloc fb !
     fw-find dup 0= d# 37 -throw             ( key )
 
-    fb @ >phys      fwc d# 16 + be64!       \ config: address,
-    h# 34325258     fwc d# 24 + be32!       \ format XRGB8888,
-    d# 0            fwc d# 28 + be32!       \ flags,
-    fb-w @          fwc d# 32 + be32!       \ width, height, stride
-    fb-h @          fwc d# 36 + be32!
-    fb-stride @     fwc d# 40 + be32!
+    fb @ >phys      fwb d# 16 + be64!       \ config: address,
+    h# 34325258     fwb d# 24 + be32!       \ format XRGB8888,
+    d# 0            fwb d# 28 + be32!       \ flags,
+    fb-w @          fwb d# 32 + be32!       \ width, height, stride
+    fb-h @          fwb d# 36 + be32!
+    fb-stride @     fwb d# 40 + be32!
 
-    d# 16 lshift h# 18 or  fwc be32!        \ request: select the file, write
-    d# 28           fwc d# 4 + be32!        \ 28 bytes
-    fwc d# 16 + >phys  fwc d# 8 + be64!     \ from the config
-    fwc >phys       fwc d# 48 + be64!       \ and its own address, big-endian
-    fwc d# 48 + @   FWCFG d# 16 + reg64!
-    fwc be32@ d# 38 -throw                  \ control is zero once done
+    d# 16 lshift h# 18 or  fwb be32!        \ request: select the file, write
+    d# 28           fwb d# 4 + be32!        \ 28 bytes
+    fwc CELL2 + >phys  fwb d# 8 + be64!     \ from the config
+    fwc >phys       fwb d# 48 + be64!       \ and its own address, big-endian
+    fwc c# 6 + @    FWCFG d# 16 + reg64!
+    fwb be32@ d# 38 -throw                  \ control is zero once done
 
     ['] ramfb-plot  'plot !
     ['] ramfb-hspan 'hspan !

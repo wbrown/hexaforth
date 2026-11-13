@@ -90,7 +90,7 @@ header calc-draw : calc-draw ( win -- )
         ox @ ci @ d# 3 and d# 34 * +
         oy @ d# 96 + ci @ d# 2 rshift d# 24 * +
         d# 33 d# 23 frame-rect
-        cbtn 1+ ci @ + c@
+        cbtn >c 1+ ci @ + c@
         ox @ ci @ d# 3 and d# 34 * + d# 13 +
         oy @ d# 96 + ci @ d# 2 rshift d# 24 * + d# 4 +
         draw-char
@@ -104,7 +104,7 @@ header calc-click : calc-click ( x y win -- )
     d# 24 u/mod nip dup d# 4 > if 2drop exit then   ( x row )
     swap dup 0< if 2drop exit then
     d# 34 u/mod nip d# 3 min                        ( row col )
-    swap d# 2 lshift + cbtn 1+ + c@
+    swap d# 2 lshift + cbtn >c 1+ + c@
     dup [char] E = if drop d# 13 then
     dup [char] < = if drop d# 8 then
     d# 0 calc-key

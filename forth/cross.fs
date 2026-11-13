@@ -661,6 +661,8 @@ variable lastdef    \ body of the most recent target colon definition
     then ;
 warnings on
 
+\ c# n is the distance from a cell's address to that of the nth after it.
+:: c# base @ >r decimal 0. bl parse >number 2drop drop r> base ! addr-unit * literal ;
 :: d# bl parse 10 base>number ;
 :: h# bl parse 16 base>number ;
 :: ['] ' >body @ literal ;  \ xt = word address

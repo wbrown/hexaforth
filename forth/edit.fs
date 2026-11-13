@@ -31,7 +31,7 @@ header edit-draw : edit-draw ( win -- )
     false ox @ oy @ d# 260 + d# 516 hline
     sb-begin
     [char] b emit [char] l emit [char] o emit [char] c emit [char] k emit
-    space eblk @ . space space t-keys count type
+    space eblk @ . space space t-keys >c count type
     sb-end
     ox @ d# 2 + oy @ d# 263 + sb-draw
 ;

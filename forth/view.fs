@@ -11,7 +11,7 @@ create bmw 0 ,          \ bytes per row, a whole number of cells
 create bmh 0 ,          \ rows
 
 : bm-plot ( on? x y -- )
-    bmw @ * over d# 3 rshift + bm @ +               ( on? x a )
+    bmw @ * over d# 3 rshift + bm @ >c +            ( on? x a )
     swap d# 7 and h# 80 swap rshift                 ( on? a mask )
     rot if over c@ or else invert over c@ and then
     swap c!

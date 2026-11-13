@@ -1,11 +1,11 @@
 \ machine.fs - access to the machine underneath the VM
 
-\ Device registers have a fixed width, but ! always moves 64 bits and c! and
+\ Device registers have a fixed width, but ! always moves a cell and c! and
 \ w! read the whole cell back first.  The VM's device ports give exact-width
 \ access at a latched machine address (see vm.c).
 
 : membase ( -- pa ) h# c0 io@ ;         \ machine address of VM byte 0
-header >phys : >phys ( a -- pa ) membase + ;         \ what a device must be told for a
+header >phys : >phys ( a -- pa ) >c membase + ;      \ what a device must be told for a
 
 : reg8@  ( pa -- x ) h# c0 io!  h# c1 io@ ;
 header reg32@ : reg32@ ( pa -- x ) h# c0 io!  h# c4 io@ ;
@@ -16,16 +16,17 @@ header reg64! : reg64! ( x pa -- ) h# c0 io!  h# c8 io! ;
 
 \ Memory above the dictionary, for buffers too big for it.  Never freed.
 
-create himem $100000 ,
+create himem $100000 ,      \ in bytes
 
 header halloc
-: halloc ( u -- a ) \ u bytes, 16-byte aligned
+: halloc ( u -- a ) \ u bytes, 16-byte aligned; a is the address of a cell
     himem @ d# 15 + d# -16 and
     dup >r + himem !
-    r>
+    r> c>
 ;
 
-\ 32-bit fields in ordinary memory, as parts of the cells they are in.
+\ 32-bit fields in ordinary memory, as parts of the cells they are in.  Like
+\ c@ and uw@, these and the big-endian words take the address of a byte.
 
 header l@ : l@ ( a -- x ) h# ffffffff field@ ;
 header l! : l! ( x a -- ) h# ffffffff field! ;
