@@ -1,104 +1,57 @@
-// hf_mem.v - byte-addressed memory, one read port and one write port.
+// hf_mem.v - the machine's memory: an array of cells, with one read port
+// and one write port.
 //
-// The memory is one byte-wide lane for each byte of a cell: 8 lanes for a
-// 64-bit cell, 4 for 32, 2 for 16.  Lane k holds every byte whose address is
-// k modulo the cell size.  The bytes of a cell at any address always fall
-// one in each lane, so an unaligned access is an ordinary access on every
-// lane, in its own word or the next, followed by a rotation.  No access
-// takes two cycles.
+// An address is the number of a cell.  A read gives the whole cell in the
+// next cycle, or in the one after with LAT = 2.
 //
-// The read port serves instructions and data alike.  An instruction is the
-// low 16 bits of a read at an even address.
+// The read port serves instructions and data alike.  An instruction is 16
+// bits, so a cell wider than that holds several, the first in the low bits.
+// rslot says which is wanted, and it arrives in the low 16 bits of the
+// data in place of what was there; for a read of data rslot is zero and
+// the cell arrives as it is.
 //
-// With ALIGNED set, cells are only read and written at cell-aligned
-// addresses, which is all the Forth nucleus does.  The lanes then never
-// need the next word, and only the low 16 bits are rotated, for an
-// instruction that is not at the start of a cell.
-//
-// With PLANES set, each lane is built from eight memories one bit wide.  A
-// block RAM is then used at its deepest and narrowest, so that far fewer of
-// them have to be chosen between on the way out.  This form cannot be
-// loaded from INIT.
-//
-// Only the low address bits are used, so an address past the end wraps.
-// rok low makes a read return zero and wok low makes a write do nothing;
-// the CPU uses them for device-port accesses that fall outside the memory.
-// A read sees the memory as it was before a write in the same cycle.
+// Only the low AB bits of an address are used, so an address past the end
+// wraps.  rok low makes a read return zero; the CPU uses it for a read that
+// is not of memory.  A read sees the memory as it was before a write in
+// the same cycle.
 
 module hf_mem #(
     parameter W  = 64,              // cell width
-    parameter MB = 17,              // log2 of the size in bytes
-    parameter INIT = "",            // if set, lane k is loaded from INIT<k>.hex
-    parameter ALIGNED = 0,          // if set, cells are only accessed aligned
-    parameter PLANES = 0,           // if set, each lane is eight one-bit memories
+    parameter AB = 14,              // log2 of the size in cells
+    parameter INIT = "",            // if set, a hex file with a cell on each line
     parameter LAT = 1               // cycles from address to data: 1, or 2 with
                                     // the output registered
 ) (
     input  wire        clk,
-    input  wire [W-1:0] raddr,      // byte address
+    input  wire [W-1:0] raddr,
+    input  wire [1:0]  rslot,
     input  wire        rok,
     output wire [W-1:0] rdata,
     output wire [W-1:0] rpre,       // rdata before the output register
     input  wire [W-1:0] waddr,
-    input  wire        wok,
-    input  wire [W/8-1:0] dwe,
-    input  wire [W-1:0] dwdata
+    input  wire        we,
+    input  wire [W-1:0] wdata
 );
-    localparam LANES = W / 8;
-    localparam LB = $clog2(LANES);  // address bits that pick a lane
-    localparam AW = MB - LB;        // address bits that pick a word
+    reg [W-1:0] m [0:(1<<AB)-1];
+    reg [W-1:0] q;
+    reg [1:0]   slot_q;
+    initial if (INIT != "") $readmemh(INIT, m);
 
-    wire [LB-1:0] roff  = raddr[LB-1:0];
-    wire [AW-1:0] rword = raddr[MB-1:LB];
-    wire [LB-1:0] woff  = ALIGNED ? {LB{1'b0}} : waddr[LB-1:0];
-    wire [AW-1:0] wword = waddr[MB-1:LB];
+    always @(posedge clk) begin
+        if (we) m[waddr[AB-1:0]] <= wdata;
+        q <= rok ? m[raddr[AB-1:0]] : {W{1'b0}};
+        slot_q <= rslot;
+    end
 
-    reg  [LB-1:0] roff_q;
-    wire [W-1:0]  dq;               // lane outputs, lane 0 in the low byte
-
-    genvar k;
+    wire [W-1:0] rd1;
     generate
-        for (k = 0; k < LANES; k = k + 1) begin : lane
-            wire [7:0] q;
-            // Lanes before the offset hold bytes from the next word.
-            /* verilator lint_off CMPCONST */
-            wire [AW-1:0] rw = rword + {{(AW-1){1'b0}}, !ALIGNED && k[LB-1:0] < roff};
-            wire [AW-1:0] ww = wword + {{(AW-1){1'b0}}, k[LB-1:0] < woff};
-            /* verilator lint_on CMPCONST */
-            // The data byte this lane takes: byte (k - offset) modulo the lanes.
-            wire [LB-1:0] j = k[LB-1:0] - woff;
-            if (PLANES) begin : planes
-                genvar b;
-                for (b = 0; b < 8; b = b + 1) begin : plane
-                    reg m [0:(1<<AW)-1];
-                    reg qb;
-                    always @(posedge clk) begin
-                        if (dwe[j] && wok) m[ww] <= dwdata[8*j + b];
-                        qb <= rok ? m[rw] : 1'b0;
-                    end
-                    assign q[b] = qb;
-                end
-            end else begin : bytes
-                reg [7:0] m [0:(1<<AW)-1];
-                reg [7:0] qq;
-                initial if (INIT != "") $readmemh($sformatf("%s%0d.hex", INIT, k), m);
-                always @(posedge clk) begin
-                    if (dwe[j] && wok) m[ww] <= dwdata[8*j +: 8];
-                    qq <= rok ? m[rw] : 8'd0;
-                end
-                assign q = qq;
-            end
-            assign dq[8*k +: 8] = q;
+        if (W == 16) begin : one
+            assign rd1 = q;
+        end else begin : several
+            wire [W-1:0] down = q >> {slot_q, 4'b0000};
+            assign rd1 = {q[W-1:16], down[15:0]};
         end
     endgenerate
-
-    always @(posedge clk) roff_q <= roff;
-
-    // Rotate the lanes back into address order.
-    wire [2*W-1:0] twice = {dq, dq};
-    wire [W-1:0]   rot = twice[8*roff_q +: W];
-    localparam [W-1:0] LOW16 = 'hffff;
-    wire [W-1:0]   rd1 = ALIGNED ? ((dq & ~LOW16) | (rot & LOW16)) : rot;
     assign rpre = rd1;
     generate
         if (LAT == 2) begin : outreg

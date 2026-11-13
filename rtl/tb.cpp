@@ -6,7 +6,7 @@
 //   tb run IMAGE.hex       boot an image; stdin is the UART; prints what it
 //                          sends, then cycle and instruction counts
 //
-// The memory here is a plain byte array with the timing the CPU expects:
+// The memory here is a plain array with the timing the CPU expects:
 // one read port, whose address is sampled on the clock edge and whose data
 // is back in the next cycle, and one write port.  rtl/hf_mem.v, the real memory, is checked against the same model
 // by tb_mem.cpp.
@@ -19,15 +19,16 @@
 #include <string>
 #include <vector>
 
-// Built once for each machine size: W is the cell width and MB the log2 of
-// the memory size, matching the CPU's parameters.
+// Built once for each machine size: W is the cell width and AB the log2 of
+// the memory size in cells.
 #ifndef W
 #define W 64
 #endif
-#ifndef MB
-#define MB 17
+#ifndef AB
+#define AB 14
 #endif
-static const size_t MEM = (size_t)1 << MB;
+static const size_t CELLS = (size_t)1 << AB;
+static const size_t MEM = CELLS * (W / 8);
 static const uint64_t CELL_MASK = W == 64 ? ~0ull : (1ull << W) - 1;
 
 struct Machine {
@@ -38,10 +39,11 @@ struct Machine {
     uint64_t rdata = 0, rnext = 0;
     uint64_t cycles = 0, executed = 0;
 
-    uint64_t read(uint64_t a, int n) {
+    // The cell at an address, with the instruction asked for in its low 16 bits.
+    uint64_t read(uint64_t a, int slot) {
         uint64_t v = 0;
-        for (int i = 0; i < n; i++)
-            if (a + i < MEM) v |= (uint64_t)mem[a + i] << (8 * i);
+        memcpy(&v, &mem[(a % CELLS) * (W / 8)], W / 8);
+        if (slot) v = (v & ~0xffffull) | (v >> (16 * slot) & 0xffff);
         return v;
     }
 
@@ -53,10 +55,11 @@ struct Machine {
         top.rx_data = in_at < in.size() ? in[in_at] : 0;
         top.clk = 0;
         top.eval();
-        uint64_t next_rdata = top.rok ? read(top.raddr, W / 8) : 0;
-        for (int i = 0; i < W / 8; i++)
-            if ((top.dwe >> i & 1) && top.wok && top.waddr + i < MEM)
-                mem[top.waddr + i] = (uint64_t)top.dwdata >> (8 * i);
+        uint64_t next_rdata = top.rok ? read(top.raddr, top.rslot) : 0;
+        if (top.we) {
+            uint64_t v = top.dwdata;
+            memcpy(&mem[((uint64_t)top.waddr % CELLS) * (W / 8)], &v, W / 8);
+        }
         if (top.tx_valid) out.push_back(top.tx_data);
         if (top.rx_ready) in_at++;
         executed += top.dbg_exec;
@@ -139,6 +142,9 @@ static int run_cases(const char *path) {
         std::vector<uint8_t> want_mem = bytes(f, mem_len);
 
         if (mem_len > MEM) continue;        // does not fit this machine
+        // Ports 0xc1 to 0xc8 reach devices, and this machine has none.
+        if (label.size() > 6 && (!memcmp(label.data(), "io 19", 5) || !memcmp(label.data(), "io 200", 6)))
+            continue;
         total++;
         std::fill(m->mem.begin(), m->mem.end(), 0);
         memcpy(m->mem.data(), image.data(), mem_len);

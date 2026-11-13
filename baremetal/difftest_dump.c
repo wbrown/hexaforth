@@ -109,10 +109,13 @@ int main(int argc, char **argv) {
     free(ctx);
   }
 
-  // Eight cells of data start at byte 0x400.
+  // Eight cells of data start at byte 0x400, each holding the address of
+  // one of the eight.  The return stack holds addresses of the empty cells
+  // after them: an instruction that returns goes to one of those, and on a
+  // machine whose cells are 16 bits that is the cell itself, which halts.
   enum { DATA = 0x8000 | (0x400 / CELL_BYTES) };
   static const uint16_t prefix[] = {
-      DATA + 3, DATA + 4, DATA + 5,         // literals destined for the return stack
+      DATA + 8, DATA + 9, DATA + 10,        // literals destined for the return stack
       0x650d, 0x650d, 0x650d,               // >r >r >r
       DATA, DATA + 1, DATA + 2, DATA + 7,   // data stack
   };

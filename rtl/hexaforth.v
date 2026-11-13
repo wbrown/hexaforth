@@ -46,29 +46,28 @@ module hexaforth #(
     parameter W     = 64,           // cell width: 64, 32 or 16
     parameter PCW   = 16,           // program counter width, in words; at most W
     parameter DEPTH = 256,          // cells in each stack: STACK_CELLS in vm_constants.h
-    parameter MB    = 17,           // log2 of the memory size in bytes
     parameter LAT   = 1             // cycles from a read address to its data: 1 or 2
 ) (
     input  wire        clk,
     input  wire        rst,
     input  wire [PCW-1:0] start_pc,
 
-    // Read port: a byte address out, the cell there back the next cycle.
-    // An instruction is the low 16 bits of the cell at twice its address.
-    // rok is low for a device-port read outside the memory, which must
-    // read zero.
+    // Read port: the address of a cell out, the cell back the next cycle.
+    // For an instruction rslot says which of the cell's instructions is
+    // wanted, and it comes back in the low 16 bits.  rok is low for a read
+    // of a device port, which must read zero: this machine has no devices
+    // behind ports 0xc1 to 0xc8.
     output reg  [W-1:0] raddr,
+    output reg  [1:0]  rslot,
     output reg         rok,
     input  wire [W-1:0] rdata,
     // With LAT = 2, the memory's output before its register: what rdata
     // will be in the next cycle.  The instruction register loads from it.
     input  wire [W-1:0] rpre,
 
-    // Write port.  wok is low for a device-port write outside the memory,
-    // which must write nothing.
+    // Write port: a whole cell.
     output reg  [W-1:0] waddr,
-    output reg         wok,
-    output reg  [W/8-1:0] dwe,      // one bit per byte written
+    output reg         we,
     output reg  [W-1:0] dwdata,
 
     output reg         tx_valid,
@@ -363,7 +362,7 @@ module hexaforth #(
     // on to use it as an address or a port number.  [IN] and device reads
     // can always be used as they arrive.
     wire ready     = running && have_cur && !is_halt;
-    wire wr_busy   = dwe != 0;                  // a store is landing this cycle
+    wire wr_busy   = we;                        // a store is landing this cycle
     wire rd_flying = LAT == 2 && (k1 == K_A || k1 == K_B);
     wire a_here    = have_a || (arr == K_A && !ab_op);
     wire a_ok      = !need_a || a_here;
@@ -375,7 +374,6 @@ module hexaforth #(
     wire waiting   = (tx_wr && !tx_ready) || (rx_rd && !rx_valid);
     wire execute   = ready && a_ok && b_ok && !want_slow && !waiting;
 
-    wire       ioa_ok = (ioa >> MB) == 0;
     // An instruction that does not fall through to the next one: what was
     // asked for after it is dropped, and fetching starts again at its target.
     wire redirect  = !is_lit && (op_type == 2'd0 || op_type == 2'd2 ||
@@ -410,7 +408,7 @@ module hexaforth #(
     localparam KB = 11;             // log2 of the ROM's size in instructions (4KB)
     wire [PCW-1:0] btarget = op_type == 2'd3 ? R[PCW-1:0] : target;
 `ifdef HF_KROM
-`include "lanekrom.vh"
+`include "krom.vh"
     wire        rom_s = fpc[PCW-1:KB] == 0;
     wire        rom_b = btarget[PCW-1:KB] == 0;
     wire [15:0] romq_s = kromf(fpc[KB-1:0]);
@@ -440,12 +438,16 @@ module hexaforth #(
     wire [15:0] second  = (nxtv && a1v) ? rpre[15:0] : romq_s;
     wire [CW-1:0] secondd = (nxtv && a1v) ? dpre : drom_s;
 
+    // A cell holds 2^ISB instructions.
+    localparam ISB = W == 64 ? 2 : W == 32 ? 1 : 0;
+    localparam [1:0] SLOTS = (1 << ISB) - 1;
+    wire [W-1:0] fetch_w = {{(W-PCW){1'b0}}, fetch};
     always @* begin
-        raddr = {{(W-PCW-1){1'b0}}, fetch, 1'b0};  rok = 1;
-        if (want_a) raddr = T;
+        raddr = fetch_w >> ISB;  rslot = fetch[1:0] & SLOTS;  rok = 1;
+        if (want_a) begin raddr = T;  rslot = 0; end
         else if (want_b) begin
-            if (alu_op == 4'd14) raddr = in_ctl;
-            else begin raddr = ioa;  rok = ioa_ok; end
+            raddr = in_ctl;  rslot = 0;
+            rok = alu_op == 4'd14;
         end
     end
 
@@ -453,32 +455,16 @@ module hexaforth #(
     assign dbg_t = T;  assign dbg_n = N;  assign dbg_r = R;
     assign dbg_dsp = dsp;  assign dbg_rsp = rsp;  assign dbg_exec = execute;
 
-    // A store, registered before it leaves.  A device write wider than a
-    // cell writes a cell.
-    localparam [7:0] WB1 = 8'h01, WB2 = 8'h03, WB4 = 8'h0f, WB8 = 8'hff;
-    wire [3:0] wbytes = port[3:0];
-    reg  [W-1:0] daddr_c;
-    reg         dok_c;
-    reg  [W/8-1:0] dwe_c;
+    // A store, registered before it leaves.
+    wire we_c = execute && is_alu && out_mux == 2'd3;
     always @* begin
-        daddr_c = t1;  dok_c = 1;  dwe_c = 0;
-        tx_valid = 0;  rx_ready = 0;
-        if (execute) begin
-            if (is_alu && out_mux == 2'd3) begin
-                dwe_c = {(W/8){1'b1}};
-            end else if (dev_wr) begin
-                daddr_c = ioa;  dok_c = ioa_ok;
-                dwe_c = wbytes == 1 ? WB1[W/8-1:0] : wbytes == 2 ? WB2[W/8-1:0] :
-                        wbytes == 4 ? WB4[W/8-1:0] : WB8[W/8-1:0];
-            end
-            tx_valid = tx_wr;
-            rx_ready = rx_rd;
-        end
+        tx_valid = execute && tx_wr;
+        rx_ready = execute && rx_rd;
     end
 
     always @(posedge clk) begin
-        waddr <= daddr_c;  wok <= dok_c;  dwdata <= out;
-        dwe <= rst ? {(W/8){1'b0}} : dwe_c;
+        waddr <= t1;  dwdata <= out;
+        we <= !rst && we_c;
     end
 
     // What happens to the two tails this cycle: the instruction's own

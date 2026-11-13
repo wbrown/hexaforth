@@ -4,32 +4,31 @@
 #                         module, and boot the nucleus on the whole system
 #   make test W=32        the same for a 32-bit machine (or W=16)
 #   make synth            synthesise for an ECP5 FPGA; reports size and clock
-#   make synth W=32 A=24  ... for a 32-bit cell and 24-bit addressing
+#   make synth W=32 AB=16 ... for a 32-bit cell and 2^16 cells of memory
 #
-# W is the cell width: 64, 32 or 16.  For simulation the memory is 128KB, or
-# 64KB with a 16-bit cell.  For synthesis A is the address width in bits (the
-# program counter is A-1 bits of word address) and MEMBITS the log2 of the
-# memory actually built.
+# W is the cell width: 64, 32 or 16.  AB is the log2 of the memory's size in
+# cells; the default is 128KB at every width.  The program counter is 16
+# bits, which is all an execution token holds.
 
 W       ?= 64
-ALIGNED ?= 0
-PLANES  ?= 0
 LAT     ?= 1
 KROM    ?= 0
-SIMMB   := $(if $(filter 16,$(W)),16,17)
-B       := build/w$(W)$(if $(filter 1,$(ALIGNED)),-aligned)$(if $(filter 2,$(LAT)),-lat2)$(if $(filter 1,$(KROM)),-krom)
+AB      ?= $(if $(filter 64,$(W)),14,$(if $(filter 32,$(W)),15,16))
+# The nucleus is built for the machine's default size in vm_constants.h.
+NUCAB   := $(if $(filter 64,$(W)),22,$(if $(filter 32,$(W)),17,16))
+B       := build/c$(W)$(if $(filter 2,$(LAT)),-lat2)$(if $(filter 1,$(KROM)),-krom)
 TOP     := ..
 CASES   := $(B)/cases.bin
-HEX     := $(TOP)/build/nuc-$(W)-$(SIMMB).hex
-VM      := $(TOP)/build/hexaforth-$(W)-$(SIMMB)
+HEX     := $(TOP)/build/nuc-$(W)-$(NUCAB).hex
+VM      := $(TOP)/build/hexaforth-$(W)-$(NUCAB)
 VFLAGS  := -Wall -Wno-UNUSED -Wno-DECLFILENAME -Wno-PINCONNECTEMPTY -Wno-WIDTH -O3 \
-           --x-assign fast --x-initial fast -CFLAGS "-DW=$(W) -DMB=$(SIMMB) -DLAT=$(LAT)"
+           --x-assign fast --x-initial fast -CFLAGS "-DW=$(W) -DAB=$(AB) -DLAT=$(LAT)"
 
 all: $(B)/tb
 
 $(B)/tb: hexaforth.v tb.cpp
 	@mkdir -p $(B)
-	verilator $(VFLAGS) --cc hexaforth.v -GW=$(W) -GPCW=$$(($(SIMMB)-1)) -GMB=$(SIMMB) -GLAT=$(LAT) \
+	verilator $(VFLAGS) --cc hexaforth.v -GW=$(W) -GPCW=16 -GLAT=$(LAT) \
 	    --exe $(CURDIR)/tb.cpp --Mdir $(B)/cpu -o ../tb --build -j 4 > $(B)/build.log 2>&1 \
 	    || (cat $(B)/build.log; false)
 
@@ -40,14 +39,14 @@ $(B)/tb_mem: hf_mem.v tb_mem.cpp
 
 # The nucleus and the reference VM for this cell width.
 $(HEX) $(VM):
-	$(TOP)/util/build-machine.sh $(W) $(SIMMB)
+	$(TOP)/util/build-machine.sh $(W)
 
-# The whole system, CPU and lane memory, with the nucleus image built in.
-$(B)/tb_soc: soc.v hexaforth.v hf_mem.v tb_soc.cpp lanes.py $(HEX)
+# The whole system, CPU and memory, with the nucleus image built in.
+$(B)/tb_soc: soc.v hexaforth.v hf_mem.v tb_soc.cpp memimage.py $(HEX)
 	@mkdir -p $(B)
-	python3 lanes.py $(HEX) $(B)/lane $(W) $(SIMMB)
-	verilator $(VFLAGS) --cc soc.v hexaforth.v hf_mem.v --top-module soc -GW=$(W) -GMB=$(SIMMB) -GALIGNED=$(ALIGNED) -GLAT=$(LAT) \
-	    -GINIT='"$(B)/lane"' $(if $(filter 1,$(KROM)),+define+HF_KROM -I$(B)) --exe $(CURDIR)/tb_soc.cpp --Mdir $(B)/soc -o ../tb_soc \
+	python3 memimage.py $(HEX) $(B) $(W) $(AB)
+	verilator $(VFLAGS) --cc soc.v hexaforth.v hf_mem.v --top-module soc -GW=$(W) -GAB=$(AB) -GLAT=$(LAT) \
+	    -GINIT='"$(B)/mem.hex"' $(if $(filter 1,$(KROM)),+define+HF_KROM -I$(B)) --exe $(CURDIR)/tb_soc.cpp --Mdir $(B)/soc -o ../tb_soc \
 	    --build -j 4 > $(B)/build.log 2>&1 || (cat $(B)/build.log; false)
 
 # Cases from the reference VM built for this cell width.
@@ -68,23 +67,21 @@ test: $(B)/tb $(B)/tb_soc $(CASES) $(VM)
 	@cmp $(B)/vm.out $(B)/cpu.out && cmp $(B)/cpu.out $(B)/soc.out \
 	    && echo "nucleus session: CPU and whole system match vm.c" && cat $(B)/cpu.out
 
-test-mem: build/w64/tb_mem
-	build/w64/tb_mem
+test-mem: build/c64/tb_mem
+	build/c64/tb_mem
 
 # Synthesis.
-A       ?= $(if $(filter 16,$(W)),16,17)
-MEMBITS ?= $(if $(filter 16,$(W)),16,17)
-S       := build/synth-w$(W)-a$(A)-m$(MEMBITS)$(if $(filter 1,$(ALIGNED)),-aligned)$(if $(filter 1,$(PLANES)),-planes)$(if $(filter 2,$(LAT)),-lat2)$(if $(filter 1,$(KROM)),-krom)
+S       := build/synth-c$(W)-ab$(AB)$(if $(filter 2,$(LAT)),-lat2)$(if $(filter 1,$(KROM)),-krom)
 
 synth: $(if $(filter 1,$(KROM)),$(HEX))
 	@mkdir -p $(S)
-	$(if $(filter 1,$(KROM)),python3 lanes.py $(HEX) $(S)/lane $(W) $(SIMMB))
+	$(if $(filter 1,$(KROM)),python3 memimage.py $(HEX) $(S) $(W) $(AB))
 	yosys -q -l $(S)/yosys.log -p "read_verilog $(if $(filter 1,$(KROM)),-DHF_KROM -I$(S)) soc.v hexaforth.v hf_mem.v; \
-	    chparam -set W $(W) -set MB $(MEMBITS) -set PCW $$(($(A)-1)) -set ALIGNED $(ALIGNED) -set PLANES $(PLANES) -set LAT $(LAT) soc; \
+	    chparam -set W $(W) -set AB $(AB) -set LAT $(LAT) soc; \
 	    synth_ecp5 -top soc -json $(S)/soc.json"
 	nextpnr-ecp5 --85k --package CABGA381 --json $(S)/soc.json --lpf-allow-unconstrained \
 	    --timing-allow-fail -q -l $(S)/nextpnr.log || true
-	@echo "W=$(W) A=$(A) ALIGNED=$(ALIGNED) PLANES=$(PLANES) LAT=$(LAT) KROM=$(KROM) memory 2^$(MEMBITS) bytes:" \
+	@echo "W=$(W) LAT=$(LAT) KROM=$(KROM) memory 2^$(AB) cells:" \
 	    $$(grep -E "Total LUT4s" $(S)/nextpnr.log | tail -1 | awk '{print $$4}' | cut -d/ -f1) LUTs, \
 	    $$(grep -E "TRELLIS_FF:" $(S)/nextpnr.log | tail -1 | awk '{print $$3}' | cut -d/ -f1) flip-flops, \
 	    $$(grep -E "Max frequency for clock" $(S)/nextpnr.log | tail -1 | awk '{print $$7}') MHz \

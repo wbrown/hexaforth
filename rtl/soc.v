@@ -2,12 +2,10 @@
 
 module soc #(
     parameter W = 64,               // cell width: 64, 32 or 16
-    parameter MB = 17,              // log2 of the memory size in bytes
-    parameter PCW = MB - 1,         // program counter width, in words
+    parameter AB = 14,              // log2 of the memory size in cells
+    parameter PCW = 16,             // program counter width, in instructions
     parameter DEPTH = 256,          // cells in each stack
-    parameter INIT = "",            // memory image, one hex file per lane
-    parameter ALIGNED = 0,          // the memory takes only aligned cell accesses
-    parameter PLANES = 0,           // memory built from one-bit-wide block RAMs
+    parameter INIT = "",            // memory image: a hex file, a cell on each line
     parameter LAT = 1               // memory read latency: 1, or 2 with a registered output
 ) (
     input  wire       clk,
@@ -21,20 +19,20 @@ module soc #(
     output wire       halted
 );
     wire [W-1:0] raddr, rdata, rpre, waddr, dwdata;
-    wire         rok, wok;
-    wire [W/8-1:0] dwe;
+    wire [1:0]   rslot;
+    wire         rok, we;
 
-    hexaforth #(.W(W), .PCW(PCW), .DEPTH(DEPTH), .MB(MB), .LAT(LAT)) cpu (
+    hexaforth #(.W(W), .PCW(PCW), .DEPTH(DEPTH), .LAT(LAT)) cpu (
         .clk(clk), .rst(rst), .start_pc({PCW{1'b0}}),
-        .raddr(raddr), .rok(rok), .rdata(rdata), .rpre(rpre),
-        .waddr(waddr), .wok(wok), .dwe(dwe), .dwdata(dwdata),
+        .raddr(raddr), .rslot(rslot), .rok(rok), .rdata(rdata), .rpre(rpre),
+        .waddr(waddr), .we(we), .dwdata(dwdata),
         .tx_valid(tx_valid), .tx_data(tx_data), .tx_ready(tx_ready),
         .rx_valid(rx_valid), .rx_data(rx_data), .rx_ready(rx_ready),
         .halted(halted),
         .dbg_t(), .dbg_n(), .dbg_r(), .dbg_dsp(), .dbg_rsp(), .dbg_exec());
 
-    hf_mem #(.W(W), .MB(MB), .INIT(INIT), .ALIGNED(ALIGNED), .PLANES(PLANES), .LAT(LAT)) mem (
+    hf_mem #(.W(W), .AB(AB), .INIT(INIT), .LAT(LAT)) mem (
         .clk(clk),
-        .raddr(raddr), .rok(rok), .rdata(rdata), .rpre(rpre),
-        .waddr(waddr), .wok(wok), .dwe(dwe), .dwdata(dwdata));
+        .raddr(raddr), .rslot(rslot), .rok(rok), .rdata(rdata), .rpre(rpre),
+        .waddr(waddr), .we(we), .wdata(dwdata));
 endmodule
