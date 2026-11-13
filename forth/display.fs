@@ -52,10 +52,53 @@ header 'plot create 'plot 0 ,       \ ( on? x y -- )  where plot goes
 header plot
 : plot ( on? x y -- ) 'plot @ execute ;
 
-\ A run of n pixels to the right, a cell at a time.  No shift here is by a
-\ whole cell, which the machine does not promise is zero.
-create hon 0 ,
+\ ---- modes and patterns
+\
+\ What is drawn is a source, in which a set bit is black whatever the
+\ display's own polarity, and a mask of the pixels to draw.  The mode says
+\ how the source meets what is there already:
+\
+\     copy-mode   the source replaces it
+\     or-mode     black is added where the source is black
+\     xor-mode    it is inverted where the source is black
+\     bic-mode    it is made white where the source is black
+\
+\ The mode is a vector, so that the loops which draw do not test it.
+
+INK-BLACK? [if]
+: m-copy ( src mask a -- ) >r tuck and swap r> seg! ;
+[else]
+: m-copy ( src mask a -- ) >r swap invert over and swap r> seg! ;
+[then]
+: m-or   ( src mask a -- ) >r and r> ink ;
+: m-xor  ( src mask a -- ) >r and r> x! ;
+: m-bic  ( src mask a -- ) >r and r> paper ;
+
+header 'mode create 'mode 0 ,
+header copy-mode : copy-mode ( -- ) ['] m-copy 'mode ! ;
+header or-mode   : or-mode   ( -- ) ['] m-or   'mode ! ;
+header xor-mode  : xor-mode  ( -- ) ['] m-xor  'mode ! ;
+header bic-mode  : bic-mode  ( -- ) ['] m-bic  'mode ! ;
+
+\ A pattern is eight rows of eight pixels, which repeat across and down the
+\ screen from its top left corner, so that two shapes filled with the same
+\ pattern meet without a seam.  It is kept as eight cells, each a row
+\ repeated across the cell: a row of a filled shape is then a row of the
+\ pattern stored as it is.
+
+header p-white  create p-white   $00 prow, $00 prow, $00 prow, $00 prow, $00 prow, $00 prow, $00 prow, $00 prow,
+header p-black  create p-black   $ff prow, $ff prow, $ff prow, $ff prow, $ff prow, $ff prow, $ff prow, $ff prow,
+header p-gray   create p-gray    $aa prow, $55 prow, $aa prow, $55 prow, $aa prow, $55 prow, $aa prow, $55 prow,
+header p-ltgray create p-ltgray  $88 prow, $22 prow, $88 prow, $22 prow, $88 prow, $22 prow, $88 prow, $22 prow,
+header p-dkgray create p-dkgray  $77 prow, $dd prow, $77 prow, $dd prow, $77 prow, $dd prow, $77 prow, $dd prow,
+
+header pattern create pattern 0 ,   \ the one that slab draws with
+
+\ A slab: n pixels of a row, in the pattern and the mode, a cell at a time.
+\ Every filled shape is made of these.  No shift here is by a whole cell,
+\ which the machine does not promise is zero.
 create hn  0 ,
+create psrc 0 ,         \ this row of the pattern
 create ba  0 ,          \ the cell being drawn in
 create bn  0 ,          \ and how far into it
 
@@ -68,19 +111,24 @@ LEFT-LOW? [if]
 [then]
 ;
 
-header hspan
-: hspan ( on? x y n -- )
-    hn ! prow ba ! bn ! hon !
+header slab
+: slab ( x y n -- )
+    hn !
+    dup d# 7 and pattern @ + @ psrc !
+    prow ba ! bn !
     begin
         hn @ 0>
     while
         PXCELL bn @ - hn @ min                      ( pixels in this cell )
         dup leftn bn @ PIXR
-        hon @ if ba @ paper else ba @ ink then
+        psrc @ swap ba @ 'mode @ execute
         negate hn +!
         d# 0 bn !  d# 1 ba +!
     repeat
 ;
+
+\ Plain white or black, for the words that take a flag.
+header solid : solid ( on? -- ) if p-white else p-black then pattern !  copy-mode ;
 
 \ Eight pixels at x: the part of them in the cell x is in, and the part
 \ that runs over into the next, which is nothing unless x is in the last
@@ -110,7 +158,7 @@ header xor8
 ;
 
 header display-init
-: display-init ( -- ) ['] dplot 'plot ! ;
+: display-init ( -- ) ['] dplot 'plot !  p-black pattern !  copy-mode ;
 
 \ ---- text
 \
