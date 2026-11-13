@@ -19,8 +19,10 @@
 \   an instruction with RET           its word, then exit
 \
 \ An ALU instruction is named by finding a word that is that instruction
-\ and a return.  One that the peephole made, and that no word is, is shown
-\ as its number in brackets.
+\ and a return.  One that the peephole made by fusing two or three words is
+\ shown as those words, from the table in fused.fs, with sbold set so that
+\ they can be told from words that were compiled one by one.  One that is
+\ in neither place is shown as its number in brackets.
 \
 \ The tokens are laid out as source is written.  The name has the first
 \ line and the semicolon the last.  What is inside an if or a begin is
@@ -32,6 +34,7 @@ create 'tok 0 ,
 create 'nl 0 ,
 create sind 0 ,
 create sfresh 0 ,
+create sbold 0 ,        \ true for the words of a fused instruction
 create squiet 0 ,       \ true on the first reading
 create sxt 0 ,          \ the definition
 create spc 0 ,          \ the instruction being read
@@ -46,6 +49,8 @@ create nbg 0 ,
 create swh #64 allot    \ where a while leaves its loop
 create nwh 0 ,
 create stmp 0 ,
+create fa 0 ,
+create fn 0 ,
 
 create k-colon  ," :"
 create k-noname ," :noname"
@@ -148,6 +153,48 @@ create k-halt   ," halt"
     dup xt>hdr ?dup if nip sname exit then
     sb-begin [char] $ emit dup h4 sb-end
     >r sb sbn @ r> tok
+;
+
+: fused? ( w -- a|0 ) \ the text for a fused instruction
+    fused
+    begin
+        dup @
+    while
+        2dup @ = if nip cell+ exit then
+        d# 32 +
+    repeat
+    2drop d# 0
+;
+
+: sword ( addr u -- ) \ one word of a fused instruction: a link if it is in the dictionary
+    sfind ?dup if
+        drop xt>hdr ?dup if sname exit then
+        exit
+    then
+    d# -1 tok
+;
+
+: sfused ( w -- f ) \ show a fused instruction as its words, if it is in the table
+    fused? ?dup 0= if false exit then
+    count fn ! fa !
+    true sbold !
+    begin
+        fn @
+    while
+        fa @ c@ d# 32 = if
+            d# 1 fa +!  d# -1 fn +!
+        else
+            fa @ d# 0                               ( start length )
+            begin
+                fn @ if fa @ c@ d# 32 <> else false then
+            while
+                1+  d# 1 fa +!  d# -1 fn +!
+            repeat
+            sword
+        then
+    repeat
+    d# 0 sbold !
+    true
 ;
 
 : sflush ( -- ) slit @ if d# 0 slit !  sacc @ snum then ;
@@ -269,18 +316,27 @@ create k-halt   ," halt"
     bg-add  snl s- k-until wt snl
 ;
 
+: sop ( w -- ) \ an instruction with no return in it
+    dup op>hdr ?dup if nip sname exit then
+    dup sfused if drop exit then
+    sraw
+;
+
 : s-alu ( w -- )
     sflush
     dup h# 1000 and if
         dup h# 7403 = if
             drop
         else
-            dup ret>hdr ?dup if nip sname else sraw then
+            dup ret>hdr ?dup if
+                nip sname
+            else
+                dup d# 3 and d# 3 = if h# 1003 invert and sop else sraw then
+            then
         then
         stail exit
     then
-    dup op>hdr ?dup if nip sname exit then
-    sraw
+    sop
 ;
 
 : sterm? ( -- f ) \ does the instruction at spc end the definition?
@@ -447,7 +503,9 @@ create t-words ," Words"
     srow @ wsrc @ - dup d# 16 u< if
         d# 4 lshift ty0 @ + lky !
         scol @ d# 3 lshift tx0 @ + d# 112 + lkx !
+        sbold @ bold !
         lkx @ lky @ draw-text
+        d# 0 bold !
         r@ 0< 0= if
             false lkx @ lky @ d# 15 + lku @ d# 3 lshift hline
             nlk @ d# 96 < if
