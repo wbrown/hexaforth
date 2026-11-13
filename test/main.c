@@ -100,12 +100,12 @@ typedef struct dict_entry {
 } dict_entry;
 
 // Parse the dictionary of a test image, where the headers are laid end to
-// end from byte 0x4000.  A header is cells: link, xt (top bit: immediate),
+// end from byte 0x8000.  A header is cells: link, xt (top bit: immediate),
 // then the name as a count byte and characters, padded to whole cells.
 static int parse_dictionary(uint16_t *memory, dict_entry *entries,
                             int max_entries) {
   const uint8_t *bytes = (const uint8_t *)memory;
-  uint32_t at = 0x4000;
+  uint32_t at = 0x8000;
   int count = 0;
 
   while (count < max_entries) {

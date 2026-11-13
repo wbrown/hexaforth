@@ -24,6 +24,16 @@ _tbranches  131072 cells erase
 : tbranches cells _tbranches + ;
 
 variable tdp    $4000 tdp !     \ Data pointer
+
+\ Dictionary headers and labels are laid down in a region of their own,
+\ above the data, so that they do not push variables up: a variable in the
+\ first 4,096 cells has an address that is one instruction.  thp is where
+\ the next goes.  The run-time dictionary carries on from the end of it.
+$8000 constant hdr-base
+variable thp    hdr-base thp !
+variable dsave
+: >hdr ( -- ) tdp @ dsave !  thp @ tdp ! ;      \ lay down in the header region
+: hdr> ( -- ) tdp @ thp !  dsave @ tdp ! ;      \ and go back to the data
 variable tcp    0 tcp !         \ Code pointer
 : there     tdp @ ;
 : islegal   ;
@@ -294,9 +304,9 @@ variable sizes      0 sizes !
 
 :: include
     parse-name save-mem { a u }
-    tcp @ tdp @ hdr-bytes @ lbl-bytes @ { c d h l }
+    tcp @ tdp @ thp @ + hdr-bytes @ lbl-bytes @ { c d h l }
     a u included
-    a u  tcp @ c -  tdp @ d -  hdr-bytes @ h -  lbl-bytes @ l -  size-line
+    a u  tcp @ c -  tdp @ thp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  size-line
 ;
 :: included     included ;
 :: marker       marker ;
@@ -504,12 +514,14 @@ cell-bits 64 = constant labelling
 
 : (header) ( immediate? "name" -- )
     label
+    >hdr
     there >r
     tcalign
     there taddr  link @ tcell,  link !
     tcp @ 2/ swap if 1 cell-bits 1- lshift or then tcell,
     bl parse tname,
     there r> - hdr-bytes +!
+    hdr>
     true named !  tcp @ named-cp !
 ;
 
@@ -521,12 +533,14 @@ cell-bits 64 = constant labelling
 : wants-label? ( -- f ) named? 0= labelling and ;
 
 : (label) ( x "name" -- a ) \ a label for the name that follows; a is where x went
+    >hdr
     there >r
     tcalign
     there taddr  llink @ tcell,  llink !
     there swap tcell,
     wordstr tname,
     there r> - lbl-bytes +!
+    hdr>
 ;
 
 :: header       false (header) ;
@@ -927,10 +941,11 @@ decimal
     file close-file
 ;
 
-s" (all)" tcp @ tdp @ $4000 - hdr-bytes @ lbl-bytes @ size-line
+s" (all)" tcp @  tdp @ $4000 -  thp @ hdr-base - +  hdr-bytes @ lbl-bytes @ size-line
+tdp @ hdr-base > [if] cr .( the data has run into the dictionary headers) abort [then]
 sizes @ close-file throw
 dumpall.32
-." tdp " tdp @ .
+." tdp " tdp @ . ." thp " thp @ .
 ." tcp " tcp @ .
 
 bye
