@@ -202,8 +202,8 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,714 bytes
-with 64-bit cells, 3,716 with 32 and 3,680 with 16, against the 4,096 the
+task that runs past its part of a stack. The kernel's code is 3,970 bytes
+with 64-bit cells, 3,976 with 32 and 3,940 with 16, against the 4,096 the
 kernel ROM holds.
 
 On the desktop the Forth window's interpreter is a task with the upper half
@@ -224,16 +224,19 @@ Return addresses and execution tokens are full program counters, so `exit`
 and `execute` cross pages with no extra state. Memory layout:
 
 - instructions `0x0000-0x0fff`: kernel code (cross-compiled)
-- bytes `0x04000-0x07fff` of the image: data. `cross.fs` lays variables
-  and tables down here, so that a variable is in the first 4,096 cells and
-  its address is one instruction
-- bytes `0x08000-0x0ffff`: dictionary headers and labels, and after them
-  the dictionary made at run time
+- bytes `0x04000-0x09fff` of the image: data. `cross.fs` lays variables
+  and tables down here, and data made at run time (`here`, `,`, `allot`,
+  `variable`) carries on after it
+- bytes `0x0a000-0x0ffff`: dictionary headers and labels, and after them
+  the headers made at run time. The nucleus keeps two pointers, `dp` for
+  data and `hdp` for headers, as `cross.fs` does, so that variables stay
+  in the cells that one instruction fetches and stores; making a header
+  throws -8 if the data has reached the headers
 - instructions `0x8000-0xffff`: eight code pages for definitions made at
   run time
 
-On a 64-bit machine these are cells `0-0x3ff`, `0x800-0xfff`,
-`0x1000-0x1fff` and `0x2000-0x3fff`; the display is at cell `0x4000` and `halloc` gives out
+On a 64-bit machine these are cells `0-0x3ff`, `0x800-0x13ff`,
+`0x1400-0x1fff` and `0x2000-0x3fff`; the display is at cell `0x4000` and `halloc` gives out
 memory from cell `0x6000`.
 
 In `nuc.fs`, `compile,` emits a one-instruction call for a kernel or
@@ -351,6 +354,12 @@ with `-DBRIDGE` calls `bridge_init` at boot and `bridge_poll` whenever the
 machine asks for a key or whether one is waiting. `vm.c` and the Verilog do
 not show the bitmap yet.
 
+`test/prompt_test.py VM IMAGE.hex [CELL_BITS]` types Forth at the nucleus's
+prompt on the reference VM and checks what comes back: definitions, wide
+numbers, that the nucleus's compiler uses the variable instructions and
+does not join across a loop's start, and tasks. Run it at each cell width
+after changing `nuc.fs`.
+
 `test/display_test.py VM IMAGE.hex [SEED [COUNT]]` checks the drawing
 words: it draws a random sequence of fills, text, copies and scrolls, in
 ports with random origins, clip rectangles and clip regions, on the
@@ -381,7 +390,8 @@ symbolic model of `vm.c`; `--verify` runs every entry on the VM as well.
 - `exit` folds into the instruction before it, `+` into a literal, and an
   add of a constant into a literal or another add of the same shift
 - `@` or `!` after the address of a variable becomes the one instruction
-  that fetches or stores it
+  that fetches or stores it. The nucleus's own compiler does this too
+  (`var,` in `nuc.fs`), and never across a place a branch lands on
 
 After changing any of this, build with and without `PEEPHOLE=off` and run
 `python3 util/insn_map.py --compare plain.hex optimised.hex`: every

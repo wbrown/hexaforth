@@ -189,6 +189,7 @@ create forth    0 ,
 create labels   0 ,         \ names of definitions that have no header
 create cp       0 ,         \ Code pointer, grows up
 create dp       0 ,         \ Data pointer, grows up
+create hdp      0 ,         \ where the next dictionary header goes
 create lastword 0 ,
 create thisxt   0 ,
 create syncpt   0 ,
@@ -834,7 +835,7 @@ header i!
 ;
 
 : target ( -- field ) \ branch target field for the code about to be compiled
-    cp @
+    cp @ dup syncpt !       \ a branch lands here: nothing may be joined across it
     dup d# 12 rshift if h# fff and h# 1000 or then
 ;
 
@@ -860,8 +861,15 @@ header s,
     2drop
 ;
 
+\ Headers are kept apart from data, above it, so that variables stay
+\ within reach of the instructions that fetch and store one.  A header is
+\ laid down with the ordinary words, with the two pointers changed over.
+: hswap ( -- ) dp @ hdp @ dp ! hdp ! ;
+
 : mkheader
     newpage?
+    dp @ HDR-BASE u> d# 8 -throw            \ the data has run into the headers
+    hswap
     align
     here lastword !
     forth @ t,                              \ link
@@ -873,6 +881,7 @@ header s,
         >r dup @ t, cell+ r> 1-
     repeat
     2drop
+    hswap
     sync
 ;
 
@@ -1038,7 +1047,6 @@ header-imm then
     dup i@
     target or
     swap i!
-    sync
 ;
 
 header-imm begin
@@ -1084,15 +1092,47 @@ header-imm repeat
     swap 1+ i@ h# 7403 = and
 ;
 
+\ @ or ! straight after a literal that is the address of one of the 4,096
+\ cells from VARS: the machine has one instruction for the two together.
+\ The literal is one instruction, or a push and an add.  Nothing is joined
+\ across a place a branch lands on.
+: lval ( insn -- n ) dup h# fff and swap d# 12 rshift d# 3 and d# 12 * lshift ;
+
+\ Is it a literal of this kind: h# 8000 for a push, h# c000 for an add?
+: lit? ( insn kind -- f ) over h# c000 and =  swap h# 3000 and h# 3000 <>  and ;
+
+: var, ( insn -- )
+    >r
+    prev i@ dup h# 8000 lit? if
+        lval d# 1
+    else
+        dup h# c000 lit?  prev 1- i@ h# 8000 lit?  and if
+            lval prev 1- i@ lval + d# 2
+        else
+            drop r> code, exit
+        then
+    then                                        ( address instructions )
+    cp @ over - syncpt @ <
+    rot VARS - dup d# 4095 u> rot or if         ( instructions place )
+        2drop r> code, exit
+    then
+    swap negate cp +!
+    r> h# 6308 = if h# f000 else h# b000 then or code,
+;
+
 header compile,
 : compile, ( xt -- )
     dup i@ isreturn if
         i@ h# effc and      \ single-instruction word: inline it without RET r-1
-        code,
+        dup h# 6800 = over h# 6308 = or if var, else code, then
     else
         dup isliteral if
             i@ code,
         else
+            dup i@ h# 8000 and 0<>  over 1+ isliteral  and if
+                dup i@ code,  1+ i@ code,       \ a literal of two instructions: an address
+                exit                            \ too far up for one, which @ or ! may join
+            then
             dup d# 12 rshift 0= if              \ kernel: reachable from anywhere
                 h# 4000 or code,
             else
@@ -1535,7 +1575,8 @@ meta
     t' main-task t' up tvar!
     link @ t' forth tvar!
     llink @ t' labels tvar!
-    thp @  t' dp tvar!                  \ the dictionary carries on after the headers
+    there  t' dp tvar!                  \ data carries on after the data,
+    thp @  t' hdp tvar!                 \ and headers after the headers
     tcp @ 2/ code-base max $fff + $fff invert and
     t' cp tvar!             \ run-time definitions start on the next free code page
 target
