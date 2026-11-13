@@ -59,7 +59,7 @@ $(CASES): $(TOP)/baremetal/difftest_dump.c $(TOP)/vm.c
 	    $(TOP)/test/compiler.c $(TOP)/test/vm_test.c -lm
 	$(B)/dump $@
 
-SESSION := printf '1 2 + .\n: sq dup * ; 12 sq .\n: f dup 1 > if dup 1- recurse * then ; 7 f .\n8000 execute\n'
+SESSION := printf '1 2 + .\n: sq dup * ; 12 sq .\n: f dup 1 > if dup 1- recurse * then ; 7 f .\n: g 0 swap begin dup while tuck + swap 1- repeat drop ; 10 g .\n: h 0= if 7 else 9 then ; 0 h . 1 h . hex ff . decimal\n8000 execute\n'
 
 test: $(B)/tb $(B)/tb_soc $(CASES) $(VM)
 	$(B)/tb cases $(CASES)

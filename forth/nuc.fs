@@ -1000,6 +1000,24 @@ header-imm until
     h# 2000 or code,
 ;
 
+\ else is ahead, then the if's then.  while is an if kept under the loop's
+\ start, and repeat is again followed by that if's then.
+header-imm else
+:noname
+    cp @  h# 0000 code,
+    swap tthen
+;
+
+header-imm while
+:noname
+    tif swap
+;
+
+header-imm repeat
+:noname
+    tagain tthen
+;
+
 : isreturn ( opcode -- f ) \ ALU instruction with RET set
     h# f000 and
     h# 7000 =
@@ -1184,6 +1202,11 @@ header decimal
 ;fallthru
 : setbase
     base !
+;
+
+header hex
+: hex
+    d# 16 setbase
 ;
 
 header !        :noname     !        ;
