@@ -209,11 +209,12 @@ addr-cells [if] 1 [else] cell-bytes [then] constant addr-unit    \ addresses to 
 display-ok
 cell-bits #64 = [if] -1 [else] 1 cell-bits lshift 1- [then] constant cell-mask
 
-\ Where code compiled at run time goes: the top quarter of a 64KB address
-\ space, or the 64KB after the first when there is room.  Execution tokens
-\ are 16 bits in a dictionary header, so code cannot go higher than that.
-addr-bits #16 > [if] $10000 [else] $c000 [then] constant code-base
-addr-bits #16 > [if] $10000 [else] $4000 [then] constant code-size
+\ Where code compiled at run time goes, in instructions: two pages from
+\ $6000 on a small machine, or the eight pages from $8000 when there is
+\ room.  An execution token is 16 bits in a dictionary header, less the
+\ immediate flag when a cell is 16 bits, so code cannot go higher.
+addr-bits #16 > [if] $8000 [else] $6000 [then] constant code-base
+addr-bits #16 > [if] $8000 [else] $2000 [then] constant code-size
 
 : tcalign   tdp @ cell-bytes 1- + cell-bytes negate and tdp ! ;
 
@@ -686,6 +687,8 @@ warnings on
 :: TOPBIT     cell-bits 1- literal ;            \ index of the sign bit
 :: HALFBITS   cell-bits 2/ literal ;
 :: TOP16      cell-bits #16 - literal ;         \ shift that puts 16 bits at the top
+:: (i@)  cell-bits #16 = addr-cells and if s" @" else s" 2* uw@" then evaluate ;
+:: (i!)  cell-bits #16 = addr-cells and if s" !" else s" 2* w!" then evaluate ;
 :: CODE-BASE  code-base literal ;
 :: CODE-SIZE  code-size literal ;
 :: W64?   cell-bits #64 = ;

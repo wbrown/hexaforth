@@ -82,7 +82,7 @@ create k-tick   ," [']"
 : s+  ( -- ) d# 1 sind +! ;
 : s-  ( -- ) sind @ 1- d# 0 max sind ! ;
 
-: ins@ ( a -- w ) 2* uw@ ;
+: ins@ ( a -- w ) i@ ;
 : hxt  ( hdr -- xt ) cell+ @ d# 1 lshift d# 1 rshift ;
 
 : xt>lbl ( -- lbl|0 ) \ the label for the code at stmp

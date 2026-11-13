@@ -780,25 +780,34 @@ header -throw : -throw ( a b -- ) \ if a is nonzero, throw -b
 \ nearly full, and compile, picks a near or far call, so none of this shows
 \ in ordinary use.
 
-\ Run-time code goes in CODE-SIZE bytes from CODE-BASE, both from cross.fs.
+\ Code is addressed by instruction: the code pointer, an execution token and
+\ a branch origin are all the number of an instruction.  i@ and i! fetch and
+\ store one.  Run-time code goes in CODE-SIZE instructions from CODE-BASE,
+\ both from cross.fs.
+
+header i@
+: i@ ( ia -- w ) (i@) ;
+header i!
+: i! ( w ia -- ) (i!) ;
+
 
 : code,
-    cp @ d# 2 + h# 1fff and 0= if   \ the last slot of a page stays empty
+    cp @ 1+ h# fff and 0= if        \ the last slot of a page stays empty
         d# -8 throw                 \ ran off the end of the page
     then
-    cp @ w!
-    d# 2 cp +!
+    cp @ i!
+    d# 1 cp +!
 ;
 
 : newpage? ( -- ) \ before a definition: move on if under 1KB is left here
-    cp @ h# 1fff and h# 1c00 u> if
-        cp @ h# 1fff or 1+ cp !
+    cp @ h# fff and h# e00 u> if
+        cp @ h# fff or 1+ cp !
     then
     cp @ CODE-BASE - CODE-SIZE u< 0= d# 8 -throw
 ;
 
 : target ( -- field ) \ branch target field for the code about to be compiled
-    cp @ d# 1 rshift
+    cp @
     dup d# 12 rshift if h# fff and h# 1000 or then
 ;
 
@@ -829,7 +838,7 @@ header s,
     align
     here lastword !
     forth @ t,                              \ link
-    cp @ d# 1 rshift dup thisxt ! t,        \ xt: the word address, on any page
+    cp @ dup thisxt ! t,                    \ xt, on any page
     parse-name >key skey swap               \ name
     begin
         dup
@@ -865,7 +874,7 @@ header :
 header :noname
 :noname
     newpage?
-    calign cp @ d# 1 rshift
+    calign cp @
     dup thisxt !
     d# 0 lastword !
     sync
@@ -874,13 +883,13 @@ header :noname
 
 header inline: : inline: \ copy the instruction after the call, and skip it
     r>
-    dup 2* uw@ code,
+    dup i@ code,
     1+ >r
 ;
 inline-operand
 
 : prev
-    cp @ d# -2 +
+    cp @ 1-
 ;
 
 : (loopdone)  ( 0 -- )
@@ -938,14 +947,14 @@ header does>
 : (does>)
     r>                                  ( xt of the code after does> )
     dup d# 12 rshift 0= if              \ in the kernel
-        doesexit @ w! exit
+        doesexit @ i! exit
     then
-    dup doesexit @ d# 1 rshift xor d# 12 rshift 0= if    \ on the created word's page
-        h# fff and h# 1000 or doesexit @ w! exit
+    dup doesexit @ xor d# 12 rshift 0= if   \ on the created word's page
+        h# fff and h# 1000 or doesexit @ i! exit
     then
     \ On another page: replace the exit with a jump by xt.  That is longer,
     \ so the created word has to be the last code compiled.
-    doesexit @ d# 2 + cp @ <> d# 22 -throw
+    doesexit @ 1+ cp @ <> d# 22 -throw
     doesexit @ cp !
     tliteral
     inline: >r
@@ -963,12 +972,12 @@ header does>
 
 header-imm exit
 : texit
-    cp @ d# 1 rshift thisxt @ <> if
-        prev uw@ jumpable if
+    cp @ thisxt @ <> if
+        prev i@ jumpable if
             prev
-            uw@
+            i@
             h# 4000 xor
-            prev w!
+            prev i!
             \ cp @ syncpt @ <> if
                 inline: exit
             \ then
@@ -999,9 +1008,9 @@ header-imm ahead
 
 header-imm then
 : tthen
-    dup uw@
+    dup i@
     target or
-    swap w!
+    swap i!
     sync
 ;
 
@@ -1043,24 +1052,24 @@ header-imm repeat
     h# 7000 =
 ;
 
-: isliteral ( ptr -- f) \ a literal followed by exit
-    dup uw@ h# 8000 and 0<>
-    swap d# 2 + uw@ h# 7403 = and
+: isliteral ( xt -- f) \ a literal followed by exit
+    dup i@ h# 8000 and 0<>
+    swap 1+ i@ h# 7403 = and
 ;
 
 header compile,
-: compile, ( xt -- ) \ xt is a word address; 2* gives the byte address of its code
-    dup 2* uw@ isreturn if
-        2* uw@ h# effc and  \ single-instruction word: inline it without RET r-1
+: compile, ( xt -- )
+    dup i@ isreturn if
+        i@ h# effc and      \ single-instruction word: inline it without RET r-1
         code,
     else
-        dup 2* isliteral if
-            2* uw@ code,
+        dup isliteral if
+            i@ code,
         else
             dup d# 12 rshift 0= if              \ kernel: reachable from anywhere
                 h# 4000 or code,
             else
-                dup cp @ d# 1 rshift xor d# 12 rshift 0= if  \ this page
+                dup cp @ xor d# 12 rshift 0= if \ this page
                     h# fff and h# 5000 or code,
                 else                            \ another page: go by xt
                     tliteral
@@ -1130,11 +1139,11 @@ header-imm do
     begin
         dup
     while
-        dup uw@ dup if     \ link: page offset of the previous leave, marked
-            h# 1fff and cp @ h# 1fff invert and or
+        dup i@ dup if      \ link: page offset of the previous leave, marked
+            h# fff and cp @ h# fff invert and or
         then
         swap                ( next leafptr )
-        target swap w!
+        target swap i!
     repeat
     drop
     leaves !
@@ -1179,7 +1188,7 @@ header-imm leave
 \ page offset of the previous one in the chain, marked so it is never zero.
 : leaf,
     cp @
-    leaves @ dup if h# 1fff and h# 4000 or then code,
+    leaves @ dup if h# fff and h# 4000 or then code,
     leaves !
 ;
 
@@ -1468,6 +1477,6 @@ meta
     link @ t' forth tvar!
     llink @ t' labels tvar!
     there  t' dp tvar!
-    tcp @ code-base max $1fff + $1fff invert and
+    tcp @ 2/ code-base max $fff + $fff invert and
     t' cp tvar!             \ run-time definitions start on the next free code page
 target

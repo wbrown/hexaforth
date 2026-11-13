@@ -93,7 +93,8 @@ then be anywhere in memory.
    so returning and `execute` cross pages. A call into another page is
    compiled as a literal execution token and a call to `execute`.
 5. An execution token is kept in 16 bits, so code is the first 65,536
-   instructions of memory.
+   instructions of memory. With 16-bit cells the top bit of that cell is
+   the flag for an immediate word, so code is the first 32,768.
 
 A machine's layout is in whole pages, since code must start on a page
 boundary; data and the display may lie between pages of code. With 16-bit
