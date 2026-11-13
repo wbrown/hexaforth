@@ -38,6 +38,7 @@ module hf_mem #(
     input  wire [W-1:0] raddr,      // byte address
     input  wire        rok,
     output wire [W-1:0] rdata,
+    output wire [W-1:0] rpre,       // rdata before the output register
     input  wire [W-1:0] waddr,
     input  wire        wok,
     input  wire [W/8-1:0] dwe,
@@ -98,6 +99,7 @@ module hf_mem #(
     wire [W-1:0]   rot = twice[8*roff_q +: W];
     localparam [W-1:0] LOW16 = 'hffff;
     wire [W-1:0]   rd1 = ALIGNED ? ((dq & ~LOW16) | (rot & LOW16)) : rot;
+    assign rpre = rd1;
     generate
         if (LAT == 2) begin : outreg
             reg [W-1:0] rd2;

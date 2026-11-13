@@ -47,6 +47,7 @@ struct Machine {
 
     void tick() {
         top.rdata = rdata;
+        top.rpre = LAT == 2 ? rnext : rdata;
         top.tx_ready = 1;
         top.rx_valid = in_at < in.size();
         top.rx_data = in_at < in.size() ? in[in_at] : 0;
