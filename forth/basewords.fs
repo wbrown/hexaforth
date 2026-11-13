@@ -1,6 +1,7 @@
 \ machine sizes, from vm_constants.h
 #64 constant cell-bits
 #17 constant addr-bits
+#0 constant addr-cells
 #256 constant stack-cells
 #768 constant disp-w
 #576 constant disp-h

@@ -42,20 +42,38 @@ static inline uint64_t ucell(int64_t x) {
 #ifdef STRICT_ALIGN
 static int64_t strict_pc;
 static void strict(const char *what, int64_t addr) {
+#if ADDR_CELLS
+    if (ucell(addr) >> ADDR_BITS) {
+        fprintf(stderr, "\n%s outside memory, at %llx, by the instruction at %llx\n", what,
+                (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
+        exit(3);
+    }
+#else
     if (ucell(addr) & (CELL_BYTES - 1)) {
         fprintf(stderr, "\nunaligned %s of %llx by the instruction at %llx\n", what,
                 (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
         exit(3);
     }
+#endif
 }
 #else
 #define strict(what, addr)
 #endif
 
+// Where a cell is.  An address is the number of a cell; one outside memory
+// is undefined, and here it wraps.  (Or, for now, the number of a byte.)
+static inline uint8_t *cell_at(context *ctx, int64_t addr) {
+#if ADDR_CELLS
+    return (uint8_t *)ctx->memory + (ucell(addr) & ((1ull << ADDR_BITS) - 1)) * CELL_BYTES;
+#else
+    return (uint8_t *)ctx->memory + ucell(addr);
+#endif
+}
+
 static inline int64_t mem_load(context *ctx, int64_t addr) {
     strict("fetch", addr);
     int64_t v = 0;
-    memcpy(&v, (uint8_t *)ctx->memory + ucell(addr), CELL_BYTES);
+    memcpy(&v, cell_at(ctx, addr), CELL_BYTES);
     return cell(v);
 }
 
@@ -65,12 +83,13 @@ static inline int64_t mem_load(context *ctx, int64_t addr) {
 static inline void mem_store(context *ctx, int64_t addr, int64_t v) {
     strict("store", addr);
 #ifdef ROM_BYTES
-    if (ucell(addr) < ROM_BYTES) {
-        fprintf(stderr, "\nstore to the kernel at %llx\n", (unsigned long long)ucell(addr));
+    if (ucell(addr) < ROM_BYTES / (ADDR_CELLS ? CELL_BYTES : 1)) {
+        fprintf(stderr, "\nstore to the kernel at %llx by the instruction at %llx\n",
+                (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
         exit(3);
     }
 #endif
-    memcpy((uint8_t *)ctx->memory + ucell(addr), &v, CELL_BYTES);
+    memcpy(cell_at(ctx, addr), &v, CELL_BYTES);
 }
 
 static inline uint8_t clz(uint64_t N) {

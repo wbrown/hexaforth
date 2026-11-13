@@ -177,6 +177,13 @@ next-arg included       \ include the machine.fs
 \ derived from them, and the target program can test them: see W64? below.
 
 cell-bits 8 / constant cell-bytes
+cell-bytes 2 = [if] 1 [else] cell-bytes 4 = [if] 2 [else] 3 [then] [then] constant byte-shift
+
+\ What an address counts: cells if addr-cells is set, as MODEL.md has it, and
+\ otherwise bytes.  The data pointer here always counts bytes, since bytes
+\ are laid down one at a time; taddr turns it into an address for the target.
+addr-cells [if] 1 [else] cell-bytes [then] constant addr-unit    \ addresses to a cell
+: taddr ( byte -- a ) addr-cells if byte-shift rshift then ;
 
 \ The display, if the machine has one, must suit the cell: see MODEL.md.
 \ vm_constants.h makes the same checks when the C is built.
@@ -210,11 +217,14 @@ addr-bits #16 > [if] $10000 [else] $4000 [then] constant code-size
 
 : tcalign   tdp @ cell-bytes 1- + cell-bytes negate and tdp ! ;
 
-: tcell! ( x a -- ) \ store one target cell
+: tcell! ( x a -- ) \ store one target cell at a place given in bytes
     cell-bytes 0 do
         over i 8 * rshift over i + tc!
     loop
     2drop ;
+
+: tvar! ( x a -- ) \ store into a target variable, given its address
+    addr-cells if byte-shift lshift then tcell! ;
 
 ( Language basics for target                 JCB 19:08 05/02/12)
 
@@ -458,7 +468,7 @@ cell-bits 64 = constant labelling
     label
     there >r
     tcalign
-    there  link @ tcell,  link !
+    there taddr  link @ tcell,  link !
     tcp @ 2/ swap if 1 cell-bits 1- lshift or then tcell,
     bl parse tname,
     there r> - hdr-bytes +!
@@ -475,7 +485,7 @@ cell-bits 64 = constant labelling
 : (label) ( x "name" -- a ) \ a label for the name that follows; a is where x went
     there >r
     tcalign
-    there  llink @ tcell,  llink !
+    there taddr  llink @ tcell,  llink !
     there swap tcell,
     wordstr tname,
     there r> - lbl-bytes +!
@@ -598,13 +608,13 @@ variable lastdef    \ body of the most recent target colon definition
 :: create
     named? dup >r 0= labelling and if
         0 (label)
-        there 1 cell-bits 1- lshift or swap tcell!
+        there taddr 1 cell-bits 1- lshift or swap tcell!
     then
     tcalign
     r> if
-        there literal  s" exit" evaluate  label
+        there taddr literal  s" exit" evaluate  label
     then
-    create there ,
+    create there taddr ,
     does>   @ literal
 ;
 
@@ -657,11 +667,22 @@ warnings on
 
 \ The machine's sizes, for the target program.  The first group compile a
 \ literal; the second leave a flag for [if].
-:: CELL       cell-bytes literal ;              \ bytes in a cell
-:: CELL2      cell-bytes 2 * literal ;          \ offset of a header's name
-:: ALIGN-MASK cell-bytes negate literal ;       \ address of the cell an address is in
-:: OFFSET-MASK cell-bytes 1- literal ;          \ byte position within that cell
-:: CELLSHIFT  cell-bytes 2 = if 1 else cell-bytes 4 = if 2 else 3 then then literal ;
+:: CELL       addr-unit literal ;               \ from one cell's address to the next
+:: CELL2      addr-unit 2 * literal ;           \ offset of a header's name
+:: CELLB      cell-bytes literal ;              \ bytes in a cell
+:: BYTESHIFT  byte-shift literal ;              \ and the shift that multiplies by that
+:: ALIGN-MASK cell-bytes negate literal ;       \ of a byte address: the start of its cell
+:: OFFSET-MASK cell-bytes 1- literal ;          \ of a byte address: where in its cell
+:: CELLADDR?  addr-cells ;                      \ do addresses count cells?
+
+\ Text and code are reached a byte at a time, by the address of a byte:
+\ the cell's address times the bytes in a cell, plus the byte's place.
+\ >c makes the byte address of a cell, and c> the address of the cell a
+\ byte is in.  Where addresses count bytes already, >c is nothing.
+\ These two compile it in line; the nucleus makes words of them, >c and c>.
+:: (>c)       addr-cells if byte-shift literal s" lshift" evaluate then ;
+:: (c>)       addr-cells if byte-shift literal s" rshift" evaluate
+              else cell-bytes negate literal s" and" evaluate then ;
 :: TOPBIT     cell-bits 1- literal ;            \ index of the sign bit
 :: HALFBITS   cell-bits 2/ literal ;
 :: TOP16      cell-bits #16 - literal ;         \ shift that puts 16 bits at the top

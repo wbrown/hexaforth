@@ -13,10 +13,26 @@ header 1-       : 1-        d# -1 + ;
 \ below compiles the instructions themselves, where the peephole can fuse
 \ them, instead of a call.
 header 0=       :noname     0=       ;
-\ CELL, CELLSHIFT, TOPBIT, HALFBITS and the W64? W32? W32+? tests come from
-\ cross.fs, which takes the machine's cell width from basewords.fs.
+\ CELL, CELLB, BYTESHIFT, TOPBIT, HALFBITS and the W64? W32? W32+? tests
+\ come from cross.fs, which takes the machine's sizes from basewords.fs.
+\
+\ An address is the number of a cell, and @ and ! take one.  cell+ is the
+\ next cell and cells turns a count of cells into a difference of addresses.
+\ (While the machine can still be built to count bytes, CELL is the bytes
+\ in a cell there, and cells multiplies by it.)
 header cell+    : cell+     CELL + ;
-header cells    : cells     CELLSHIFT lshift ;
+CELLADDR? [if]
+header cells    : cells ;
+[else]
+header cells    : cells     BYTESHIFT lshift ;
+[then]
+
+\ Text and code are reached by the address of a byte, which is not an
+\ address @ can take: it is the cell's address times the bytes in a cell,
+\ plus the byte's place in the cell.  >c gives the byte address of the
+\ start of a cell, and c> the cell a byte is in.
+header >c       : >c        (>c) ;
+header c>       : c>        (c>) ;
 
 header <>       :noname     <>       ;
 header >        :noname     >        ;
@@ -94,21 +110,21 @@ header lo32  : lo32 ( dw -- w ) h# ffffffff and ;
 header hi16  : hi16 ( dw -- s ) d# 16 rshift h# ffff and ;
 header lo16  : lo16 ( dw -- s ) h# ffff and ;
 
-\ Memory is fetched and stored a cell at a time, at cell-aligned addresses.
-\ A byte or a 16-bit field is part of a cell: these fetch the cell it is in
-\ and shift the field into place.  Instructions are 16-bit fields too, so
-\ this is also how the compiler reads and writes code.
+\ Memory is fetched and stored a cell at a time.  A byte or a 16-bit field
+\ is part of a cell: these take the address of a byte, fetch the cell it is
+\ in, and shift the field into place.  Instructions are 16-bit fields too,
+\ so this is also how the compiler reads and writes code.
 
-header field@ : field@ ( a mask -- x )
+header field@ : field@ ( c-addr mask -- x )
     >r
-    dup ALIGN-MASK and @
+    dup (c>) @
     swap OFFSET-MASK and d# 3 lshift rshift
     r> and
 ;
 
-header field! : field! ( x a mask -- )
+header field! : field! ( x c-addr mask -- )
     -rot                                    ( mask x a )
-    dup ALIGN-MASK and >r                   \ the cell
+    dup (c>) >r                             \ the cell
     OFFSET-MASK and d# 3 lshift             ( mask x shift )
     >r over and r>                          ( mask x' shift )
     tuck lshift                             ( mask shift x'' )
@@ -118,20 +134,20 @@ header field! : field! ( x a mask -- )
 ;
 
 header c@
-: c@ ( a -- c )
-    dup ALIGN-MASK and @
+: c@ ( c-addr -- c )
+    dup (c>) @
     swap OFFSET-MASK and d# 3 lshift rshift
     h# ff and
 ;
 
 header c!
-: c! ( c a -- ) h# ff field! ;
+: c! ( c c-addr -- ) h# ff field! ;
 
 header uw@
-: uw@ ( a -- w ) h# ffff field@ ;
+: uw@ ( c-addr -- w ) h# ffff field@ ;
 
 header w!
-: w! ( w a -- ) h# ffff field! ;
+: w! ( w c-addr -- ) h# ffff field! ;
 
 header count
 : count
@@ -185,7 +201,7 @@ header words : words
     begin
         dup
     while
-        dup CELL2 + count type
+        dup CELL2 + >c count type
         space
         @
     repeat
@@ -197,7 +213,11 @@ header -        : -         negate + ;
 header abs      : abs       dup 0< if negate then ; 
 header 2*       :noname     2*       ;
 header 2/       : 2/        dup 0< if invert d# 1 rshift invert else d# 1 rshift then ; 
-header here     : here      dp @ ;
+\ The data pointer counts bytes, so that bytes can be laid down one at a
+\ time.  here is the address of the cell it is in, which is the next free
+\ cell once the pointer has been aligned.
+header here     : here      dp @ (c>) ;
+header align    : align     dp @ CELLB 1- + ALIGN-MASK and dp ! ;
 \ The data stack depth.  adepth is the true depth; depth is what a program
 \ sees, measured from sbase, which the desktop raises while it runs a line
 \ of Forth above its own work.
@@ -211,8 +231,8 @@ header /string
 ; 
 
 header aligned
-: aligned
-    CELL 1- + CELL negate and
+: aligned ( a -- a ) \ the address of a whole cell, at or after a
+    (>c) CELLB 1- + (c>)
 ; 
 
 header d+
@@ -476,7 +496,7 @@ create skn 0 ,              \ cells in the key
 
 : >key ( c-addr u -- n ) \ pack a name into skey; n is its size in cells
     d# 255 min
-    dup CELLSHIFT rshift 1+ skn !
+    dup BYTESHIFT rshift 1+ skn !
     skey skn @
     begin
         dup
@@ -484,8 +504,8 @@ create skn 0 ,              \ cells in the key
         >r d# 0 over ! cell+ r> 1-
     repeat
     2drop
-    dup skey c!
-    skey 1+ swap                            ( src dst u )
+    dup skey >c c!
+    skey >c 1+ swap                         ( src dst u )
     begin
         dup
     while
@@ -577,12 +597,12 @@ header fill
 header cmove
 : cmove ( addr1 addr2 u -- )
     >r
-    2dup or OFFSET-MASK and 0= if           \ both cell-aligned: whole cells first
+    2dup or OFFSET-MASK and 0= if           \ both at the start of a cell: whole cells first
         begin
-            r@ CELL u< 0=
+            r@ CELLB u< 0=
         while
-            over @ over !
-            CELL + swap CELL + swap
+            over (c>) @ over (c>) !
+            CELLB + swap CELLB + swap
             r> ALIGN-MASK + >r
         repeat
     then
@@ -683,20 +703,20 @@ header allot
 
 header ,
 : t,
-    here aligned dp !
+    align
     here !
-    CELL tallot
+    CELLB tallot
 ;
 
 header w,
 : w,
-    here w!
+    dp @ w!
     d# 2 tallot
 ;
 
 header c,
 : tc,
-    here c!
+    dp @ c!
     d# 1 tallot
 ;
 
@@ -806,7 +826,7 @@ header s,
 
 : mkheader
     newpage?
-    here aligned dp !
+    align
     here lastword !
     forth @ t,                              \ link
     cp @ d# 1 rshift dup thisxt ! t,        \ xt: the word address, on any page
@@ -1245,7 +1265,7 @@ header-imm r@   :noname     inline: r@ noop ;
 header create
 : tcreate
     mkheader attach
-    here aligned dp !
+    align
     here tliteral
     cp @ doesexit !
     h# 7403 code,           \ exit
@@ -1387,7 +1407,7 @@ header refill
 : refill
     source-id 0= dup
     if
-        tib dup d# 128 accept
+        tib >c dup d# 128 accept
         source!
         d# 0 >in !
     then
@@ -1418,7 +1438,7 @@ header quit
 : main
     ['] uart-emit 'emit !
     decimal
-    "cold" d# 4 sfind if
+    "cold" >c d# 4 sfind if
         execute
     else
        2drop
@@ -1431,19 +1451,23 @@ header quit
 \ execution token.
 \ It is written for 64-bit cells: the drivers and the display work in
 \ 64-bit quantities throughout.
+\ It has not yet been moved to cell addresses, so it is left out of a
+\ machine built with them.
 W64? [if]
+CELLADDR? [if] [else]
 meta
     $2000 org
 target
 
 include system.fs
 [then]
+[then]
 
 meta
     link @ t,
-    link @ t' forth tcell!
-    llink @ t' labels tcell!
-    there  t' dp tcell!
+    link @ t' forth tvar!
+    llink @ t' labels tvar!
+    there  t' dp tvar!
     tcp @ code-base max $1fff + $1fff invert and
-    t' cp tcell!            \ run-time definitions start on the next free code page
+    t' cp tvar!             \ run-time definitions start on the next free code page
 target
