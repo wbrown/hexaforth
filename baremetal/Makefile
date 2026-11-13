@@ -23,7 +23,7 @@ $(B)/image.bin: $(HEX) hex2bin.py
 	@mkdir -p $(B)
 	python3 hex2bin.py $(HEX) $@
 
-# STRICT=1 builds the small kernel to halt on any unaligned fetch or store.
+# STRICT=1 builds the small kernel to halt on a fetch or store outside memory.
 $(B)/%.o: %.S $(B)/image.bin
 	clang $(TARGET) -c -DIMAGE='"$(B)/image.bin"' $(if $(STRICT),-DSTRICT) \
 	    -DADDR_BITS=$(ADDR_BITS) $< -o $@

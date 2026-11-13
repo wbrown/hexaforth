@@ -144,44 +144,40 @@ Tests are defined in `test/main.c` as an array of `hexaforth_test` structures. E
 ## Development Notes
 
 - Debug builds define the `DEBUG` macro and include verbose tracing
-- The VM implements both 8-bit character operations and full 64-bit operations
-- Memory is word-addressed for branches/calls but byte-addressed for data access
+- Memory is an array of cells: `@` and `!` take the number of a cell, and a
+  branch, call or execution token the number of an instruction
 - The "dumb VM" design eliminates all interpreter overhead for maximum performance
 - The project explores how dataflow principles can optimize stack machine performance
 - All Forth complexity lives in the toolchain, not the runtime
 
-### Memory Access Operations
+### Addresses
 
-Hexaforth provides multiple memory access widths:
+An address is the number of a cell, and `@` and `!` fetch and store one
+cell: the machine has nothing smaller, and nothing in it counts bytes.
+`cell+` is `1+` and `cells` does nothing.
 
-- **`@` and `!`**: 64-bit memory operations (8 bytes)
-- **`w@` and `w!`**: 16-bit memory operations (2 bytes) - essential for dictionary access
-- **`c@` and `c!`**: 8-bit memory operations (1 byte)
+Text, and structures a device lays out in bytes, are reached by the address
+of a byte: the cell's address times the bytes in a cell, plus the byte's
+place in it. `>c` turns a cell's address into the address of its first byte
+and `c>` gives the cell a byte is in. `c@`, `c!`, `uw@`, `w!` (and `l@`,
+`l!` and the big-endian words in `machine.fs`) take the address of a byte,
+fetch the cell it is in and shift the field out of it or into it
+(`field@`, `field!`); a field must not cross a cell boundary. The data
+pointer `dp` counts bytes, so that `c,` can lay down one; `here` is the
+cell it is in, and `,` aligns first. `create` gives the address of a cell,
+so a buffer of text is used as `buf >c`. In source, `CELL` and `CELL2` are
+the steps to the next cell and the one after, and `c# n` to the nth.
 
-The dictionary structure inherited from J1/Swapforth uses 16-bit values, so proper `w@` and `w!` implementations are critical for correct operation. These preserve other bytes in the 64-bit word:
-- `w@`: Reads 64 bits then masks to lower 16 bits using `lo16`
-- `w!`: Reads existing 64-bit value, masks out lower 16 bits, ORs in new value
-- `2w@`: Reads two consecutive 16-bit values (e.g., for source buffer)
-- `2w!`: Writes two consecutive 16-bit values while preserving other bytes
-
-### Aligned Access
-
-The nucleus only ever fetches and stores whole cells at cell-aligned
-addresses.  `c@`, `c!`, `uw@` and `w!` in `nuc.fs` are Forth words that fetch
-the cell an address is in and shift the field out of it or into it
-(`field@`, `field!`); `l@` and `l!` in `machine.fs` do the same for 32 bits.
-A field must not cross a cell boundary.  `,` aligns `here` first, and code
-is always fetched at its own word address.
+Code is addressed by instruction: `cp`, a branch origin and an execution
+token are instruction numbers, and `i@` and `i!` fetch and store one.
 
 Dictionary headers are whole cells: a link cell, an xt cell (top bit set for
 an immediate word), then the name as a count byte and lower-case characters
 padded with zeros to a cell boundary, so lookup compares a cell at a time.
 
 To check, build the reference VM with `-DSTRICT` or the small kernel with
-`make -C baremetal STRICT=1`; either stops at the first unaligned access,
-and at a stack leaving its `STACK_CELLS` cells.
-The byte and 16-bit basewords in `vm_opcodes.h` (`c@`, `w@`, ...) still do
-unaligned fetches and are kept for the instruction tests.
+`make -C baremetal STRICT=1`; either stops at a fetch or store outside
+memory, and at a stack leaving its `STACK_CELLS` cells.
 
 ### Code Paging
 
@@ -195,13 +191,15 @@ The program counter is a flat word address and code is divided into pages of
 Return addresses and execution tokens are full program counters, so `exit`
 and `execute` cross pages with no extra state. Memory layout:
 
-- `0x00000-0x01fff`: kernel code (cross-compiled)
-- `0x04000-0x0ffff`: dictionary and data
-- `0x10000-0x1ffff`: eight code pages for definitions made at run time
+- instructions `0x0000-0x0fff`: kernel code (cross-compiled)
+- bytes `0x04000-0x0ffff` of the image: dictionary and data
+- instructions `0x8000-0xffff`: eight code pages for definitions made at
+  run time
 
-The compiler in `nuc.fs` addresses code by instruction: `cp`, a branch
-origin and an execution token are all instruction numbers, and `i@` and `i!`
-fetch and store one. `compile,` emits a one-instruction call for a kernel or
+On a 64-bit machine these are cells `0-0x3ff`, `0x800-0x1fff` and
+`0x2000-0x3fff`, and `halloc` gives out memory from cell `0x20000`.
+
+In `nuc.fs`, `compile,` emits a one-instruction call for a kernel or
 same-page target and `literal xt` + `call execute` for another page.
 `newpage?` starts a fresh page when under 1KB is left, and `code,` throws -8
 if a definition runs off the end of its page. Execution tokens are stored in
@@ -280,21 +278,22 @@ dither computed on the host.
 
 The cell width and address width are properties of the machine definition.
 `vm_constants.h` has `CELL_BITS` (64, 32 or 16: the width of a stack cell,
-of the ALU, and of `@` and `!`) and `ADDR_BITS` (the address space in bytes,
-as a power of two). `baseword_fs_gen` writes both into `basewords.fs` as
+of the ALU, and of `@` and `!`) and `ADDR_BITS` (memory is that power of two
+cells: 22 by default with 64-bit cells, 17 with 32 and 16 with 16). `baseword_fs_gen` writes both into `basewords.fs` as
 `cell-bits` and `addr-bits`, and `cross.fs` derives everything else from
 them: the size `,` lays down, alignment, double literals, and where run-time
 code pages go. `nuc.fs` reads them through words `cross.fs` provides:
-`CELL`, `CELLSHIFT`, `TOPBIT`, `HALFBITS`, `CODE-BASE`, `CODE-SIZE`, and the
+`CELL`, `CELLB`, `BYTESHIFT`, `TOPBIT`, `HALFBITS`, `CODE-BASE`, `CODE-SIZE`, and the
 flags `W64?`, `W32?`, `W32+?` for `[if]`.
 
 `util/build-machine.sh CELL_BITS [ADDR_BITS]` builds the generator, the
 nucleus and the reference VM for a size, into `build/`. The default
-(checked-in `basewords.fs`, plain `make`) is 64-bit cells and 128KB.
+(checked-in `basewords.fs`, plain `make`) is 64-bit cells and 32MB.
 
 At 32 and 16 bits only the kernel is built: `system.fs` (drivers and the
-desktop) is written for 64-bit cells. With a 16-bit cell the address space
-is 64KB and run-time code goes at `0xc000`. A shift by the cell width or
+desktop) is written for 64-bit cells. With a 16-bit cell memory is 65,536
+cells, run-time code goes at instruction `0x6000`, and an execution token is
+15 bits, since the top bit of its cell in a header is the immediate flag. A shift by the cell width or
 more gives zero at every size, which `w!` and the dictionary search rely on.
 
 ### Hardware (`rtl/`)
@@ -304,12 +303,12 @@ and a cell width set by its `W` parameter. A plain instruction takes one
 cycle; a shift or a memory read takes two and a multiply three. As in the
 J1a, the memory has one read port: it normally fetches the next instruction
 while the current one executes, and an instruction that needs data borrows
-it for a cycle. `rtl/hf_mem.v` is the memory, one byte lane per byte of a
-cell so that an unaligned cell access takes one cycle; with `ALIGNED=1` it
-takes only aligned cell accesses, which is all the nucleus makes.
-`rtl/soc.v` joins them for synthesis. The stacks below T, N and R are
-memories read without a clock (LUT RAM on an FPGA). `PLANES=1` builds the memory from one-bit-wide
-block RAMs, which was tried for clock speed and gains little.
+it for a cycle. `rtl/hf_mem.v` is the memory: an array of cells, addressed
+by cell, with one write enable. A cell wider than 16 bits holds several
+instructions, and the read port is told which one is wanted. Ports `0xc1`
+to `0xc8` reach devices and this machine has none, so they read zero.
+`rtl/soc.v` joins CPU and memory for synthesis. The stacks below T, N and R
+are memories read without a clock (LUT RAM on an FPGA).
 `LAT=2` registers the memory's output: about 29% more cycles (a cycle lost
 on every jump, call, return and taken branch, and on every memory read) for
 a clock 55-70% faster on an ECP5 (61, 58 and 52 MHz at 16, 32 and 64 bits).
@@ -324,9 +323,10 @@ to check, or the small kernel with `STRICT=1`.
   `baremetal/difftest_dump.c`, built for that cell width, on the Verilog
   CPU under Verilator, and boots a nucleus built for that width on the CPU
   and on the whole system, comparing output with the reference VM
-- `make -C rtl test-mem` checks the memory against a byte-array model
-- `make -C rtl synth W=32 A=24` synthesises for an ECP5 FPGA with Yosys and
-  nextpnr and reports size and clock speed; `A` is the address width
+- `make -C rtl test-mem` checks the memory against an array of cells
+- `make -C rtl synth W=32 AB=16` synthesises for an ECP5 FPGA with Yosys and
+  nextpnr and reports size and clock speed; `AB` is the log2 of the memory's
+  size in cells
 
 ## Cross-Compiling Programs
 

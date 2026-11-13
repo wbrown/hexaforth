@@ -351,6 +351,12 @@ The core insight - that specific operations like T→N, T→R, and N→[T] are s
 
 ## Architectural Tensions: 16-bit Heritage in a 64-bit World
 
+> **This section describes the machine as it was.** Memory is now an array
+> of cells: an address is the number of a cell, `@` and `!` move one cell,
+> and nothing in the machine counts bytes. Dictionary headers are whole
+> cells, and the byte and 16-bit basewords are gone. `MODEL.md` says what
+> the machine is today.
+
 Hexaforth embodies a fundamental tension between its 16-bit heritage and 64-bit ambitions:
 
 ### The Three-Way Impedance Mismatch
@@ -454,6 +460,12 @@ Hexaforth challenges the assumption that stack machines must route all operation
 This ensures perfect synchronization between all components.
 
 ## Memory Model and Execution Token Architecture
+
+> **This section describes the machine as it was.** Memory is now an array
+> of cells: an address is the number of a cell, `@` and `!` move one cell,
+> and nothing in the machine counts bytes. Dictionary headers are whole
+> cells, and the byte and 16-bit basewords are gone. `MODEL.md` says what
+> the machine is today.
 
 ### The Dual Addressing Model
 
