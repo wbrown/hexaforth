@@ -252,21 +252,21 @@ def main():
         names = read_text(shot, 143, 337, 13, 16)
         source = read_text(shot, 253, 337, 46, 16)
         check("Words window lists the dictionary", names[:3] == ["sq", "cold", "desktop"], repr(names[:3]))
-        check("Words window decompiles", source[0] == ": sq dup * ;", repr(source[0]))
-        m.click(253 + 5 * 8 + 4, 337 + 8)              # the link "dup"
+        check("Words window decompiles", source[:3] == [": sq", "  dup *", ";"], repr(source[:3]))
+        m.click(253 + 2 * 8 + 4, 337 + 16 + 8)         # the link "dup", on the second line
         m.move(790, 30)
         shot = m.screenshot(f"{out}/9-link.png")
         source = read_text(shot, 253, 337, 46, 16)
-        check("a word in a definition is a link", source[0] == ": dup dup ;", repr(source[0]))
+        check("a word in a definition is a link", source[:3] == [": dup", "  dup", ";"], repr(source[:3]))
         m.key("backspace")
         shot = m.screenshot(f"{out}/10-back.png")
         source = read_text(shot, 253, 337, 46, 16)
-        check("Backspace goes back", source[0] == ": sq dup * ;", repr(source[0]))
+        check("Backspace goes back", source[:3] == [": sq", "  dup *", ";"], repr(source[:3]))
         m.key("down")
         shot = m.screenshot(f"{out}/10-down.png")
         source = read_text(shot, 253, 337, 46, 16)
-        check("Down moves to the next word", source[0] == ": cold $9A54 catch drop ;" or
-              (source[0].startswith(": cold ") and source[0].endswith(" catch drop ;")), repr(source[0]))
+        check("Down moves to the next word", source[0] == ": cold" and source[1].endswith(" catch drop")
+              and source[2] == ";", repr(source[:3]))
 
         # ^W again: the Forth window.
         m.key("w", "ctrl")
