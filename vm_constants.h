@@ -20,6 +20,13 @@
 #endif
 #define CELL_BYTES (CELL_BITS / 8)
 
+// Each of the two stacks is this many cells.  The stacks are not part of
+// memory: they are reached by pushing, popping and the depth ports.  Going
+// past either end is undefined; a strict build stops there.
+#ifndef STACK_CELLS
+#define STACK_CELLS 256
+#endif
+
 #define HX      "$"
 #define BYTE    uint8_t
 #define SBYTE   int8_t

@@ -23,8 +23,13 @@
 //   0xe1 read    true if a character is waiting   (key?)
 //   0xc0 write   latch a machine address  read: machine address of VM byte 0
 //   0xc1/c2/c4/c8  read or write 8/16/32/64 bits at the latched address
-//   0xd0 read    data stack depth      write: set it, reloading T
-//   0xd1 read    return stack depth    write: set it, reloading R
+//   0xd0 read    data stack depth      write: set it
+//   0xd1 read    return stack depth    write: set it
+//
+// The stacks are 256 cells each and are not part of the VM's memory.  Setting
+// a depth changes only the depth: T and R, which are copies of the top
+// cells, are written back first, so the cells a lowered depth hides are
+// there again when it is raised.
 
         .equ    UART_BASE,   0x09000000      // PL011 on QEMU `virt`
         .equ    UART_FR,     0x18
@@ -40,12 +45,22 @@
         .equ    IO_RSP,      0xd1
 
 // Built with -DSTRICT, a fetch or store that is not at a cell-aligned address,
-// or a store into the first 4KB of the kernel, sends '!' and halts.  The
-// Forth system does not make any.
+// a store into the first 4KB of the kernel, or a stack that leaves its 256
+// cells, sends '!' and halts.  The Forth system does none of these.
         .macro  ALIGNED reg
 #ifdef STRICT
         tst     \reg, #7
         b.ne    unaligned
+#endif
+        .endm
+
+        .macro  INRANGE ptr, base
+#ifdef STRICT
+        sub     x16, \ptr, MEM
+        sub     x16, x16, #DSTACK_BASE
+        sub     x16, x16, #(\base - DSTACK_BASE)
+        cmp     x16, #0x800
+        b.hi    unaligned
 #endif
         .endm
 
@@ -100,10 +115,12 @@ jump:   tbnz    INSw, #12, 2f
         b.hi    alu
         mov     x10, T                          // 0branch
         ldr     T, [DS, #-8]!
+        INRANGE DS, DSTACK_BASE
         cbz     x10, jump
         b       next
 
 call:   str     R, [RS], #8
+        INRANGE RS, RSTACK_BASE
         mov     R, PC
         b       jump
 
@@ -115,6 +132,7 @@ literal:
         lsl     x12, x12, x10
         tbnz    INSw, #14, 1f                   // imm+ : add to T
         str     T, [DS], #8
+        INRANGE DS, DSTACK_BASE
         mov     T, #0
 1:      add     T, T, x12
         b       next
@@ -229,6 +247,8 @@ alu_done:
         sbfx    RD, INS, #0, #2
         add     DS, DS, D, lsl #3
         add     RS, RS, RD, lsl #3
+        INRANGE DS, DSTACK_BASE
+        INRANGE RS, RSTACK_BASE
         cmp     D, #0
         b.le    1f
         stur    T, [DS, #-8]                    // pushed: old T becomes N
@@ -284,12 +304,15 @@ out_io: cmp     OLDT, #IO_EMIT                  // 2: ->io[T]
 8:      add     x12, MEM, IO, lsl #3            // new stack pointer, less its base
         cmp     OLDT, #IO_SP
         b.ne    4f
+        str     T, [DS]                         // T back to its cell first
         add     DS, x12, #DSTACK_BASE
         ldr     T, [DS]
         b       fix_r
 4:      cmp     OLDT, #IO_RSP
         b.ne    fix_r
-        add     RS, x12, #DSTACK_BASE
+        tbnz    RD, #63, 5f                     // R too, unless it was just popped
+        str     R, [RS]
+5:      add     RS, x12, #DSTACK_BASE
         add     RS, RS, #(RSTACK_BASE - DSTACK_BASE)
         ldr     R, [RS]
         b       next
@@ -299,9 +322,20 @@ fix_r:  tbz     RD, #63, next
         b       next
 
 #ifdef STRICT
-unaligned:
+unaligned:                                      // '!' and the address of the instruction
         mov     w10, #'!'
         str     w10, [UART]
+        sub     PC, PC, #1
+        mov     w11, #28
+1:      lsr     x10, PC, x11
+        and     w10, w10, #15
+        cmp     w10, #10
+        add     w12, w10, #'0'
+        add     w10, w10, #('a' - 10)
+        csel    w10, w12, w10, lo
+        str     w10, [UART]
+        subs    w11, w11, #4
+        b.pl    1b
 #endif
 halt:   wfi
         b       halt

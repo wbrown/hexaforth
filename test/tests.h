@@ -370,6 +370,16 @@ static hexaforth_test TESTS[] = {
      .input = "1 >r 2 >r 3 >r 9 1 209 io!",
      .dstack = "9",
      .rstack = "1"},
+    // Setting a depth changes only the depth.  The cells a lowered depth
+    // hides keep their values and are there again when it is raised.  (A
+    // cell that is popped is gone: here the two operands of the second io!
+    // are pushed over cells 2 and 3, which are then dropped unread.)
+    {.label = "io 208: raising the depth brings the cells back",
+     .input = "1 2 3 4 5 6 7 8 9 2 208 io! 9 208 io! + + + + nip nip",
+     .dstack = "1 2 35"},
+    {.label = "io 209: raising the depth brings the cells back",
+     .input = "1 >r 2 >r 3 >r 1 209 io! 3 209 io! r> r> r>",
+     .dstack = "3 2 1"},
     // Device ports: 192 latches a machine address (and reads the address of
     // VM byte 0); 193/194/196/200 access 8/16/32/64 bits there.
     {.label = "io 196: 32-bit store leaves neighbours",
