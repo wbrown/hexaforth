@@ -7,6 +7,29 @@ meta
     4 org 
 target
 
+\ ---- tasks
+\
+\ A task is a thread of Forth with its own part of each stack.  The stacks
+\ are shared by depth (MODEL.md): a task owns a range of depths on each,
+\ and changing task is saving two depths and setting two others.  Tasks
+\ take turns: one runs until it says pause.
+\
+\ A task is a record of thirteen cells.  The first four are the next task
+\ round the ring, the two depths it stopped at, and the word it runs.  The
+\ rest are the variables each task has its own of, which are words that
+\ find the cell in the record of the task that is running, `up`.
+
+create main-task 0 , 0 , 0 , 0 ,   0 , 0 , $a , 0 ,   0 , 0 , 0 , 0 ,   0 ,
+header up create up 0 ,
+
+header sbase    : sbase    up @ c# 4 + ;    \ where its data stack starts
+: handler                  up @ c# 5 + ;    \ the catch that a throw goes to
+header base     : base     up @ c# 6 + ;
+header 'emit    : 'emit    up @ c# 7 + ;    \ where its output goes
+header sourceid : sourceid up @ c# 8 + ;
+header >in      : >in      up @ c# 9 + ;
+: sourceC                  up @ c# 10 + ;   \ two cells: the text being interpreted
+
 header 1-       : 1-        d# -1 + ;
 \ Words the cross-compiler already knows as one or two instructions get a
 \ header only: `:noname` leaves the name bound to the inline form, so code
@@ -35,8 +58,6 @@ header 0>       : 0>        d# 0 > ;
 header 0<>      : 0<>       d# 0 <> ;
 header u>       :noname     u>       ;
 
-header key      :noname     key      ;
-
 header key?
 : key? ( -- f ) \ is a character waiting on the console?
     h# e1 io@
@@ -44,7 +65,6 @@ header key?
 
 \ Output goes through a vector, so it can be sent to a window.
 
-header 'emit create 'emit 0 ,
 header uart-emit : uart-emit ( c -- ) emit ;
 
 header emit
@@ -165,7 +185,6 @@ header type
 create "cold"
     'c' c, 'o' c, 'l' c, 'd' c,
 
-create base     $a ,
 create forth    0 ,
 create labels   0 ,         \ names of definitions that have no header
 create cp       0 ,         \ Code pointer, grows up
@@ -173,9 +192,6 @@ create dp       0 ,         \ Data pointer, grows up
 create lastword 0 ,
 create thisxt   0 ,
 create syncpt   0 ,
-create sourceC  0 , 0 ,
-header sourceid create sourceid 0 ,
-create >in      0 ,
 create state    0 ,
 create delim    0 ,
 create rO       0 ,
@@ -185,8 +201,6 @@ create tib $80 allot
 header dp    :noname dp ;
 header cp    :noname cp ;
 header state :noname state ;
-header base  :noname base ;
-header >in   :noname >in  ;
 header forth :noname forth ;
 header labels :noname labels ;
 
@@ -213,11 +227,31 @@ header 2/       : 2/        dup 0< if invert d# 1 rshift invert else d# 1 rshift
 header here     : here      dp @ (c>) ;
 header align    : align     dp @ CELLB 1- + ALIGN-MASK and dp ! ;
 \ The data stack depth.  adepth is the true depth; depth is what a program
-\ sees, measured from sbase, which the desktop raises while it runs a line
-\ of Forth above its own work.
-header sbase create sbase 0 ,
+\ sees, measured from sbase, where the task's part of the stack starts.
 header adepth : adepth ( -- n ) IO-SP io@ 1- ;            \ less the port number itself
 header depth    : depth     adepth sbase @ - ;
+
+\ pause gives the other tasks a turn.  It comes back when they have each
+\ had one.  The loop offset is the one thing kept outside the record,
+\ since loops use it all the time.
+header pause
+: pause ( -- )
+    rO @ up @ c# 12 + !
+    adepth up @ CELL + !
+    IO-RSP io@ up @ CELL2 + !
+    up @ @ up !
+    up @ c# 12 + @ rO !
+    up @ CELL2 + @ IO-RSP io!
+    up @ CELL + @ IO-SP io!
+;
+
+\ Waiting for a key gives the other tasks their turns.
+header key
+: ckey ( -- c )
+    begin key? 0= while pause repeat
+    key
+;
+
 
 header /string
 : /string
@@ -434,7 +468,7 @@ header accept
     >r d# 0  ( addr len R: maxlen )
 
     begin
-        key    ( addr len key R: maxlen )
+        ckey   ( addr len key R: maxlen )
         
         d# 9 over= if drop d# 32 then
         d# 127 over= if drop d# 8 then
@@ -732,7 +766,6 @@ header .
 \ leaves those cells on top, then restores the data stack depth with the
 \ xt's cell replaced by the throw code.
 
-create handler 0 ,
 
 header throw
 : throw ( n -- )
@@ -757,7 +790,7 @@ header throw
         d# 0 state !
         d# 0 sourceid !
         ['] uart-emit 'emit !
-        d# 0 sbase !
+        d# 0 sbase !        \ only the first task has no catch round it
         d# 0 IO-RSP io!     \ empty both stacks before restarting
         d# 0 IO-SP io!
         d# 1 execute        \ word 1 of the boot vector: quit
@@ -1395,6 +1428,38 @@ header catch
     d# 0
 ;
 
+\ What a task does: its word, again and again, with a turn for the others
+\ in between.  If the word throws, the task says so and from then on does
+\ nothing but take its turn.
+: idle ;
+: (task) ( -- )
+    begin
+        up @ c# 3 + @ catch
+        ?dup if [char] ? emit .  ['] idle up @ c# 3 + ! then
+        pause
+    again
+;
+
+\ spawn starts a task.  It is given the word to run, the depths at which
+\ its parts of the two stacks start, and thirteen cells for its record.
+\ Its return stack is given one cell, the task loop, for its first turn to
+\ return to.  Its output goes where the output of the task that started
+\ it goes.  Nothing stops a task that runs past its part of a stack.
+header spawn
+: spawn ( xt dbase rbase task -- )
+    >r
+    IO-RSP io@ swap                 ( xt dbase mine rbase )
+    dup IO-RSP io!  ['] (task) >r   \ on its return stack, not this one
+    1+ swap IO-RSP io!              ( xt dbase rdepth )
+    r@ CELL2 + !
+    dup r@ CELL + !  r@ c# 4 + !
+    r@ c# 3 + !
+    d# 0 r@ c# 5 + !  d# 10 r@ c# 6 + !
+    'emit @ r@ c# 7 + !
+    d# 0 r@ c# 8 + !  d# 0 r@ c# 12 + !
+    up @ @ r@ !  r> up @ !          \ next after this one
+;
+
 header '
 : tick ( "name" -- xt )
     parse-name sfind
@@ -1466,6 +1531,8 @@ include system.fs
 
 meta
     link @ t,
+    t' main-task t' main-task tvar!     \ the first task, in a ring of one
+    t' main-task t' up tvar!
     link @ t' forth tvar!
     llink @ t' labels tvar!
     there  t' dp tvar!

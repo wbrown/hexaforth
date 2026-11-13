@@ -25,6 +25,7 @@ header desktop
     d# 626 d# 300 d# 138 d# 238 t-calc
     ['] calc-draw ['] calc-key ['] calc-click window drop
     tclear term-ok
+    repl-start
     d# 12 d# 32 d# 406 d# 280 t-repl
     ['] term-draw ['] repl-key d# 0 window drop
     t-up >c count type cr

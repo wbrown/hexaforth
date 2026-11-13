@@ -179,6 +179,31 @@ To check, build the reference VM with `-DSTRICT` or the small kernel with
 `make -C baremetal STRICT=1`; either stops at a fetch or store outside
 memory, and at a stack leaving its `STACK_CELLS` cells.
 
+### Tasks
+
+The nucleus has cooperative tasks. The two stacks are shared by depth, as
+`MODEL.md` allows: a task owns a range of depths on each, and `pause` saves
+the two depths and sets the next task's. A task is a record of thirteen
+cells: the next task round the ring, the two depths it stopped at, the word
+it runs, and then the variables each task has its own of: `sbase` (where
+its data stack starts), the `catch` handler, `base`, `'emit`, `sourceid`,
+`>in`, the source, and the `DO` loop offset. Those are words that find the
+cell through `up`, the task that is running, so changing task copies
+nothing but the loop offset. `state`, `dp`, `cp` and the dictionary are
+shared: only one task should compile at a time.
+
+`xt dbase rbase record spawn` starts a task that runs `xt` again and again
+with a `pause` between; if it throws, the task reports it and from then on
+only takes its turn. `key` pauses while no key is waiting. Nothing stops a
+task that runs past its part of a stack. The kernel's code is 3,886 bytes
+with 64-bit cells and 4,084 with 32, against the 4,096 the kernel ROM
+holds.
+
+On the desktop the Forth window's interpreter is a task with the upper half
+of each stack (`repl` in `term.fs`), and the event loop pauses each time
+round. The desktop takes the keys and hands over a line at a time, so it
+goes on running while a line does, as long as the line pauses.
+
 ### Code Paging
 
 The program counter is a flat word address and code is divided into pages of

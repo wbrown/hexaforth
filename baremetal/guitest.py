@@ -321,6 +321,29 @@ def main():
         check("the Forth window scrolls", text[13:16] == ["7 .", "7  ok", ""] and text[0] == "0  ok"
               and solid == 1, repr((text[0], text[13:16], solid)))
 
+        # The Forth window is a task of its own.  Start a word in it that
+        # waits, taking turns, until another window comes to the front, and
+        # then prints twenty lines.  Bring the viewer to the front: since it
+        # was dragged it covers the right of the Forth window, which now
+        # scrolls behind it.  The picture where it lies over the Forth
+        # window must be untouched; then the Forth window is brought back.
+        # (The word has no name, so that the Words window stays as it is.)
+        m.type(":noname top begin pause dup top <> until drop 20 0 do i . cr loop ;\r")
+        m.type("execute\r")
+        m.click(600, 90)
+        m.move(756, 24)
+        shot = m.screenshot(f"{out}/11-behind.png")
+        px = shot.load()
+        bad = sum(1 for y in range(211) for x in range(127)
+                  if bool(px[291 + x, 101 + y]) != bool(want[y][x]))
+        text = read_text(shot, 15, 53, 34, 16)
+        check("a window behind can print and scroll", bad == 0 and text[12:15] == ["18", "19", " ok"],
+              f"{bad} pixels of the picture differ; {text[11:16]!r}")
+        m.click(100, 40)
+        shot = m.screenshot(f"{out}/11-task.png")
+        text = read_text(shot, 15, 53, 50, 16)
+        check("the Forth window runs as a task", text[12:15] == ["18", "19", " ok"], repr(text[11:16]))
+
         # Put the whole screen out of date from the prompt.  Every window is
         # painted again, each only where it can be seen, so nothing outside
         # the Forth window (12, 32, 406 by 280) may change.

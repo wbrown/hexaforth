@@ -83,62 +83,52 @@ header term-draw : term-draw ( win -- )
 
 \ ---- the Forth window
 \
-\ A line is evaluated with output going to the terminal.  The desktop is in
-\ the middle of its own work on the data stack at that point, so the user's
-\ stack is kept in `ust` between lines: it is pushed above eight spare
-\ cells before the line runs and collected again afterwards.
+\ The window's Forth is a task of its own, with the upper half of each
+\ stack, so what is on its data stack stays there from one line to the
+\ next.  The desktop's task takes the keys: it puts them in `line`, and at
+\ the end of a line says that one is ready.  The Forth task runs it when
+\ its turn comes, with its output going to the terminal, and the desktop
+\ goes on running meanwhile for as long as the line says pause.  Keys
+\ typed while a line is running are dropped.
 
 create lcells #80 allot
 : line ( -- a ) lcells >c ;
 create llen 0 ,
-create ust #256 allot
-create un 0 ,
-create ubase 0 ,
+create lready 0 ,       \ true while a line is waiting or running
+create rtask  0 , 0 , 0 , 0 ,  0 , 0 , 0 , 0 ,  0 , 0 , 0 , 0 ,  0 ,
+create rgoing 0 ,       \ true once the task has been started
 
 \ The prompt: ok, and a new line to type on.  The window opens with one.
 header term-ok : term-ok ( -- )
     [char] o term-emit [char] k term-emit d# 10 term-emit
 ;
 
-: repl-run ( -- )
+: repl ( -- ) \ what the Forth task does on each of its turns
+    lready @ 0= if exit then
     ['] term-emit 'emit !
-    adepth ubase !
-    d# 0 d# 0 d# 0 d# 0 d# 0 d# 0 d# 0 d# 0
-    ubase @ d# 8 + sbase !
-    d# 0
-    begin
-        dup un @ <
-    while
-        dup cells ust + @ swap 1+
-    repeat
-    drop
     line llen @ ['] tevaluate catch
     ?dup if
         >r 2drop
         d# 0 state !  d# 0 sourceid !
         [char] ? emit space r> .
     then
-    depth d# 0 max d# 32 min un !
-    d# 0 sbase !
-    un @
-    begin
-        dup
-    while
-        1- tuck cells ust + !
-    repeat
-    drop
-    ubase @ IO-SP io!
     space term-ok
-    ['] uart-emit 'emit !
+    d# 0 llen !  d# 0 lready !
+;
+
+header repl-start : repl-start ( -- ) \ once
+    rgoing @ if exit then
+    true rgoing !
+    ['] repl d# 128 d# 128 rtask spawn
 ;
 
 header repl-key : repl-key ( c win -- )
     twin !
+    lready @ if drop exit then
     dup d# 13 = if
         drop
         d# 10 term-emit
-        repl-run
-        d# 0 llen !
+        true lready !
         exit
     then
     dup d# 8 = over d# 127 = or if

@@ -366,6 +366,7 @@ header event-loop : event-loop ( -- )
         input-poll
         uart-poll
         refresh
+        pause                                       \ the other tasks' turn
         quitting @
     until
 ;
