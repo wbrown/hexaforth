@@ -1,12 +1,12 @@
 // hexaforth.S - bare-metal AArch64 hexaforth: boot stub, UART, inner loop.
 //
 // Same instruction semantics as vm.c.  The Forth image is appended at
-// `image` and becomes VM byte address 0.
+// `image` and becomes cell 0 of the machine's memory.  An address is the
+// number of a cell; the program counter is the number of an instruction.
 //
-// VM address space (byte addresses, relative to `image`):
-//   0x00000-0x01fff  page 0: kernel code
-//   0x04000-0x0ffff  dictionary and data
-//   0x10000-0x1ffff  code pages for definitions made at run time
+//   instructions 0x0000-0x0fff  page 0: kernel code
+//   instructions 0x8000-0xffff  code pages for definitions made at run time
+//   between and above them      dictionary and data
 //
 // Code is paged.  The program counter is a flat word address and a page is
 // 4096 words (8KB).  A 13-bit branch target with bit 12 clear is an absolute
@@ -19,7 +19,7 @@
 //   0xf1 write   UART transmit            (emit)
 //   0xe0 read    UART receive, blocking   (key)
 //   0xe1 read    true if a character is waiting   (key?)
-//   0xc0 write   latch a machine address  read: machine address of VM byte 0
+//   0xc0 write   latch a machine address  read: machine address of cell 0
 //   0xc1/c2/c4/c8  read or write 8/16/32/64 bits at the latched address
 //   0xd0 read    data stack depth      write: set it
 //   0xd1 read    return stack depth    write: set it
@@ -31,17 +31,11 @@
 
         .equ    UART_BASE,   0x09000000      // PL011 on QEMU `virt`
         .equ    UART_FR,     0x18
-// Built with -DADDR_CELLS, an address is the number of a cell and not of a
-// byte, memory is 2^ADDR_BITS cells, and the stacks come after it.
-#ifdef ADDR_CELLS
+// An address is the number of a cell.  Memory is 2^ADDR_BITS cells, and the
+// stacks come after it.
 #define AT(r)   [MEM, r, lsl #3]
         .equ    DSTACK_BASE, 8 << ADDR_BITS
         .equ    KERNEL_ROM,  0x200           // strict: no store below this
-#else
-#define AT(r)   [MEM, r]
-        .equ    DSTACK_BASE, 0x20000
-        .equ    KERNEL_ROM,  0x1000
-#endif
         .equ    RSTACK_OFF,  0x800           // 256 cells each
         .equ    STACKS_SIZE, 0x1000
 
@@ -52,18 +46,14 @@
         .equ    IO_SP,       0xd0
         .equ    IO_RSP,      0xd1
 
-// Built with -DSTRICT, a fetch or store that is not at a cell-aligned address,
-// a store into the first 4KB of the kernel, or a stack that leaves its 256
-// cells, sends '!' and halts.  The Forth system does none of these.
-        .macro  ALIGNED reg
+// Built with -DSTRICT, a fetch or store outside memory, a store into the
+// first 4KB of the kernel, or a stack that leaves its 256 cells, sends '!'
+// and the address of the instruction, and halts.  The Forth system does
+// none of these.
+        .macro  INMEM reg
 #ifdef STRICT
-#ifdef ADDR_CELLS
         lsr     x17, \reg, #ADDR_BITS          // outside memory
-        cbnz    x17, unaligned
-#else
-        tst     \reg, #7
-        b.ne    unaligned
-#endif
+        cbnz    x17, trap
 #endif
         .endm
 
@@ -72,11 +62,11 @@
         sub     x16, \ptr, STK
         sub     x16, x16, #\off
         cmp     x16, #0x800
-        b.hi    unaligned
+        b.hi    trap
 #endif
         .endm
 
-MEM     .req    x19     // host address of VM byte 0
+MEM     .req    x19     // host address of cell 0
 IOA     .req    x20     // latched machine address for the device ports
 PC      .req    x21     // word address of next instruction
 T       .req    x22     // top of data stack
@@ -100,11 +90,7 @@ _start:
         mov     x0, #DSTACK_BASE
         add     STK, MEM, x0
         add     x1, STK, #STACKS_SIZE
-#ifdef ADDR_CELLS
-        mov     x0, STK                         // clear the stacks,
-#else
-        adr     x0, image_end                   // and memory after the image
-#endif
+        mov     x0, STK                         // clear the stacks
 1:      str     xzr, [x0], #8
         cmp     x0, x1
         b.lo    1b
@@ -163,7 +149,7 @@ alu:    ldur    N, [DS, #-8]
         b.ls    1f
         mov     IO, R                           // 3: R
         tbnz    w12, #0, 1f
-        ALIGNED T
+        INMEM T
         ldr     IO, AT(T)                       // 2: [T]
 1:      ubfx    w12, INSw, #4, #4               // alu_op
         adr     x16, alu_ops
@@ -171,7 +157,7 @@ alu:    ldur    N, [DS, #-8]
 #ifdef STRICT
         cmp     w12, #14                        // [IN] fetches at IN
         b.ne    9f
-        ALIGNED IO
+        INMEM IO
 9:
 #endif
         cmp     N, IO                           // flags for the compare ops
@@ -226,7 +212,7 @@ io_read:
 7:      sub     x12, IO, #IO_ADDR               // device ports 0xc0-0xc8
         cmp     x12, #8
         b.hi    5f
-        mov     IO, MEM                         // 0xc0: where VM byte 0 is
+        mov     IO, MEM                         // 0xc0: where cell 0 is
         cbz     x12, alu_done
         mov     IO, #0
         tbnz    x12, #0, 3f
@@ -284,10 +270,10 @@ alu_done:
         mov     R, IO                           // 1: ->R
         b       next
 out_mem:
-        ALIGNED OLDT
+        INMEM OLDT
 #ifdef STRICT
         cmp     OLDT, #KERNEL_ROM               // the first 4KB is never written
-        b.lo    unaligned
+        b.lo    trap
 #endif
         str     IO, AT(OLDT)                    // 3: ->[T]
         b       fix_r
@@ -339,7 +325,7 @@ fix_r:  tbz     RD, #63, next
         b       next
 
 #ifdef STRICT
-unaligned:                                      // '!' and the address of the instruction
+trap:                                      // '!' and the address of the instruction
         mov     w10, #'!'
         str     w10, [UART]
         sub     PC, PC, #1

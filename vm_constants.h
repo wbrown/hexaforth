@@ -8,26 +8,18 @@
 #include <stdint.h>
 
 // The machine's two sizes.  CELL_BITS is the width of a stack cell, of the
-// ALU and of a memory fetch or store: 64, 32 or 16.  ADDR_BITS is the size
-// of the address space in bytes, as a power of two; it cannot exceed
+// ALU and of a memory fetch or store: 64, 32 or 16.  An address is the
+// number of a cell, and memory is 2^ADDR_BITS cells; ADDR_BITS cannot exceed
 // CELL_BITS, since an address is a cell.  Both reach the Forth toolchain
-// through the generated basewords.fs.
+// through the generated basewords.fs.  See MODEL.md.
 #ifndef CELL_BITS
 #define CELL_BITS 64
 #endif
 #ifndef ADDR_BITS
-#define ADDR_BITS (CELL_BITS < 17 ? CELL_BITS : 17)
+#define ADDR_BITS (CELL_BITS == 64 ? 22 : CELL_BITS == 32 ? 17 : 16)
 #endif
 #define CELL_BYTES (CELL_BITS / 8)
-
-// What an address counts.  With ADDR_CELLS an address is the number of a
-// cell, as MODEL.md has it, and memory is 2^ADDR_BITS cells.  Without, it
-// is the number of a byte and memory is 128KB.  The second is how the
-// machine was, and is here only until everything has moved to the first.
-#ifndef ADDR_CELLS
-#define ADDR_CELLS 0
-#endif
-#define MEM_BYTES (ADDR_CELLS ? ((uint64_t)CELL_BYTES << ADDR_BITS) : 131072)
+#define MEM_BYTES ((uint64_t)CELL_BYTES << ADDR_BITS)
 
 // Each of the two stacks is this many cells.  The stacks are not part of
 // memory: they are reached by pushing, popping and the depth ports.  Going

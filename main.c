@@ -46,7 +46,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     // header is cells: link, xt (top bit: immediate), then the name as a
     // count byte and characters, padded to whole cells.
     const uint8_t *bytes = (const uint8_t *)ctx->memory;
-    const unsigned unit = ADDR_CELLS ? CELL_BYTES : 1;   // bytes to an address
+    const unsigned unit = CELL_BYTES;                    // bytes to an address
     uint32_t head = ctx->memory[last_addr] * unit;
     dprintf("WORDS:\n");
 

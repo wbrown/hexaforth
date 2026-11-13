@@ -1,7 +1,6 @@
 \ machine sizes, from vm_constants.h
 #64 constant cell-bits
-#17 constant addr-bits
-#0 constant addr-cells
+#22 constant addr-bits
 #256 constant stack-cells
 #768 constant disp-w
 #576 constant disp-h
@@ -223,70 +222,10 @@
                      N->IN   IN<<T     ->T     d-1    r+0       alu     ;
 :: nmask8       255                                             imm    
                      T->IN   ~IN       ->T     d+0    r+0       alu     ;
-:: w@                [T]->IN IN->      ->T     d+0    r+0       alu    
-                 48                                             imm    
-                     N->IN   IN<<T     ->T     d-1    r+0       alu    
-                 48                                             imm    
-                     N->IN   IN>>T     ->T     d-1    r+0       alu     ;
-:: c@                [T]->IN IN->      ->T     d+0    r+0       alu    
-                255                                             imm    
-                     T->IN   IN&N      ->T     d-1    r+0       alu     ;
-:: c!                T->IN   IN->      ->R     d-1    r+1       alu    
-                255                                             imm    
-                     T->IN   IN&N      ->T     d-1    r+0       alu    
-                     R->IN   [IN]      ->T     d+1    r+0       alu    
-                255                                             imm    
-                     T->IN   ~IN       ->T     d+0    r+0       alu    
-                     T->IN   IN&N      ->T     d-1    r+0       alu    
-                     T->IN   IN|N      ->T     d-1    r+0       alu    
-                     R->IN   IN->      ->T     d+1    r-1       alu    
-                     N->IN   IN->      ->[T]   d-2    r+0       alu     ;
 :: nmask16        0                                             imm    
                      T->IN   ~IN       ->T     d+0    r+0       alu    
                  16                                             imm    
                      N->IN   IN<<T     ->T     d-1    r+0       alu     ;
-:: w!                T->IN   IN->      ->R     d-1    r+1       alu    
-                 48                                             imm    
-                     N->IN   IN<<T     ->T     d-1    r+0       alu    
-                 48                                             imm    
-                     N->IN   IN>>T     ->T     d-1    r+0       alu    
-                     R->IN   IN->      ->T     d+1    r+0       alu    
-                     [T]->IN IN->      ->T     d+0    r+0       alu    
-                  0                                             imm    
-                     T->IN   ~IN       ->T     d+0    r+0       alu    
-                 16                                             imm    
-                     N->IN   IN<<T     ->T     d-1    r+0       alu    
-                     T->IN   IN&N      ->T     d-1    r+0       alu    
-                     T->IN   IN|N      ->T     d-1    r+0       alu    
-                     R->IN   IN->      ->T     d+1    r-1       alu    
-                     N->IN   IN->      ->[T]   d-2    r+0       alu     ;
-:: 2w@               T->IN   IN->      ->T     d+1    r+0       alu    
-                     [T]->IN IN->      ->T     d+0    r+0       alu    
-                 48                                             imm    
-                     N->IN   IN<<T     ->T     d-1    r+0       alu    
-                 48                                             imm    
-                     N->IN   IN>>T     ->T     d-1    r+0       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
-                  2          imm+                               imm    
-                     [T]->IN IN->      ->T     d+0    r+0       alu    
-                 48                                             imm    
-                     N->IN   IN<<T     ->T     d-1    r+0       alu    
-                 48                                             imm    
-                     N->IN   IN>>T     ->T     d-1    r+0       alu     ;
-:: 2w!               T->IN   IN->      ->R     d-1    r+1       alu    
-                 16                                             imm    
-                     N->IN   IN<<T     ->T     d-1    r+0       alu    
-                     T->IN   IN|N      ->T     d-1    r+0       alu    
-                     R->IN   IN->      ->T     d+1    r+0       alu    
-                     [T]->IN IN->      ->T     d+0    r+0       alu    
-                  0                                             imm    
-                     T->IN   ~IN       ->T     d+0    r+0       alu    
-                 32                                             imm    
-                     N->IN   IN<<T     ->T     d-1    r+0       alu    
-                     T->IN   IN&N      ->T     d-1    r+0       alu    
-                     T->IN   IN|N      ->T     d-1    r+0       alu    
-                     R->IN   IN->      ->T     d+1    r-1       alu    
-                     N->IN   IN->      ->[T]   d-2    r+0       alu     ;
 :: .s             0                                             imm    
                 224                                             imm    
                      N->IN   IN->      ->io[T] d-2    r+0       alu     ;

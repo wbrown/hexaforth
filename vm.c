@@ -37,37 +37,25 @@ static inline uint64_t ucell(int64_t x) {
 #define STRICT_STACK
 #endif
 
-// Built with -DSTRICT_ALIGN, a fetch or store that is not at a cell-aligned
-// address stops the VM.  The Forth system does not make any.
+// Built with -DSTRICT_ALIGN, a fetch or store outside memory stops the VM.
+// The Forth system does not make any.
 #ifdef STRICT_ALIGN
 static int64_t strict_pc;
 static void strict(const char *what, int64_t addr) {
-#if ADDR_CELLS
     if (ucell(addr) >> ADDR_BITS) {
         fprintf(stderr, "\n%s outside memory, at %llx, by the instruction at %llx\n", what,
                 (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
         exit(3);
     }
-#else
-    if (ucell(addr) & (CELL_BYTES - 1)) {
-        fprintf(stderr, "\nunaligned %s of %llx by the instruction at %llx\n", what,
-                (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
-        exit(3);
-    }
-#endif
 }
 #else
 #define strict(what, addr)
 #endif
 
 // Where a cell is.  An address is the number of a cell; one outside memory
-// is undefined, and here it wraps.  (Or, for now, the number of a byte.)
+// is undefined, and here it wraps.
 static inline uint8_t *cell_at(context *ctx, int64_t addr) {
-#if ADDR_CELLS
     return (uint8_t *)ctx->memory + (ucell(addr) & ((1ull << ADDR_BITS) - 1)) * CELL_BYTES;
-#else
-    return (uint8_t *)ctx->memory + ucell(addr);
-#endif
 }
 
 static inline int64_t mem_load(context *ctx, int64_t addr) {
@@ -83,7 +71,7 @@ static inline int64_t mem_load(context *ctx, int64_t addr) {
 static inline void mem_store(context *ctx, int64_t addr, int64_t v) {
     strict("store", addr);
 #ifdef ROM_BYTES
-    if (ucell(addr) < ROM_BYTES / (ADDR_CELLS ? CELL_BYTES : 1)) {
+    if (ucell(addr) < ROM_BYTES / CELL_BYTES) {
         fprintf(stderr, "\nstore to the kernel at %llx by the instruction at %llx\n",
                 (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
         exit(3);
