@@ -6,7 +6,7 @@
 
 header 'event create 'event 0 ,       \ ( type code value -- )
 create idevs  0 , 0 , 0 , 0 ,
-create nidev  0 ,
+header nidev create nidev  0 ,     \ how many devices there are
 
 \ A device record: registers, descriptors, available ring, used ring, used
 \ index consumed so far, and 64 8-byte event buffers.  A key press is four
