@@ -13,7 +13,8 @@ import os
 
 B = "build"
 KERNEL = os.environ.get("KERNEL", "hexaforth")
-DSTACK, RSTACK = 0x20000, 0x20800
+STACKS = 8 << int(os.environ.get("ADDR_BITS", "22"))    # the stacks follow memory
+DSTACK, RSTACK = STACKS, STACKS + 0x800
 UART = 0x09000000
 
 subprocess.check_call(
@@ -31,7 +32,7 @@ code = open(f"{B}/{KERNEL}.bin", "rb").read()
 mem = syms["image"]
 
 uc = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
-uc.mem_map(0x40000000, 0x200000)
+uc.mem_map(0x40000000, 0x200000 + STACKS)
 uc.mem_map(UART, 0x1000)
 uc.mem_write(base, code)
 rx, tx = [], bytearray()
@@ -94,7 +95,7 @@ while pos < len(data):
 
     uc.context_restore(boot)
     uc.mem_write(mem, image)
-    uc.mem_write(mem + len(image), bytes(0x21000 - len(image)))
+    uc.mem_write(mem + STACKS, bytes(0x1000))
     uc.reg_write(UC_ARM64_REG_X21, eip)
     tx.clear()
     try:

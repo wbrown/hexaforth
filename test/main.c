@@ -119,7 +119,7 @@ static int parse_dictionary(uint16_t *memory, dict_entry *entries,
     entries[count].name[name_len] = '\0';
     entries[count].dict_addr = at / 2;
     entries[count].code_addr = (uint16_t)(xt & ~(1ull << (CELL_BITS - 1)));
-    entries[count].link = (uint16_t)link;
+    entries[count].link = (uint16_t)(link * CELL_BYTES / 2);
     count++;
     at += 2 * CELL_BYTES + (name_len / CELL_BYTES + 1) * CELL_BYTES;
   }
@@ -165,7 +165,7 @@ static void extract_test_bytecode(uint16_t *memory, test_bytecode *tests,
 }
 
 int main() {
-  context ctx;
+  static context ctx;       // too big for the stack: it holds the VM's memory
   ctx.words = FORTH_WORDS;
   int ret = init_opcodes(ctx.words);
 
@@ -215,7 +215,8 @@ int main() {
     printf("Test %d: %-30s", i, TESTS[i].label);
 
     // Compile with C compiler
-    context c_ctx = {0};
+    static context c_ctx;
+    memset(&c_ctx, 0, sizeof(c_ctx));
     c_ctx.words = calloc(1024, sizeof(word_node));
 
     // Suppress opcode output during comparison

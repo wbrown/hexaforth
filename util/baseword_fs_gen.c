@@ -12,7 +12,6 @@ void generate_basewords_fs(const char* path) {
     fprintf(out, "\\ machine sizes, from vm_constants.h\n");
     fprintf(out, "#%d constant cell-bits\n", CELL_BITS);
     fprintf(out, "#%d constant addr-bits\n", ADDR_BITS);
-    fprintf(out, "#%d constant addr-cells\n", ADDR_CELLS ? -1 : 0);
     fprintf(out, "#%d constant stack-cells\n", STACK_CELLS);
     fprintf(out, "#%d constant disp-w\n", DISP_W);
     fprintf(out, "#%d constant disp-h\n", DISP_H);

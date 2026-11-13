@@ -109,19 +109,22 @@ int main(int argc, char **argv) {
     free(ctx);
   }
 
+  // Eight cells of data start at byte 0x400.
+  enum { DATA = 0x8000 | (0x400 / CELL_BYTES) };
   static const uint16_t prefix[] = {
-      0x8418, 0x8420, 0x8428,         // literals destined for the return stack
-      0x650d, 0x650d, 0x650d,         // >r >r >r
-      0x8400, 0x8408, 0x8410, 0x8438, // data stack
+      DATA + 3, DATA + 4, DATA + 5,         // literals destined for the return stack
+      0x650d, 0x650d, 0x650d,               // >r >r >r
+      DATA, DATA + 1, DATA + 2, DATA + 7,   // data stack
   };
   for (int ins = 0x6000; ins < 0x8000; ins++) {
     context *ctx = calloc(1, sizeof(context));
     ctx->words = words;
     memcpy(ctx->memory, prefix, sizeof(prefix));
     ctx->memory[sizeof(prefix) / 2] = ins;
-    int64_t *cells = (int64_t *)((uint8_t *)ctx->memory + 0x400);
-    for (int k = 0; k < 8; k++)
-      cells[k] = 0x400 + 8 * ((k * 3 + 1) % 8);
+    for (int k = 0; k < 8; k++) {
+      uint64_t a = 0x400 / CELL_BYTES + (k * 3 + 1) % 8;
+      memcpy((uint8_t *)ctx->memory + 0x400 + k * CELL_BYTES, &a, CELL_BYTES);
+    }
     char label[32];
     snprintf(label, sizeof(label), "alu 0x%04x", ins);
     run_and_dump(f, ctx, label, "");

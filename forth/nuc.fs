@@ -18,14 +18,8 @@ header 0=       :noname     0=       ;
 \
 \ An address is the number of a cell, and @ and ! take one.  cell+ is the
 \ next cell and cells turns a count of cells into a difference of addresses.
-\ (While the machine can still be built to count bytes, CELL is the bytes
-\ in a cell there, and cells multiplies by it.)
 header cell+    : cell+     CELL + ;
-CELLADDR? [if]
 header cells    : cells ;
-[else]
-header cells    : cells     BYTESHIFT lshift ;
-[then]
 
 \ Text and code are reached by the address of a byte, which is not an
 \ address @ can take: it is the cell's address times the bytes in a cell,

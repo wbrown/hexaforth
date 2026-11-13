@@ -20,15 +20,10 @@
 
         .equ    UART_BASE,   0x09000000      // PL011 on QEMU `virt`
         .equ    UART_FR,     0x18
-// Built with -DADDR_CELLS, an address is the number of a cell and not of a
-// byte, memory is 2^ADDR_BITS cells, and the stacks come after it.
-#ifdef ADDR_CELLS
+// An address is the number of a cell.  Memory is 2^ADDR_BITS cells, and the
+// stacks come after it.
 #define AT(r)   [MEM, r, lsl #3]
         .equ    DSTACK_BASE, 8 << ADDR_BITS
-#else
-#define AT(r)   [MEM, r]
-        .equ    DSTACK_BASE, 0x20000
-#endif
         .equ    RSTACK_OFF,  0x800           // 256 cells each
         .equ    STACKS_SIZE, 0x1000
 
@@ -39,7 +34,7 @@
         .equ    IO_SP,       0xd0
         .equ    IO_RSP,      0xd1
 
-MEM     .req    x19     // host address of VM byte 0
+MEM     .req    x19     // host address of cell 0
 IOA     .req    x20     // latched machine address for the device ports
 PC      .req    x21     // word address of next instruction
 T       .req    x22     // top of data stack
@@ -81,11 +76,7 @@ _start:
         mov     x0, #DSTACK_BASE
         add     STK, MEM, x0
         add     x1, STK, #STACKS_SIZE
-#ifdef ADDR_CELLS
-        mov     x0, STK                         // clear the stacks,
-#else
-        adr     x0, image_end                   // and memory after the image
-#endif
+        mov     x0, STK                         // clear the stacks
 1:      str     xzr, [x0], #8
         cmp     x0, x1
         b.lo    1b
@@ -300,7 +291,7 @@ io_read:                                        // port in OUT, result in OUT
 2:      sub     x12, OUT, #IO_ADDR              // device ports 0xc0-0xc8
         cmp     x12, #8
         b.hi    5f
-        mov     OUT, MEM                        // 0xc0: where VM byte 0 is
+        mov     OUT, MEM                        // 0xc0: where cell 0 is
         cbz     x12, 9f
         mov     OUT, #0
         cmp     x12, #1

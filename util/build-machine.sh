@@ -2,19 +2,17 @@
 # Build the toolchain and nucleus for a machine of a given size.
 #
 #   util/build-machine.sh CELL_BITS [ADDR_BITS]
-#   ADDR_CELLS=1 util/build-machine.sh ...     addresses count cells
 #
-# CELL_BITS is 64, 32 or 16.  ADDR_BITS defaults to 17 (128KB), or 16 for a
-# 16-bit cell.  Writes, under build/:
+# CELL_BITS is 64, 32 or 16.  Memory is 2^ADDR_BITS cells; the default is 22
+# for a 64-bit cell, 17 for 32 and 16 for 16.  Writes, under build/:
 #   basewords-C-A.fs   the machine definition cross.fs reads
 #   nuc-C-A.hex        the nucleus compiled for that machine
 #   hexaforth-C-A      the reference VM built for it
 set -e
 cd "$(dirname "$0")/.."
 C=$1
-A=${2:-$([ "$C" -lt 17 ] && echo "$C" || echo 17)}
-D="-DCELL_BITS=$C -DADDR_BITS=$A ${ADDR_CELLS:+-DADDR_CELLS=1} $EXTRA"
-[ -n "$ADDR_CELLS" ] && A="$A-cells"
+A=${2:-$(case $C in 64) echo 22;; 32) echo 17;; *) echo 16;; esac)}
+D="-DCELL_BITS=$C -DADDR_BITS=$A $EXTRA"
 mkdir -p build
 gcc -w -fcommon $D -o build/bwgen-$C-$A util/baseword_fs_gen.c vm_opcodes.c vm_debug.c -lm
 build/bwgen-$C-$A build/basewords-$C-$A.fs > /dev/null

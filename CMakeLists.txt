@@ -21,15 +21,6 @@ add_custom_command(
                           forth/nuc.fs
                           basewords-fs-gen)
 
-# adhoc test
-add_custom_command(
-        COMMAND           gforth cross.fs basewords.fs test.fs
-        OUTPUT            ${CMAKE_SOURCE_DIR}/build/test.hex
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
-        DEPENDS           forth/cross.fs
-                          forth/basewords.fs
-                          forth/test.fs)
-
 # basewords.fs opcode description for forth environment
 add_custom_command(
         COMMAND           ${CMAKE_BINARY_DIR}/basewords-fs-gen
@@ -75,8 +66,7 @@ add_custom_command(
 # kick off our entire forth environment
 add_custom_target(forth-env
         ALL
-        DEPENDS           ${CMAKE_SOURCE_DIR}/build/nuc.hex
-                          ${CMAKE_SOURCE_DIR}/build/test.hex)
+        DEPENDS           ${CMAKE_SOURCE_DIR}/build/nuc.hex)
 
 # VM itself
 add_library(vm_core
@@ -131,8 +121,7 @@ add_custom_target(tests
 # Main executable
 add_executable(hexaforth
         main.c
-        build/nuc.hex
-        build/test.hex)
+        build/nuc.hex)
 if(DEBUG)
     target_link_libraries(hexaforth
             vm_core_debug)
@@ -145,8 +134,7 @@ endif()
 if(DEBUG)
 add_executable(hexaforth-debug
         main.c
-        build/nuc.hex
-        build/test.hex)
+        build/nuc.hex)
 target_link_libraries(hexaforth-debug
         vm_core_debug)
 target_compile_definitions(hexaforth-debug

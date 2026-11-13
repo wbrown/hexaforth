@@ -172,18 +172,17 @@ next-arg included       \ include the machine.fs
 ( The machine's sizes                                                 )
 
 \ The machine file defines cell-bits (64, 32 or 16: the width of a stack
-\ cell, of the ALU, and of @ and !) and addr-bits (the address space in
-\ bytes, as a power of two).  Everything here that depends on either is
+\ cell, of the ALU, and of @ and !) and addr-bits (memory is that power of
+\ two cells).  Everything here that depends on either is
 \ derived from them, and the target program can test them: see W64? below.
 
 cell-bits 8 / constant cell-bytes
 cell-bytes 2 = [if] 1 [else] cell-bytes 4 = [if] 2 [else] 3 [then] [then] constant byte-shift
 
-\ What an address counts: cells if addr-cells is set, as MODEL.md has it, and
-\ otherwise bytes.  The data pointer here always counts bytes, since bytes
-\ are laid down one at a time; taddr turns it into an address for the target.
-addr-cells [if] 1 [else] cell-bytes [then] constant addr-unit    \ addresses to a cell
-: taddr ( byte -- a ) addr-cells if byte-shift rshift then ;
+\ An address on the target is the number of a cell.  The data pointer here
+\ counts bytes, since bytes are laid down one at a time; taddr turns it into
+\ an address for the target.
+: taddr ( byte -- a ) byte-shift rshift ;
 
 \ The display, if the machine has one, must suit the cell: see MODEL.md.
 \ vm_constants.h makes the same checks when the C is built.
@@ -225,7 +224,7 @@ addr-bits #16 > [if] $8000 [else] $2000 [then] constant code-size
     2drop ;
 
 : tvar! ( x a -- ) \ store into a target variable, given its address
-    addr-cells if byte-shift lshift then tcell! ;
+    byte-shift lshift tcell! ;
 
 ( Language basics for target                 JCB 19:08 05/02/12)
 
@@ -662,7 +661,7 @@ variable lastdef    \ body of the most recent target colon definition
 warnings on
 
 \ c# n is the distance from a cell's address to that of the nth after it.
-:: c# base @ >r decimal 0. bl parse >number 2drop drop r> base ! addr-unit * literal ;
+:: c# base @ >r decimal 0. bl parse >number 2drop drop r> base ! literal ;
 :: d# bl parse 10 base>number ;
 :: h# bl parse 16 base>number ;
 :: ['] ' >body @ literal ;  \ xt = word address
@@ -670,27 +669,26 @@ warnings on
 
 \ The machine's sizes, for the target program.  The first group compile a
 \ literal; the second leave a flag for [if].
-:: CELL       addr-unit literal ;               \ from one cell's address to the next
-:: CELL2      addr-unit 2 * literal ;           \ offset of a header's name
+:: CELL       1 literal ;                       \ from one cell's address to the next
+:: CELL2      2 literal ;                       \ offset of a header's name
 :: CELLB      cell-bytes literal ;              \ bytes in a cell
 :: BYTESHIFT  byte-shift literal ;              \ and the shift that multiplies by that
 :: ALIGN-MASK cell-bytes negate literal ;       \ of a byte address: the start of its cell
 :: OFFSET-MASK cell-bytes 1- literal ;          \ of a byte address: where in its cell
-:: CELLADDR?  addr-cells ;                      \ do addresses count cells?
 
 \ Text and code are reached a byte at a time, by the address of a byte:
 \ the cell's address times the bytes in a cell, plus the byte's place.
 \ >c makes the byte address of a cell, and c> the address of the cell a
-\ byte is in.  Where addresses count bytes already, >c is nothing.
+\ byte is in.
 \ These two compile it in line; the nucleus makes words of them, >c and c>.
-:: (>c)       addr-cells if byte-shift literal s" lshift" evaluate then ;
-:: (c>)       addr-cells if byte-shift literal s" rshift" evaluate
-              else cell-bytes negate literal s" and" evaluate then ;
+:: (>c)       byte-shift literal s" lshift" evaluate ;
+:: (c>)       byte-shift literal s" rshift" evaluate ;
 :: TOPBIT     cell-bits 1- literal ;            \ index of the sign bit
 :: HALFBITS   cell-bits 2/ literal ;
 :: TOP16      cell-bits #16 - literal ;         \ shift that puts 16 bits at the top
-:: (i@)  cell-bits #16 = addr-cells and if s" @" else s" 2* uw@" then evaluate ;
-:: (i!)  cell-bits #16 = addr-cells and if s" !" else s" 2* w!" then evaluate ;
+\ An instruction is a cell when cells are 16 bits, and otherwise a field.
+:: (i@)  cell-bits #16 = if s" @" else s" 2* uw@" then evaluate ;
+:: (i!)  cell-bits #16 = if s" !" else s" 2* w!" then evaluate ;
 :: CODE-BASE  code-base literal ;
 :: CODE-SIZE  code-size literal ;
 :: W64?   cell-bits #64 = ;
