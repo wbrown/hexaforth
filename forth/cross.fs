@@ -714,6 +714,9 @@ warnings on
 \ leftmost pixel of a cell and M8 its leftmost eight.
 \ A cell is PXCELL pixels across: pixel x of a row is PXMASK and x pixels
 \ into the cell PXSHIFT rshift x along it.
+\ RAW>SRC turns pixels as the bitmap has them into a source for a mode,
+\ in which a set bit is black.
+:: RAW>SRC        disp-ink-black 0= if s" invert" evaluate then ;
 :: PXCELL         cell-bits literal ;
 :: PXMASK         cell-bits 1- literal ;
 :: PXSHIFT        byte-shift 3 + literal ;
