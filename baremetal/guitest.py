@@ -201,9 +201,10 @@ def main():
         m.type("nosuch\r")
         shot = m.screenshot(f"{out}/2-forth.png")
         text = read_text(shot, 15, 53, 50, 16)
-        check("Forth window evaluates", text[0] == "2 3 + ." and text[1] == "5  ok", repr(text[:2]))
-        check("Forth window compiles", text[3] == "144  ok", repr(text[2:4]))
-        check("Forth window reports errors", text[5].startswith("? -13"), repr(text[4:6]))
+        check("Forth window opens with a prompt", text[0] == "ok", repr(text[0]))
+        check("Forth window evaluates", text[1] == "2 3 + ." and text[2] == "5  ok", repr(text[1:3]))
+        check("Forth window compiles", text[4] == "144  ok", repr(text[3:5]))
+        check("Forth window reports errors", text[6].startswith("? -13"), repr(text[5:7]))
 
         # Calculator: click its title to bring it forward, then use keys and buttons.
         m.click(700, 308)
@@ -292,7 +293,7 @@ def main():
         shot = m.screenshot(f"{out}/11-cycled.png")
         text = read_text(shot, 15, 53, 50, 16)
         check("^W cycles windows and the Forth stack persists",
-              text[7] == "0  ok" and text[9] == "15 0  ok", repr(text[6:10]))
+              text[8] == "0  ok" and text[10] == "15 0  ok", repr(text[7:11]))
     finally:
         m.stop()
     print(f"screenshots in {out}/")
