@@ -14,6 +14,10 @@ which they reach the toolchain and the other implementations.
 | `CELL_BITS` | width of a stack cell, the ALU, and a fetch or store: 64, 32 or 16 | 64 |
 | `ADDR_BITS` | memory is 2^`ADDR_BITS` cells | to be set |
 | `STACK_CELLS` | cells in each of the two stacks | 256 |
+| `DISP_W`, `DISP_H` | the display's size in pixels; 0 for no display | 768, 576 |
+| `DISP_BASE` | the cell where the bitmap starts | `0x4000` |
+| `DISP_LEFT` | which bit of a cell is the leftmost pixel: `low` or `high` | `low` |
+| `DISP_INK` | whether a set bit is `black` or `white` | `black` |
 
 Where this file says a thing is undefined, implementations may differ, and a
 program that does it is wrong. The strict builds stop at the first such
@@ -114,10 +118,21 @@ it out, the Verilog scans it out as video, and on QEMU a bridge copies it
 into the true-colour buffer that `ramfb` wants. The bridge is a separate
 assembler file from the kernel, so that another display can take its place.
 
-Decided: the hosted machine's display is 768 by 576, which is 12 cells of
-64 bits to a row; a smaller machine takes a size to suit, such as 384 by
-288.  Pixel x of a row is bit x of its cell, so the leftmost pixel is the
-lowest bit.  A set bit is black, so memory that is all zero is a blank page.
+The size, the order of the pixels in a cell and the meaning of a set bit
+are properties of the machine, because real displays differ in all three.
+The hosted machine's display is 768 by 576, which is 12 cells of 64 bits to
+a row; a smaller machine takes a size to suit, such as 384 by 288.  On the
+hosted machine pixel x of a row is bit x of its cell, so the leftmost pixel
+is the lowest bit, and a set bit is black, so memory that is all zero is a
+blank page.  A machine built around an existing display takes that
+display's order and polarity instead of converting on the way out.
+
+A row is a whole number of cells and rows follow one another in memory.
+
+The Forth system does not assume an order or a polarity.  The toolchain
+takes both from the machine definition: the font is generated with its
+pixels in the machine's order, and the words that make a mask for a pixel
+and that set or clear ink are defined to suit.
 
 The bitmap starts at a cell address that is one shifted literal, a 12-bit
 value shifted left by 12, so that the address is one instruction and adding
