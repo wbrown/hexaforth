@@ -12,6 +12,15 @@ void generate_basewords_fs(const char* path) {
     fprintf(out, "\\ machine sizes, from vm_constants.h\n");
     fprintf(out, "#%d constant cell-bits\n", CELL_BITS);
     fprintf(out, "#%d constant addr-bits\n", ADDR_BITS);
+    fprintf(out, "#%d constant stack-cells\n", STACK_CELLS);
+    fprintf(out, "#%d constant disp-w\n", DISP_W);
+    fprintf(out, "#%d constant disp-h\n", DISP_H);
+    fprintf(out, "#%d constant disp-base\n", DISP_BASE);
+    fprintf(out, "#%d constant disp-left-low\n", DISP_LEFT_LOW);
+    fprintf(out, "#%d constant disp-ink-black\n", DISP_INK_BLACK);
+    fprintf(out, "#%d constant disp-stride\n", DISP_STRIDE);
+    fprintf(out, "#%d constant disp-banks\n", DISP_BANKS);
+    fprintf(out, "#%d constant disp-bank-step\n", DISP_BANK_STEP);
 
     forth_op* curr_op = &INS_FIELDS[0];
 

@@ -177,6 +177,29 @@ next-arg included       \ include the machine.fs
 \ derived from them, and the target program can test them: see W64? below.
 
 cell-bits 8 / constant cell-bytes
+
+\ The display, if the machine has one, must suit the cell: see MODEL.md.
+\ vm_constants.h makes the same checks when the C is built.
+: one-literal? ( a -- f ) \ a 12-bit value shifted left by 12, 24 or 36?
+    dup 0= if exit then
+    false swap
+    #37 #12 do
+        dup 1 i lshift 1- and 0=  over i rshift #4096 u< and  rot or swap
+    #12 +loop
+    drop
+;
+: display-ok ( -- )
+    disp-w 0= if exit then
+    disp-w cell-bits mod abort" display: the width is not a whole number of cells"
+    disp-stride cell-bits * disp-w < abort" display: a row is longer than the stride"
+    disp-banks 1 < abort" display: there must be at least one bank"
+    disp-banks 1 > if
+        disp-bank-step  disp-h disp-banks + 1- disp-banks / disp-stride *  <
+        abort" display: the banks overlap"
+    then
+    disp-base one-literal? 0= abort" display: the base is not a single shifted literal"
+;
+display-ok
 cell-bits #64 = [if] -1 [else] 1 cell-bits lshift 1- [then] constant cell-mask
 
 \ Where code compiled at run time goes: the top quarter of a 64KB address
