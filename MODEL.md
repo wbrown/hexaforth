@@ -72,6 +72,37 @@ kept for each task, holds the cell where character addresses start, and
 `c@` works out the cell and the shift from there. A program's text can
 then be anywhere in memory.
 
+## Code
+
+1. An instruction is 16 bits, and code is addressed by instruction. Cells
+   wider than 16 bits hold several instructions, the first in the low bits.
+2. Code is in pages of 4,096 instructions, which is 8KB on every machine.
+   Page 0 is the kernel.
+3. The target of a jump, a call or a conditional branch is 13 bits. With bit
+   12 clear, the other twelve are an address in the kernel, reachable from
+   any page. With bit 12 set, they are an offset in the page the branch
+   itself is in. So a branch reaches 4,096 instructions either way.
+4. A return address and an execution token are whole instruction addresses,
+   so returning and `execute` cross pages. A call into another page is
+   compiled as a literal execution token and a call to `execute`.
+5. An execution token is kept in 16 bits, so code is the first 65,536
+   instructions of memory.
+
+A machine's layout is in whole pages, since code must start on a page
+boundary; data and the display may lie between pages of code. With 16-bit
+cells an instruction is one cell and a page is 4,096 cells, so a layout for
+such a machine is:
+
+| Page | Cells | Use |
+|---|---|---|
+| 0 | `0x0000`-`0x0FFF` | kernel code |
+| 1-3 | `0x1000`-`0x3FFF` | dictionary and data |
+| 4 up | `0x4000` up | the display: 384 by 288 ends at `0x5AFF`, 768 by 576 at `0xABFF` |
+| above it | to `0xFFFF` | run-time code pages and heap |
+
+How many of the pages above the display are for code is set in the machine
+definition.
+
 ## Display
 
 Decided in outline; the details are open.
