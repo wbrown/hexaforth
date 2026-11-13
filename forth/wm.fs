@@ -23,7 +23,7 @@ create wins #64 allot
 header nwin create nwin 0 ,
 create cw 0 ,           \ the window being drawn
 
-: top ( -- win ) nwin @ 1- cells wins + @ ;
+header top : top ( -- win ) nwin @ 1- cells wins + @ ;
 
 header window
 : window ( x y w h title draw key click -- win )
@@ -66,8 +66,8 @@ create arrow
     drop
 ;
 
-: cursor-off  ( -- ) cur-on @ if cursor-xor d# 0 cur-on ! then ;
-: cursor-show ( -- ) cur-on @ 0= if cursor-xor true cur-on ! then ;
+header cursor-off : cursor-off  ( -- ) cur-on @ if cursor-xor d# 0 cur-on ! then ;
+header cursor-show : cursor-show ( -- ) cur-on @ 0= if cursor-xor true cur-on ! then ;
 
 : set-mouse ( x y -- )
     cursor-off

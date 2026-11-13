@@ -308,6 +308,19 @@ def main():
         check("^W cycles windows and the Forth stack persists",
               text[8] == "0  ok" and text[10] == "15 0  ok", repr(text[7:11]))
 
+        # Fill the Forth window so that it scrolls.  The text is moved on the
+        # screen, not drawn again, so check what is there: the last lines,
+        # the first, and that the only solid cell is the cursor.
+        for i in range(8):
+            m.type(f"{i} .\r")
+        shot = m.screenshot(f"{out}/11-scrolled.png")
+        text = read_text(shot, 15, 53, 50, 16)
+        px = shot.load()
+        solid = sum(1 for r in range(16) for c in range(50)
+                    if not any(px[15 + c * 8 + i, 53 + r * 16 + j] for i in range(8) for j in range(16)))
+        check("the Forth window scrolls", text[13:16] == ["7 .", "7  ok", ""] and text[0] == "0  ok"
+              and solid == 1, repr((text[0], text[13:16], solid)))
+
         # Put the whole screen out of date from the prompt.  Every window is
         # painted again, each only where it can be seen, so nothing outside
         # the Forth window (12, 32, 406 by 280) may change.
