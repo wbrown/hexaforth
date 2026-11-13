@@ -88,7 +88,11 @@ Decided: the hosted machine's display is 768 by 576, which is 12 cells of
 288.  Pixel x of a row is bit x of its cell, so the leftmost pixel is the
 lowest bit.  A set bit is black, so memory that is all zero is a blank page.
 
-Open: where in memory the bitmap is.
+The bitmap starts at a cell address that is one shifted literal, a 12-bit
+value shifted left by 12, so that the address is one instruction and adding
+it to an offset is one instruction.  On the hosted machine it is cell
+`0x4000`, which is 4 shifted by 12 and is the first cell after the 128KB
+image.  It is 6,912 cells long, and the heap starts at `0x6000`.
 
 Not yet true of the implementations. The Forth system draws through
 `display.fs` into a driver, `ramfb.fs`, that keeps four bytes for each pixel
