@@ -49,7 +49,11 @@ variable tcp    0 tcp !         \ Code pointer
 \             is one instruction.
 \   anything  that forms a pair or triple listed in peephole.fs is replaced by
 \             the one instruction it equals.  The result is offered again, so
-\             fusions cascade.
+\             fusions cascade.  Three instructions that are not one but are
+\             listed as equal to two are replaced by the two, each offered
+\             again.
+\   n +       after a literal or another n + of the same shift is added to
+\             it, if the sum still fits: `1+ 1+` is one instruction.
 \
 \ The tables come from util/insn_map.py, which derives them from a symbolic
 \ model of vm.c and checks every entry on the VM itself.
@@ -68,12 +72,17 @@ s" PEEPHOLE" getenv s" off" compare 0= [if] false peephole ! [then]   \ PEEPHOLE
 
 s" peephole.fs" included
 
-: fuse-lookup ( key table -- insn true | false )
+\ A table is in order of what it matches, so it is searched by halving.
+variable fmid
+: fuse-lookup { key table n -- value true | false }
+    0 n
     begin
-        dup @
+        2dup <
     while
-        2dup @ = if nip cell+ @ true exit then
-        2 cells +
+        2dup + 2/ fmid !
+        table fmid @ 2* cells + @
+        dup key = if drop 2drop  table fmid @ 2* cells + cell+ @  true exit then
+        key u< if nip fmid @ 1+ swap else drop fmid @ then
     repeat
     2drop false
 ;
@@ -97,11 +106,14 @@ s" peephole.fs" included
     swap h# 0300 and dup h# 0100 <> swap h# 0200 <> and and
 ;
 
+defer tcode,
+
 : fold-exit ( insn -- insn false | true )
     dup h# 7403 = if
         1 fusable? if
             tcp @ 2 - t@ foldable? if
-                drop tcp @ 2 - dup t@ h# 1003 or swap tw!
+                drop tcp @ 2 - t@ h# 1003 or        \ the instruction with the return in it
+                1 retract tcode,                    \ is offered to those before it
                 true exit
             then
         then
@@ -128,12 +140,24 @@ s" peephole.fs" included
     true
 ;
 
-defer tcode,
+\ An add of a constant after a literal of the same shift, or after another
+\ such add: the two are one, if the sum fits in twelve bits.
+: fold-lit-lit ( insn -- insn false | true )
+    dup h# c000 and h# c000 <> if false exit then
+    1 fusable? 0= if false exit then
+    tcp @ 2 - t@                                    ( insn before )
+    dup h# 8000 and 0= if drop false exit then
+    2dup xor h# 3000 and if drop false exit then
+    2dup h# fff and swap h# fff and +               ( insn before sum )
+    dup h# fff > if drop drop false exit then
+    swap h# f000 and or  tcp @ 2 - tw!
+    drop true
+;
 
 : fuse-pair ( insn -- insn false | true )
     1 fusable? if
         tcp @ 2 - t@ h# e000 and h# 6000 <> if false exit then
-        tcp @ 2 - t@ 16 lshift over or fuse2 fuse-lookup if
+        tcp @ 2 - t@ 16 lshift over or fuse2 #fuse2 fuse-lookup if
             nip 1 retract tcode, true exit
         then
     then
@@ -143,8 +167,20 @@ defer tcode,
 : fuse-triple ( insn -- insn false | true )
     2 fusable? if
         tcp @ 4 - t@ 32 lshift  tcp @ 2 - t@ 16 lshift or  over or
-        fuse3 fuse-lookup if
+        fuse3 #fuse3 fuse-lookup if
             nip 2 retract tcode, true exit
+        then
+    then
+    false
+;
+
+: fuse-three ( insn -- insn false | true ) \ three that two instructions replace
+    2 fusable? if
+        tcp @ 4 - t@ 32 lshift  tcp @ 2 - t@ 16 lshift or  over or
+        fuse32 #fuse32 fuse-lookup if
+            nip 2 retract
+            dup 16 rshift tcode,  h# ffff and tcode,
+            true exit
         then
     then
     false
@@ -154,9 +190,11 @@ defer tcode,
     peephole @ if
         fold-exit   if exit then
         fold-lit+   if exit then
+        fold-lit-lit if exit then
         dup h# e000 and h# 6000 = if
             fuse-pair   if exit then
             fuse-triple if exit then
+            fuse-three  if exit then
         then
     then
     (tcode,)
