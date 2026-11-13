@@ -21,6 +21,34 @@
 header fb-w create fb-w  meta disp-w target ,   \ width and height in pixels
 header fb-h create fb-h  meta disp-h target ,
 
+\ ---- the port
+\
+\ What drawing depends on, other than what is being drawn, is the port:
+\
+\     ox oy       where on the screen its coordinates start
+\     clip        the rectangle it may draw in: left, top, and past the
+\                 right and bottom, on the screen
+\     pattern     what fills are made of
+\     'mode       how what is drawn meets what is there
+\     inverse bold italic     how text looks
+\
+\ Everything that draws takes coordinates in the port.  These words are
+\ the port in use.  A port that is not in use is a record of the same
+\ eleven cells, and port! changes from one to another.
+
+create gstate 0 , 0 ,  0 , 0 , 0 , 0 ,  0 , 0 ,  0 , 0 , 0 ,
+
+header ox      : ox      gstate ;
+header oy      : oy      gstate CELL + ;
+header clip    : clip    gstate CELL2 + ;
+header pattern : pattern gstate c# 6 + ;
+header 'mode   : 'mode   gstate c# 7 + ;
+header inverse : inverse gstate c# 8 + ;
+header bold    : bold    gstate c# 9 + ;
+header italic  : italic  gstate c# 10 + ;
+
+header origin! : origin! ( x y -- ) oy ! ox ! ;
+
 header row : row ( y -- a ) \ the first cell of row y
 BANKED? [if]
     DISP-BANKS u/mod DISP-STRIDE * swap DISP-BANK-STEP * + DISP-BASE +
@@ -50,7 +78,7 @@ header ink   : ink   ( mask a -- ) dup >r @ swap invert and r> ! ;
 
 header 'plot create 'plot 0 ,       \ ( on? x y -- )  where plot goes
 header plot
-: plot ( on? x y -- ) 'plot @ execute ;
+: plot ( on? x y -- ) oy @ + swap ox @ + swap 'plot @ execute ;
 
 \ ---- modes and patterns
 \
@@ -74,7 +102,6 @@ INK-BLACK? [if]
 : m-xor  ( src mask a -- ) >r and r> x! ;
 : m-bic  ( src mask a -- ) >r and r> paper ;
 
-header 'mode create 'mode 0 ,
 header copy-mode : copy-mode ( -- ) ['] m-copy 'mode ! ;
 header or-mode   : or-mode   ( -- ) ['] m-or   'mode ! ;
 header xor-mode  : xor-mode  ( -- ) ['] m-xor  'mode ! ;
@@ -91,8 +118,6 @@ header p-black  create p-black   $ff prow, $ff prow, $ff prow, $ff prow, $ff pro
 header p-gray   create p-gray    $aa prow, $55 prow, $aa prow, $55 prow, $aa prow, $55 prow, $aa prow, $55 prow,
 header p-ltgray create p-ltgray  $88 prow, $22 prow, $88 prow, $22 prow, $88 prow, $22 prow, $88 prow, $22 prow,
 header p-dkgray create p-dkgray  $77 prow, $dd prow, $77 prow, $dd prow, $77 prow, $dd prow, $77 prow, $dd prow,
-
-header pattern create pattern 0 ,   \ the one that slab draws with
 
 \ A slab: n pixels of a row, in the pattern and the mode, a cell at a time.
 \ Every filled shape is made of these.  No shift here is by a whole cell,
@@ -132,23 +157,25 @@ header solid : solid ( on? -- ) if p-white else p-black then pattern !  copy-mod
 
 \ ---- clipping
 \
-\ Everything from here on draws only inside the clip rectangle, which is
-\ never bigger than the screen.
+\ Everything from here on takes coordinates in the port, and draws only
+\ inside the clip rectangle, which is never bigger than the screen.
 
-header clip create clip 0 , 0 , 0 , 0 ,     \ left, top, and past the right and bottom
+: >screen ( x y -- x' y' ) oy @ + swap ox @ + swap ;
 
 header clip! : clip! ( x y w h -- )
-    >r >r
+    >r >r >screen
     over d# 0 max clip !
     dup d# 0 max clip CELL + !
     swap r> + fb-w @ min clip CELL2 + !
     r> + fb-h @ min clip c# 3 + !
 ;
 
-header noclip : noclip ( -- ) d# 0 d# 0 fb-w @ fb-h @ clip! ;
+header noclip : noclip ( -- ) \ the whole screen
+    d# 0 clip !  d# 0 clip CELL + !  fb-w @ clip CELL2 + !  fb-h @ clip c# 3 + !
+;
 
 header clip-to : clip-to ( x y w h -- ) \ what is in both this and the clip rectangle
-    >r >r
+    >r >r >screen
     over clip @ max clip !
     dup clip CELL + @ max clip CELL + !
     swap r> + clip CELL2 + @ min clip CELL2 + !
@@ -171,6 +198,7 @@ create oclip 0 , 0 , 0 , 0 ,
 ;
 
 header pat-hline : pat-hline ( x y n -- )
+    >r >screen r>
     over dup clip CELL + @ < swap clip c# 3 + @ < 0= or if drop 2drop exit then
     swap >r clip-span r> swap
     dup 0> if slab else drop 2drop then
@@ -250,6 +278,8 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
 
 header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
     bh ! bw ! bdy ! bdx ! ssy ! ssx ! sbm !
+    ox @ bdx +!  oy @ bdy +!
+    sbm @ @ 0= if ox @ ssx +!  oy @ ssy +! then      \ the screen, as the port sees it
     clip @ bdx @ - d# 0 max  dup bdx +!  dup ssx +!  negate bw +!
     clip CELL + @ bdy @ - d# 0 max  dup bdy +!  dup ssy +!  negate bh +!
     clip CELL2 + @ bdx @ - bw @ min bw !
@@ -306,8 +336,40 @@ header xor8
     ba @ x!
 ;
 
+\ ---- ports that are not in use
+
+header port create port 0 ,         \ the record of the port in use, or 0
+header screen-port create screen-port 0 ,
+
+: cells-move ( from to n -- )
+    begin
+        dup
+    while
+        >r over @ over ! 1+ swap 1+ swap r> 1-
+    repeat
+    drop 2drop
+;
+
+header port! : port! ( port -- ) \ put the port in use away, and take up another
+    port @ ?dup if gstate swap d# 11 cells-move then
+    dup port !
+    gstate d# 11 cells-move
+;
+
+header new-port : new-port ( -- port ) \ the whole screen, black, copying, plain text
+    d# 11 cells >c halloc >r
+    fb-w @ r@ c# 4 + !  fb-h @ r@ c# 5 + !
+    p-black r@ c# 6 + !
+    ['] m-copy r@ c# 7 + !
+    r>
+;
+
 header display-init
-: display-init ( -- ) ['] dplot 'plot !  p-black pattern !  copy-mode  noclip ;
+: display-init ( -- )
+    ['] dplot 'plot !
+    d# 0 port !
+    new-port dup screen-port ! port!
+;
 
 \ ---- text
 \
@@ -315,9 +377,6 @@ header display-init
 \ `bold` set each stroke is a pixel wider, and with `italic` set the top
 \ half of each character leans a pixel to the right.
 
-header inverse create inverse 0 ,
-header bold create bold 0 ,
-header italic create italic 0 ,
 
 \ A string is drawn a row of pixels at a time, not a character at a time.
 \ The rows of its characters are gathered into a cell, and the cell is
@@ -401,6 +460,7 @@ INK-BLACK? [if] [else]
 
 header draw-text : draw-text ( addr u x y -- ) \ clipped to the pixel
     ty ! tx ! tu ! ta !
+    ox @ tx +!  oy @ ty +!
     clip CELL + @ ty @ - d# 0 max r0 !
     clip c# 3 + @ ty @ - d# 16 min r1 !
     r0 @ r1 @ < 0= if exit then

@@ -35,6 +35,7 @@ class Model:
     def __init__(self):
         self.px = [[0] * W for _ in range(H)]       # 1 is black
         self.clip = (0, 0, W, H)
+        self.ox = self.oy = 0                       # where the port's coordinates start
         self.pattern = PATTERNS["p-black"]
         self.mode = MODES["copy-mode"]
         self.style = {"inverse": 0, "bold": 0, "italic": 0}
@@ -44,13 +45,16 @@ class Model:
         return x0 <= x < x1 and y0 <= y < y1
 
     def set_clip(self, x, y, w, h):
+        x, y = x + self.ox, y + self.oy
         self.clip = (max(x, 0), max(y, 0), min(x + w, W), min(y + h, H))
 
     def clip_to(self, x, y, w, h):
+        x, y = x + self.ox, y + self.oy
         x0, y0, x1, y1 = self.clip
         self.clip = (max(x, x0), max(y, y0), min(x + w, x1), min(y + h, y1))
 
     def pat_rect(self, x, y, w, h):
+        x, y = x + self.ox, y + self.oy
         for yy in range(y, y + h):
             for xx in range(x, x + w):
                 if self.visible(xx, yy):
@@ -58,6 +62,7 @@ class Model:
                     self.px[yy][xx] = self.mode(self.px[yy][xx], src)
 
     def draw_text(self, text, x, y):
+        x, y = x + self.ox, y + self.oy
         for i, ch in enumerate(text):
             cx = x + 8 * i
             if cx < 0:                              # cut by the screen's edge: not drawn
@@ -77,6 +82,7 @@ class Model:
                         self.px[y + r][cx + k] = b >> (7 - k) & 1
 
     def copy_bits(self, sx, sy, dx, dy, w, h):
+        sx, sy, dx, dy = sx + self.ox, sy + self.oy, dx + self.ox, dy + self.oy
         old = [row[:] for row in self.px]
         for j in range(h):
             for i in range(w):
@@ -107,7 +113,7 @@ def session(seed, count):
     lines = ["display-init", ": tb here 64 + >c ;", ": ch tb + c! ;",
              ": dump hex 576 0 do i row 12 0 do dup i + @ . loop drop cr loop decimal ;"]
     for _ in range(count):
-        op = rng.choice(["rect"] * 4 + ["text"] * 4 + ["copy", "scroll", "clip", "noclip", "mode",
+        op = rng.choice(["rect"] * 4 + ["text"] * 4 + ["copy", "scroll", "clip", "noclip", "mode", "origin",
                                                       "pattern", "style"])
         if op == "rect":
             x, y = rng.randint(-40, W), rng.randint(-40, H)
@@ -126,12 +132,14 @@ def session(seed, count):
             sx, sy = rng.randint(0, W - w), rng.randint(0, H - h)
             dx, dy = rng.choice([(rng.randint(-50, W), rng.randint(-30, H)),
                                  (sx + rng.randint(-9, 9), sy + rng.randint(-3, 3))])
+            sx, sy, dx, dy = sx - m.ox, sy - m.oy, dx - m.ox, dy - m.oy
             lines.append(f"screen {sx} {sy} {dx} {dy} {w} {h} copy-bits")
             m.copy_bits(sx, sy, dx, dy, w, h)
         elif op == "scroll":
             w, h = rng.randint(10, 300), rng.randint(10, 120)
             x, y = rng.randint(0, W - w), rng.randint(0, H - h)
             dx, dy = rng.choice([(0, -16), (0, 16), (8, 0), (-3, 0), (5, -7)])
+            x, y = x - m.ox, y - m.oy
             lines.append(f"{x} {y} {w} {h} {dx} {dy} scroll-rect")
             m.scroll_rect(x, y, w, h, dx, dy)
         elif op == "clip":
@@ -139,9 +147,12 @@ def session(seed, count):
             w, h = rng.randint(20, 500), rng.randint(20, 400)
             lines.append(f"{x} {y} {w} {h} clip!")
             m.set_clip(x, y, w, h)
+        elif op == "origin":
+            m.ox, m.oy = rng.choice([(0, 0), (rng.randint(-30, 300), rng.randint(-30, 300))])
+            lines.append(f"{m.ox} {m.oy} origin!")
         elif op == "noclip":
             lines.append("noclip")
-            m.set_clip(0, 0, W, H)
+            m.clip = (0, 0, W, H)
         elif op == "mode":
             name = rng.choice(list(MODES))
             lines.append(name)

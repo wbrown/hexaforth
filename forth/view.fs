@@ -29,7 +29,7 @@ header view-draw : view-draw ( win -- )
     drop
     bm @ 0= if exit then
     copy-mode
-    bm d# 0 d# 0  ox @ oy @  tw @ bmh @  copy-bits
+    bm d# 0 d# 0  d# 0 d# 0  tw @ bmh @  copy-bits
 ;
 
 header ignore-key : ignore-key ( c win -- ) 2drop ;

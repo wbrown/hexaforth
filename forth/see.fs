@@ -594,8 +594,8 @@ header t-words create t-words ," Words"
         sind @ 1+ 2* scol !  d# 1 srow +!
     then
     srow @ wsrc @ - dup d# 16 u< if
-        d# 4 lshift oy @ + lky !
-        scol @ d# 3 lshift ox @ + d# 112 + lkx !
+        d# 4 lshift lky !
+        scol @ d# 3 lshift d# 112 + lkx !
         sbold @ bold !  sital @ italic !
         lkx @ lky @ draw-text
         d# 0 bold !  d# 0 italic !
@@ -628,13 +628,13 @@ header words-draw : words-draw ( win -- )
     while
         wi @ wtop @ + wsel @ = inverse !
         dup CELL2 + >c count d# 13 min
-        ox @ d# 2 +  oy @ wi @ d# 4 lshift +  draw-text
+        d# 2  wi @ d# 4 lshift  draw-text
         d# 0 inverse !
         @
         d# 1 wi +!
     repeat
     drop
-    false ox @ d# 108 + oy @ d# 1 d# 256 fill-rect
+    false d# 108 d# 0 d# 1 d# 256 fill-rect
     d# 0 scol !  d# 0 srow !  d# 0 nlk !
     ['] gtok 'tok !  ['] gnl 'nl !
     wxt @ sdecomp
