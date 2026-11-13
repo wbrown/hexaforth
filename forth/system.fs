@@ -13,6 +13,7 @@ include machine.fs      \ device registers, high memory, byte-order helpers
 include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD, disk-read
 include font.fs         \ 8x16 glyphs
 include display.fs      \ the display: a bitmap in memory, and text on it
+include region.fs       \ shapes that are not rectangles, to clip to
 include virtio.fs       \ shared by the virtio drivers
 include virtio-blk.fs   \ block driver
 include virtio-input.fs \ keyboard and pointer driver

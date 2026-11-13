@@ -3,7 +3,8 @@
 
     display_test.py VM IMAGE.hex [SEED [COUNT]]
 
-Draws the same random sequence of fills, text, copies and scrolls twice:
+Draws the same random sequence of fills, text, copies and scrolls twice,
+in ports with random origins, clip rectangles and clip regions:
 on the reference VM, by typing Forth at its prompt, and here, a pixel at a
 time.  The VM then prints its bitmap and the two are compared.  The display
 is in the VM's memory, so nothing has to show it.
@@ -37,10 +38,11 @@ class Model:
         self.mode = MODES["copy-mode"]
         self.style = {"inverse": 0, "bold": 0, "italic": 0}
         self.font = "mono"
+        self.region = None                          # rows of 0 and 1, or None
 
     def visible(self, x, y):
         x0, y0, x1, y1 = self.clip
-        return x0 <= x < x1 and y0 <= y < y1
+        return x0 <= x < x1 and y0 <= y < y1 and (self.region is None or self.region[y][x])
 
     def set_clip(self, x, y, w, h):
         x, y = x + self.ox, y + self.oy
@@ -109,9 +111,11 @@ def session(seed, count):
     rng = random.Random(seed)
     m = Model()
     lines = ["display-init", ": tb here 64 + >c ;", ": ch tb + c! ;",
+             "new-rgn constant ra", "new-rgn constant rb", "new-rgn constant rc",
+             "new-rgn constant rd", "new-rgn constant re",
              ": dump hex 576 0 do i row 12 0 do dup i + @ . loop drop cr loop decimal ;"]
     for _ in range(count):
-        op = rng.choice(["rect"] * 4 + ["text"] * 4 + ["copy", "scroll", "clip", "noclip", "mode", "origin", "font",
+        op = rng.choice(["rect"] * 4 + ["text"] * 4 + ["copy", "scroll", "clip", "noclip", "mode", "origin", "font", "region", "region", "noregion",
                                                       "pattern", "style"])
         if op == "rect":
             x, y = rng.randint(-40, W), rng.randint(-40, H)
@@ -151,9 +155,41 @@ def session(seed, count):
         elif op == "font":
             m.font = rng.choice(list(FONTS))
             lines.append(f"{m.font} font !")
+        elif op == "region":
+            # Two or three rectangles, combined; ra to re are regions.
+            def rect():
+                x, y = rng.randint(-30, W - 20), rng.randint(-30, H - 20)
+                w, h = rng.randint(1, 500), rng.randint(1, 400)
+                return x, y, w, h
+
+            def inside(r):
+                x, y, w, h = r
+                return [[1 if x <= i < x + w and y <= j < y + h else 0 for i in range(W)]
+                        for j in range(H)]
+
+            def combine(a, b, how):
+                f = {"and": lambda p, q: p & q, "or": lambda p, q: p | q,
+                     "diff": lambda p, q: p & ~q & 1}[how]
+                return [[f(p, q) for p, q in zip(u, v)] for u, v in zip(a, b)]
+
+            a, b, how = rect(), rect(), rng.choice(["and", "or", "diff", "diff"])
+            lines.append("%d %d %d %d ra rect-rgn" % a)
+            lines.append("%d %d %d %d rb rect-rgn" % b)
+            lines.append(f"ra rb rc rgn-{how}")
+            m.region, name = combine(inside(a), inside(b), how), "rc"
+            if rng.random() < 0.6:
+                c, how = rect(), rng.choice(["and", "or", "diff"])
+                lines.append("%d %d %d %d rd rect-rgn" % c)
+                lines.append(f"rc rd re rgn-{how}")
+                m.region, name = combine(m.region, inside(c), how), "re"
+            lines.append(f"{name} rgn-clip!")
+        elif op == "noregion":
+            lines.append("0 rgn-clip!")
+            m.region = None
         elif op == "noclip":
             lines.append("noclip")
             m.clip = (0, 0, W, H)
+            m.region = None
         elif op == "mode":
             name = rng.choice(list(MODES))
             lines.append(name)
