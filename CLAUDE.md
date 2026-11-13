@@ -281,7 +281,8 @@ on every jump, call, return and taken branch, and on every memory read) for
 a clock 55-70% faster on an ECP5 (61, 58 and 52 MHz at 16, 32 and 64 bits).
 `KROM=1` (with `LAT=2`) also builds the first 4KB of the kernel as a ROM
 in logic, read without a clock, so a jump, call or return into it costs no
-extra cycle. The kernel's code fits in 4KB and nothing stores there: every
+extra cycle: about 15% fewer cycles for a clock about 5% slower and 2,400
+more LUTs. The kernel's code fits in 4KB and nothing stores there: every
 variable is above the kernel. Build the reference VM with `-DROM_BYTES=4096`
 to check, or the small kernel with `STRICT=1`.
 
