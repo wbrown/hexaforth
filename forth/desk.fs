@@ -26,7 +26,7 @@ header desktop
     tclear term-ok
     d# 12 d# 32 d# 406 d# 280 t-repl
     ['] term-draw ['] repl-key d# 0 window drop
-    t-up count type cr
+    t-up >c count type cr
     event-loop
 ;
 

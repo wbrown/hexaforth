@@ -13,6 +13,9 @@ KERNEL ?= hexaforth
 HEX    ?= ../build/nuc.hex
 LOAD   ?= 0x40080000
 B      := build
+# ADDR_CELLS=1 builds for an image whose addresses count cells, with a memory
+# of 2^ADDR_BITS cells.
+ADDR_BITS ?= 22
 TARGET := --target=aarch64-none-elf
 
 all: $(B)/$(KERNEL).bin
@@ -23,7 +26,8 @@ $(B)/image.bin: $(HEX) hex2bin.py
 
 # STRICT=1 builds the small kernel to halt on any unaligned fetch or store.
 $(B)/%.o: %.S $(B)/image.bin
-	clang $(TARGET) -c -DIMAGE='"$(B)/image.bin"' $(if $(STRICT),-DSTRICT) $< -o $@
+	clang $(TARGET) -c -DIMAGE='"$(B)/image.bin"' $(if $(STRICT),-DSTRICT) \
+	    $(if $(ADDR_CELLS),-DADDR_CELLS -DADDR_BITS=$(ADDR_BITS)) $< -o $@
 
 $(B)/%.elf: $(B)/%.o
 	ld.lld -Ttext=$(LOAD) -e _start -o $@ $<

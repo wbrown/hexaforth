@@ -1,7 +1,8 @@
 \ tiff.fs - read an uncompressed TIFF from the block device into memory
 \
 \ Handles either byte order, 8-bit grayscale or RGB, and any number of
-\ strips.  The image ends up in `gray`, one byte per pixel.
+\ strips.  The image ends up at `gray`, one byte per pixel; gray and raw
+\ hold the addresses of bytes.
 
 create tiff-base 0 ,    \ device byte offset of the file
 create tiff-be   0 ,    \ true for a big-endian file
@@ -17,12 +18,12 @@ create raw     0 ,      \ the strips as stored
 header gray create gray    0 ,      \ the decoded image
 
 : tbytes ( off n -- a ) \ n bytes of the file, in tscratch
-    tscratch swap rot tiff-base @ + disk-read
-    tscratch
+    tscratch >c swap rot tiff-base @ + disk-read
+    tscratch >c
 ;
 
 : t16@ ( off -- x ) d# 2 tbytes  tiff-be @ if be16@ else uw@ then ;
-: t32@ ( off -- x ) d# 4 tbytes  tiff-be @ if be32@ else @ lo32 then ;
+: t32@ ( off -- x ) d# 4 tbytes  tiff-be @ if be32@ else l@ then ;
 
 \ A directory entry is tag, type, count, value: 2, 2, 4 and 4 bytes.  A
 \ SHORT (type 3) value sits in the first two bytes of the value field.
@@ -109,8 +110,8 @@ create gsrc  0 ,
 header tiff-decode
 : tiff-decode ( -- ) \ load every strip, then decode into gray
     tw @ th @ *
-    dup halloc gray !
-    tspp @ * halloc raw !
+    dup halloc >c gray !
+    tspp @ * halloc >c raw !
     raw @ tdest !
     d# 0
     begin

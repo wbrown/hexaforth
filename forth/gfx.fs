@@ -73,7 +73,7 @@ create slant 0 ,        \ true while the half being drawn leans
 header draw-char : draw-char ( c x y -- )
     over fb-w @ d# 8 - u> over fb-h @ d# 16 - u> or if drop 2drop exit then
     rot d# 32 - dup d# 94 u> if drop d# 0 then
-    d# 4 lshift font +                              ( x y glyph )
+    2* cells font +                                 ( x y glyph )
     dup cell+ @ >r @
     italic @ slant !
     rows8
@@ -101,7 +101,8 @@ header draw-text : draw-text ( addr u x y -- )
 \ Text built with the ordinary output words: sb-begin sends emit to a
 \ buffer, sb-end puts it back, sb-draw puts the buffer on the screen.
 
-header sb create sb #64 allot
+create sbuf #64 allot
+header sb : sb ( -- a ) sbuf >c ;       \ the address of its first byte
 header sbn create sbn 0 ,
 create sb-old 0 ,
 

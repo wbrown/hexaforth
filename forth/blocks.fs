@@ -1,6 +1,7 @@
 \ blocks.fs - the block device interface and classic block words
 
-\ A block is 1024 bytes.  A driver stores its routines here.
+\ A block is 1024 bytes.  A driver stores its routines here; the buffer it
+\ is handed is the address of a cell.
 
 header 'blk-read create 'blk-read  0 ,   \ ( buf blk# -- )
 header 'blk-write create 'blk-write 0 ,   \ ( buf blk# -- )
@@ -23,14 +24,14 @@ header flush
 ;
 
 header block
-: block ( blk# -- a ) \ address of a buffer holding the block
+: block ( blk# -- a ) \ address of the first byte of a buffer holding the block
     blk-buf @ 0= if d# 1024 halloc blk-buf ! then
-    dup blk-cur @ = if drop blk-buf @ exit then
+    dup blk-cur @ = if drop blk-buf @ >c exit then
     flush
     d# -1 blk-cur !
     blk-buf @ over blk-read
     blk-cur !
-    blk-buf @
+    blk-buf @ >c
 ;
 
 header update
@@ -48,7 +49,7 @@ create dr-len  0 ,
 create dr-off  0 ,
 
 header disk-read
-: disk-read ( dest u offset -- )
+: disk-read ( dest u offset -- ) \ dest is the address of a byte
     dr-off ! dr-len ! dr-dest !
     begin
         dr-len @

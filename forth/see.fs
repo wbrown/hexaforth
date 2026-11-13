@@ -77,7 +77,7 @@ create k-tick   ," [']"
     squiet @ if drop 2drop exit then
     'tok @ execute  d# 0 sfresh !
 ;
-: wt  ( cstr -- ) count d# -1 tok ;
+: wt  ( cstr -- ) >c count d# -1 tok ;
 : snl ( -- ) squiet @ sfresh @ or if exit then 'nl @ execute  true sfresh ! ;
 : s+  ( -- ) d# 1 sind +! ;
 : s-  ( -- ) sind @ 1- d# 0 max sind ! ;
@@ -162,7 +162,7 @@ create k-tick   ," [']"
 
 : sraw ( w -- ) sb-begin [char] [ emit h4 [char] ] emit sb-end  sb sbn @ d# -1 tok ;
 : sname ( hdr -- ) \ a word, and a new line after one that stores
-    dup CELL2 + count rot hxt
+    dup CELL2 + >c count rot hxt
     >r 2dup + 1- c@ r> swap >r
     tok
     r> [char] ! = if snl then
@@ -211,10 +211,10 @@ create hv 0 ,
 : xt? ( n -- f ) dup h# 8000 u< 0= swap h# 1001 - h# fff u< or ;
 
 : snum ( n -- )
-    dup h# 4000 - h# c000 u< if
+    dup d# 2048 cells - d# 6144 cells u< if     \ in data space
         dup lit>hdr ?dup if nip sname exit then
         dup data>lbl ?dup if
-            nip true sital !  CELL2 + count d# -1 tok  d# 0 sital !  exit
+            nip true sital !  CELL2 + >c count d# -1 tok  d# 0 sital !  exit
         then
     then
     dup xt? if
@@ -234,7 +234,7 @@ create hv 0 ,
         dup @
     while
         2dup @ = if nip cell+ exit then
-        d# 32 +
+        c# 4 +
     repeat
     2drop d# 0
 ;
@@ -249,7 +249,7 @@ create hv 0 ,
 
 : sfused ( w -- f ) \ show a fused instruction as its words, if it is in the table
     fused? ?dup 0= if false exit then
-    count fn ! fa !
+    >c count fn ! fa !
     true sbold !
     begin
         fn @
@@ -603,8 +603,8 @@ header t-words create t-words ," Words"
             false lkx @ lky @ d# 15 + lku @ d# 3 lshift hline
             nlk @ d# 96 < if
                 scol @  srow @ wsrc @ - d# 8 lshift or  lku @ d# 16 lshift or
-                nlk @ d# 4 lshift lk + !
-                r@ nlk @ d# 4 lshift lk + cell+ !
+                nlk @ 2* cells lk + !
+                r@ nlk @ 2* cells lk + cell+ !
                 d# 1 nlk +!
             then
         then
@@ -627,7 +627,7 @@ header words-draw : words-draw ( win -- )
         dup 0<> wi @ d# 16 < and
     while
         wi @ wtop @ + wsel @ = inverse !
-        dup CELL2 + count d# 13 min
+        dup CELL2 + >c count d# 13 min
         ox @ d# 2 +  oy @ wi @ d# 4 lshift +  draw-text
         d# 0 inverse !
         @
@@ -660,10 +660,10 @@ header words-click : words-click ( x y win -- )
     begin
         dup nlk @ <
     while
-        dup d# 4 lshift lk + @ wtmp !
+        dup 2* cells lk + @ wtmp !
         wtmp @ d# 8 rshift h# ff and crow @ =
         ccol @ wtmp @ h# ff and -  wtmp @ d# 16 rshift u<  and if
-            d# 4 lshift lk + cell+ @ wgo exit
+            2* cells lk + cell+ @ wgo exit
         then
         1+
     repeat

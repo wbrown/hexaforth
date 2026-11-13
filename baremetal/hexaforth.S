@@ -7,8 +7,6 @@
 //   0x00000-0x01fff  page 0: kernel code
 //   0x04000-0x0ffff  dictionary and data
 //   0x10000-0x1ffff  code pages for definitions made at run time
-//   DSTACK_BASE      data stack, grows up
-//   RSTACK_BASE      return stack, grows up
 //
 // Code is paged.  The program counter is a flat word address and a page is
 // 4096 words (8KB).  A 13-bit branch target with bit 12 clear is an absolute
@@ -33,9 +31,19 @@
 
         .equ    UART_BASE,   0x09000000      // PL011 on QEMU `virt`
         .equ    UART_FR,     0x18
-        .equ    DSTACK_BASE, 0x20000         // 256 cells each
-        .equ    RSTACK_BASE, 0x20800
-        .equ    MEM_TOP,     0x21000         // zeroed up to here at boot
+// Built with -DADDR_CELLS, an address is the number of a cell and not of a
+// byte, memory is 2^ADDR_BITS cells, and the stacks come after it.
+#ifdef ADDR_CELLS
+#define AT(r)   [MEM, r, lsl #3]
+        .equ    DSTACK_BASE, 8 << ADDR_BITS
+        .equ    KERNEL_ROM,  0x200           // strict: no store below this
+#else
+#define AT(r)   [MEM, r]
+        .equ    DSTACK_BASE, 0x20000
+        .equ    KERNEL_ROM,  0x1000
+#endif
+        .equ    RSTACK_OFF,  0x800           // 256 cells each
+        .equ    STACKS_SIZE, 0x1000
 
         .equ    IO_EMIT,     0xf1
         .equ    IO_KEY,      0xe0
@@ -49,16 +57,20 @@
 // cells, sends '!' and halts.  The Forth system does none of these.
         .macro  ALIGNED reg
 #ifdef STRICT
+#ifdef ADDR_CELLS
+        lsr     x17, \reg, #ADDR_BITS          // outside memory
+        cbnz    x17, unaligned
+#else
         tst     \reg, #7
         b.ne    unaligned
 #endif
+#endif
         .endm
 
-        .macro  INRANGE ptr, base
+        .macro  INRANGE ptr, off
 #ifdef STRICT
-        sub     x16, \ptr, MEM
-        sub     x16, x16, #DSTACK_BASE
-        sub     x16, x16, #(\base - DSTACK_BASE)
+        sub     x16, \ptr, STK
+        sub     x16, x16, #\off
         cmp     x16, #0x800
         b.hi    unaligned
 #endif
@@ -72,6 +84,7 @@ R       .req    x23     // top of return stack
 DS      .req    x24     // data stack pointer; DS[-1] is N
 RS      .req    x25     // return stack pointer
 UART    .req    x26
+STK     .req    x27     // host address of the data stack; the return stack follows
 INS     .req    x9      // current instruction
 INSw    .req    w9
 IO      .req    x10     // IN on the way into the ALU, OUT on the way out
@@ -84,14 +97,20 @@ OLDT    .req    x15
         .globl  _start, next, halt
 _start:
         adr     MEM, image
-        adr     x0, image_end
-        add     x1, MEM, #MEM_TOP
+        mov     x0, #DSTACK_BASE
+        add     STK, MEM, x0
+        add     x1, STK, #STACKS_SIZE
+#ifdef ADDR_CELLS
+        mov     x0, STK                         // clear the stacks,
+#else
+        adr     x0, image_end                   // and memory after the image
+#endif
 1:      str     xzr, [x0], #8
         cmp     x0, x1
         b.lo    1b
         mov     UART, #UART_BASE
-        add     DS, MEM, #DSTACK_BASE
-        add     RS, DS, #(RSTACK_BASE - DSTACK_BASE)
+        mov     DS, STK
+        add     RS, STK, #RSTACK_OFF
         mov     PC, #0
         mov     IOA, MEM
         mov     T, #0
@@ -115,12 +134,12 @@ jump:   tbnz    INSw, #12, 2f
         b.hi    alu
         mov     x10, T                          // 0branch
         ldr     T, [DS, #-8]!
-        INRANGE DS, DSTACK_BASE
+        INRANGE DS, 0
         cbz     x10, jump
         b       next
 
 call:   str     R, [RS], #8
-        INRANGE RS, RSTACK_BASE
+        INRANGE RS, RSTACK_OFF
         mov     R, PC
         b       jump
 
@@ -132,7 +151,7 @@ literal:
         lsl     x12, x12, x10
         tbnz    INSw, #14, 1f                   // imm+ : add to T
         str     T, [DS], #8
-        INRANGE DS, DSTACK_BASE
+        INRANGE DS, 0
         mov     T, #0
 1:      add     T, T, x12
         b       next
@@ -145,7 +164,7 @@ alu:    ldur    N, [DS, #-8]
         mov     IO, R                           // 3: R
         tbnz    w12, #0, 1f
         ALIGNED T
-        ldr     IO, [MEM, T]                    // 2: [T]
+        ldr     IO, AT(T)                       // 2: [T]
 1:      ubfx    w12, INSw, #4, #4               // alu_op
         adr     x16, alu_ops
         add     x16, x16, x12, lsl #3
@@ -188,7 +207,7 @@ alu_ops:
         b       alu_done
         lsl     IO, IO, T                       // 13  IN<<T
         b       alu_done
-        ldr     IO, [MEM, IO]                   // 14  [IN]
+        ldr     IO, AT(IO)                      // 14  [IN]
         b       alu_done
         cmp     IO, #IO_KEY                     // 15  io[IN]
         b.ne    io_read
@@ -231,11 +250,10 @@ io_read:
         cmp     IO, #IO_RSP
         mov     IO, #0
         b.ne    alu_done
-        sub     IO, RS, #(RSTACK_BASE - DSTACK_BASE)
+        sub     IO, RS, #RSTACK_OFF
         b       2f
 1:      mov     IO, DS
-2:      sub     IO, IO, MEM
-        sub     IO, IO, #DSTACK_BASE
+2:      sub     IO, IO, STK
         asr     IO, IO, #3
         b       alu_done
 swap_t: mov     T, N
@@ -247,8 +265,8 @@ alu_done:
         sbfx    RD, INS, #0, #2
         add     DS, DS, D, lsl #3
         add     RS, RS, RD, lsl #3
-        INRANGE DS, DSTACK_BASE
-        INRANGE RS, RSTACK_BASE
+        INRANGE DS, 0
+        INRANGE RS, RSTACK_OFF
         cmp     D, #0
         b.le    1f
         stur    T, [DS, #-8]                    // pushed: old T becomes N
@@ -268,10 +286,10 @@ alu_done:
 out_mem:
         ALIGNED OLDT
 #ifdef STRICT
-        cmp     OLDT, #0x1000                   // the first 4KB is never written
+        cmp     OLDT, #KERNEL_ROM               // the first 4KB is never written
         b.lo    unaligned
 #endif
-        str     IO, [MEM, OLDT]                 // 3: ->[T]
+        str     IO, AT(OLDT)                    // 3: ->[T]
         b       fix_r
 out_io: cmp     OLDT, #IO_EMIT                  // 2: ->io[T]
         b.ne    2f
@@ -301,19 +319,18 @@ out_io: cmp     OLDT, #IO_EMIT                  // 2: ->io[T]
         b.ne    fix_r
         str     IO, [IOA]                       // 0xc8
         b       fix_r
-8:      add     x12, MEM, IO, lsl #3            // new stack pointer, less its base
+8:      add     x12, STK, IO, lsl #3            // new stack pointer
         cmp     OLDT, #IO_SP
         b.ne    4f
         str     T, [DS]                         // T back to its cell first
-        add     DS, x12, #DSTACK_BASE
+        mov     DS, x12
         ldr     T, [DS]
         b       fix_r
 4:      cmp     OLDT, #IO_RSP
         b.ne    fix_r
         tbnz    RD, #63, 5f                     // R too, unless it was just popped
         str     R, [RS]
-5:      add     RS, x12, #DSTACK_BASE
-        add     RS, RS, #(RSTACK_BASE - DSTACK_BASE)
+5:      add     RS, x12, #RSTACK_OFF
         ldr     R, [RS]
         b       next
 out_t:  mov     T, IO                           // 0: ->T

@@ -1463,13 +1463,11 @@ header quit
 \ It has not yet been moved to cell addresses, so it is left out of a
 \ machine built with them.
 W64? [if]
-CELLADDR? [if] [else]
 meta
     $2000 org
 target
 
 include system.fs
-[then]
 [then]
 
 meta
