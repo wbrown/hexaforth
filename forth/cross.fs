@@ -990,6 +990,16 @@ variable in-depth
         loop
     loop drop
 ;
+\ A cell for each number of pixels from none to a whole cell: that many
+\ pixels at the left of a cell.
+:: lefts, ( -- )
+    tcalign
+    cell-bits 1+ 0 do
+        i cell-bits = if -1 else 1 i lshift 1- then
+        disp-left-low 0= if cell-bits i - lshift then
+        tcell,
+    loop
+;
 
 \ ," text" lays down a counted string in data space.
 :: ,"
