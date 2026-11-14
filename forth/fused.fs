@@ -35,41 +35,41 @@ $64a0 , $2 , hdr, over hdr, >
 $6494 , $2 , hdr, 2dup hdr, =
 $6464 , $2 , hdr, 2dup hdr, xor
 $647c , $1 , hdr, *
-$6440 , $2 , hdr, over hdr, and
 $64ec , $2 , hdr, nip hdr, @
+$6440 , $2 , hdr, over hdr, and
 $6804 , $2 , hdr, dup hdr, @
+$60c0 , $3 , hdr, over hdr, swap hdr, rshift
 $6c17 , $2 , hdr, swap hdr, r>
 $612d , $2 , hdr, swap hdr, >r
 $64bc , $1 , hdr, u<
-$60c0 , $3 , hdr, over hdr, swap hdr, rshift
 $642c , $1 , hdr, nip
 $6208 , $1 , hdr, io!
 $630c , $3 , hdr, over hdr, swap hdr, !
 $63e8 , $4 , hdr, swap hdr, @ hdr, swap hdr, !
-$6414 , $1 , hdr, tuck
 $6403 , $1 , hdr, rdrop
+$6414 , $1 , hdr, tuck
 $683c , $2 , hdr, @ hdr, +
 $60d0 , $3 , hdr, over hdr, swap hdr, lshift
 $64f0 , $1 , hdr, io@
 $689c , $2 , hdr, @ hdr, =
 $646c , $1 , hdr, xor
 $6501 , $2 , hdr, >r hdr, r@
+$6880 , $2 , hdr, @ hdr, invert
 $6b58 , $1 , hdr, or!
 $6c34 , $3 , hdr, over hdr, r@ hdr, +
 $600f , $2 , hdr, r> hdr, 2drop
 $65ed , $2 , hdr, @ hdr, >r
-$6880 , $2 , hdr, @ hdr, invert
 $6008 , $2 , hdr, drop hdr, nip
 $6c03 , $2 , hdr, r> hdr, nip
 $6084 , $2 , hdr, over hdr, invert
 $64b0 , $2 , hdr, over hdr, u>
 $6539 , $2 , hdr, + hdr, >r
+$686c , $2 , hdr, @ hdr, xor
 $6014 , $2 , hdr, swap hdr, dup
 $60e4 , $2 , hdr, over hdr, @
 $6460 , $2 , hdr, over hdr, xor
 $64e8 , $3 , hdr, nip hdr, nip hdr, @
 $6830 , $3 , hdr, @ hdr, over hdr, +
-$686c , $2 , hdr, @ hdr, xor
 $687c , $2 , hdr, @ hdr, *
 $6b68 , $1 , hdr, xor!
 $6f0f , $3 , hdr, r> hdr, swap hdr, !
@@ -138,6 +138,7 @@ $6c27 , $3 , hdr, nip hdr, dup hdr, r>
 $6c37 , $3 , hdr, over hdr, r> hdr, +
 $6c3c , $3 , hdr, r@ hdr, nip hdr, +
 $6c53 , $4 , hdr, drop hdr, dup hdr, r> hdr, or
+$6c84 , $2 , hdr, r@ hdr, invert
 $6c87 , $2 , hdr, r> hdr, invert
 $6c94 , $3 , hdr, over hdr, r@ hdr, =
 $6cb4 , $3 , hdr, over hdr, r@ hdr, u<
@@ -150,3 +151,10 @@ $6f03 , $3 , hdr, r> hdr, over hdr, !
 $6f3b , $4 , hdr, swapr> hdr, + hdr, swap hdr, !
 $6fec , $3 , hdr, @r hdr, swap hdr, !
 0 ,
+
+\ The names of an instruction's fields, as vm_opcodes.h has them: where
+\ the ALU's input is from, the operation, and where the result goes.
+\ Each is counted strings laid end to end.
+create f-in  ," N->IN" ," T->IN" ," [T]->IN" ," R->IN"
+create f-op  ," IN->" ," T<>N,IN->" ," T->N,IN->" ," IN+N" ," IN&N" ," IN|N" ," IN^N" ," IN*N" ," ~IN" ," IN==N" ," N<IN" ," Nu<IN" ," IN>>T" ," IN<<T" ," [IN]" ," io[IN]"
+create f-out  ," ->T" ," ->R" ," ->io[T]" ," ->[T]"

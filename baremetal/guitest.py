@@ -180,6 +180,19 @@ def read_text(shot, x0, y0, cols, rows):
     return lines
 
 
+def first_bold(shot, x0, y0, cols, rows):
+    """(row, column) of the first bold character in a grid of cells, or None."""
+    px = shot.load()
+    for r in range(rows):
+        for c in range(cols):
+            glyph = bytes(
+                sum((0 if px[x0 + c * 8 + b, y0 + r * 16 + y] else 1) << (7 - b) for b in range(8))
+                for y in range(16))
+            if any(glyph) and glyph not in FONT and glyph[:15] in BOLD:
+                return r, c
+    return None
+
+
 def shows(shot, text, x, y, font="sans", inverse=False):
     """Is this text on the screen at x, y?  For text that is not on a grid."""
     px = shot.load()
@@ -298,6 +311,41 @@ def main():
         check("a fused instruction is shown as its words",
               source[0] == ": atkinson" and source[13].endswith(" @ < while"), repr(source[13]))
         check("a headerless variable is shown by its label", source[1] == "  abm !", repr(source[1]))
+
+        # Words in bold are one instruction.  With the pointer on them, a box
+        # by them says which: its number, and its fields.  The box is a line
+        # down, or on the last two lines over them, and starts under the
+        # words unless that would take it past the edge of the window, so
+        # its text is looked for from there leftwards.
+        where = first_bold(shot, 253, 315, 45, 16)
+        told = ""
+        if where:
+            r, c = where
+            m.move(253 + c * 8 + 4, 315 + r * 16 + 1)
+            hover = m.screenshot(f"{out}/10-hover.png")
+            y = 315 + ((r + 1) * 16 + 1 if r < 14 else r * 16 - 17)
+            for x in range(254 + c * 8, 250, -1):
+                told = read_text(hover, x, y, min(40, (W - x) // 8), 1)[0]
+                if re.match(r"[0-9A-F]{4} \S*->IN \S+ ->\S+", told):
+                    break
+        check("the pointer on a fused instruction shows the machine's form of it",
+              re.match(r"[0-9A-F]{4} \S*->IN \S+ ->\S+", told) is not None, repr((where, told)))
+        # A word that is an instruction by itself says so too: rshift, on the
+        # third line.
+        told = ""
+        if "rshift" in source[2]:
+            c = source[2].index("rshift")
+            m.move(253 + c * 8 + 4, 315 + 2 * 16 + 1)
+            hover = m.screenshot(f"{out}/10-hover-word.png")
+            for x in range(254 + c * 8, 250, -1):
+                told = read_text(hover, x, 315 + 3 * 16 + 1, min(40, (W - x) // 8), 1)[0]
+                if told.startswith("60CC "):
+                    break
+        check("and on a word that is one instruction", told.startswith("60CC N->IN IN>>T ->T d-1"), repr(told))
+        m.move(756, 24)
+        again = m.screenshot(f"{out}/10-hover-off.png")
+        check("and the box goes when the pointer does",
+              read_text(again, 253, 315, 45, 16) == source, repr(read_text(again, 253, 315, 45, 16)[:3]))
 
         # ^W again: the Forth window.
         m.key("w", "ctrl")

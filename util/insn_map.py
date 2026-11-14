@@ -631,6 +631,11 @@ def write_fused(image, path, words, classes, canonical, joins=None):
             seq = found[ins].split()
             f.write(f"${ins:04x} , ${len(seq):x} , " + " ".join(f"hdr, {w}" for w in seq) + "\n")
         f.write("0 ,\n")
+        f.write("\n\\ The names of an instruction's fields, as vm_opcodes.h has them: where\n"
+                "\\ the ALU's input is from, the operation, and where the result goes.\n"
+                "\\ Each is counted strings laid end to end.\n")
+        for table, field in (("f-in", IN_MUX), ("f-op", ALU_OPS), ("f-out", OUT_MUX)):
+            f.write(f"create {table}  " + " ".join(f',\" {n}\"' for n in field) + "\n")
     single = sum(1 for text in found.values() if " " not in text)
     print(f"{single} instructions as one word and {len(found) - single} as more written to {path}; "
           f"{len(left)} needed four words"

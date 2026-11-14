@@ -211,7 +211,18 @@ header names-unload
 
 : h4 ( n -- ) dup d# 12 rshift hex1 dup d# 8 rshift hex1 dup d# 4 rshift hex1 hex1 ;
 
-: sraw ( w -- ) sb-begin [char] [ emit h4 [char] ] emit sb-end  sb sbn @ d# -1 tok ;
+\ While the word or words of an instruction are shown, or its number if it
+\ has none, smach holds the instruction: the Words window keeps it with
+\ where they went, to show the machine's form of it.  sgap is the line the
+\ word before was on, of the same instruction, or less than nothing.
+create smach 0 ,
+create sgap 0 ,
+
+: sraw ( w -- )
+    dup smach !  d# -1 sgap !
+    sb-begin [char] [ emit h4 [char] ] emit sb-end  sb sbn @ d# -1 tok
+    d# 0 smach !
+;
 : sname ( hdr -- ) \ a word, and a new line after one that stores
     dup CELL2 + >c count rot hxt
     >r 2dup + 1- c@ r> swap >r
@@ -305,8 +316,9 @@ create hv 0 ,
 ;
 
 : sfused ( w -- f ) \ show an instruction as its word or words, if it is in the table
-    fused? ?dup 0= if false exit then
-    dup @ d# 1 > sbold !                            \ more than one: the peephole made it
+    dup fused? ?dup 0= if drop false exit then      ( w a )
+    swap smach !  d# -1 sgap !
+    dup @ d# 1 > sbold !                            \ more than one word: they are one instruction
     dup @ swap 1+ swap bounds                       ( end a )
     begin
         2dupxor
@@ -315,7 +327,7 @@ create hv 0 ,
         1+
     repeat
     2drop
-    d# 0 sbold !
+    d# 0 sbold !  d# 0 smach !
     true
 ;
 
@@ -592,6 +604,13 @@ create crow 0 ,
 create ccol 0 ,
 create wtmp 0 ,
 create wwin 0 ,         \ the window
+create mt #1536 allot   \ instructions drawn: a cell each, place and size and then the instruction
+create nmt 0 ,
+create hov 0 ,          \ the instruction the pointer is over, or nothing,
+create hovp 0 ,         \ where its words are, as mt has it,
+create hovx 0 ,         \ and the box that says what it is: left, top and width
+create hovy 0 ,
+create hovw 0 ,
 header t-words create t-words ," Words"
 
 \ The tables of names are in memory while the window is the one in front.
@@ -676,20 +695,122 @@ header t-words create t-words ," Words"
                 d# 1 nlk +!
             then
         then
+        smach @ if                                  \ an instruction: the pointer on it says which
+            \ Words that are one instruction between them are underlined as
+            \ one: the line runs on under the space before each but the first.
+            sbold @  sgap @ srow @ =  and
+            dup if false lkx @ d# 8 - lky @ d# 15 + d# 8 hline then
+            negate >r                               ( R: xt, and 1 if the space is its too )
+            nmt @ d# 192 < if
+                scol @ r@ -  srow @ wsrc @ - d# 8 lshift or  lku @ r@ + d# 16 lshift or
+                smach @ d# 24 lshift or
+                nmt @ cells mt + !
+                d# 1 nmt +!
+            then
+            r> drop
+        then
     else
         drop 2drop
     then
     r> drop
+    smach @ if srow @ sgap ! then
     lku @ 1+ scol +!
 ;
 
 : gnl ( -- ) d# 1 srow +! ;
+
+\ ---- what an instruction is to the machine
+\
+\ Words in bold are one instruction between them, and are underlined as
+\ one, the space between them too; a number in brackets is an instruction
+\ that has no words; and many a plain word is an instruction by itself.
+\ With the pointer on any of them, a small
+\ box under it says what the instruction is: its number, and its fields as
+\ vm_opcodes.h names them, which is how it can be written in source.  The
+\ names are in fused.fs, laid end to end: f-in, f-op and f-out.
+
+: nth-name ( n table -- addr u ) \ the nth of some counted strings laid end to end
+    >c swap negate
+    begin
+        dup
+    while
+        swap count + swap 1+
+    repeat
+    drop count
+;
+
+: .delta ( n c -- ) \ how a stack moves, after the stack's letter; nothing if it does not
+    over 0= if 2drop exit then
+    space emit
+    dup d# 1 = if drop [char] + emit [char] 1 emit exit then
+    [char] - emit
+    d# 3 = if [char] 1 else [char] 2 then emit
+;
+
+: .mach ( w -- )
+    dup h4 space
+    dup d# 10 rshift d# 3 and f-in nth-name type space
+    dup d# 4 rshift d# 15 and f-op nth-name type space
+    dup d# 8 rshift d# 3 and f-out nth-name type
+    dup d# 2 rshift d# 3 and [char] d .delta
+    d# 3 and [char] r .delta
+;
+
+: hov-box ( -- ) \ where the box goes: under the words, or over them on the last lines
+    hov @ sb-begin .mach sb-end
+    sbn @ d# 3 lshift d# 6 + hovw !
+    hovp @ h# ff and d# 3 lshift d# 110 +
+    wwin @ CELL2 + @ d# 2 - hovw @ - min  d# 108 max  hovx !
+    hovp @ d# 8 rshift h# ff and
+    dup d# 14 < if 1+ d# 4 lshift else d# 4 lshift d# 18 - then  hovy !
+;
+
+: hov-inval ( -- ) hov @ if hovx @ hovy @ hovw @ d# 18 wwin @ win-inval then ;
+
+: hov-draw ( -- )
+    hov @ 0= if exit then
+    hov @ sb-begin .mach sb-end
+    true  hovx @ hovy @ hovw @ d# 18 fill-rect
+    false hovx @ hovy @ hovw @ d# 18 frame-rect
+    hovx @ d# 3 + hovy @ 1+ sb-draw
+;
+
+: hover ( -- place ins ) \ what the pointer is on, of the instructions drawn; or nothing twice
+    wwin @ dup 0= if d# 0 exit then
+    dup top <> if drop d# 0 d# 0 exit then
+    my @ over CELL + @ - d# 19 -  d# 4 rshift crow !
+    mx @ swap @ - 1- d# 112 -  d# 3 rshift ccol !
+    d# 0
+    begin
+        dup nmt @ <
+    while
+        dup cells mt + @ wtmp !
+        wtmp @ d# 8 rshift h# ff and crow @ =
+        ccol @ wtmp @ h# ff and -  wtmp @ d# 16 rshift h# ff and u<  and if
+            drop  wtmp @ h# ffffff and  wtmp @ d# 24 rshift  exit
+        then
+        1+
+    repeat
+    drop d# 0 d# 0
+;
+
+\ The window manager runs this when the pointer has moved.  The box is
+\ part of what the window draws, so it is put out of date where it was and
+\ where it is to be, and painted with the rest.
+: words-moved ( -- )
+    hover
+    over hovp @ =  over hov @ =  and if 2drop exit then
+    hov-inval
+    hov !  hovp !
+    hov @ if hov-box hov-inval then
+;
 
 header words-draw : words-draw ( win -- )
     wwin !
     winit @ 0= if
         true winit !  d# 0 wpick
         ['] words-front 'front !  words-front
+        ['] words-moved 'moved !
     then
     wxt @ xt>hdr ?dup if hdr>i else d# -1 then wsel !
     d# 0 wi !
@@ -706,10 +827,11 @@ header words-draw : words-draw ( win -- )
     repeat
     drop
     false d# 108 d# 0 d# 1 d# 256 fill-rect
-    d# 0 scol !  d# 0 srow !  d# 0 nlk !
+    d# 0 scol !  d# 0 srow !  d# 0 nlk !  d# 0 nmt !
     ['] gtok 'tok !  ['] gnl 'nl !
     wxt @ sdecomp
     srow @ 1+ wrows !
+    hov-draw
 ;
 
 \ What a key or a click changes is put out of date, and no more: the
@@ -736,7 +858,10 @@ create wtop0 0 ,
     then
 ;
 
-: wbefore ( win -- ) wwin !  wsel @ wsel0 !  wtop @ wtop0 ! ;
+: wbefore ( win -- ) \ before a key or a click, which takes the box away
+    wwin !  wsel @ wsel0 !  wtop @ wtop0 !
+    hov-inval  d# 0 hov !  d# 0 hovp !
+;
 
 : wpicked ( -- ) \ after wpick
     wtop @ wtop0 @ <> if wall exit then

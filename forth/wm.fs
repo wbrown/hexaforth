@@ -69,11 +69,16 @@ create arrow
 header cursor-off : cursor-off  ( -- ) cur-on @ if cursor-xor d# 0 cur-on ! then ;
 header cursor-show : cursor-show ( -- ) cur-on @ 0= if cursor-xor true cur-on ! then ;
 
+\ A window may want to know that the pointer has moved, to show something
+\ about what it is on.
+header 'moved create 'moved 0 ,     \ ( -- )
+
 : set-mouse ( x y -- )
     cursor-off
     fb-h @ d# 12 - min d# 0 max my !
     fb-w @ d# 8 - min d# 0 max mx !
     cursor-show
+    'moved @ ?dup if execute then
 ;
 
 \ ---- painting
