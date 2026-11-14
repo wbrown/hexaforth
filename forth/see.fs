@@ -252,19 +252,19 @@ create hv 0 ,
 
 : sfused ( w -- f ) \ show a fused instruction as its words, if it is in the table
     fused? ?dup 0= if false exit then
-    >c count fn ! fa !
+    >c count negate fn ! fa !                       \ the count goes up to nothing
     true sbold !
     begin
         fn @
     while
         fa @ c@ d# 32 = if
-            d# 1 fa +!  d# -1 fn +!
+            d# 1 fa +!  d# 1 fn +!
         else
             fa @ d# 0                               ( start length )
             begin
                 fn @ if fa @ c@ d# 32 <> else false then
             while
-                1+  d# 1 fa +!  d# -1 fn +!
+                1+  d# 1 fa +!  d# 1 fn +!
             repeat
             sword
         then
@@ -485,10 +485,11 @@ create hv 0 ,
 ;
 
 : sspaces ( n -- )
+    negate
     begin
-        dup 0>
+        dup 0<
     while
-        space 1-
+        space 1+
     repeat
     drop
 ;
@@ -549,11 +550,11 @@ header t-words create t-words ," Words"
 ;
 
 : nth ( i -- hdr|0 )
-    forth @
+    negate forth @
     begin
-        over 0> over 0<> and
+        over 0< over 0<> and
     while
-        @ swap 1- swap
+        @ swap 1+ swap
     repeat
     nip
 ;

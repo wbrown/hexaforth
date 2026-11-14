@@ -30,6 +30,12 @@ There are no opcodes, and a baseword is only a name for one of them.
 - Think of a word as data moving: from where, through what, to where, a
   cell at a time. Bytes, opcodes and per-element loops are habits from
   other machines
+- A loop goes up, not down. Adding one is one instruction; taking one away
+  is three, since a literal can only add what is not negative. A loop over
+  memory keeps no count: `bounds begin 2dupxor while ... 1+ repeat 2drop`,
+  and a second place is the first plus how far apart they are
+  (`cells-move`). A loop that only counts starts below nothing and goes up
+  to it: `negate begin dup while ... 1+ repeat drop`
 
 ## IMPORTANT: Read UNDERSTANDING.md First
 
@@ -231,8 +237,8 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,890 bytes
-with 64-bit cells, 3,906 with 32 and 3,850 with 16, against the 4,096 the
+task that runs past its part of a stack. The kernel's code is 3,886 bytes
+with 64-bit cells, 3,902 with 32 and 3,846 with 16, against the 4,096 the
 kernel ROM holds.
 
 On the desktop the Forth window's interpreter is a task with the upper half

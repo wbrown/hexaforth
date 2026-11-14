@@ -54,8 +54,9 @@ header tiff-open
     d# 2 t16@ d# 42 <> d# 38 -throw
     d# 4 t32@                                       ( ifd )
     dup t16@ swap d# 2 +                            ( n entry )
+    swap d# 12 * over + swap                        ( end entry )
     begin
-        over
+        2dupxor
     while
         dup t16@                                    ( n entry tag )
         d# 256 tw      tfield
@@ -66,7 +67,6 @@ header tiff-open
         d# 273 tstrips tentry
         d# 279 tcounts tentry
         drop d# 12 +
-        swap 1- swap
     repeat
     2drop
     tcomp @ d# 1 <> d# 38 -throw                    \ uncompressed only
@@ -132,7 +132,7 @@ create tbp  0 ,         \ the next cell
 : gray1 ( -- g ) d# 8 take h# ff and  tphoto @ 0= if d# 255 xor then ;
 
 : grayn ( -- g ) \ the first of several samples
-    gray1  tspp @ 1- begin dup while d# 8 take drop 1- repeat drop
+    gray1  tspp @ d# 1 begin 2dupxor while d# 8 take drop 1+ repeat 2drop
 ;
 
 W32+? [if]
