@@ -532,6 +532,11 @@ variable sizes      0 sizes !
 \ value made from those of the shape (lit-fn).  A rule is used when what
 \ it gives is shorter, which depends on the value.
 \
+\ The one being compiled may be a conditional branch.  It asks only whether
+\ the top of the stack is zero, so what is before it may be replaced by
+\ anything that leaves the same answer: `<> if` is `xor if`.  The branch
+\ itself stays.
+\
 \ A push is first put in the shortest form it has: `16 -` leaves a push of
 \ 16, an invert and an add of 1, which is a push of -16, and that is a
 \ push of 15 and an invert.
@@ -605,7 +610,7 @@ variable tk-n
 ;
 
 variable fl-n       \ how many tokens of the shape are before the one being compiled
-variable fl-trig    \ that one: 0 an instruction, 1 an add
+variable fl-trig    \ that one: 0 an instruction, 1 an add, 2 a conditional branch
 variable fl-x       \ and its instruction, or the number it adds
 variable fl-k
 variable fl-j
@@ -641,7 +646,7 @@ variable fl-rule
         rdrop
     loop
     drop
-    fl-trig @ if fl-x @  over if fl-j ! else fl-k ! then then
+    fl-trig @ 1 = if fl-x @  over if fl-j ! else fl-k ! then then
     drop
 ;
 
@@ -688,7 +693,7 @@ variable fl-rule
     fl-k @ fl-j @  fl-rule @ 32 rshift h# ff and  lit-fn  fl-v !
     fl-v @ abs 35 rshift if drop false exit then
     fl-cost  dup 0< if 2drop false exit then        ( before cost )
-    over 1+ < 0= if drop false exit then
+    over  fl-trig @ 2 <> if 1+ then  < 0= if drop false exit then   \ a branch is not replaced
     retract
     fl-rule @ fl-v @ fl-va @ fl-vb @ fl-emit
     true
@@ -697,7 +702,8 @@ variable fl-rule
 :noname ( insn -- insn false | true )
     dup alu-tok? if 0 fl-trig !  dup fl-x ! else
     dup lkind h# c000 = if 1 fl-trig !  dup lval fl-x ! else
-    false exit then then
+    dup h# e000 and h# 2000 = if 2 fl-trig ! else
+    false exit then then then
     toks
     tk-n @ 0= if false exit then
     tk-kind @ 2 = if                                \ a push that has a shorter form
@@ -711,7 +717,11 @@ variable fl-rule
         dup
     while
         dup fl-n !
-        fl-try if 2drop true exit then
+        fl-try if
+            drop
+            dup h# e000 and h# 2000 = if tcode, else drop then  \ a branch is still to be compiled
+            true exit
+        then
         1-
     repeat
     drop false
@@ -1199,8 +1209,8 @@ warnings on
 
 :: if
     settle
-    tcp @
     0 0branch
+    tcp @ 2 -                                   \ where the branch is, once it is compiled
 ;
 
 :: DOUBLE
@@ -1229,8 +1239,8 @@ warnings on
 ;
 :: while
     settle
-    tcp @
     0 0branch
+    tcp @ 2 -
 ;
 :: repeat
     swap 2/ >target ubranch

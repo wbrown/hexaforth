@@ -23,6 +23,11 @@ fetches a sequence makes are compared as a set.  What is found
 with one pair of values is then checked with others, large and small and
 negative, and (with --verify) run on vm.c.
 
+A shape may also end at a conditional branch, B.  The branch takes the top
+of the stack and asks only whether it is zero, so what comes before it may
+be replaced by anything that leaves the same answer to that: `<> if` is
+`xor if`, and `0<> if` is `if`.
+
 A rule says only that two things do the same.  cross.fs uses it when what
 it would compile is shorter than what is there, which depends on the value:
 a number that does not fit one instruction costs more.
@@ -86,6 +91,8 @@ def build(shape, alus, k, j, va=0xB111, vb=0xB222):
     """The instructions of a shape, or None if a value cannot be written."""
     out, a, lits = [], iter(alus), iter((k, j))
     for t in shape:
+        if t == "B":
+            continue
         if t == "V":
             out.append(va)
         elif t == "W":
@@ -161,12 +168,12 @@ def main():
     started = time.time()
 
     # ---- what a shape may be replaced by, for each pair of values tried first
-    def candidates(k, j, two, vs):
+    def candidates(k, j, two, vs, br):
         fns = [f for f in FNS if (two or f[1] == 0) and (f[0] or f[1])]
         table = {}
 
         def offer(seq, entry):
-            key = beh(seq)
+            key = beh(seq, br)
             if key is None:
                 return
             h = hash(key)
@@ -215,6 +222,13 @@ def main():
         yield "VaA", (reach,)
         yield "aVA", (reach,)
         yield "VWaA", (reach,)
+        # before a conditional branch
+        for s in ("aB", "LaB", "AaB", "VaB", "LVaB", "VLaB", "VWaB"):
+            yield s, (reach,)
+        for s in ("abB", "LabB", "aLbB", "AabB", "VabB", "aVbB"):
+            yield s, one
+        yield "abcB", three
+        yield "LabcB", three
 
     def combos(places):
         if len(places) == 1:
@@ -234,41 +248,48 @@ def main():
         """No two instructions next to each other that peephole.fs would join."""
         toks, it = [], iter(alus)
         for t in shape:
-            toks.append(next(it) if t in "abX" else None)   # a literal or a fetch is not one
+            toks.append(next(it) if t in "abcX" else None)  # a literal or a fetch is not one
         return not any(p is not None and q is not None and (p, q) in pairs
                        for p, q in zip(toks, toks[1:]))
 
     def holds(shape, alus, rs, x, y, f, k, j, va=0xB111, vb=0xB222):
         """None if the rule cannot be tried with these values, else whether it holds."""
+        br = shape[-1] == "B"
         before = build(shape, alus, k, j, va, vb)
         v = 0 if f is None else f[0] * k + f[1] * j + f[2]
         after = instantiate(rs, x, y, v, va, vb)
         if before is None or after is None:
             return None
-        want = beh(before)
+        want = beh(before, br)
         if want is None:
             return None
-        return want == beh(after)
+        return want == beh(after, br)
 
     rules = {}                                      # (shape, alus) -> (rshape, x, y, fn)
     cand = {}
     for shape, places in shapes():
         two = sum(t in "LA" for t in shape[:-1]) + (shape[-1] == "A") == 2
         vs = "".join(t for t in shape if t in "VW")
+        br = shape[-1] == "B"
+        length = len(shape) - br                    # the branch stays: it is not replaced
         found = 0
         for k, j in (PRIMARY if two else PRIMARY[:1]):
-            if (k, j, two, vs) not in cand:
-                cand[(k, j, two, vs)] = candidates(k, j, two, vs)
-            table = cand[(k, j, two, vs)]
+            if (k, j, two, vs, br) not in cand:
+                cand[(k, j, two, vs, br)] = candidates(k, j, two, vs, br)
+            table = cand[(k, j, two, vs, br)]
             for alus in combos(places):
                 if (shape, alus) in rules or not adjacent_ok(shape, alus):
                     continue
+                # what is shorter whatever follows was dealt with when its last
+                # instruction was compiled: only what the branch allows is new
+                if br and (shape[:-2] + "X", alus) in rules:
+                    continue
                 seq = build(shape, alus, k, j)
-                key = beh(seq)
+                key = beh(seq, br)
                 if key is None:
                     continue
                 entry = table.get(hash(key))
-                if entry is None or entry[0] >= len(shape):
+                if entry is None or entry[0] >= length:
                     continue
                 _, rs, x, y, f = entry
                 tried = [holds(shape, alus, rs, x, y, f, a, b, *VARS[n % len(VARS)])
@@ -279,12 +300,12 @@ def main():
         print(f"  {shape:5} {found:6} rules   ({time.time() - started:.0f}s)", flush=True)
 
     # ---- write them
-    kind = {"a": 1, "b": 1, "L": 2, "A": 3, "V": 4, "W": 4}
+    kind = {"a": 1, "b": 1, "c": 1, "L": 2, "A": 3, "V": 4, "W": 4}
     relem = {"x": 1, "y": 2, "L": 3, "A": 4, "V": 5, "W": 6}
     rows = []
     for (shape, alus), (rs, x, y, f) in rules.items():
         before = shape[:-1][::-1]                   # nearest the one being compiled first
-        sid = (shape[-1] == "A") << 12 | sum(kind[t] << 3 * n for n, t in enumerate(before))
+        sid = "XAB".index(shape[-1]) << 12 | sum(kind[t] << 3 * n for n, t in enumerate(before))
         key = sid
         for a in (list(alus) + [0, 0, 0])[:3]:
             key = key << 16 | a
@@ -315,7 +336,9 @@ def main():
                 v = 0 if f is None else f[0] * k + f[1] * j + f[2]
                 after = instantiate(rs, x, y, v, va, vb)
                 if before and after is not None and im.behaviour(before) is not None:
-                    claims.append((before, after))
+                    # before a branch only whether the top is zero is the same: ask that
+                    tail = [0x8000, 0x649C] if shape[-1] == "B" else []
+                    claims.append((before + tail, after + tail))
         return im.verify(ROOT, claims)
     return 0
 

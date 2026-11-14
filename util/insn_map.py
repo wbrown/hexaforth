@@ -211,14 +211,55 @@ class State:
             self.mem = ("store", self.mem, addr, out)
 
 
-def effect(instructions):
+def _flip(p):
+    return {"eq": "ne", "ne": "eq", "true": "false", "false": "true",
+            "zero": "nonzero", "nonzero": "zero"}[p[0]], *p[1:]
+
+
+def _equal(a, b):
+    """The fact that a and b are equal, in one form."""
+    if b == 0:
+        return is_zero(a)
+    if a == 0:
+        return is_zero(b)
+    return ("eq",) + tuple(sorted((a, b), key=repr))
+
+
+def is_zero(e):
+    """The fact that e is zero, in one form: what a conditional branch asks.
+    A comparison gives all ones or nothing, so the inverse of one is zero
+    when it held; and two things xored are zero when they are equal."""
+    if isinstance(e, int):
+        return ("zero", e & MASK)
+    if e[0] == "IN==N":
+        return _flip(_equal(e[1], e[2]))
+    if e[0] == "IN^N":
+        return _equal(e[1], e[2])
+    if e[0] in ("N<IN", "Nu<IN"):
+        return ("false", e)
+    if e[0] == "~" and not isinstance(e[1], int):
+        if e[1][0] == "IN==N":
+            return _equal(e[1][1], e[1][2])
+        if e[1][0] in ("N<IN", "Nu<IN"):
+            return ("true", e[1])
+    return ("zero", e)
+
+
+def effect(instructions, branch=False):
     """behaviour, with the fetches made in no order.  A fetch of memory changes
     nothing, and what it fetched says which stores were before it, so two
-    sequences that fetch the same cells in a different order do the same."""
+    sequences that fetch the same cells in a different order do the same.
+
+    With branch, the sequence is followed by a conditional branch, which takes
+    the top of the stack and asks only whether it is zero: so that is all
+    that is kept of it."""
     key = behaviour(instructions)
     if key is None:
         return None
-    return key[:4] + (tuple(sorted(key[4], key=repr)),) + key[5:]
+    d = key[0]
+    if branch:
+        d = d[:-1] + (is_zero(d[-1]),)
+    return (d,) + key[1:4] + (tuple(sorted(key[4], key=repr)),) + key[5:]
 
 
 def behaviour(instructions):
@@ -647,15 +688,19 @@ def compare_images(plain_path, opt_path):
             yield [w for n, (same, alt) in enumerate(parts) for w in (alt if pick.get(n) else same)]
 
     bad = runs = 0
-    for (kind, at_a, a), (_, at_b, b) in zip(plain, opt):
+    for n, ((kind, at_a, a), (_, at_b, b)) in enumerate(zip(plain, opt)):
         if kind == "ctl":
             same = a >> 13 == b >> 13 and (
                 a == b == 0 or moved.get(flat_target(at_a, a)) == flat_target(at_b, b))
         else:
             runs += 1
-            want = effect(b)
+            # A run that ends at a conditional branch need only leave the same
+            # answer to what the branch asks.
+            nxt = opt[n + 1] if n + 1 < len(opt) else None
+            br = bool(nxt and nxt[0] == "ctl" and nxt[2] >> 13 == 1 and nxt[1] == at_b + len(b))
+            want = effect(b, br)
             same = want is not None and (
-                want == effect(a) or any(want == effect(t) for t in translations(a)))
+                want == effect(a, br) or any(want == effect(t, br) for t in translations(a)))
         if not same:
             bad += 1
             text = lambda x: " ".join(f"{w:04x}" for w in x) if isinstance(x, list) else f"{x:04x}"
