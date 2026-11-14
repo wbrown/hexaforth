@@ -21,8 +21,11 @@
 \ An ALU instruction is named by finding a word that is that instruction
 \ and a return.  One that the peephole made by fusing two or three words is
 \ shown as those words, from the table in fused.fs, with sbold set so that
-\ they can be told from words that were compiled one by one.  One that is
-\ in neither place is shown as its number in brackets.
+\ they can be told from words that were compiled one by one.  The table is
+\ made from the image, so it has every such instruction that is in it: by
+\ up to four words, or failing that by its fields.  One that is in neither
+\ place, which only code compiled since can have, is shown as its number
+\ in brackets.
 \
 \ The tokens are laid out as source is written.  The name has the first
 \ line and the semicolon the last.  What is inside an if or a begin is
@@ -237,7 +240,7 @@ create hv 0 ,
         dup @
     while
         2dup @ = if nip cell+ exit then
-        c# 4 +
+        cell+ dup >c c@ CELLB + (c>) +              \ past the count and the characters
     repeat
     2drop d# 0
 ;
