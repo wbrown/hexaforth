@@ -160,6 +160,13 @@ LEFT-LOW? [if]
 \ region.  With no region neither does anything.  mnone is true if the
 \ region has nothing on the row, and whatever draws a row at a time looks
 \ at it first and leaves the row alone.
+\
+\ Where the region is one run of pixels across the row, as a window partly
+\ covered at a corner is, there is nothing to mask: mone is true, the run
+\ is from mx0 up to mx1, and what draws the row trims what it draws to
+\ that, as it does to the clip rectangle.  mmask is true only where a mask
+\ is to be used: where there is more than one run, or where mforce says
+\ that whoever is drawing does not trim.
 
 create mrow  meta disp-stride cell-bytes * target allot
 create mk0 1 ,
@@ -169,6 +176,11 @@ create my 0 ,
 create mfound 0 ,
 create mnone 0 ,
 create mrgn 0 ,         \ the region the mask is of, or 0 if none is needed
+create mone 0 ,
+create mx0 0 ,
+create mx1 0 ,
+create mmask 0 ,
+create mforce 0 ,
 
 : mspan ( x0 x1 -- ) \ set those pixels of mrow
     fb-w @ min swap d# 0 max tuck - hn !
@@ -203,10 +215,14 @@ create mrgn 0 ,         \ the region the mask is of, or 0 if none is needed
     dup row mbase !
     dup mk0 @ < 0=  over mk1 @ <  and if drop exit then
     mrow DISP-STRIDE bounds begin 2dupxor while d# 0 over ! 1+ repeat 2drop
+    d# 0 mone !
     mfind dup 0= mnone !
     ?dup if
         dup @ mk0 !
         dup CELL + @ 0= mnone !
+        dup CELL + @ d# 2 = if
+            true mone !  dup CELL2 + @ mx0 !  dup c# 3 + @ mx1 !
+        then
         dup CELL2 + swap CELL + @ bounds            ( end p )
         begin
             2dupxor
@@ -216,11 +232,19 @@ create mrgn 0 ,         \ the region the mask is of, or 0 if none is needed
         repeat
         2drop
     then
+    mforce @  mone @ 0=  or mmask !
 ;
 
 : rm ( mask a -- mask' a )
-    mrgn @ if dup mbase @ - mrow + @ rot and swap then
+    mmask @ if dup mbase @ - mrow + @ rot and swap then
 ;
+
+: span-clip ( x n -- x' n' ) \ what of n pixels from x is in the row's one run
+    over mx0 @ < if + mx0 @ tuck - then
+    over + mx1 @ min over -
+;
+
+: band-stale ( -- ) d# 1 mk0 !  d# 0 mk1 ! ;       \ the band is to be found again
 
 \ Drawing is clipped to a rectangle and to a region.  A region that is a
 \ rectangle, as most are, needs no mask: it and the rectangle asked for are
@@ -232,6 +256,7 @@ create mrgn 0 ,         \ the region the mask is of, or 0 if none is needed
     clip0 @ clip !  clip0 CELL + @ clip CELL + !
     clip0 CELL2 + @ clip CELL2 + !  clip0 c# 3 + @ clip c# 3 + !
     d# 0 mrgn !  d# 1 mk0 !  d# 0 mk1 !  d# 0 mnone !
+    d# 0 mone !  d# 0 mmask !  d# 0 mforce !
     clip-rgn @ ?dup if
         dup @ d# 6 = if                             \ a rectangle: y 2 x0 x1, y 0
             >r
@@ -312,9 +337,13 @@ header clip-to : clip-to ( x y w h -- ) \ what is in both this and the clip rect
 header pat-hline : pat-hline ( x y n -- )
     >r >screen r>
     over dup clip CELL + @ < swap clip c# 3 + @ < 0= or if drop 2drop exit then
-    over rmask
-    mnone @ if drop 2drop exit then
-    swap >r clip-span r> swap
+    mrgn @ if                                       \ a region that is not a rectangle
+        over rmask
+        mnone @ if drop 2drop exit then
+        swap >r clip-span  mone @ if span-clip then  r> swap
+    else
+        swap >r clip-span r> swap
+    then
     dup 0> if slab else drop 2drop then
 ;
 
@@ -364,6 +393,7 @@ create boff 0 ,         \ pixels to shift the source left by
 create bi0 0 ,          \ and the cell of rowbuf the first cell comes from
 create bp 0 ,
 create bstore 0 ,       \ true in copy mode: a whole cell may be stored
+create bp0 0 ,          \ the cell of rowbuf a row's first cell comes from
 create rowbuf  meta disp-stride 4 + cell-bytes * target allot
 
 : src-row ( y -- a )
@@ -402,11 +432,10 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
     bn @ if false exit then
     hn @ PXCELL < if false exit then
     bstore @ 0= if false exit then
-    mrgn @ if ba @ mbase @ - mrow + @ 1+ 0= else true then
+    mmask @ if ba @ mbase @ - mrow + @ 1+ 0= else true then
 ;
 
-: row-out ( -- ) \ hn pixels from rowbuf to the row at ba, bn
-    bi0 @ rowbuf + bp !
+: row-out ( -- ) \ hn pixels from the cell of rowbuf at bp to the row at ba, bn
     begin
         hn @ 0>
     while
@@ -423,6 +452,12 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
     repeat
 ;
 
+: whole-row ( row -- ) \ all of the row that is copied
+    bw @ hn !  bp0 @ bp !
+    bdx @ swap bdy @ + prow ba ! bn !
+    row-out
+;
+
 header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
     bh ! bw ! bdy ! bdx ! ssy ! ssx ! sbm !
     ox @ bdx +!  oy @ bdy +!
@@ -435,18 +470,35 @@ header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
     ssx @ PXMASK and  bdx @ PXMASK and -  PXCELL +
     dup PXMASK and boff !  PXSHIFT rshift bi0 !
     'mode @ ['] m-copy = bstore !
+    bi0 @ rowbuf + bp0 !
     d# 0 br !
     begin
         br @ bh @ <
     while
         ssy @ bdy @ < if bh @ 1- br @ - else br @ then  ( row )
-        dup bdy @ + rmask
-        mnone @ if
-            drop
+        mrgn @ if                                   \ a region that is not a rectangle
+            dup bdy @ + rmask
+            mnone @ if
+                drop
+            else
+                dup ssy @ + row-aside
+                mone @ if                           \ only the part in the row's one run
+                    bdx @ bw @ span-clip            ( row x n )
+                    dup 0> if
+                        hn !
+                        dup PXSHIFT rshift  bdx @ PXSHIFT rshift -  bp0 @ + bp !
+                        swap bdy @ + prow ba ! bn !
+                        row-out
+                    else
+                        2drop drop
+                    then
+                else
+                    whole-row
+                then
+            then
         else
             dup ssy @ + row-aside
-            bdx @ swap bdy @ + prow ba ! bn !
-            bw @ hn !  row-out
+            whole-row
         then
         d# 1 br +!
     repeat
@@ -659,8 +711,7 @@ INK-BLACK? [if] [else]
     cx @ endmask
 ;
 
-: tflush ( -- ) \ store the cells gathered, and start on the next
-    colmask tcm !
+: put-rows ( -- ) \ the cells gathered take the place of what is there
     d# 0
     begin
         dup tn @ <
@@ -672,20 +723,41 @@ INK-BLACK? [if] [else]
         else
             row cx @ PXSHIFT rshift + da !
             tcm @ da @ rm drop                      ( i mask )
-            tor @ if
-                over tband + @ and  da @ or!
+            dup 1+ if
+                ?dup if over tband + @ over and swap da @ seg! then
             else
-                dup 1+ if
-                    ?dup if over tband + @ over and swap da @ seg! then
-                else
-                    drop dup tband + @ da @ !
-                then
+                drop dup tband + @ da @ !
             then
         then
         d# 0 over tband + !
         1+
     repeat
     drop
+;
+
+: or-rows ( -- ) \ their black is added to what is there
+    d# 0
+    begin
+        dup tn @ <
+    while
+        dup r0 @ + ty @ +
+        dup rmask
+        mnone @ if
+            drop
+        else
+            row cx @ PXSHIFT rshift + da !
+            tcm @ da @ rm drop
+            over tband + @ and  da @ or!
+        then
+        d# 0 over tband + !
+        1+
+    repeat
+    drop
+;
+
+: tflush ( -- ) \ store the cells gathered, and start on the next
+    colmask tcm !
+    tor @ if or-rows else put-rows then
     PXCELL cx +!  d# 0 hi !
 ;
 
@@ -803,12 +875,11 @@ INK-BLACK? [if] BANKED? [if] [else]
 
 [then] [then]
 
-header draw-text : draw-text ( addr u x y -- ) \ in the port's font, clipped to the pixel
-    ty ! tx ! tu ! ta !
-    ox @ tx +!  oy @ ty +!
-    clip CELL + @ ty @ - d# 0 max r0 !
-    clip c# 3 + @ ty @ - font @ @ min MAX-ROWS min r1 !
-    r0 @ r1 @ < 0= if exit then
+create ttrim 0 ,        \ true if the clip rectangle was trimmed to the region's one run
+create tcx0 0 ,         \ and what its sides were
+create tcx1 0 ,
+
+: text-body ( -- ) \ rows r0 up to r1 of the string, clipped to the clip rectangle
     font-open
     glyphs
     gn @ 0= if exit then
@@ -825,7 +896,7 @@ INK-BLACK? [if] [else]
 INK-BLACK? [if]
     text-or @ inverse @ 0= and tor !
 BANKED? [if] [else]
-    tor @  styled @ 0= and  mrgn @ 0= and if text-fast exit then
+    tor @  styled @ 0= and  mrgn @ 0= ttrim @ or  and if text-fast exit then
 [then]
 [else]
     d# 0 tor !
@@ -854,6 +925,34 @@ BANKED? [if] [else]
     repeat
     2drop
     hi @ if tflush then
+;
+
+\ A line of text is a few rows, and under a region they are nearly always
+\ all in one band of it.  If that band is one run of pixels, the clip
+\ rectangle is trimmed to the run for as long as the text is drawn, and
+\ nothing is masked.  Otherwise the text is masked a row at a time.
+header draw-text : draw-text ( addr u x y -- ) \ in the port's font, clipped to the pixel
+    ty ! tx ! tu ! ta !
+    ox @ tx +!  oy @ ty +!
+    clip CELL + @ ty @ - d# 0 max r0 !
+    clip c# 3 + @ ty @ - font @ @ min MAX-ROWS min r1 !
+    r0 @ r1 @ < 0= if exit then
+    d# 0 ttrim !
+    mrgn @ if
+        ty @ r0 @ + rmask
+        ty @ r1 @ + mk1 @ > 0= if                   \ every row is in this band
+            mnone @ if exit then
+            mone @ if
+                true ttrim !
+                clip @ tcx0 !  clip CELL2 + @ tcx1 !
+                clip @ mx0 @ max clip !  clip CELL2 + @ mx1 @ min clip CELL2 + !
+            then
+        then
+        ttrim @ 0= if true mforce !  band-stale then
+    then
+    text-body
+    ttrim @ if tcx0 @ clip !  tcx1 @ clip CELL2 + ! then
+    mforce @ if d# 0 mforce !  band-stale then
 ;
 
 create ch1 0 ,

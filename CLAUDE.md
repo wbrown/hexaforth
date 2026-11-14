@@ -306,7 +306,12 @@ Page 1 is what the rest is built on:
     `port!` changes port; a port not in use is a record of eighteen cells.
     A clip region that is a rectangle, as most are, needs no mask: it and
     the clip rectangle asked for are one smaller rectangle (`reclip`), and
-    only a region that is not one is masked a row at a time
+    only a region that is not one is looked at a row at a time. Even then,
+    where the region is one run of pixels across the row (a window covered
+    at a corner), what is drawn is trimmed to the run and nothing is masked
+    (`mone`); a line of text whose rows are all in such a band has the clip
+    rectangle trimmed for as long as it is drawn. A mask is used only where
+    a row has more than one run
   - a *slab* is a run of pixels in the pattern and mode, and every fill is
     made of slabs (`pat-hline`, `pat-rect`). Modes are `copy-mode`
     `or-mode` `xor-mode` `bic-mode`; a pattern is eight rows of eight
