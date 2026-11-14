@@ -152,7 +152,9 @@ LEFT-LOW? [if]
 \ screen with a pixel set wherever the region is, for the rows from mk0 up
 \ to mk1, which are all the same in the region.  rmask makes it so for a
 \ row, and rm then takes out of a mask the pixels that are not in the
-\ region.  With no region neither does anything.
+\ region.  With no region neither does anything.  mnone is true if the
+\ region has nothing on the row, and whatever draws a row at a time looks
+\ at it first and leaves the row alone.
 
 create mrow  meta disp-stride cell-bytes * target allot
 create mk0 1 ,
@@ -160,6 +162,7 @@ create mk1 0 ,
 create mbase 0 ,        \ the first cell of the row on the screen
 create my 0 ,
 create mfound 0 ,
+create mnone 0 ,
 
 : mspan ( x0 x1 -- ) \ set those pixels of mrow
     fb-w @ min swap d# 0 max tuck - hn !
@@ -194,8 +197,10 @@ create mfound 0 ,
     dup row mbase !
     dup mk0 @ < 0=  over mk1 @ <  and if drop exit then
     mrow DISP-STRIDE bounds begin 2dupxor while d# 0 over ! 1+ repeat 2drop
-    mfind ?dup if
+    mfind dup 0= mnone !
+    ?dup if
         dup @ mk0 !
+        dup CELL + @ 0= mnone !
         dup CELL2 + swap CELL + @ bounds            ( end p )
         begin
             2dupxor
@@ -211,7 +216,7 @@ create mfound 0 ,
     clip-rgn @ if dup mbase @ - mrow + @ rot and swap then
 ;
 
-header rgn-clip! : rgn-clip! ( rgn|0 -- ) clip-rgn !  d# 1 mk0 !  d# 0 mk1 ! ;
+header rgn-clip! : rgn-clip! ( rgn|0 -- ) clip-rgn !  d# 1 mk0 !  d# 0 mk1 !  d# 0 mnone ! ;
 
 header slab
 : slab ( x y n -- )
@@ -269,19 +274,23 @@ header pat-hline : pat-hline ( x y n -- )
     >r >screen r>
     over dup clip CELL + @ < swap clip c# 3 + @ < 0= or if drop 2drop exit then
     over rmask
+    mnone @ if drop 2drop exit then
     swap >r clip-span r> swap
     dup 0> if slab else drop 2drop then
 ;
 
-header pat-rect : pat-rect ( x y w h -- )
+create py1 0 ,          \ past the last row of a rectangle that is to be drawn
+
+header pat-rect : pat-rect ( x y w h -- ) \ only the rows the clip rectangle has
+    >r over r> +  clip c# 3 + @ oy @ - min  py1 !
+    swap  clip CELL + @ oy @ - max  swap            ( x y w )
     begin
-        dup 0>
+        over py1 @ <
     while
-        >r >r
-        2dup r@ pat-hline
-        1+ r> r> 1-
+        >r 2dup r@ pat-hline
+        1+ r>
     repeat
-    2drop 2drop
+    drop 2drop
 ;
 
 \ ---- copying
@@ -297,6 +306,10 @@ header pat-rect : pat-rect ( x y w h -- )
 \ the bottom up when they move down.  The source and the destination are
 \ seldom lined up, so each cell of the destination is made from two of the
 \ source, by a shift that is the same for every cell.
+\
+\ A cell of the destination that is wholly inside what is copied, when the
+\ mode is copy and the region has all of it, is just stored: nothing of
+\ what was there is kept, so it is not fetched.
 
 header screen create screen 0 , 0 ,
 
@@ -311,6 +324,7 @@ create br 0 ,           \ the row being copied
 create boff 0 ,         \ pixels to shift the source left by
 create bi0 0 ,          \ and the cell of rowbuf the first cell comes from
 create bp 0 ,
+create bstore 0 ,       \ true in copy mode: a whole cell may be stored
 create rowbuf  meta disp-stride 4 + cell-bytes * target allot
 
 : src-row ( y -- a )
@@ -329,19 +343,34 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
     drop 2drop
 ;
 
+: bsrc ( -- raw ) \ the cell of the source that goes to the cell at ba
+    bp @ @
+    boff @ if
+        boff @ PIXL  bp @ 1+ @ PXCELL boff @ - PIXR  or
+    then
+;
+
+: whole? ( -- f ) \ is the cell at ba to be stored as it comes?
+    bn @ if false exit then
+    hn @ PXCELL < if false exit then
+    bstore @ 0= if false exit then
+    clip-rgn @ if ba @ mbase @ - mrow + @ 1+ 0= else true then
+;
+
 : row-out ( -- ) \ hn pixels from rowbuf to the row at ba, bn
     bi0 @ rowbuf + bp !
     begin
         hn @ 0>
     while
-        PXCELL bn @ - hn @ min
-        dup leftn bn @ PIXR                         ( pixels mask )
-        bp @ @
-        boff @ if
-            boff @ PIXL  bp @ 1+ @ PXCELL boff @ - PIXR  or
+        whole? if
+            bsrc ba @ !
+            PXCELL negate hn +!
+        else
+            PXCELL bn @ - hn @ min
+            dup leftn bn @ PIXR                     ( pixels mask )
+            bsrc RAW>SRC swap ba @ rm 'mode @ execute
+            negate hn +!
         then
-        RAW>SRC swap ba @ rm 'mode @ execute
-        negate hn +!
         d# 0 bn !  d# 1 ba +!  d# 1 bp +!
     repeat
 ;
@@ -357,15 +386,20 @@ header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
     bw @ 0>  bh @ 0>  and 0= if exit then
     ssx @ PXMASK and  bdx @ PXMASK and -  PXCELL +
     dup PXMASK and boff !  PXSHIFT rshift bi0 !
+    'mode @ ['] m-copy = bstore !
     d# 0 br !
     begin
         br @ bh @ <
     while
         ssy @ bdy @ < if bh @ 1- br @ - else br @ then  ( row )
-        dup ssy @ + row-aside
         dup bdy @ + rmask
-        bdx @ swap bdy @ + prow ba ! bn !
-        bw @ hn !  row-out
+        mnone @ if
+            drop
+        else
+            dup ssy @ + row-aside
+            bdx @ swap bdy @ + prow ba ! bn !
+            bw @ hn !  row-out
+        then
         d# 1 br +!
     repeat
 ;
@@ -606,21 +640,23 @@ INK-BLACK? [if] [else]
         tr @ r1 @ <
     while
         ty @ tr @ + rmask
-        ty @ tr @ + row  tx @ PXSHIFT rshift +  da !
-        tx @ PXMASK invert and cx !
-        tx @ PXMASK and hi !
-        d# 0 acc !
-        gbuf @ gn @ bounds
-        begin
-            2dupxor
-        while
-            dup @  dup @ tr @ + @  swap CELL + @    ( pixels n )
-            styled @ if style then
-            +glyph
-            1+
-        repeat
-        2drop
-        hi @ if put then
+        mnone @ 0= if
+            ty @ tr @ + row  tx @ PXSHIFT rshift +  da !
+            tx @ PXMASK invert and cx !
+            tx @ PXMASK and hi !
+            d# 0 acc !
+            gbuf @ gn @ bounds
+            begin
+                2dupxor
+            while
+                dup @  dup @ tr @ + @  swap CELL + @    ( pixels n )
+                styled @ if style then
+                +glyph
+                1+
+            repeat
+            2drop
+            hi @ if put then
+        then
         d# 1 tr +!
     repeat
 ;
