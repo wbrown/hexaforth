@@ -97,15 +97,47 @@ create k-store  ," !"
     repeat
 ;
 
+\ The build leaves two tables of the dictionary as it was then: its words by
+\ execution token, and those that only push a number by the number.  Each
+\ is how many, then a cell for each in order: the key, above sixteen bits
+\ of the header's address.  So only the words made since are searched for
+\ one at a time, back to forth0, which was the newest then.
+create forth0 0 ,
+create xtab 0 ,
+create dtab 0 ,
+create tlo 0 ,          \ where the part of a table still to look in starts,
+create tn 0 ,           \ and how many entries it is
+
+: tfind ( key table -- hdr|0 ) \ by halving
+    dup @ tn !  1+ tlo !
+    begin
+        tn @
+    while
+        tn @ d# 1 rshift                            ( key half )
+        2dup tlo @ + @                              ( key half key entry )
+        dup>r d# 16 rshift
+        2dup = if 2drop 2drop r> h# ffff and exit then
+        u> if                                       \ it is after the middle one,
+            dup 1+ tlo +!  invert tn +!
+        else                                        \ or before it
+            tn !
+        then
+        rdrop
+    repeat
+    drop d# 0
+;
+
 : xt>hdr ( xt -- hdr|0 ) \ the word that starts at xt: in the dictionary, or a label
     stmp !  d# 0 slab !  forth @
     begin
-        dup
+        dup forth0 @ <>
     while
         dup hxt stmp @ = if exit then
         @
     repeat
-    drop xt>lbl  dup 0<> slab !
+    drop
+    stmp @ xtab @ tfind ?dup if exit then
+    xt>lbl  dup 0<> slab !
 ;
 
 : data>lbl ( a -- lbl|0 ) \ the label for the data at a
@@ -192,18 +224,28 @@ create hv 0 ,
     h# 7403 = if hv @ true else false then
 ;
 
-: lit>hdr ( n -- hdr|0 )
-    stmp !  forth @
+: lit-walk ( stop -- hdr|0 ) \ the newest word, back to stop, that only pushes the number in stmp
+    >r forth @
     begin
-        dup
+        dup r@ <>
     while
         dup hxt dup sxt @ <> if
-            hval if stmp @ = if exit then then
+            hval if stmp @ = if rdrop exit then then
         else
             drop
         then
         @
     repeat
+    rdrop drop d# 0
+;
+
+\ The word being shown is not one of them: that is its whole definition.
+\ If the table has it for the number, an older word may push it too.
+: lit>hdr ( n -- hdr|0 )
+    stmp !
+    forth0 @ lit-walk ?dup if exit then
+    stmp @ dtab @ tfind dup 0= if exit then
+    dup hxt sxt @ = if drop d# 0 lit-walk then
 ;
 
 \ A name found by xt>hdr, leaning if it is a label.

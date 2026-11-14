@@ -1030,6 +1030,75 @@ variable in-depth
 ;
 
 \ ," text" lays down a counted string in data space.
+\ Tables of the dictionary for the decompiler, made when the build is done
+\ and every word is where it will be: the words by execution token, and
+\ those whose code only pushes a number (a variable, or anything made with
+\ create) by the number.  An entry is a cell, the key above sixteen bits
+\ of the header's address, and they are in order, so that one is found by
+\ halving.  The words are looked for newest first, as a search of the
+\ dictionary would find them, and the first with a key is the one kept.
+
+create nt 2048 cells allot
+variable nt#  0 nt# !
+
+: nt-add ( hdr key -- )
+    nt# @ 0 ?do
+        dup nt i cells + @ 16 rshift = if 2drop unloop exit then
+    loop
+    16 lshift or  nt nt# @ cells + !  1 nt# +!
+;
+: nt-sort ( -- )
+    nt# @ 2 < if exit then
+    nt# @ 1 do
+        nt i cells + @  i                           ( x j )
+        begin
+            dup 0> if 2dup 1- cells nt + @ u< else false then
+        while
+            dup 1- cells nt + @  over cells nt + !  1-
+        repeat
+        cells nt + !
+    loop
+;
+: nt-lay ( var -- ) \ lay the table down: how many, then the entries; var is told where
+    tcalign  there taddr swap tvar!
+    nt# @ tcell,
+    nt# @ 0 ?do nt i cells + @ tcell, loop
+    0 nt# !
+;
+
+: hdr-link ( a -- a' ) byte-shift lshift tflash + @ ;
+: hdr-xt   ( a -- xt ) byte-shift lshift cell-bytes + tflash + @ $ffff and ;
+
+: tlv ( w -- n ) dup $fff and swap 12 rshift 3 and 12 * lshift ;
+: lit? ( w kind -- f ) over $c000 and =  swap $3000 and $3000 <> and ;
+: thval ( xt -- n true | false ) \ the number, if the code there only pushes one (hval in see.fs)
+    2*  dup t@ dup $8000 lit? 0= if 2drop false exit then
+    tlv swap                                        ( n a )
+    begin
+        2 + dup t@ dup $c000 lit?
+    while
+        tlv rot + swap
+    repeat
+    nip $7403 = if true else drop false then
+;
+
+: name-tables ( xtab dtab forth0 -- ) \ the three variables of see.fs
+    cell-bits 64 <> abort" name-tables is for 64-bit cells"
+    link @ swap tvar!
+    swap                                            ( dtab xtab )
+    link @ begin dup while dup dup hdr-xt nt-add  hdr-link repeat drop
+    nt-sort nt-lay
+    link @ begin
+        dup
+    while
+        dup hdr-xt thval if
+            dup $10000 u< if over swap nt-add else drop then
+        then
+        hdr-link
+    repeat drop
+    nt-sort nt-lay
+;
+
 :: hdr, ( "name" -- ) \ a cell that holds the address of the word's header
     bl parse headers-wordlist search-wordlist 0= abort" hdr, of a word with no header"
     >body @  tcalign tcell,
@@ -1112,11 +1181,11 @@ variable in-depth
 \ so code is laid down for it that pushes the data's address, as a word
 \ made with create at run time has.
 :: create
+    tcalign                                 \ before the label: it holds where the data will be
     named? dup >r 0= labelling and if
         0 (label)
         there taddr 1 cell-bits 1- lshift or swap tcell!
     then
-    tcalign
     r> if
         there taddr literal  s" exit" evaluate  label
     then

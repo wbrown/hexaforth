@@ -425,6 +425,14 @@ Pages 8 and 9 are the drivers and the desktop:
   leaves those instructions out until `nuc.fs` gives them one. Regenerate
   and rebuild after changing code
 - `desk.fs`: `desktop`, and `cold`, which the kernel runs at boot
+- when all of that is compiled, `name-tables` in `cross.fs` lays down two
+  tables of the dictionary for the decompiler: its words by execution
+  token, and those that only push a number (a variable, anything made with
+  `create`) by the number. An entry is a cell, the key above the header's
+  address, and they are in order, so `tfind` in `see.fs` finds one by
+  halving. Only words made since the build are searched for one at a time,
+  back to `forth0`. Labels are not in the tables (there is not the room
+  for 1,300 more entries), and are still searched in a row
 
 On a 64-bit machine `cross.fs` also keeps the name of every definition that
 has no header, in a second chain headed by `labels` and laid out as the
