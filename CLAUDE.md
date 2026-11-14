@@ -346,7 +346,9 @@ Page 1 is what the rest is built on:
     that is not inverse only adds its black to what is there; then plain
     text with no region to mask goes straight to the screen with `or!`, and
     no band is gathered. The window manager sets it for what a window
-    draws, having just made the window white
+    draws, having just made the window white. A font opened out says, for
+    each glyph, which rows have any black in them, and text that only adds
+    its black draws only those
   - a fill that replaces what is there, with nothing masked, merges the
     cell at each end under its mask and stores the row of the pattern into
     every cell between (`fast-slab`); a copy of the same kind from cells

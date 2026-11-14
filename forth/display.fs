@@ -615,9 +615,12 @@ header xor8
 \
 \ A strike is small, but taking a glyph's row out of it is a shift and a
 \ mask across two cells.  So the first time a font is used it is opened
-\ out, into memory from halloc: two cells for each glyph, where its rows
-\ are and how wide it is, and then the rows, each in a cell of its own
-\ with the glyph at the left.  Drawing reads only that.
+\ out, into memory from halloc: four cells for each glyph, and then the
+\ rows, each in a cell of its own with the glyph at the left.  The four
+\ are where its rows are, how wide it is, the first row that has any black
+\ in it, and the row after the last that has.  Drawing reads only that.
+\ Text that only adds its black skips the rows above and below: most of a
+\ glyph's rows have nothing in them, and a space has none.
 
 create kf 0 ,           \ the font being opened out
 create kc 0 ,           \ what it is opened out into
@@ -625,6 +628,7 @@ create ki 0 ,           \ the glyph
 create kr 0 ,           \ the row
 create kx 0 ,           \ where the glyph is in the strike
 create kw 0 ,           \ and how wide
+create kg 0 ,           \ its cells in what is opened out
 
 : krow ( -- pixels ) \ row kr of the glyph, at the left of a cell
     kf @ c# 6 + kf @ CELL2 + @ +                    \ the strike, after the table
@@ -640,20 +644,26 @@ create kw 0 ,           \ and how wide
 
 : open-font ( font -- a )
     kf !
-    kf @ CELL2 + @  dup 2*  swap kf @ @ * +  >c halloc kc !
+    kf @ CELL2 + @  dup d# 2 lshift  swap kf @ @ * +  >c halloc kc !
     d# 0 ki !
     begin
         ki @ kf @ CELL2 + @ <
     while
         kf @ c# 5 + ki @ +  dup @ kx !  1+ @ kx @ - kw !
-        kc @  kf @ CELL2 + @ 2* +  ki @ kf @ @ * +  ( rows )
-        dup kc @ ki @ 2* + !
-        kw @ kc @ ki @ 2* + CELL + !
+        kc @ ki @ d# 2 lshift + kg !                ( the glyph's four cells )
+        kc @  kf @ CELL2 + @ d# 2 lshift +  ki @ kf @ @ * +  ( rows )
+        dup kg @ !
+        kw @ kg @ CELL + !
+        d# 0 kg @ CELL2 + !  d# 0 kg @ c# 3 + !
         d# 0 kr !
         begin
             kr @ kf @ @ <
         while
-            krow over kr @ + !
+            krow dup if                             \ a row with black in it:
+                kg @ c# 3 + @ 0= if kr @ kg @ CELL2 + ! then    \ the first,
+                kr @ 1+ kg @ c# 3 + !                           \ and the last so far
+            then
+            over kr @ + !
             d# 1 kr +!
         repeat
         drop
@@ -675,10 +685,10 @@ create fcount 0 ,       \ and how many it has
     font @ CELL2 + @ fcount !
 ;
 
-: glyph ( c -- a ) \ a character's two cells: its rows, and its width
+: glyph ( c -- a ) \ a character's four cells: its rows, its width, and the rows with black in
     ffirst @ -
     dup fcount @ u< 0= if drop d# 0 then
-    2* fc @ +
+    d# 2 lshift fc @ +
 ;
 
 header text-width : text-width ( addr u -- n ) \ in pixels
@@ -880,8 +890,10 @@ INK-BLACK? [if] [else]
 
 INK-BLACK? [if] BANKED? [if] [else]
 
-: or-plain ( rows dst -- ) \ tn rows of a glyph, hi pixels along, all of them drawn
-    >r tn @ bounds                                  ( end rows ) ( R: dst )
+create trn 0 ,          \ how many rows of the glyph in hand are drawn
+
+: or-plain ( rows dst -- ) \ trn rows of a glyph, hi pixels along, all of them drawn
+    >r trn @ bounds                                 ( end rows ) ( R: dst )
     begin
         2dupxor
     while
@@ -893,7 +905,7 @@ INK-BLACK? [if] BANKED? [if] [else]
 ;
 
 : or-right ( rows dst -- ) \ the same, of which only the pixels of tcm are drawn
-    >r tn @ bounds
+    >r trn @ bounds
     begin
         2dupxor
     while
@@ -905,7 +917,7 @@ INK-BLACK? [if] BANKED? [if] [else]
 ;
 
 : or-left ( rows dst -- ) \ the part of a glyph that runs over into the next cell
-    >r tn @ bounds
+    >r trn @ bounds
     begin
         2dupxor
     while
@@ -916,10 +928,14 @@ INK-BLACK? [if] BANKED? [if] [else]
     2drop rdrop
 ;
 
-: glyph-or ( rows -- ) \ a glyph's rows from r0, at pen
-    r0 @ +
+: glyph-or ( glyph -- ) \ the rows of a glyph that have black in them and are drawn, at pen
+    dup CELL2 + @ r0 @ max                          ( glyph first )
+    over c# 3 + @ r1 @ min  over -                  ( glyph first rows )
+    dup 0> 0= if drop 2drop exit then
+    trn !
+    swap @ over +  swap                             ( rows first )
     pen @ PXMASK invert and cx !  pen @ PXMASK and hi !
-    ty @ r0 @ + row  pen @ PXSHIFT rshift +         ( rows dst )
+    ty @ + row  pen @ PXSHIFT rshift +              ( rows dst )
     colmask
     dup 1+ if
         ?dup if tcm ! 2dup or-right then
@@ -940,7 +956,7 @@ INK-BLACK? [if] BANKED? [if] [else]
     begin
         2dupxor
     while
-        dup @  dup CELL + @ gw !  @ glyph-or
+        dup @  dup CELL + @ gw !  glyph-or
         gw @ pen +!
         1+
     repeat
