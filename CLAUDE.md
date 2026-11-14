@@ -231,8 +231,8 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,894 bytes
-with 64-bit cells, 3,914 with 32 and 3,854 with 16, against the 4,096 the
+task that runs past its part of a stack. The kernel's code is 3,890 bytes
+with 64-bit cells, 3,906 with 32 and 3,850 with 16, against the 4,096 the
 kernel ROM holds.
 
 On the desktop the Forth window's interpreter is a task with the upper half
@@ -459,7 +459,10 @@ is shorter, which depends on the value (`fuse-lit`), and first puts a push
 in its shortest form: `16 -` is a push of 15, an invert and an add. A rule
 may fetch the same cells in another order (`var @ 0 >` becomes `0 var @ <`):
 a fetch changes nothing, so the fetches a sequence makes are compared as a
-set, by the generator and by `insn_map.py --compare`. Regenerate it after
+set, by the generator and by `insn_map.py --compare`. A shape may end at a
+conditional branch, which asks only whether the top of the stack is zero
+(`is_zero` in `insn_map.py`), so what is before it may be anything that
+leaves the same answer: `<> if` is `xor if`. Regenerate it after
 `peephole.fs`.
 
 The peephole sees only instructions that are next to each other, and a
@@ -531,6 +534,11 @@ to check, or the small kernel with `STRICT=1`.
   CPU under Verilator, and boots a nucleus built for that width on the CPU
   and on the whole system, comparing output with the reference VM
 - `make -C rtl test-mem` checks the memory against an array of cells
+- `make -C rtl bench` (and `LAT=2`) runs the drawing in `rtl/bench.txt` on
+  the 64-bit CPU and says how many cycles it took. That is runtime: counts
+  of instructions are not, since a memory read, a shift, a multiply and
+  (with `LAT=2`) a jump each take more than a cycle. Measure with this
+  before and after a change to the compiler or the peephole
 - `make -C rtl synth W=32 AB=16` synthesises for an ECP5 FPGA with Yosys and
   nextpnr and reports size and clock speed; `AB` is the log2 of the memory's
   size in cells
