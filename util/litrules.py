@@ -9,13 +9,17 @@ and an add, and nothing in those tables says it is an add of -16.
 
 Here a literal is a token with a value that is not known until the rule is
 used: L pushes a number (of either sign), A adds one (not negative) to the
-top of the stack.  A shape is a few tokens, the last of them the one being
+top of the stack, and V and W fetch a variable (the instruction that does
+it in one: any variable, and the two may be the same one).  A shape is a few tokens, the last of them the one being
 compiled: ALU instructions, written a, b, and X for the last, and at most
 two literals.  Every shape is tried with every instruction the peephole can
 have left in each place, and for each the shortest thing that does the same
 is looked for among: nothing, one or two ALU instructions, and one literal
 with up to two ALU instructions round it, where the literal's value is the
-shape's literals added or subtracted and one more or less.  What is found
+shape's literals added or subtracted and one more or less.  A shape that
+fetches variables is replaced only by something that fetches the same ones,
+in either order: fetching is all the same whichever is first, so the
+fetches a sequence makes are compared as a set.  What is found
 with one pair of values is then checked with others, large and small and
 negative, and (with --verify) run on vm.c.
 
@@ -75,11 +79,18 @@ def tables():
     return reach, pairs
 
 
-def build(shape, alus, k, j):
+beh = im.effect         # behaviour, with the fetches it makes in no order
+
+
+def build(shape, alus, k, j, va=0xB111, vb=0xB222):
     """The instructions of a shape, or None if a value cannot be written."""
     out, a, lits = [], iter(alus), iter((k, j))
     for t in shape:
-        if t == "L":
+        if t == "V":
+            out.append(va)
+        elif t == "W":
+            out.append(vb)
+        elif t == "L":
             out += lit(next(lits))
         elif t == "A":
             v = next(lits)
@@ -91,10 +102,14 @@ def build(shape, alus, k, j):
     return out
 
 
-def instantiate(rshape, x, y, v):
+def instantiate(rshape, x, y, v, va=0xB111, vb=0xB222):
     out = []
     for e in rshape:
-        if e == "x":
+        if e == "V":
+            out.append(va)
+        elif e == "W":
+            out.append(vb)
+        elif e == "x":
             out.append(x)
         elif e == "y":
             out.append(y)
@@ -108,6 +123,29 @@ def instantiate(rshape, x, y, v):
 
 
 RSHAPES = ["", "x", "L", "A", "Lx", "xL", "Ax", "xA", "xy", "Lxy", "xLy", "xyL", "Axy", "xAy", "xyA"]
+
+
+def with_vars(vs):
+    """What may replace a shape that fetches the variables vs: up to three
+    tokens, each of the fetches once, and the rest as RSHAPES has."""
+    out = set()
+    for rest in ("", "x", "L", "A", "xy", "xL", "Lx", "xA", "Ax"):
+        if len(rest) + len(vs) > 3:
+            continue
+        for order in ([vs] if len(vs) == 1 else [vs, vs[::-1]]):
+            toks = list(rest)
+
+            def place(done, left, vars_):
+                if not vars_:
+                    out.add("".join(done + left))
+                    return
+                for n in range(len(left) + 1):
+                    place(done + left[:n] + [vars_[0]], left[n:], vars_[1:])
+            place([], toks, list(order))
+    return sorted(out, key=lambda r: (len(r), r))
+
+
+VARS = [(0xB111, 0xB222), (0xB005, 0xB005), (0xB222, 0xB111), (0xB7FF, 0xB000)]
 PRIMARY = [(1000, 37), (37, 1000)]
 CHECKS = [(5, 3), (0, 0), (4095, 1), (70000, 64), (-77, 12), (63, 5000), (-1, 1), (1, -4096)]
 
@@ -123,12 +161,12 @@ def main():
     started = time.time()
 
     # ---- what a shape may be replaced by, for each pair of values tried first
-    def candidates(k, j, two):
+    def candidates(k, j, two, vs):
         fns = [f for f in FNS if (two or f[1] == 0) and (f[0] or f[1])]
         table = {}
 
         def offer(seq, entry):
-            key = im.behaviour(seq)
+            key = beh(seq)
             if key is None:
                 return
             h = hash(key)
@@ -136,7 +174,7 @@ def main():
             if old is None or entry[0] < old[0]:
                 table[h] = entry
 
-        for rs in RSHAPES:
+        for rs in (with_vars(vs) if vs else RSHAPES):
             xs = [0] if "x" not in rs else (reach if "y" not in rs else base)
             ys = [0] if "y" not in rs else base
             fs = [None] if not ("L" in rs or "A" in rs) else fns
@@ -165,6 +203,18 @@ def main():
         yield "AaA", (reach,)
         for s in ("LabA", "AabA"):
             yield s, (base, base)
+        # with a variable fetched, or two
+        yield "VX", (reach,)
+        for s in ("VaX", "aVX", "VLaX", "LVaX", "VaLX", "LaVX", "aVLX", "aLVX", "VAaX",
+                  "VWaX", "VaWX", "aVWX"):
+            yield s, one
+        for s in ("VLX", "LVX", "VAX", "VWX", "VWLX", "VLWX", "LVWX"):
+            yield s, (base,)
+        for s in ("VabX", "aVbX", "abVX", "VWabX", "VWaAX", "VaAbX", "VLabX", "LVabX"):
+            yield s, three if s.count("a") + s.count("b") == 2 else (base, base)
+        yield "VaA", (reach,)
+        yield "aVA", (reach,)
+        yield "VWaA", (reach,)
 
     def combos(places):
         if len(places) == 1:
@@ -184,59 +234,61 @@ def main():
         """No two instructions next to each other that peephole.fs would join."""
         toks, it = [], iter(alus)
         for t in shape:
-            toks.append(next(it) if t in "abX" else None)
+            toks.append(next(it) if t in "abX" else None)   # a literal or a fetch is not one
         return not any(p is not None and q is not None and (p, q) in pairs
                        for p, q in zip(toks, toks[1:]))
 
-    def holds(shape, alus, rs, x, y, f, k, j):
+    def holds(shape, alus, rs, x, y, f, k, j, va=0xB111, vb=0xB222):
         """None if the rule cannot be tried with these values, else whether it holds."""
-        before = build(shape, alus, k, j)
+        before = build(shape, alus, k, j, va, vb)
         v = 0 if f is None else f[0] * k + f[1] * j + f[2]
-        after = instantiate(rs, x, y, v)
+        after = instantiate(rs, x, y, v, va, vb)
         if before is None or after is None:
             return None
-        want = im.behaviour(before)
+        want = beh(before)
         if want is None:
             return None
-        return want == im.behaviour(after)
+        return want == beh(after)
 
     rules = {}                                      # (shape, alus) -> (rshape, x, y, fn)
     cand = {}
     for shape, places in shapes():
-        two = sum(t in "LA" for t in shape) == 2
+        two = sum(t in "LA" for t in shape[:-1]) + (shape[-1] == "A") == 2
+        vs = "".join(t for t in shape if t in "VW")
         found = 0
         for k, j in (PRIMARY if two else PRIMARY[:1]):
-            if (k, j, two) not in cand:
-                cand[(k, j, two)] = candidates(k, j, two)
-            table = cand[(k, j, two)]
+            if (k, j, two, vs) not in cand:
+                cand[(k, j, two, vs)] = candidates(k, j, two, vs)
+            table = cand[(k, j, two, vs)]
             for alus in combos(places):
                 if (shape, alus) in rules or not adjacent_ok(shape, alus):
                     continue
                 seq = build(shape, alus, k, j)
-                key = im.behaviour(seq)
+                key = beh(seq)
                 if key is None:
                     continue
                 entry = table.get(hash(key))
                 if entry is None or entry[0] >= len(shape):
                     continue
                 _, rs, x, y, f = entry
-                tried = [holds(shape, alus, rs, x, y, f, a, b) for a, b in [(k, j)] + CHECKS]
+                tried = [holds(shape, alus, rs, x, y, f, a, b, *VARS[n % len(VARS)])
+                         for n, (a, b) in enumerate([(k, j)] + CHECKS)]
                 if tried[0] and False not in tried and tried.count(True) >= 3:
                     rules[(shape, alus)] = (rs, x, y, f)
                     found += 1
         print(f"  {shape:5} {found:6} rules   ({time.time() - started:.0f}s)", flush=True)
 
     # ---- write them
-    kind = {"a": 1, "b": 1, "L": 2, "A": 3}
-    relem = {"x": 1, "y": 2, "L": 3, "A": 4}
+    kind = {"a": 1, "b": 1, "L": 2, "A": 3, "V": 4, "W": 4}
+    relem = {"x": 1, "y": 2, "L": 3, "A": 4, "V": 5, "W": 6}
     rows = []
     for (shape, alus), (rs, x, y, f) in rules.items():
         before = shape[:-1][::-1]                   # nearest the one being compiled first
-        sid = (shape[-1] == "A") << 6 | sum(kind[t] << 2 * n for n, t in enumerate(before))
+        sid = (shape[-1] == "A") << 12 | sum(kind[t] << 3 * n for n, t in enumerate(before))
         key = sid
         for a in (list(alus) + [0, 0, 0])[:3]:
             key = key << 16 | a
-        rid = sum(relem[e] * 5 ** n for n, e in enumerate(rs))
+        rid = sum(relem[e] << 3 * n for n, e in enumerate(rs))
         value = rid << 40 | (fn_id(f) if f else 0) << 32 | x << 16 | y
         rows.append((key, value))
     rows.sort()
@@ -257,10 +309,11 @@ def main():
     if "--verify" in sys.argv:
         claims = []
         for (shape, alus), (rs, x, y, f) in rules.items():
-            for k, j in [(1000, 37), (5, 3), (70000, 64), (-77, 12)]:
-                before = build(shape, alus, k, j)
+            for n, (k, j) in enumerate([(1000, 37), (5, 3), (70000, 64), (-77, 12)]):
+                va, vb = VARS[n]
+                before = build(shape, alus, k, j, va, vb)
                 v = 0 if f is None else f[0] * k + f[1] * j + f[2]
-                after = instantiate(rs, x, y, v)
+                after = instantiate(rs, x, y, v, va, vb)
                 if before and after is not None and im.behaviour(before) is not None:
                     claims.append((before, after))
         return im.verify(ROOT, claims)
