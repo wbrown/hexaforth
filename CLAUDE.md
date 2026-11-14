@@ -8,6 +8,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `vm.c`, the AArch64 kernels and the Verilog must all provide in the same
 way. Read it before changing any of the three, and keep them to it.
 
+## The instruction set is the whole encoding
+
+An instruction is a control word: where the ALU's input comes from, the
+operation, where the result goes, how each stack moves, and whether to
+return. Every combination is an instruction that `vm.c`, the kernels and
+the Verilog already execute: 8,192 encodings, 7,712 distinct behaviours.
+There are no opcodes, and a baseword is only a name for one of them.
+
+- Do not judge an encoding, or a sequence that one encoding equals, by
+  whether it looks useful. Measure: `insn_map.py --image` says where it
+  occurs, and `make demo-profile` how often it runs. A site that is rare in
+  the source may be in the hottest loop
+- A name costs a line in `vm_opcodes.h` and nothing in the machine. An
+  encoding with no name is one the programmer cannot say and the nucleus's
+  compiler cannot emit
+- Do not propose a new ALU operation or any other change to the machine
+  for speed. The operation field is full, the ALU has two inputs, and the
+  design is that the fields compose. First show what the existing fields
+  give, and whether the work is needed at all
+- Think of a word as data moving: from where, through what, to where, a
+  cell at a time. Bytes, opcodes and per-element loops are habits from
+  other machines
+
 ## IMPORTANT: Read UNDERSTANDING.md First
 
 Before working with this codebase, read `UNDERSTANDING.md` which provides deep insights into:
