@@ -100,6 +100,7 @@
 :: io@               T->IN   io[IN]    ->T     d+0    r+0       alu     ;
 :: io!               N->IN   IN->      ->io[T] d-2    r+0       alu     ;
 :: +!                [T]->IN IN+N      ->[T]   d-2    r+0       alu     ;
+:: or!               [T]->IN IN|N      ->[T]   d-2    r+0       alu     ;
 :: rshift            N->IN   IN>>T     ->T     d-1    r+0       alu     ;
 :: lshift            N->IN   IN<<T     ->T     d-1    r+0       alu     ;
 :: exit              T->IN   IN->      ->T     d+0    r-1  RET  alu     ;

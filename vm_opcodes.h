@@ -196,6 +196,7 @@ static forth_define FORTH_OPS[] = {
         {"io@",     "       T->IN   io[IN]     ->T                 alu"},
         {"io!",     "       N->IN              ->io[T]   d-2       alu"},
         {"+!",      "       [T]->IN IN+N       ->[T]     d-2       alu"},
+        {"or!",     "       [T]->IN IN|N       ->[T]     d-2       alu"},
         {"rshift",  "       N->IN   IN>>T      ->T       d-1       alu"},
         {"lshift",  "       N->IN   IN<<T      ->T       d-1       alu"},
         {"exit",    "       T->IN              ->T  RET       r-1  alu"},

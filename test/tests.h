@@ -244,6 +244,13 @@ static hexaforth_test TESTS[] = {
               "16 r@ +! r@ @ ",
      .dstack = "12 28",
      .rstack = "0"},
+    {.label = "or! ( bits addr -- )",
+     .init = "9",
+     .input = "0 >r "
+              "3  r@ or! r@ @ "
+              "24 r@ or! r@ @ ",
+     .dstack = "11 27",
+     .rstack = "0"},
     {.label = "r@; ( R: addr -- addr )",
      .init = "0 0 0 0",
      .input = "4 >r r@;",
