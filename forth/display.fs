@@ -142,14 +142,12 @@ create psrc 0 ,         \ this row of the pattern
 create ba  0 ,          \ the cell being drawn in
 create bn  0 ,          \ and how far into it
 
-: leftn ( n -- mask ) \ the n leftmost pixels of a cell
-    ?dup 0= if d# 0 exit then
-LEFT-LOW? [if]
-    PXCELL swap - d# -1 swap rshift
-[else]
-    PXCELL swap - d# -1 swap lshift
-[then]
-;
+\ The n leftmost pixels of a cell are looked up, not made: making them is a
+\ shift by a whole cell less n, and one of none is a shift the machine does
+\ not promise.
+create lefts  lefts,
+
+: leftn ( n -- mask ) lefts + @ ;
 
 \ ---- clipping to a region
 \
