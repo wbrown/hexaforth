@@ -213,6 +213,10 @@ def main():
         print("  by file:  " + ", ".join(f"{n} {100 * v / total:.0f}%" for n, v in bm.most_common(6)))
         print("  by word:  " + ", ".join(f"{n} {100 * v / total:.0f}%" for n, v in bw.most_common(9)))
         print("  by kind:  " + ", ".join(f"{n} {100 * v / total:.0f}%" for n, v in bk.most_common()))
+        if os.environ.get("DETAIL") and os.environ["DETAIL"] in name:   # each word: instructions, calls
+            for n, v in bw.most_common(40):
+                calls = sum(net[a] for a in starts if names[a] == n)
+                print(f"    {n:14} {v:12,.0f} {calls:10,.0f} calls {v / max(calls, 1):8.1f} each")
 
 
 if __name__ == "__main__":
