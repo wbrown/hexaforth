@@ -123,13 +123,7 @@ INK-BLACK? [if]
 ;
 
 : alanes ( x a -- ) \ set a row of lanes, and the cell at each end of it
-    1- an @ d# 2 + bounds rot >r                    ( end a ) ( R: x )
-    begin
-        2dupxor
-    while
-        r@ over ! 1+
-    repeat
-    2drop rdrop
+    1- an @ d# 2 + cells-fill
 ;
 
 : anew ( x -- a ) an @ d# 2 + >c halloc 1+  tuck alanes ;

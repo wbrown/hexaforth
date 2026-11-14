@@ -49,7 +49,11 @@ There are no opcodes, and a baseword is only a name for one of them.
   memory keeps no count: `bounds begin 2dupxor while ... 1+ repeat 2drop`,
   and a second place is the first plus how far apart they are
   (`cells-move`). A loop that only counts starts below nothing and goes up
-  to it: `negate begin dup while ... 1+ repeat drop`
+  to it: `negate begin dup while ... 1+ repeat drop`. What is the same
+  every turn is kept on the return stack, where it is an input of the ALU
+  (`cells-fill`). Both words are in the kernel: `cells-move ( from to n )`
+  and `cells-fill ( x a n )`, six and four instructions a turn; use them
+  before writing another loop over cells
 
 ## Shell code is a last resort
 
@@ -263,8 +267,8 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,902 bytes
-with 64-bit cells, 3,918 with 32 and 3,862 with 16, against the 4,096 the
+task that runs past its part of a stack. The kernel's code is 3,942 bytes
+with 64-bit cells, 3,962 with 32 and 3,902 with 16, against the 4,096 the
 kernel ROM holds.
 
 On the desktop the Forth window's interpreter is a task with the upper half
@@ -502,7 +506,9 @@ with them kept in any other of the top cells of the two stacks
 (`build/shorter.txt`). It searches every ALU instruction, and checks what
 it finds with the model. A turn of more than about eight instructions is
 too much for it to search whole; it says when it gave up, and then
-shortens the turn a part at a time.
+shortens the turn a part at a time. It also tries each number the turn
+pushes kept on the return stack instead, where it is an input of the ALU
+(`0 >r begin r@ over ! ...`).
 
 A loop that tests at the top goes round with a jump. Where the test is one
 instruction that says whether two things are the same (`2dupxor while`,

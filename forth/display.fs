@@ -212,7 +212,7 @@ create mforce 0 ,
     mrgn @ 0= if drop exit then
     dup row mbase !
     dup mk0 @ < 0=  over mk1 @ <  and if drop exit then
-    mrow DISP-STRIDE bounds begin 2dupxor while d# 0 over ! 1+ repeat 2drop
+    d# 0 mrow DISP-STRIDE cells-fill
     d# 0 mone !
     mfind dup 0= mnone !
     ?dup if
@@ -427,20 +427,6 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
 
 : src-row ( y -- a )
     sbm @ @ ?dup if swap sbm @ CELL + @ * + else row then
-;
-
-\ Cells from one place to another.  There is no count kept: the place the
-\ cells come from goes up to where they end, and where each goes is that
-\ far on from where it came.
-: cells-move ( from to n -- )
-    >r over - r> swap >r bounds                     ( end from ) ( R: from here to there )
-    begin
-        2dupxor
-    while
-        dup @  over r@ + !
-        1+
-    repeat
-    2drop rdrop
 ;
 
 : row-aside ( y -- ) \ the cells of a source row that are wanted, into rowbuf from its second
@@ -992,7 +978,7 @@ BANKED? [if] [else]
     d# 0 tor !
 [then]
     tband tn @ + tend !
-    tend @ tband begin 2dupxor while d# 0 over ! 1+ repeat 2drop
+    d# 0 tband tn @ cells-fill
     tx @ PXMASK invert and cx !
     tx @ PXMASK and hi !
     gbuf @ gn @ bounds

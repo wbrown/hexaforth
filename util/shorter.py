@@ -262,10 +262,12 @@ def successors(state, T):
             yield 0xF000 | a - im.VAR_BASE, (d[:-1], r, m2)
 
 
-def exactly(T, length, nodes):
-    """A sequence of `length` instructions that leaves T, or None."""
+def exactly(T, length, nodes, kept=None):
+    """A sequence of `length` instructions that leaves T, or None.  With
+    kept, a number that is on top of the return stack at the start."""
     start = (tuple(("d", i) for i in reversed(range(DEPTH))),
-             tuple(("r", i) for i in reversed(range(DEPTH))), "mem0")
+             tuple(("r", i) for i in reversed(range(DEPTH))) + (() if kept is None else (kept,)),
+             "mem0")
     seen = {}
     count = [0]
 
@@ -563,6 +565,23 @@ def main():
                 out.append(f"    {len(part) + 1} a part at a time:  begin "
                            + " ".join(show(w) for w in part) + " until")
             best["by parts"] = (len(part), part, same)
+        # A number the turn pushes can be kept on the return stack instead,
+        # put there before the loop: it is then an input of the ALU.
+        most = min([f[0] for f in best.values() if f] + [now - 1])
+        for c in sorted({w & 0xFFF for w in (test or []) + body if w & 0xF000 == 0x8000}):
+            T = retarget(st, same, flip)
+            T = Target(T.d, T.r + (c,), T.mem, T.loads, T.fact)
+            for length in range(1, most):
+                try:
+                    seq = exactly(T, length, NODES, c)
+                except Budget:
+                    break
+                if seq and check([literal(c), im.encode(1, 0, 1, -1, 1, 0)] + seq, T):
+                    out.append(f"    {length + 1} with {c} kept in R:  {c} >r begin "
+                               + " ".join(show(w) for w in seq) + " until rdrop")
+                    best[f"kept {c}"] = (length, seq, same)
+                    most = length
+                    break
         fewest = min([f[0] + 1 for f in best.values() if f] + [now])
         if fewest < now:
             saved_all += (now - fewest) * turns

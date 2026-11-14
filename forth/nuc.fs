@@ -525,19 +525,42 @@ header calign
 \ cell holds the length and the first characters, which settles nearly
 \ every entry with one aligned fetch.
 
+\ Cells from one place to another.  There is no count kept: the place the
+\ cells come from goes up to where they end, and where each goes is that
+\ far on from where it came.
+header cells-move
+: cells-move ( from to n -- )
+    >r over - r> swap >r bounds                     ( end from ) ( R: from here to there )
+    begin
+        2dupxor
+    while
+        dup @  over r@ + !
+        1+
+    repeat
+    2drop rdrop
+;
+
+\ The same thing into every cell of a run.  It is kept on the return stack,
+\ where it is an input of the ALU: a turn is the store, the step, and the
+\ test.
+header cells-fill
+: cells-fill ( x a n -- )
+    bounds rot >r                                   ( end a ) ( R: x )
+    begin
+        2dupxor
+    while
+        r@ over ! 1+
+    repeat
+    2drop rdrop
+;
+
 create skey #264 allot
 create skn 0 ,              \ cells in the key
 
 : >key ( c-addr u -- n ) \ pack a name into skey; n is its size in cells
     d# 255 min
     dup BYTESHIFT rshift 1+ skn !
-    skey skn @ bounds
-    begin
-        2dupxor
-    while
-        d# 0 over ! 1+
-    repeat
-    2drop
+    d# 0 skey skn @ cells-fill
     dup skey >c c!
     skey >c 1+ swap                         ( src dst u )
     >r over - r> swap >r bounds             ( end src ) ( R: from src to dst )
@@ -629,14 +652,12 @@ header fill
 header cmove
 : cmove ( addr1 addr2 u -- )
     >r
-    2dup or OFFSET-MASK and 0= if           \ both at the start of a cell: whole cells first
-        begin
-            r@ CELLB u< 0=
-        while
-            over (c>) @ over (c>) !
-            CELLB + swap CELLB + swap
-            r> ALIGN-MASK + >r
-        repeat
+    r@ ALIGN-MASK and if                    \ a cell or more,
+        2dup or OFFSET-MASK and 0= if       \ and both at the start of a cell: whole cells first
+            over (c>) over (c>) r@ (c>) cells-move
+            r@ ALIGN-MASK and  tuck + >r + r>       \ on past them,
+            r> OFFSET-MASK and >r                   \ and the bytes of the last cell are left
+        then
     then
     r>
     bounds rot >r
