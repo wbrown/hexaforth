@@ -296,8 +296,8 @@ def main():
         shot = m.screenshot(f"{out}/10-fused.png")
         source = read_text(shot, 253, 315, 45, 16)
         check("a fused instruction is shown as its words",
-              source[0] == ": atkinson" and source[8].endswith(" @ < while"), repr(source[8]))
-        check("a headerless variable is shown by its label", source[1] == "  aoy !", repr(source[1]))
+              source[0] == ": atkinson" and source[13].endswith(" @ < while"), repr(source[13]))
+        check("a headerless variable is shown by its label", source[1] == "  abm !", repr(source[1]))
 
         # ^W again: the Forth window.
         m.key("w", "ctrl")

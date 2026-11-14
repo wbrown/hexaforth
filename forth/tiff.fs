@@ -1,8 +1,8 @@
 \ tiff.fs - read an uncompressed TIFF from the block device into memory
 \
 \ Handles either byte order, 8-bit grayscale or RGB, and any number of
-\ strips.  The image ends up at `gray`, one byte per pixel; gray and raw
-\ hold the addresses of bytes.
+\ strips.  The strips are read into memory at `raw` as they are stored, and
+\ `pixel` gives the image out of them a pixel at a time.
 
 create tiff-base 0 ,    \ device byte offset of the file
 create tiff-be   0 ,    \ true for a big-endian file
@@ -14,8 +14,7 @@ create tcomp   0 ,      \ compression
 create tstrips 0 ,      \ file offsets of the StripOffsets and
 create tcounts 0 ,      \ StripByteCounts directory entries
 create tscratch 0 ,
-create raw     0 ,      \ the strips as stored
-header gray create gray    0 ,      \ the decoded image
+create raw     0 ,      \ the strips as stored: the address of a cell
 
 : tbytes ( off n -- a ) \ n bytes of the file, in tscratch
     tscratch >c swap rot tiff-base @ + disk-read
@@ -83,36 +82,11 @@ header tiff-open
 ;
 
 create tdest 0 ,
-create gsrc  0 ,
-
-: >gray ( -- ) \ reduce raw to one byte per pixel
-    raw @ gsrc !
-    gray @ tw @ th @ * bounds                       ( end dst )
-    begin
-        2dupxor
-    while
-        tspp @ d# 3 = if
-            gsrc @ c@ d# 77 *
-            gsrc @ 1+ c@ d# 150 * +
-            gsrc @ d# 2 + c@ d# 29 * +
-            d# 8 rshift
-        else
-            gsrc @ c@
-            tphoto @ 0= if d# 255 xor then
-        then
-        over c!
-        tspp @ gsrc +!
-        1+
-    repeat
-    2drop
-;
 
 header tiff-decode
-: tiff-decode ( -- ) \ load every strip, then decode into gray
-    tw @ th @ *
-    dup halloc >c gray !
-    tspp @ * halloc >c raw !
-    raw @ tdest !
+: tiff-decode ( -- ) \ load every strip
+    tw @ th @ * tspp @ * halloc raw !
+    raw @ >c tdest !
     d# 0
     begin
         dup tstrips @ d# 4 + t32@ <
@@ -125,5 +99,64 @@ header tiff-decode
         1+
     repeat
     drop
-    >gray
+;
+
+\ The image is a run of bits, and memory is cells.  A cell is fetched once
+\ and what is wanted is shifted out of it: tbuf holds the bits fetched and
+\ not yet taken, lowest first, and tbn how many there are.  `take` gives
+\ the next n, for n up to a cell, with whatever follows them above; when
+\ there are fewer than n it fetches the next cell, and the result is made
+\ of both.
+
+create tbuf 0 ,
+create tbn  0 ,
+create tbp  0 ,         \ the next cell
+
+: take ( n -- x )
+    dup tbn @ > if
+        tbp @ @  d# 1 tbp +!                        ( n next )
+        dup tbn @ lshift tbuf @ or >r               \ the bits, with rubbish above
+        over tbn @ - rshift tbuf !                  \ the rest of the cell
+        CELLBITS over - tbn +!
+        drop r>
+    else
+        tbuf @ 2dup swap rshift tbuf !              ( n x )
+        swap negate tbn +!
+    then
+;
+
+\ A pixel's gray: its one sample, or 77 R + 150 G + 29 B over 256.  A pixel
+\ of three samples is taken whole if a cell holds it, and its fields
+\ shifted out on the stack; in a 16-bit cell it is taken a sample at a time.
+
+: gray1 ( -- g ) d# 8 take h# ff and  tphoto @ 0= if d# 255 xor then ;
+
+: grayn ( -- g ) \ the first of several samples
+    gray1  tspp @ 1- begin dup while d# 8 take drop 1- repeat drop
+;
+
+W32+? [if]
+: rgb ( -- g )
+    d# 24 take
+    dup h# ff and d# 77 *
+    over d# 8 rshift h# ff and d# 150 * +
+    swap d# 16 rshift h# ff and d# 29 * +
+    d# 8 rshift
+;
+[else]
+: rgb ( -- g )
+    d# 8 take h# ff and d# 77 *
+    d# 8 take h# ff and d# 150 * +
+    d# 8 take h# ff and d# 29 * +
+    d# 8 rshift
+;
+[then]
+
+header 'pixel create 'pixel 0 ,     \ ( -- g )  the next pixel's gray
+
+header pixels
+: pixels ( -- ) \ start again from the first pixel
+    raw @ tbp !  d# 0 tbn !  d# 0 tbuf !
+    tspp @ d# 3 = if ['] rgb else tspp @ d# 1 = if ['] gray1 else ['] grayn then then
+    'pixel !
 ;
