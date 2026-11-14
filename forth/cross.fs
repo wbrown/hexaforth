@@ -748,6 +748,10 @@ warnings on
 \ in which a set bit is black.
 :: RAW>SRC        disp-ink-black 0= if s" invert" evaluate then ;
 :: PXCELL         cell-bits literal ;
+:: CELLBITS       cell-bits literal ;           \ bits in a cell
+\ A lane is sixteen bits of a cell, and a cell is as many lanes as fit: four,
+\ two or one.  LANE1 is a cell with 1 in each of its lanes.
+:: LANE1          0 cell-bits 16 / 0 do 16 lshift 1 or loop literal ;
 :: PXMASK         cell-bits 1- literal ;
 :: PXSHIFT        byte-shift 3 + literal ;
 :: DISP-BASE      disp-base literal ;
