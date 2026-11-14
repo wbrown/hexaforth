@@ -35,6 +35,9 @@ CHECKS = [
     # Nothing is joined across the start of a loop: here the fetch is done
     # twice, of y and then of x, and only the first follows the address.
     (": u 5 x ! x y ! y begin @ dup 100 u< until ; u .", "5  ok"),
+    # or! sets bits of a cell, typed and compiled.
+    ("create w 5 ,  10 w or!  w @ .", "15  ok"),
+    (": o 48 w or! w @ ; o .", "63  ok"),
     # Tasks: one that counts, and a loop that keeps its index across pauses.
     ("create rec 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,", " ok"),
     ("create n 0 ,", " ok"),
