@@ -531,38 +531,36 @@ create skn 0 ,              \ cells in the key
 : >key ( c-addr u -- n ) \ pack a name into skey; n is its size in cells
     d# 255 min
     dup BYTESHIFT rshift 1+ skn !
-    skey skn @
+    skey skn @ bounds
     begin
-        dup
+        2dupxor
     while
-        >r d# 0 over ! cell+ r> 1-
+        d# 0 over ! 1+
     repeat
     2drop
     dup skey >c c!
     skey >c 1+ swap                         ( src dst u )
+    >r over - r> swap >r bounds             ( end src ) ( R: from src to dst )
     begin
-        dup
+        2dupxor
     while
-        >r
-        over c@ lower over c!
-        1+ swap 1+ swap
-        r> 1-
+        dup c@ lower  over r@ + c!
+        1+
     repeat
-    drop 2drop
+    2drop rdrop
     skn @
 ;
 
 : samename? ( wp -- f ) \ do the name cells after the first match the key?
-    CELL2 + cell+ skey cell+ skn @ 1-
+    CELL2 + cell+ skey cell+ skn @ 1-       ( name key n )
+    >r over - r> swap >r bounds             ( end name ) ( R: from name to key )
     begin
-        dup
+        2dupxor
     while
-        >r
-        over @ over @ <> if rdrop 2drop false exit then
-        cell+ swap cell+ swap
-        r> 1-
+        dup @  over r@ + @  <> if rdrop 2drop false exit then
+        1+
     repeat
-    drop 2drop true
+    2drop rdrop true
 ;
 
 header sfind
@@ -879,11 +877,11 @@ header s,
     here lastword !
     forth @ t,                              \ link
     cp @ dup thisxt ! t,                    \ xt, on any page
-    parse-name >key skey swap               \ name
+    parse-name >key skey swap bounds        \ name
     begin
-        dup
+        2dupxor
     while
-        >r dup @ t, cell+ r> 1-
+        dup @ t, 1+
     repeat
     2drop
     hswap

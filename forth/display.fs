@@ -332,16 +332,25 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
     sbm @ @ ?dup if swap sbm @ CELL + @ * + else row then
 ;
 
+\ Cells from one place to another.  There is no count kept: the place the
+\ cells come from goes up to where they end, and where each goes is that
+\ far on from where it came.
+: cells-move ( from to n -- )
+    >r over - r> swap >r bounds                     ( end from ) ( R: from here to there )
+    begin
+        2dupxor
+    while
+        dup @  over r@ + !
+        1+
+    repeat
+    2drop rdrop
+;
+
 : row-aside ( y -- ) \ the cells of a source row that are wanted, into rowbuf from its second
     src-row ssx @ PXSHIFT rshift +
     rowbuf 1+
     ssx @ PXMASK and bw @ + PXMASK + PXSHIFT rshift 1+
-    begin
-        dup
-    while
-        >r over @ over ! 1+ swap 1+ swap r> 1-
-    repeat
-    drop 2drop
+    cells-move
 ;
 
 : bsrc ( -- raw ) \ the cell of the source that goes to the cell at ba
@@ -724,15 +733,6 @@ header draw-char : draw-char ( c x y -- )
 
 header port create port 0 ,         \ the record of the port in use, or 0
 header screen-port create screen-port 0 ,
-
-: cells-move ( from to n -- )
-    begin
-        dup
-    while
-        >r over @ over ! 1+ swap 1+ swap r> 1-
-    repeat
-    drop 2drop
-;
 
 header port! : port! ( port -- ) \ put the port in use away, and take up another
     port @ ?dup if gstate swap d# 13 cells-move then

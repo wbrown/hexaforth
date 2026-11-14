@@ -54,7 +54,8 @@ create ro 0 ,           \ the region being made
 create po 0 ,           \ the row being written
 create pl 0 ,           \ the last row written, or 0
 
-create qa 0 ,           \ the crossings of each still to come, and how many
+create qa 0 ,           \ the crossings of each still to come, and how many, below nothing:
+                        \ the count goes up to nothing, which is an add of one
 create qan 0 ,
 create qb 0 ,
 create qbn 0 ,
@@ -72,8 +73,8 @@ create qo 0 ,           \ where the next crossing of the answer goes
 ;
 
 : merge ( -- n ) \ the crossings of the band, written after po's two cells
-    ca @ ?dup if dup CELL2 + qa !  CELL + @ qan ! else d# 0 qan ! then
-    cb @ ?dup if dup CELL2 + qb !  CELL + @ qbn ! else d# 0 qbn ! then
+    ca @ ?dup if dup CELL2 + qa !  CELL + @ negate qan ! else d# 0 qan ! then
+    cb @ ?dup if dup CELL2 + qb !  CELL + @ negate qbn ! else d# 0 qbn ! then
     d# 0 ina !  d# 0 inb !  d# 0 ino !
     po @ CELL2 + qo !
     begin
@@ -81,8 +82,8 @@ create qo 0 ,           \ where the next crossing of the answer goes
     while
         qan @ if qa @ @ else FAR then
         qbn @ if qb @ @ else FAR then  min          ( x )
-        qan @ if dup qa @ @ = if ina @ invert ina !  d# 1 qa +!  d# -1 qan +! then then
-        qbn @ if dup qb @ @ = if inb @ invert inb !  d# 1 qb +!  d# -1 qbn +! then then
+        qan @ if dup qa @ @ = if ina @ invert ina !  d# 1 qa +!  d# 1 qan +! then then
+        qbn @ if dup qb @ @ = if inb @ invert inb !  d# 1 qb +!  d# 1 qbn +! then then
         inside dup ino @ <> if
             ino !  qo @ !  d# 1 qo +!
         else
@@ -95,13 +96,15 @@ create qo 0 ,           \ where the next crossing of the answer goes
 : same? ( -- f ) \ are the crossings at po those of the last row written?
     pl @ CELL + @ po @ CELL + @ <> if false exit then
     po @ CELL + @
+    pl @ CELL2 +  po @ CELL2 + over - >r            ( n last ) ( R: from the last row to this )
+    swap bounds
     begin
-        dup
+        2dupxor
     while
-        1-
-        dup pl @ CELL2 + + @  over po @ CELL2 + + @  <> if drop false exit then
+        dup @  over r@ + @  <> if 2drop rdrop false exit then
+        1+
     repeat
-    drop true
+    2drop rdrop true
 ;
 
 : band ( y -- ) \ write the band that starts at y, unless it changes nothing

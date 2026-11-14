@@ -102,7 +102,7 @@ INK-BLACK? [if]
     d# 0 ash !  d# 0 aew !  d# 128 aprev !  d# 128 aprev2 !
     d# 0 aout !  LEFT1 amask !
     d# 128 alane
-    tw @ begin dup while apixel 1- repeat drop
+    tw @ negate begin dup while apixel 1+ repeat drop     \ up to nothing: an add of one
     d# 128 alane
     ash @ if aew @ aep @ ! then
     amask @ LEFT1 <> if aout @ adst @ ! then
@@ -123,13 +123,13 @@ INK-BLACK? [if]
 ;
 
 : alanes ( x a -- ) \ set a row of lanes, and the cell at each end of it
-    1- an @ d# 2 +
+    1- an @ d# 2 + bounds rot >r                    ( end a ) ( R: x )
     begin
-        dup
+        2dupxor
     while
-        >r 2dup ! 1+ r> 1-
+        r@ over ! 1+
     repeat
-    drop 2drop
+    2drop rdrop
 ;
 
 : anew ( x -- a ) an @ d# 2 + >c halloc 1+  tuck alanes ;
