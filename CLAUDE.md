@@ -267,8 +267,8 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,942 bytes
-with 64-bit cells, 3,962 with 32 and 3,902 with 16, against the 4,096 the
+task that runs past its part of a stack. The kernel's code is 3,970 bytes
+with 64-bit cells, 3,990 with 32 and 3,930 with 16, against the 4,096 the
 kernel ROM holds.
 
 On the desktop the Forth window's interpreter is a task with the upper half
@@ -415,8 +415,12 @@ Pages 8 and 9 are the drivers and the desktop:
   hundred instructions, not the whole encoding. Each gets the fewest words
   that do the same: two or three that are in the dictionary, else two or
   three of any the machine names, else four (a five-minute search, kept in
-  `build/fused4.cache`), else its fields. An entry is as long as its
-  words. Regenerate and rebuild after changing code
+  `build/fused4.cache`). An entry is the instruction, how many words, and
+  the address of each word's header (`hdr, name` in `cross.fs`), not text:
+  the name is in one place and nothing is looked up to show it. So a word
+  an entry uses must have a header; the generator says which do not, and
+  leaves those instructions out until `nuc.fs` gives them one. Regenerate
+  and rebuild after changing code
 - `desk.fs`: `desktop`, and `cold`, which the kernel runs at boot
 
 On a 64-bit machine `cross.fs` also keeps the name of every definition that

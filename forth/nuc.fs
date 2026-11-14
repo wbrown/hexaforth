@@ -1352,6 +1352,14 @@ header 1+       :noname     1+       ;
 header-imm >r   :noname     inline: >r ;
 header-imm r>   :noname     inline: r> ;
 header-imm r@   :noname     inline: r@ noop ;
+\ Words the image's fused instructions are made of, which the decompiler
+\ shows by their headers (fused.fs).
+header dup@     :noname     dup@     ;
+header over@    :noname     over@    ;
+header-imm rdrop  :noname   inline: rdrop ;
+header-imm @r     :noname   inline: @r noop ;
+header-imm swap>r :noname   inline: swap>r ;
+header-imm swapr> :noname   inline: swapr> ;
 
 : jumptable ( u -- ) \ add u to the return address
     r> + >r ;

@@ -802,6 +802,15 @@ variable named      false named !
 variable named-cp
 cell-bits 64 = constant labelling
 
+\ Where each header is, by name, so that data can refer to a word by its
+\ header (`hdr,`): the name is then in one place, and nothing has to look
+\ it up when the program runs.
+wordlist constant headers-wordlist
+: note-header ( a "name" -- ) \ the name is looked at, and left to be read
+    wordstr nextname
+    get-current >r  headers-wordlist set-current  create ,  r> set-current
+;
+
 : (header) ( immediate? "name" -- )
     ?own-page
     label
@@ -809,6 +818,7 @@ cell-bits 64 = constant labelling
     there >r
     tcalign
     there taddr  link @ tcell,  link !
+    link @ note-header
     tcp @ 2/ swap if 1 cell-bits 1- lshift or then tcell,
     bl parse tname,
     there r> - hdr-bytes +!
@@ -1020,6 +1030,11 @@ variable in-depth
 ;
 
 \ ," text" lays down a counted string in data space.
+:: hdr, ( "name" -- ) \ a cell that holds the address of the word's header
+    bl parse headers-wordlist search-wordlist 0= abort" hdr, of a word with no header"
+    >body @  tcalign tcell,
+;
+
 :: ,"
     [char] " parse dup tc,
     bounds ?do i c@ tc, loop

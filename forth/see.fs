@@ -22,10 +22,9 @@
 \ and a return.  One that the peephole made by fusing two or three words is
 \ shown as those words, from the table in fused.fs, with sbold set so that
 \ they can be told from words that were compiled one by one.  The table is
-\ made from the image, so it has every such instruction that is in it: by
-\ up to four words, or failing that by its fields.  One that is in neither
-\ place, which only code compiled since can have, is shown as its number
-\ in brackets.
+\ made from the image, so it has every such instruction that is in it, as
+\ up to four words, each by the address of its header.  One that is in
+\ neither place is shown as its number in brackets.
 \
 \ The tokens are laid out as source is written.  The name has the first
 \ line and the semicolon the last.  What is inside an if or a begin is
@@ -56,8 +55,6 @@ create nbg 0 ,
 create swh #64 allot    \ where a while leaves its loop
 create nwh 0 ,
 create stmp 0 ,
-create fa 0 ,
-create fn 0 ,
 
 create k-colon  ," :"
 create k-noname ," :noname"
@@ -234,44 +231,28 @@ create hv 0 ,
     >r sb sbn @ r> tok
 ;
 
-: fused? ( w -- a|0 ) \ the text for a fused instruction
+: fused? ( w -- a|0 ) \ the words of a fused instruction: how many, then the header of each
     fused
     begin
         dup @
     while
         2dup @ = if nip cell+ exit then
-        cell+ dup >c c@ CELLB + (c>) +              \ past the count and the characters
+        cell+ dup @ + 1+                            \ past the count and the headers
     repeat
     2drop d# 0
 ;
 
-: sword ( addr u -- ) \ one word of a fused instruction: a link if it is in the dictionary
-    sfind ?dup if
-        drop xt>hdr ?dup if sname exit then
-        exit
-    then
-    d# -1 tok
-;
-
 : sfused ( w -- f ) \ show a fused instruction as its words, if it is in the table
     fused? ?dup 0= if false exit then
-    >c count negate fn ! fa !                       \ the count goes up to nothing
     true sbold !
+    dup @ swap 1+ swap bounds                       ( end a )
     begin
-        fn @
+        2dupxor
     while
-        fa @ c@ d# 32 = if
-            d# 1 fa +!  d# 1 fn +!
-        else
-            fa @ d# 0                               ( start length )
-            begin
-                fn @ if fa @ c@ d# 32 <> else false then
-            while
-                1+  d# 1 fa +!  d# 1 fn +!
-            repeat
-            sword
-        then
+        dup @ sname
+        1+
     repeat
+    2drop
     d# 0 sbold !
     true
 ;
