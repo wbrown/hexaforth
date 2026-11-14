@@ -833,15 +833,30 @@ wordlist constant headers-wordlist
 
 : wants-label? ( -- f ) named? 0= labelling and ;
 
-: (label) ( x "name" -- a ) \ a label for the name that follows; a is where x went
-    >hdr
-    there >r
-    tcalign
-    there taddr  llink @ tcell,  llink !
-    there swap tcell,
-    wordstr tname,
-    there r> - lbl-bytes +!
-    hdr>
+\ The labels are not in the image.  They are laid down here, as headers
+\ are, and go to the file of names for the disk (name-tables): a label is
+\ the place of the one before, its value, and its name.  A place is how
+\ many cells it is from the start of them all, where the first cell holds
+\ the place of the newest; the decompiler makes addresses of them when it
+\ has read them in.
+65536 allocate throw constant lflash
+lflash 65536 erase
+variable lp  8 lp !                         \ where the next goes, in bytes
+
+: lc,    ( c -- ) lflash lp @ + c!  1 lp +! ;
+: lcell, ( x -- ) lflash lp @ + !  8 lp +! ;
+: lname, ( c-addr u -- )
+    dup lc,
+    bounds ?do
+        i c@ dup [char] A [char] Z 1+ within if 32 + then lc,
+    loop
+    lp @ 7 + -8 and lp !
+;
+
+: (label) ( x "name" -- a ) \ a label for the name that follows; a is where x went, on the host
+    lp @ 3 rshift  llink @ lcell,  llink !
+    lflash lp @ + swap lcell,
+    wordstr lname,
 ;
 
 :: header       false (header) ;
@@ -1030,22 +1045,28 @@ variable in-depth
 ;
 
 \ ," text" lays down a counted string in data space.
-\ Tables of the dictionary for the decompiler, made when the build is done
-\ and every word is where it will be: the words by execution token, and
-\ those whose code only pushes a number (a variable, or anything made with
-\ create) by the number.  An entry is a cell, the key above sixteen bits
-\ of the header's address, and they are in order, so that one is found by
-\ halving.  The words are looked for newest first, as a search of the
-\ dictionary would find them, and the first with a key is the one kept.
+\ Tables of the names for the decompiler, made when the build is done and
+\ every word is where it will be: the words and the labels by execution
+\ token, and those that are a number (a word whose code only pushes one,
+\ which a variable or anything made with create is, and a label for data)
+\ by the number.  An entry is a cell: the key in its upper half, and in
+\ the lower the address of the header, with the top bit of that half set
+\ for a label.  They are in order, so that one is found by halving.  The
+\ names are looked for as a search would find them, the dictionary before
+\ the labels and the newest first, and the first with a key is kept.
+\
+\ The tables are not part of the image.  They go to a file, which is put
+\ on the disk, and the decompiler reads them in when it has work to do.
 
-create nt 2048 cells allot
+create nt 8192 cells allot
 variable nt#  0 nt# !
 
-: nt-add ( hdr key -- )
+: nt-add ( hdr label? key -- )
     nt# @ 0 ?do
-        dup nt i cells + @ 16 rshift = if 2drop unloop exit then
+        dup nt i cells + @ 32 rshift = if drop 2drop unloop exit then
     loop
-    16 lshift or  nt nt# @ cells + !  1 nt# +!
+    32 lshift  swap if $80000000 or then  or
+    nt nt# @ cells + !  1 nt# +!
 ;
 : nt-sort ( -- )
     nt# @ 2 < if exit then
@@ -1059,15 +1080,21 @@ variable nt#  0 nt# !
         cells nt + !
     loop
 ;
-: nt-lay ( var -- ) \ lay the table down: how many, then the entries; var is told where
-    tcalign  there taddr swap tvar!
-    nt# @ tcell,
-    nt# @ 0 ?do nt i cells + @ tcell, loop
+create ntf 8192 cells allot                 \ the file: its cells
+variable ntf#  0 ntf# !
+: ntf, ( x -- ) ntf ntf# @ cells + !  1 ntf# +! ;
+: nt-lay ( -- ) \ a table into the file: how many, then the entries
+    nt-sort
+    nt# @ ntf,
+    nt# @ 0 ?do nt i cells + @ ntf, loop
     0 nt# !
 ;
 
 : hdr-link ( a -- a' ) byte-shift lshift tflash + @ ;
-: hdr-xt   ( a -- xt ) byte-shift lshift cell-bytes + tflash + @ $ffff and ;
+: hdr-val  ( a -- x )  byte-shift lshift cell-bytes + tflash + @ ;
+: hdr-xt   ( a -- xt ) hdr-val $ffff and ;
+: lbl-link ( n -- n' ) cells lflash + @ ;           \ a label, by its place
+: lbl-val  ( n -- x )  1+ cells lflash + @ ;
 
 : tlv ( w -- n ) dup $fff and swap 12 rshift 3 and 12 * lshift ;
 : lit? ( w kind -- f ) over $c000 and =  swap $3000 and $3000 <> and ;
@@ -1082,21 +1109,36 @@ variable nt#  0 nt# !
     nip $7403 = if true else drop false then
 ;
 
-: name-tables ( xtab dtab forth0 -- ) \ the three variables of see.fs
-    cell-bits 64 <> abort" name-tables is for 64-bit cells"
-    link @ swap tvar!
-    swap                                            ( dtab xtab )
-    link @ begin dup while dup dup hdr-xt nt-add  hdr-link repeat drop
-    nt-sort nt-lay
+: xt-table ( -- )
+    link @ begin dup while dup false over hdr-xt nt-add  hdr-link repeat drop
+    llink @ begin
+        dup
+    while
+        dup lbl-val 0< 0= if dup true over lbl-val $ffff and nt-add then
+        lbl-link
+    repeat drop
+    nt-lay
+;
+: number-table ( -- )
     link @ begin
         dup
     while
         dup hdr-xt thval if
-            dup $10000 u< if over swap nt-add else drop then
+            dup 32 rshift if drop else over false rot nt-add then
         then
         hdr-link
     repeat drop
-    nt-sort nt-lay
+    llink @ begin
+        dup
+    while
+        dup lbl-val dup 0< if
+            1 63 lshift invert and  over true rot nt-add
+        else
+            drop
+        then
+        lbl-link
+    repeat drop
+    nt-lay
 ;
 
 :: hdr, ( "name" -- ) \ a cell that holds the address of the word's header
@@ -1184,7 +1226,7 @@ variable nt#  0 nt# !
     tcalign                                 \ before the label: it holds where the data will be
     named? dup >r 0= labelling and if
         0 (label)
-        there taddr 1 cell-bits 1- lshift or swap tcell!
+        there taddr 1 cell-bits 1- lshift or swap !
     then
     r> if
         there taddr literal  s" exit" evaluate  label
@@ -1423,6 +1465,28 @@ next-arg 2dup .trim >str constant prefix.
     s" ../build/" >str +str str@
     create-output-file
 ;
+\ The file of names is two cells and then the rest: a stamp, which the
+\ image has too, so that names made for another build are not used; how
+\ many cells follow; the two tables; and the labels.  forth0 is told the
+\ newest word of the dictionary, and stamp the stamp.  The file is beside
+\ the image and has its name (build/nuc.tables), and the tools that read an
+\ image for its labels look for it there.
+: name-tables ( forth0 stamp -- )
+    cell-bits 64 <> abort" name-tables is for 64-bit cells"
+    link @  tcp @ 16 lshift xor  lp @ 40 lshift xor     ( forth0 stamp x )
+    dup rot tvar!                                       ( forth0 x )
+    link @ rot tvar!                                    ( x )
+    0 ntf# !
+    ntf,  0 ntf,
+    xt-table number-table
+    llink @ lflash !                                    \ the newest label
+    ntf# @ 2 -  lp @ 3 rshift +  ntf cell+ !
+    s" tables" out-suffix
+    dup ntf ntf# @ cells rot write-file throw
+    dup lflash lp @ rot write-file throw
+    close-file throw
+;
+
 :noname
     s" lst" out-suffix lst !
     s" sizes" out-suffix sizes !

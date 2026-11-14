@@ -48,6 +48,7 @@ include fused.fs        \ fused instructions as words, for the decompiler
 include see.fs          \ decompiler and the dictionary browser
 include desk.fs         \ the desktop itself
 
-\ Every word is where it will be: the dictionary's tables, for the decompiler.
+\ Every word is where it will be: the tables of names for the decompiler,
+\ which go to a file for the disk (build/nuc.tables).
 
-meta t' xtab t' dtab t' forth0 name-tables target
+meta t' forth0 t' tstamp name-tables target

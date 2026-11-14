@@ -90,8 +90,10 @@ $(B)/baboon.png:
 	cd $(B) && npm pack --silent baboon-image && tar xzf baboon-image-*.tgz package/baboon.png \
 	    && mv package/baboon.png . && rm -rf package baboon-image-*.tgz
 
-$(B)/disk.img: $(B)/baboon.png mkdisk.py block1.fs
-	python3 mkdisk.py $(B)/baboon.png $@ block1.fs
+# The disk also has the tables of names the build of the image made, which
+# the decompiler reads in: so it is made again when the image is.
+$(B)/disk.img: $(B)/baboon.png mkdisk.py block1.fs ../build/nuc.tables
+	python3 mkdisk.py $(B)/baboon.png $@ block1.fs ../build/nuc.tables
 
 DEVICES := -device ramfb -global virtio-mmio.force-legacy=false \
            -drive file=$(B)/disk.img,if=none,format=raw,id=hd0 -device virtio-blk-device,drive=hd0 \

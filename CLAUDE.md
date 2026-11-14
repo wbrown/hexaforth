@@ -292,8 +292,8 @@ and `execute` cross pages with no extra state. Memory layout:
 - bytes `0x04000-0x09fff` of the image: data. `cross.fs` lays variables
   and tables down here, and data made at run time (`here`, `,`, `allot`,
   `variable`) carries on after it
-- bytes `0x0a000-0x0ffff`: dictionary headers and labels, and after them
-  the headers made at run time. The nucleus keeps two pointers, `dp` for
+- bytes `0x0a000-0x0ffff`: dictionary headers, and after them the headers
+  made at run time. The nucleus keeps two pointers, `dp` for
   data and `hdp` for headers, as `cross.fs` does, so that variables stay
   in the cells that one instruction fetches and stores; making a header
   throws -8 if the data has reached the headers
@@ -425,21 +425,39 @@ Pages 8 and 9 are the drivers and the desktop:
   leaves those instructions out until `nuc.fs` gives them one. Regenerate
   and rebuild after changing code
 - `desk.fs`: `desktop`, and `cold`, which the kernel runs at boot
-- when all of that is compiled, `name-tables` in `cross.fs` lays down two
-  tables of the dictionary for the decompiler: its words by execution
-  token, and those that only push a number (a variable, anything made with
-  `create`) by the number. An entry is a cell, the key above the header's
-  address, and they are in order, so `tfind` in `see.fs` finds one by
-  halving. Only words made since the build are searched for one at a time,
-  back to `forth0`. Labels are not in the tables (there is not the room
-  for 1,300 more entries), and are still searched in a row
+- when all of that is compiled, `name-tables` in `cross.fs` makes two
+  tables of the names for the decompiler, the dictionary's words and the
+  labels: by execution token, and those that are a number (a word that
+  only pushes one, a label for data) by the number. An entry is a cell,
+  the key in the upper half and in the lower where the name is (a
+  header's address, or for a label how far it is into the labels, with a
+  bit to say so), and they are in order, so `tfind` in `see.fs` finds one
+  by halving. The tables and the labels are not in the image: they are
+  the file `build/nuc.tables` (22KB), which `mkdisk.py` puts on the disk
+  from block 1024.
+  `names-load` reads them into memory from `halloc` and `names-unload`
+  gives the memory back, if nothing has taken more since. The Words
+  window has them in while it is the window in front (`'front` in `wm.fs`
+  is run when the front window changes; windows do not close), and `see`
+  for as long as it runs. A stamp in the file must be the image's.
+  Without them, or with no disk (the reference VM has none), the
+  decompiler searches the dictionary a word at a time and has no labels
 
 On a 64-bit machine `cross.fs` also keeps the name of every definition that
-has no header, in a second chain headed by `labels` and laid out as the
-dictionary is. The prompt does not search it; the decompiler does, so a
-call to a headerless word and a headerless variable are shown by name. A
-label for code holds its execution token, and one for `create`d data holds
-the data's address with the top bit set. `see` accepts a label's name too.
+has no header: a label, laid out as a header is. A label for code holds
+its execution token, and one for `create`d data holds the data's address
+with the top bit set. The labels are for the decompiler and the tools, so
+they are not in the image: they are in the file of names beside it
+(`build/nuc.tables`, after the two tables), which goes on the disk. While
+the decompiler has that file in memory, `labels` heads their chain, a call
+to a headerless word and a headerless variable are shown by name, and
+`see` accepts a label's name; without it they are shown as numbers. The
+tools that want an image's labels (`insn_map.py`, `deskprof.py`,
+`loops.py`, `shorter.py`) read the file with the image's name
+(`labels_of`), so a copy of an image needs a copy of its `.tables`, and
+`insn_map.py --compare` needs each of the two images'. The file's stamp
+must be the image's, which is the cell the dictionary word `tstamp`
+points at: a tool given names that are another build's stops and says so.
 
 A word that another file uses has a header, so that it can be typed at the
 prompt and used in new definitions: the drawing, window, block and device
@@ -452,7 +470,8 @@ The window manager puts a window's port in use before calling its draw
 routine, with the origin at the top left of its content and the clip set to
 what is to be painted of it. Each build writes `build/<name>.sizes`:
 for every file included, the bytes of code it compiled and of data it laid
-down, and how much of that data is dictionary headers and labels.
+down, and how much of that data is dictionary headers (the last number
+was the labels, which are no longer in the image, and is nothing).
 
 `cross.fs` compiles a call to another code page as `literal xt` +
 `call execute`, so code past the kernel needs only an `org` per page and

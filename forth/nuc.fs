@@ -191,7 +191,7 @@ create "cold"
     'c' c, 'o' c, 'l' c, 'd' c,
 
 create forth    0 ,
-create labels   0 ,         \ names of definitions that have no header
+create labels   0 ,         \ names of definitions that have no header, while they are read in (see.fs)
 create cp       0 ,         \ Code pointer, grows up
 create dp       0 ,         \ Data pointer, grows up
 create hdp      0 ,         \ where the next dictionary header goes
@@ -1606,7 +1606,6 @@ meta
     t' main-task t' main-task tvar!     \ the first task, in a ring of one
     t' main-task t' up tvar!
     link @ t' forth tvar!
-    llink @ t' labels tvar!
     there  t' dp tvar!                  \ data carries on after the data,
     thp @  t' hdp tvar!                 \ and headers after the headers
     tcp @ 2/ code-base max $fff + $fff invert and

@@ -52,21 +52,16 @@ def chain(raw, link):
     return out
 
 
-def word_names(raw):
-    """Where each word starts: the dictionary, and the labels for the rest."""
+def word_names(raw, image):
+    """Where each word starts: the dictionary in the image's bytes, and for
+    the rest the labels, which are in the file of names beside the image."""
     cells = struct.unpack(f"<{0x10000 // 2}H", raw[:0x10000])     # the first 64KB
     head = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]    # as insn_map.py
-    words = chain(raw, head)
     names = {}
-    labels = [w for w in words if w[1] == "labels"]
-    if labels:
-        code = struct.unpack(f"<{len(raw) // 2}H", raw)
-        xt = labels[0][0]                           # a word that pushes the chain's address
-        where = sum((w & 0xFFF) << 12 * (w >> 12 & 3) for w in code[xt:xt + 2] if w & 0x8000)
-        for a, n, data in chain(raw, 8 * struct.unpack_from("<Q", raw, 8 * where)[0]):
-            if not data:
-                names.setdefault(a, n)
-    for a, n, _ in words:
+    for value, n in insn_map.labels_of(image):
+        if not value >> 63:
+            names.setdefault(value & 0xFFFF, n)
+    for a, n, _ in chain(raw, head):
         names[a] = n
     return names
 
@@ -171,7 +166,7 @@ def main():
 
     code = struct.unpack(f"<{len(raw) // 2}H", raw)
     built = b"".join(struct.pack("<I", int(l, 16)) for l in open(image) if l.strip())
-    names = word_names(built + bytes(0x20000 - len(built)))
+    names = word_names(built + bytes(0x20000 - len(built)), image)
     starts = sorted(names)
     mods = modules(sizes)
     mod_at = [a for a, _ in mods]

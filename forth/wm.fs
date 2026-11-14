@@ -287,6 +287,11 @@ create hy 0 ,
     1-
 ;
 
+\ A window may want to know when the one in front has changed: to take
+\ something into memory while it is in front, and give it back after.
+header 'front create 'front 0 ,     \ ( -- )
+: fronted ( -- ) 'front @ ?dup if execute then ;
+
 : raise ( i -- )
     dup cells wins + @ >r
     begin
@@ -309,6 +314,7 @@ create dy0 0 ,
     win-at dup 0< if drop exit then
     dup 1+ nwin @ <> if
         redraw-top raise redraw-top                 \ the one that was in front, and the one that is
+        fronted
     else
         drop
     then
@@ -346,7 +352,7 @@ create quitting 0 ,
     dup d# 17 = if drop true quitting ! exit then   \ ^Q: leave the desktop
     dup d# 23 = if                                  \ ^W: next window
         drop
-        nwin @ d# 1 > if redraw-top d# 0 raise redraw-top then
+        nwin @ d# 1 > if redraw-top d# 0 raise redraw-top fronted then
         exit
     then
     true auto !

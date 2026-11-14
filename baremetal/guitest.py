@@ -353,6 +353,14 @@ def main():
         moved = sum(1 for y in range(H) for x in range(W)
                     if not (12 <= x < 418 and 32 <= y < 312) and bool(a[x, y]) != bool(b[x, y]))
         check("a full repaint leaves the other windows as they were", moved == 0, f"{moved} pixels changed")
+
+        # The tables of names for the decompiler are on the disk.  They are
+        # read into memory, which says they were found and are this image's,
+        # and the memory is given back.
+        m.type("names-load names? . names-unload names? .\r")
+        shot = m.screenshot(f"{out}/13-names.png")
+        text = read_text(shot, 15, 53, 50, 16)
+        check("the tables of names load from the disk and unload", text[14] == "-1 0  ok", repr(text[12:16]))
     finally:
         m.stop()
     print(f"screenshots in {out}/")

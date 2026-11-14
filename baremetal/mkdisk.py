@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Build a block device image for hexaforth.
 
-    mkdisk.py IMAGE OUT.img [SOURCE.fs]
+    mkdisk.py IMAGE OUT.img [SOURCE.fs [NAMES]]
 
 Blocks are 1024 bytes.  Layout:
     block 1     Forth source, space padded, for `1 load`
     block 16..  IMAGE as an uncompressed little-endian RGB TIFF, written
                 here in several strips so the reader has to follow the strip
                 tables
+    block 1024.. NAMES, the tables of names the build made for the
+                decompiler (build/nuc.tables), which see.fs reads in when
+                the Words window comes to the front
 
 Also writes OUT.tiff beside the image, for reference.
 """
@@ -18,6 +21,7 @@ from PIL import Image
 
 BLOCK = 1024
 TIFF_BLOCK = 16
+NAMES_BLOCK = 1024
 ROWS_PER_STRIP = 64
 
 
@@ -71,6 +75,10 @@ def main():
     disk = bytearray(BLOCK * TIFF_BLOCK)
     disk[BLOCK:2 * BLOCK] = text.ljust(BLOCK)
     disk += data
+    if len(sys.argv) > 4:                           # the tables of names, for the decompiler
+        names = open(sys.argv[4], "rb").read()
+        assert len(disk) <= BLOCK * NAMES_BLOCK, "the picture runs into the tables of names"
+        disk += bytes(BLOCK * NAMES_BLOCK - len(disk)) + names
     disk += bytes(-len(disk) % (64 * BLOCK))
     open(out, "wb").write(disk)
     print(f"{out}: {len(disk) // BLOCK} blocks, TIFF at block {TIFF_BLOCK} "

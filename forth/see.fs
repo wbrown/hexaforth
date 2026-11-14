@@ -87,61 +87,122 @@ create k-store  ," !"
 : ins@ ( a -- w ) i@ ;
 : hxt  ( hdr -- xt ) cell+ @ d# 1 lshift d# 1 rshift ;
 
-: xt>lbl ( -- lbl|0 ) \ the label for the code at stmp
-    labels @
-    begin
-        dup
-    while
-        dup cell+ @ stmp @ = if exit then
-        @
-    repeat
+\ The names of the definitions that have no header, the labels, are not in
+\ the image: they are for the decompiler, and are on the disk.  With them
+\ are two tables of the names as they were when the image was built, the
+\ dictionary's words and the labels: by execution token, and those that
+\ are a number (a word that only pushes one, a label for data) by the
+\ number.  A table is how many, then a cell for each in order: the key in
+\ the upper half, and in the lower where the name is, with the top bit of
+\ that half set for a label.  For a word that is the address of its
+\ header.  For a label it is how many cells it is from the start of the
+\ labels, since they are wherever memory was found for them; and a label
+\ is laid out as a header is, the one before it, its value, and its name.
+\
+\ The file is on the disk from block 1024: a stamp that must be the
+\ image's, how many cells follow, the two tables, and the labels.  It is
+\ read into memory when there is decompiling to do (names-load) and the
+\ memory is given back after (names-unload), if nothing has taken more
+\ since.  While it is in, only the words made since the build are searched
+\ for one at a time, back to forth0, which was the newest then.  While it
+\ is not, or with no disk, the whole dictionary is searched, and what has
+\ no header is shown as a number.
+create forth0 0 ,
+header tstamp create tstamp 0 ,     \ in the dictionary, so that a tool can find it in an image
+create xtab 0 ,         \ the tables, or 0 while they are not in memory
+create dtab 0 ,
+create lbase 0 ,        \ and where the labels start
+create nm-mark 0 ,      \ where memory was before they were read in,
+create nm-end 0 ,       \ and after
+create nm-head 0 , 0 ,  \ the first two cells of the file
+create nm-lo 0 ,        \ where the part of a table still to look in starts,
+create nm-n 0 ,         \ and how many entries it is
+
+$100000 constant NAMES-AT   \ where on the disk, in bytes: block 1024
+
+: (names-load) ( -- )
+    nm-head >c d# 16 NAMES-AT disk-read
+    nm-head @ tstamp @ <> if exit then
+    himem @ nm-mark !
+    nm-head CELL + @ >c halloc                      ( a )
+    himem @ nm-end !
+    dup >c  nm-head CELL + @ >c  NAMES-AT d# 16 +  disk-read
+    dup dup @ + 1+ dtab !
+    dtab @ dup @ + 1+ lbase !
+    \ The labels: each holds how far the one before it is from the start,
+    \ and the first cell how far the newest is.  Make addresses of them.
+    lbase @ @ ?dup if
+        lbase @ + dup labels !
+        begin
+            dup @ ?dup
+        while
+            lbase @ +  2dup swap !  nip
+        repeat
+        drop
+    then
+    xtab !
 ;
 
-\ The build leaves two tables of the dictionary as it was then: its words by
-\ execution token, and those that only push a number by the number.  Each
-\ is how many, then a cell for each in order: the key, above sixteen bits
-\ of the header's address.  So only the words made since are searched for
-\ one at a time, back to forth0, which was the newest then.
-create forth0 0 ,
-create xtab 0 ,
-create dtab 0 ,
-create tlo 0 ,          \ where the part of a table still to look in starts,
-create tn 0 ,           \ and how many entries it is
+header names-load
+: names-load ( -- )
+    xtab @ if exit then
+    'blk-read @ if ['] (names-load) catch drop then
+;
 
-: tfind ( key table -- hdr|0 ) \ by halving
-    dup @ tn !  1+ tlo !
+header names? : names? ( -- f ) xtab @ 0<> ;        \ are they in memory?
+
+header names-unload
+: names-unload ( -- )
+    xtab @ 0= if exit then
+    himem @ nm-end @ <> if exit then                \ something else has memory after them
+    nm-mark @ himem !
+    d# 0 xtab !  d# 0 dtab !  d# 0 labels !
+;
+
+: tfind ( key table -- entry|0 ) \ by halving; what is given is the lower half
+    dup @ nm-n !  1+ nm-lo !
     begin
-        tn @
+        nm-n @
     while
-        tn @ d# 1 rshift                            ( key half )
-        2dup tlo @ + @                              ( key half key entry )
-        dup>r d# 16 rshift
-        2dup = if 2drop 2drop r> h# ffff and exit then
+        nm-n @ d# 1 rshift                          ( key half )
+        2dup nm-lo @ + @                            ( key half key entry )
+        dup>r d# 32 rshift
+        2dup = if 2drop 2drop r> d# 32 lshift d# 32 rshift exit then
         u> if                                       \ it is after the middle one,
-            dup 1+ tlo +!  invert tn +!
+            dup 1+ nm-lo +!  invert nm-n +!
         else                                        \ or before it
-            tn !
+            nm-n !
         then
         rdrop
     repeat
     drop d# 0
 ;
 
+: tstop ( -- hdr|0 ) \ how far back the dictionary is searched a word at a time
+    xtab @ if forth0 @ else d# 0 then
+;
+: label? ( entry -- f ) d# 31 rshift 0<> ;
+: >hdr   ( entry -- hdr ) \ where the name is
+    dup d# 33 lshift d# 33 rshift  swap label? if lbase @ + then
+;
+
 : xt>hdr ( xt -- hdr|0 ) \ the word that starts at xt: in the dictionary, or a label
-    stmp !  d# 0 slab !  forth @
+    stmp !  d# 0 slab !
+    tstop >r forth @
     begin
-        dup forth0 @ <>
+        dup r@ <>
     while
-        dup hxt stmp @ = if exit then
+        dup hxt stmp @ = if rdrop exit then
         @
     repeat
-    drop
-    stmp @ xtab @ tfind ?dup if exit then
-    xt>lbl  dup 0<> slab !
+    rdrop drop
+    xtab @ 0= if d# 0 exit then
+    stmp @ xtab @ tfind dup if dup label? slab !  >hdr then
 ;
 
 : data>lbl ( a -- lbl|0 ) \ the label for the data at a
-    d# 1 d# 63 lshift or stmp !  xt>lbl
+    dtab @ 0= if drop d# 0 exit then
+    dtab @ tfind dup if dup label? if >hdr else drop d# 0 then then
 ;
 
 : ret>hdr ( w -- hdr|0 ) \ the newest word whose code is the one instruction w
@@ -243,9 +304,12 @@ create hv 0 ,
 \ If the table has it for the number, an older word may push it too.
 : lit>hdr ( n -- hdr|0 )
     stmp !
-    forth0 @ lit-walk ?dup if exit then
+    tstop lit-walk
+    dtab @ 0= if exit then
+    ?dup if exit then
     stmp @ dtab @ tfind dup 0= if exit then
-    dup hxt sxt @ = if drop d# 0 lit-walk then
+    dup label? if drop d# 0 exit then
+    >hdr dup hxt sxt @ = if drop d# 0 lit-walk then
 ;
 
 \ A name found by xt>hdr, leaning if it is a label.
@@ -525,17 +589,22 @@ create hv 0 ,
 : ttok ( addr u xt -- ) drop  sfresh @ if sind @ 2* sspaces then  type space ;
 
 \ SEE takes a name from the dictionary or, failing that, a label.  For a
-\ label on data it only says where the data is.
+\ label on data it only says where the data is.  It has the names in
+\ memory for as long as it runs, if they were not already.
+: names-done ( were-in -- ) 0= if names-unload then ;
 header see
 : see ( "name" -- )
+    xtab @ >r  names-load
     parse-name sfind ?dup 0= if
         forth @ >r  labels @ forth !  sfind  r> forth !
+        dup 0= if r@ names-done then
         dup 0= d# 13 -throw
-        0> if cr . exit then
+        0> if cr .  r> names-done  exit then
     else
         drop
     then
-    ['] ttok 'tok !  ['] cr 'nl !  cr sdecomp
+    ['] ttok 'tok !  ['] cr 'nl !  cr
+    sdecomp  r> names-done
 ;
 
 \ ---- the Words window: the dictionary on the left, a definition on the right
@@ -565,7 +634,11 @@ create lku 0 ,
 create crow 0 ,
 create ccol 0 ,
 create wtmp 0 ,
+create wwin 0 ,         \ the window
 header t-words create t-words ," Words"
+
+\ The tables of names are in memory while the window is the one in front.
+: words-front ( -- ) top wwin @ = if names-load else names-unload then ;
 
 : nwords ( -- n )
     d# 0 forth @
@@ -656,8 +729,11 @@ header t-words create t-words ," Words"
 : gnl ( -- ) d# 1 srow +! ;
 
 header words-draw : words-draw ( win -- )
-    drop
-    winit @ 0= if true winit !  d# 0 wpick then
+    wwin !
+    winit @ 0= if
+        true winit !  d# 0 wpick
+        ['] words-front 'front !  words-front
+    then
     wxt @ xt>hdr ?dup if hdr>i else d# -1 then wsel !
     d# 0 wi !
     wtop @ nth
@@ -684,7 +760,6 @@ header words-draw : words-draw ( win -- )
 \ the list itself moved, or the choice was made by following a link, it is
 \ everything inside the frame.
 
-create wwin 0 ,
 create wsel0 0 ,        \ the choice and the top of the list before
 create wtop0 0 ,
 

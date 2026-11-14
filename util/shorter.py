@@ -465,7 +465,7 @@ def main():
     raw = b"".join(struct.pack("<I", int(l, 16)) for l in open(image) if l.strip())
     raw += bytes(0x20000 - len(raw))
     import deskprof
-    names = deskprof.word_names(raw)
+    names = deskprof.word_names(raw, image)
     starts = sorted(names)
     data = open(counts_path, "rb").read()
     half = len(data) // 16

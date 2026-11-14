@@ -686,7 +686,6 @@ def load_image(path):
     # Headers are 64-bit cells: link, then xt with the immediate flag on top.
     # A link is the address of a cell, which is 8 bytes.
     entries = set()
-    labels = 0
     global EXECUTE
     EXECUTE = None
     link = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
@@ -695,21 +694,57 @@ def load_image(path):
         entries.add(xt)
         if raw[link + 16:link + 24] == b"\x07execute":
             EXECUTE = xt
-        if raw[link + 16:link + 23] == b"\x06labels":
-            # The word pushes the address of the variable that heads the label chain.
-            where = sum((w & 0xFFF) << 12 * (w >> 12 & 3) for w in cells[xt:xt + 2] if w & 0x8000)
-            labels = 8 * struct.unpack_from("<Q", raw, 8 * where)[0]
         link = 8 * struct.unpack_from("<Q", raw, link)[0]
     # Labels name the definitions that have no header.  One for code holds
     # its execution token; one for data has the top bit set.
     global LABELLED
+    labels = labels_of(path)
     LABELLED = bool(labels)
-    while labels:
-        value = struct.unpack_from("<Q", raw, labels + 8)[0]
+    for value, _ in labels:
         if not value >> 63:
             entries.add(value & 0xFFFF)
-        labels = 8 * struct.unpack_from("<Q", raw, labels)[0]
     return code, entries
+
+
+def labels_of(image):
+    """(value, name) for each label of an image, the newest first.  The labels
+    are not in the image: cross.fs writes them, after the decompiler's two
+    tables, to a file beside it with the same name (build/nuc.tables for
+    build/nuc.hex), and a copy of an image needs a copy of that."""
+    path = os.path.splitext(image)[0] + ".tables"
+    if not os.path.exists(path):
+        return []
+    data = open(path, "rb").read()
+    cells = struct.unpack(f"<{len(data) // 8}Q", data)
+    stamp = image_stamp(image)
+    if stamp != cells[0]:
+        raise SystemExit(f"{path} is not the names of {image}: its stamp is {cells[0]:x} and the "
+                         f"image's is {'not there' if stamp is None else format(stamp, 'x')}.  "
+                         f"Build the image again, or copy its .tables with it.")
+    at = 2                                      # past the stamp and the size,
+    at += 1 + cells[at]                         # the table by execution token,
+    at += 1 + cells[at]                         # and the table by number
+    out, n = [], cells[at]
+    while n:
+        name = 8 * (at + n + 2)
+        out.append((cells[at + n + 1], data[name + 1:name + 1 + data[name]].decode("latin-1")))
+        n = cells[at + n]
+    return out
+
+
+def image_stamp(image):
+    """The stamp cross.fs gave an image, which its file of names has too: the
+    cell that the word `tstamp` of its dictionary pushes the address of."""
+    raw = b"".join(struct.pack("<I", int(l, 16)) for l in open(image) if l.strip())
+    cells = struct.unpack(f"<{len(raw) // 2}H", raw)
+    link = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
+    while link:
+        if raw[link + 16:link + 23] == b"\x06tstamp":
+            xt = struct.unpack_from("<Q", raw, link + 8)[0] & 0xFFFF
+            where = sum((w & 0xFFF) << 12 * (w >> 12 & 3) for w in cells[xt:xt + 2] if w & 0x8000)
+            return struct.unpack_from("<Q", raw, 8 * where)[0]
+        link = 8 * struct.unpack_from("<Q", raw, link)[0]
+    return None
 
 
 LABELLED = False            # the image last loaded names every definition
