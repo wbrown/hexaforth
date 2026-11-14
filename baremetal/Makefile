@@ -18,22 +18,28 @@ B      := build
 ADDR_BITS ?= 22
 TARGET := --target=aarch64-none-elf
 
+# Homebrew keeps LLVM's tools (llvm-objcopy, llvm-nm) out of PATH.  If PATH
+# has none, use Homebrew's: by name here, since make finds a command with
+# the PATH it was started with, and at the end of PATH for the scripts, so
+# that clang is still the one PATH finds first.
+ifeq ($(shell command -v llvm-objcopy 2>/dev/null),)
+LLVM := $(addsuffix /bin/,$(shell brew --prefix llvm 2>/dev/null))
+endif
+ifneq ($(LLVM),)
+export PATH := $(PATH):$(LLVM)
+endif
+
 all: $(B)/$(KERNEL).bin
 
 $(B)/image.bin: $(HEX) hex2bin.py
 	@mkdir -p $(B)
 	python3 hex2bin.py $(HEX) $@
 
-# STRICT=1 builds the small kernel to halt on a fetch or store outside memory.
-$(B)/%.o: %.S $(B)/image.bin
-	clang $(TARGET) -c -DIMAGE='"$(B)/image.bin"' $(if $(STRICT),-DSTRICT) \
-	    -DADDR_BITS=$(ADDR_BITS) $< -o $@
-
-$(B)/%.elf: $(B)/%.o
-	ld.lld -Ttext=$(LOAD) -e _start -o $@ $<
-
-# The same kernel with a display: built to call the bridge, and linked after
+# The kernel with a display: built to call the bridge, and linked after
 # ramfb.S, since the machine's memory runs on from the end of the kernel.
+# These rules and the profile's come before the plain kernel's, which match
+# the same names: make 3.81, which macOS has, takes the first pattern that
+# matches, where later ones take the closest.
 $(B)/%-display.o: %.S $(B)/image.bin
 	clang $(TARGET) -c -DIMAGE='"$(B)/image.bin"' $(if $(STRICT),-DSTRICT) -DBRIDGE \
 	    -DADDR_BITS=$(ADDR_BITS) $< -o $@
@@ -53,13 +59,22 @@ $(B)/%-profile.o: %.S $(B)/image.bin
 $(B)/%-profile.elf: $(B)/ramfb.o $(B)/%-profile.o
 	ld.lld -Ttext=$(LOAD) -e _start -o $@ $^
 
+# The plain kernel.  STRICT=1 builds the small kernel to halt on a fetch or
+# store outside memory.
+$(B)/%.o: %.S $(B)/image.bin
+	clang $(TARGET) -c -DIMAGE='"$(B)/image.bin"' $(if $(STRICT),-DSTRICT) \
+	    -DADDR_BITS=$(ADDR_BITS) $< -o $@
+
+$(B)/%.elf: $(B)/%.o
+	ld.lld -Ttext=$(LOAD) -e _start -o $@ $<
+
 $(B)/%.bin: $(B)/%.elf
-	llvm-objcopy -O binary $< $@
+	$(LLVM)llvm-objcopy -O binary $< $@
 
 .PRECIOUS: $(B)/%.o $(B)/%.elf $(B)/%-display.o $(B)/%-display.elf
 
 size: $(B)/$(KERNEL).elf
-	@llvm-nm --radix=d $< | awk '/ native_end$$/{e=$$1} / _start$$/{s=$$1} \
+	@$(LLVM)llvm-nm --radix=d $< | awk '/ native_end$$/{e=$$1} / _start$$/{s=$$1} \
 	    END{print "native code: " e-s " bytes"}'
 	@ls -l $(B)/$(KERNEL).bin | awk '{print "whole image: " $$5 " bytes"}'
 

@@ -11,7 +11,9 @@
 set -e
 cd "$(dirname "$0")/.."
 C=$1
-A=${2:-$(case $C in 64) echo 22;; 32) echo 17;; *) echo 16;; esac)}
+# The patterns have both brackets: the sh of macOS (bash 3.2) cannot read a
+# case inside $( ) without them.
+A=${2:-$(case $C in (64) echo 22;; (32) echo 17;; (*) echo 16;; esac)}
 D="-DCELL_BITS=$C -DADDR_BITS=$A $EXTRA"
 mkdir -p build
 gcc -w -fcommon $D -o build/bwgen-$C-$A util/baseword_fs_gen.c vm_opcodes.c vm_debug.c -lm
