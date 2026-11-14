@@ -1,3 +1,4 @@
 build/
 forth/test_cases.fs
 test/__pycache__/
+baremetal/__pycache__/deskprof.*.pyc
