@@ -39,6 +39,7 @@
         .equ    VAR_BASE,    0x800           // the first of the cells one instruction reaches
         .equ    RSTACK_OFF,  0x800           // 256 cells each
         .equ    STACKS_SIZE, 0x1000
+        .equ    PROFILE_AT,  0x400000        // deskprof.py knows this too
 
         .equ    IO_EMIT,     0xf1
         .equ    IO_KEY,      0xe0
@@ -47,6 +48,9 @@
         .equ    IO_SP,       0xd0
         .equ    IO_RSP,      0xd1
 
+// Built with -DPROFILE, the kernel counts how often the instruction at each
+// address is executed, for deskprof.py to read out of the machine.
+//
 // Built with -DSTRICT, a fetch or store outside memory, a store into the
 // first 4KB of the kernel, or a stack that leaves its 256 cells, sends '!'
 // and the address of the instruction, and halts.  The Forth system does
@@ -76,6 +80,7 @@ DS      .req    x24     // data stack pointer; DS[-1] is N
 RS      .req    x25     // return stack pointer
 UART    .req    x26
 STK     .req    x27     // host address of the data stack; the return stack follows
+PROF    .req    x28     // with -DPROFILE: a count for each instruction address
 INS     .req    x9      // current instruction
 INSw    .req    w9
 IO      .req    x10     // IN on the way into the ALU, OUT on the way out
@@ -100,6 +105,10 @@ _start:
         bl      bridge_init
 #endif
         mov     UART, #UART_BASE
+#ifdef PROFILE
+        add     PROF, STK, #STACKS_SIZE         // 65,536 counts of eight bytes, 4MB past the
+        add     PROF, PROF, #PROFILE_AT         // stacks, clear of what the bridge takes
+#endif
         mov     DS, STK
         add     RS, STK, #RSTACK_OFF
         mov     PC, #0
@@ -108,6 +117,11 @@ _start:
         mov     R, #0
 
 next:
+#ifdef PROFILE
+        ldr     x16, [PROF, PC, lsl #3]         // count this instruction
+        add     x16, x16, #1
+        str     x16, [PROF, PC, lsl #3]
+#endif
         ldrh    INSw, [MEM, PC, lsl #1]
         add     PC, PC, #1
         tbnz    INSw, #15, literal
