@@ -211,6 +211,16 @@ class State:
             self.mem = ("store", self.mem, addr, out)
 
 
+def effect(instructions):
+    """behaviour, with the fetches made in no order.  A fetch of memory changes
+    nothing, and what it fetched says which stores were before it, so two
+    sequences that fetch the same cells in a different order do the same."""
+    key = behaviour(instructions)
+    if key is None:
+        return None
+    return key[:4] + (tuple(sorted(key[4], key=repr)),) + key[5:]
+
+
 def behaviour(instructions):
     """Symbolic effect of an instruction sequence, or None if it cannot be modelled."""
     state = State()
@@ -643,9 +653,9 @@ def compare_images(plain_path, opt_path):
                 a == b == 0 or moved.get(flat_target(at_a, a)) == flat_target(at_b, b))
         else:
             runs += 1
-            want = behaviour(b)
+            want = effect(b)
             same = want is not None and (
-                want == behaviour(a) or any(want == behaviour(t) for t in translations(a)))
+                want == effect(a) or any(want == effect(t) for t in translations(a)))
         if not same:
             bad += 1
             text = lambda x: " ".join(f"{w:04x}" for w in x) if isinstance(x, list) else f"{x:04x}"
