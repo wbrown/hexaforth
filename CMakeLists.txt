@@ -11,8 +11,12 @@ if(DEBUG)
    add_compile_definitions(DEBUG)
 endif()
 
+# cross.fs writes its output to build/, which is not checked in
+set(MAKE_BUILD_DIR ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/build)
+
 # hexaforth nucleus image from swapforth
 add_custom_command(
+        COMMAND           ${MAKE_BUILD_DIR}
         COMMAND           gforth cross.fs basewords.fs nuc.fs
         OUTPUT            ${CMAKE_SOURCE_DIR}/build/nuc.hex
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
@@ -56,6 +60,7 @@ add_custom_command(
 
 # Compile test_cases.fs to hex
 add_custom_command(
+        COMMAND           ${MAKE_BUILD_DIR}
         COMMAND           gforth cross.fs basewords.fs test_cases.fs
         OUTPUT            ${CMAKE_SOURCE_DIR}/build/test_cases.hex
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
