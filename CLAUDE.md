@@ -279,8 +279,10 @@ Page 1 is what the rest is built on:
     each starts), so it may be proportional: `mono` is Unifont, `sans` is
     DejaVu Sans Bold. `px,` in `cross.fs` lays a strike down in the
     display's order. A font is opened out on first use into a cell for each
-    row of each glyph. `draw-text` gathers a row of a string's glyphs into
-    a cell and stores it when full
+    row of each glyph. `draw-text` works a cell of the screen at a time, for
+    all the rows of the font at once: each glyph is set into a band of
+    cells, one for each row (`or!`, memory through the ALU to memory), and
+    the band is stored when it is full
 - `region.fs`: regions, as rows of where a shape goes in and out, with
   `rect-rgn`, `rgn-and`, `rgn-or`, `rgn-diff`, `rgn-offset`, `rgn-box`.
   `rgn-clip!` clips a port to one: drawing makes a mask of the region for

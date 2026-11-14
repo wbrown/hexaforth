@@ -735,6 +735,9 @@ warnings on
 :: TOPBIT     cell-bits 1- literal ;            \ index of the sign bit
 :: HALFBITS   cell-bits 2/ literal ;
 :: TOP16      cell-bits #16 - literal ;         \ shift that puts 16 bits at the top
+\ or! ( bits a -- ) sets bits of a cell of memory, in one instruction as +!
+\ is: memory, through the ALU, back to memory.
+:: or!   $6b58 tcode, ;                         \ [T]->IN IN|N ->[T] d-2 alu
 \ An instruction is a cell when cells are 16 bits, and otherwise a field.
 :: (i@)  cell-bits #16 = if s" @" else s" 2* uw@" then evaluate ;
 :: (i!)  cell-bits #16 = if s" !" else s" 2* w!" then evaluate ;

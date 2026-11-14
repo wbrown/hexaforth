@@ -513,12 +513,17 @@ header text-width : text-width ( addr u -- n ) \ in pixels
     2drop
 ;
 
-\ A string is drawn a row of pixels at a time, not a character at a time.
-\ The rows of its glyphs are gathered into a cell, and the cell is stored
-\ when it is full: one store for as many characters as fit in a cell.
-\ Only the cells at the two ends of what is drawn hold other pixels that
-\ have to be kept.  Which glyphs will be seen is worked out once for the
-\ string, and so is whether any styling is wanted.
+\ A string is drawn a cell of the screen at a time: as many characters as
+\ are as wide as a cell, for all the rows of the font at once.  tband is a
+\ cell for each row, and a glyph is put in it by setting bits of each: what
+\ is worked out for a glyph (where it goes, how wide it is, whether it is
+\ styled) is worked out once and not once a row.  When the cells are full
+\ they are stored, one below the other, and the part of the glyph that did
+\ not fit starts them again.  Only the cells at the two ends of what is
+\ drawn hold other pixels that have to be kept.  Which glyphs will be seen
+\ is worked out once for the string.
+
+$20 constant MAX-ROWS    \ the highest a font may be
 
 $80 constant MAX-GLYPHS  \ the most that one call will draw
 
@@ -529,8 +534,15 @@ create ty 0 ,
 create pen 0 ,          \ where the next glyph goes
 create tr 0 ,           \ the row being drawn
 create styled 0 ,       \ true if the rows need more than copying
-create da 0 ,           \ the cell being gathered
-create acc 0 ,          \ its pixels so far
+create da 0 ,           \ the cell being stored
+create tband  meta $20 cell-bytes * target allot    \ the cells being gathered
+create tsty   meta $20 cell-bytes * target allot    \ a glyph's rows, styled
+create tn 0 ,           \ how many rows are drawn
+create tend 0 ,         \ the end of those cells of tband
+create gd 0 ,           \ from a cell of tband to the glyph's row for it
+create tk 0 ,
+create tq 0 ,
+create tcm 0 ,          \ the pixels drawn, of the cells being stored
 create hi 0 ,           \ how far across the cell they reach
 create cx 0 ,           \ where on the screen the cell starts
 create vx0 0 ,          \ the pixels of the row that are drawn: from here
@@ -585,43 +597,81 @@ INK-BLACK? [if] [else]
     vx0 @ rot - d# 0 max PXCELL min leftn invert and
 ;
 
-: put ( -- ) \ store the cell gathered, and start on the next
-    cx @ vx0 @ < 0=  cx @ PXCELL + vx1 @ > 0=  and if
-        d# -1
-    else                                            \ at an end: only the pixels to be drawn
-        cx @ m0x @ = if m0 @ else
-            cx @ m1x @ = if m1 @ else cx @ endmask then
-        then
-    then
-    da @ rm drop                                    ( the pixels to store )
-    dup 1+ if
-        ?dup if acc @ over and swap da @ seg! then
-    else
-        drop acc @ da @ !
-    then
-    d# 1 da +!  PXCELL cx +!  d# 0 hi !  d# 0 acc !
+: colmask ( -- mask ) \ the pixels that are drawn, of the cell at cx
+    cx @ vx0 @ < 0=  cx @ PXCELL + vx1 @ > 0=  and if d# -1 exit then
+    cx @ m0x @ = if m0 @ exit then                  \ at an end: only some of them
+    cx @ m1x @ = if m1 @ exit then
+    cx @ endmask
 ;
 
-: +glyph ( pixels n -- ) \ n more pixels
-    >r
-    dup hi @ PIXR acc @ or acc !
-    hi @ r@ + dup PXCELL < if hi ! drop rdrop exit then
-    PXCELL -                                        ( pixels pixels-over )
-    put
-    ?dup if
-        dup hi !
-        r@ swap - PIXL acc !
-    else
-        drop
-    then
-    rdrop
+: tflush ( -- ) \ store the cells gathered, and start on the next
+    colmask tcm !
+    d# 0
+    begin
+        dup tn @ <
+    while
+        dup r0 @ + ty @ +                           ( i y )
+        dup rmask
+        mnone @ if
+            drop
+        else
+            row cx @ PXSHIFT rshift + da !
+            tcm @ da @ rm drop                      ( i mask )
+            dup 1+ if
+                ?dup if over tband + @ over and swap da @ seg! then
+            else
+                drop dup tband + @ da @ !
+            then
+        then
+        d# 0 over tband + !
+        1+
+    repeat
+    drop
+    PXCELL cx +!  d# 0 hi !
+;
+
+: +rows ( -- ) \ the glyph's rows into the cells, hi pixels along
+    tend @ tband
+    begin
+        2dupxor
+    while
+        dup gd @ + @ hi @ PIXR over or!
+        1+
+    repeat
+    2drop
+;
+
+: >rows ( n -- ) \ start the cells with the glyph's rows, less their first n pixels
+    tk !
+    tend @ tband
+    begin
+        2dupxor
+    while
+        dup gd @ + @ tk @ PIXL over !
+        1+
+    repeat
+    2drop
+;
+
+: srows ( rows -- rows' ) \ the glyph's rows that are drawn, styled, in tsty
+    r0 @ + tq !
+    d# 0
+    begin
+        dup tn @ <
+    while
+        dup r0 @ + tr !
+        tq @ over + @ gw @ style drop  over tsty + !
+        1+
+    repeat
+    drop
+    tsty r0 @ -
 ;
 
 header draw-text : draw-text ( addr u x y -- ) \ in the port's font, clipped to the pixel
     ty ! tx ! tu ! ta !
     ox @ tx +!  oy @ ty +!
     clip CELL + @ ty @ - d# 0 max r0 !
-    clip c# 3 + @ ty @ - font @ @ min r1 !
+    clip c# 3 + @ ty @ - font @ @ min MAX-ROWS min r1 !
     r0 @ r1 @ < 0= if exit then
     font-open
     glyphs
@@ -635,30 +685,31 @@ INK-BLACK? [if] [else]
     drop true
 [then]
     styled !
-    r0 @ tr !
+    r1 @ r0 @ - tn !
+    tband tn @ + tend !
+    tend @ tband begin 2dupxor while d# 0 over ! 1+ repeat 2drop
+    tx @ PXMASK invert and cx !
+    tx @ PXMASK and hi !
+    gbuf @ gn @ bounds
     begin
-        tr @ r1 @ <
+        2dupxor
     while
-        ty @ tr @ + rmask
-        mnone @ 0= if
-            ty @ tr @ + row  tx @ PXSHIFT rshift +  da !
-            tx @ PXMASK invert and cx !
-            tx @ PXMASK and hi !
-            d# 0 acc !
-            gbuf @ gn @ bounds
-            begin
-                2dupxor
-            while
-                dup @  dup @ tr @ + @  swap CELL + @    ( pixels n )
-                styled @ if style then
-                +glyph
-                1+
-            repeat
-            2drop
-            hi @ if put then
+        dup @  dup CELL + @ gw !  @                 ( the glyph's rows )
+        styled @ if srows then
+        r0 @ + tband - gd !
+        +rows
+        hi @ gw @ +
+        dup PXCELL < if
+            hi !
+        else
+            PXCELL -                                ( pixels over )
+            tflush
+            ?dup if dup hi !  gw @ swap - >rows then
         then
-        d# 1 tr +!
+        1+
     repeat
+    2drop
+    hi @ if tflush then
 ;
 
 create ch1 0 ,
