@@ -275,11 +275,41 @@ create mforce 0 ,
 
 header rgn-clip! : rgn-clip! ( rgn|0 -- ) clip-rgn !  reclip ;
 
+\ Where the pattern takes the place of what is there and nothing is masked,
+\ which is most fills, only the cells at the two ends of the slab hold other
+\ pixels that have to be kept.  Every cell between is the row of the
+\ pattern, stored as it is: one store, and nothing fetched.
+: fast-slab ( -- ) \ hn pixels from bn of the cell at ba, of the row of the pattern in psrc
+    psrc @ RAW>SRC >r                               ( R: the row as the bitmap has it )
+    bn @ hn @ + PXCELL > 0= if                      \ all in one cell
+        r>  hn @ leftn bn @ PIXR  tuck and swap  ba @ seg!
+        exit
+    then
+    bn @ if                                         \ the cell it starts part of the way into
+        r@  d# -1 bn @ PIXR  tuck and swap  ba @ seg!
+        bn @ PXCELL - hn +!  d# 1 ba +!
+    then
+    ba @  hn @ PXSHIFT rshift  bounds               ( end a )
+    begin
+        2dupxor
+    while
+        r@ over ! 1+
+    repeat
+    drop                                            ( the cell after the last whole one )
+    hn @ PXMASK and ?dup if                         \ and the cell it ends part of the way into
+        leftn  r@ over and  swap rot seg!
+    else
+        drop
+    then
+    rdrop
+;
+
 header slab
 : slab ( x y n -- )
     hn !
     dup d# 7 and pattern @ + @ psrc !
     prow ba ! bn !
+    mmask @ 0=  'mode @ ['] m-copy =  and if fast-slab exit then
     begin
         hn @ 0>
     while
