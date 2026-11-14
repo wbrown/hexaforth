@@ -3,7 +3,8 @@
 \ This is compiled into code page 1 and code pages 8 and 9.  cross.fs
 \ compiles calls between pages as calls by execution token, so the split
 \ needs no care beyond each page's code fitting in 8KB, with room to spare
-\ for a build without the peephole, which is some 7% bigger.
+\ for a build without the peephole, which is about a third bigger: a page
+\ should be no more than 6,300 bytes of code as build/nuc.sizes gives it.
 \
 \ Storage is reached through a small interface, so a driver can be swapped
 \ without touching the code that uses it:
@@ -20,14 +21,14 @@ include machine.fs      \ device registers, high memory, byte-order helpers
 include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD, disk-read
 include font.fs         \ the fonts
 include display.fs      \ the display: a bitmap in memory, and text on it
-include region.fs       \ shapes that are not rectangles, to clip to
 
-\ Page 8: the drivers, the picture, and the window manager.
+\ Page 8: regions, the drivers, the picture, and the window manager.
 
 meta
     $10000 org
 target
 
+include region.fs       \ shapes that are not rectangles, to clip to
 include virtio.fs       \ shared by the virtio drivers
 include virtio-blk.fs   \ block driver
 include virtio-input.fs \ keyboard and pointer driver

@@ -407,7 +407,8 @@ header pat-rect : pat-rect ( x y w h -- ) \ only the rows the clip rectangle has
 \
 \ A cell of the destination that is wholly inside what is copied, when the
 \ mode is copy and the region has all of it, is just stored: nothing of
-\ what was there is kept, so it is not fetched.
+\ what was there is kept, so it is not fetched.  (And see move-row, for a
+\ copy that needs none of this.)
 
 header screen create screen 0 , 0 ,
 
@@ -488,6 +489,40 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
     row-out
 ;
 
+\ A copy that only replaces what is there, from cells lined up with the
+\ cells they go to, and not from a row onto itself, is a move: every
+\ scroll up or down is one.  The cells between the two ends of the row go
+\ straight from where they are to where they go, with nothing set aside
+\ and nothing asked of each; the cell at either end is merged under its
+\ mask.  bdirect is true if the copy is of that kind.
+create bdirect 0 ,
+create bsa 0 ,          \ the cell of the source that goes to the cell at ba
+
+: move-row ( -- ) \ hn pixels from bn of the cell at ba, from the cell at bsa
+    bn @ hn @ + PXCELL > 0= if                      \ all in one cell
+        bsa @ @  hn @ leftn bn @ PIXR  tuck and swap  ba @ seg!
+        exit
+    then
+    bn @ if
+        bsa @ @  d# -1 bn @ PIXR  tuck and swap  ba @ seg!
+        bn @ PXCELL - hn +!  d# 1 ba +!  d# 1 bsa +!
+    then
+    hn @ PXSHIFT rshift >r                          ( R: whole cells )
+    bsa @ ba @ r@ cells-move
+    hn @ PXMASK and ?dup if
+        leftn  bsa @ r@ + @ over and  swap  ba @ r@ + seg!
+    then
+    rdrop
+;
+
+: row-direct ( row x n -- ) \ n pixels of a row of what is copied, from x on the screen
+    hn !
+    2dup swap bdy @ + prow ba ! bn !                ( row x )
+    ssx @ bdx @ - +  PXSHIFT rshift
+    swap ssy @ + src-row +  bsa !
+    move-row
+;
+
 header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
     bh ! bw ! bdy ! bdx ! ssy ! ssx ! sbm !
     ox @ bdx +!  oy @ bdy +!
@@ -501,6 +536,8 @@ header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
     dup PXMASK and boff !  PXSHIFT rshift bi0 !
     'mode @ ['] m-copy = bstore !
     bi0 @ rowbuf + bp0 !
+    bstore @  boff @ 0=  and
+    sbm @ @ 0<>  ssy @ bdy @ <>  or  and  bdirect !
     d# 0 br !
     begin
         br @ bh @ <
@@ -511,24 +548,33 @@ header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
             mnone @ if
                 drop
             else
-                dup ssy @ + row-aside
                 mone @ if                           \ only the part in the row's one run
                     bdx @ bw @ span-clip            ( row x n )
                     dup 0> if
-                        hn !
-                        dup PXSHIFT rshift  bdx @ PXSHIFT rshift -  bp0 @ + bp !
-                        swap bdy @ + prow ba ! bn !
-                        row-out
+                        bdirect @ if
+                            row-direct
+                        else
+                            hn !
+                            over ssy @ + row-aside
+                            dup PXSHIFT rshift  bdx @ PXSHIFT rshift -  bp0 @ + bp !
+                            swap bdy @ + prow ba ! bn !
+                            row-out
+                        then
                     else
                         2drop drop
                     then
                 else
+                    dup ssy @ + row-aside
                     whole-row
                 then
             then
         else
-            dup ssy @ + row-aside
-            whole-row
+            bdirect @ if
+                bdx @ bw @ row-direct
+            else
+                dup ssy @ + row-aside
+                whole-row
+            then
         then
         d# 1 br +!
     repeat

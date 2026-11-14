@@ -297,9 +297,14 @@ if a definition runs off the end of its page. Execution tokens are stored in
 `forth/system.fs` (included at the end of `nuc.fs`) is cross-compiled into
 code page 1 (`0x2000`) and code pages 8 and 9 (`0x10000` up). The kernel
 never calls into it; its words are reached by name or by execution token.
-Each page has room for a build without the peephole, which is about 8%
-bigger: `PEEPHOLE=off gforth cross.fs basewords.fs nuc.fs` must still fit,
-since `insn_map.py --compare` checks the optimised image against it.
+Each page has room for a build without the peephole, which is about a
+third bigger: `PEEPHOLE=off gforth cross.fs basewords.fs nuc.fs` must still
+fit, since `insn_map.py --compare` checks the optimised image against it.
+So a page should hold no more than 6,300 bytes of code as
+`build/nuc.sizes` gives it. If that build stops at `code page full`, the
+image left in `build/` is the optimised one, and a comparison made then is
+of that image with itself: it says the two have the same number of
+instructions.
 
 Page 1 is what the rest is built on:
 
@@ -342,6 +347,14 @@ Page 1 is what the rest is built on:
     text with no region to mask goes straight to the screen with `or!`, and
     no band is gathered. The window manager sets it for what a window
     draws, having just made the window white
+  - a fill that replaces what is there, with nothing masked, merges the
+    cell at each end under its mask and stores the row of the pattern into
+    every cell between (`fast-slab`); a copy of the same kind from cells
+    lined up with those they go to, which every scroll up or down is,
+    moves the cells between straight across (`move-row`)
+
+Pages 8 and 9 are the drivers and the desktop:
+
 - `region.fs`: regions, as rows of where a shape goes in and out, with
   `rect-rgn`, `rgn-and`, `rgn-or`, `rgn-diff`, `rgn-offset`, `rgn-box`.
   `rgn-clip!` clips a port to one: drawing makes a mask of the region for
@@ -349,9 +362,6 @@ Page 1 is what the rest is built on:
   moves only if where it comes from and where it goes can both be seen, and
   the places left with nothing are made white and returned as the region
   `scroll-update`, to be drawn again (`inval-rgn`)
-
-Pages 8 and 9 are the drivers and the desktop:
-
 - `virtio.fs`, `virtio-blk.fs`: the QEMU `virt` block driver
 - `tiff.fs`, `atkinson.fs`, `mandrill.fs`: uncompressed TIFF reader, Atkinson
   dithering, and the demo. Neither touches memory a pixel at a time: `take`
