@@ -263,8 +263,8 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,886 bytes
-with 64-bit cells, 3,902 with 32 and 3,846 with 16, against the 4,096 the
+task that runs past its part of a stack. The kernel's code is 3,902 bytes
+with 64-bit cells, 3,918 with 32 and 3,862 with 16, against the 4,096 the
 kernel ROM holds.
 
 On the desktop the Forth window's interpreter is a task with the upper half
@@ -488,6 +488,27 @@ used, by how often; and every run of up to six instructions that one or two
 would do the work of, by what that would save. The report is
 `build/survey.txt`. Run it before deciding that anything about the
 instruction set does or does not matter.
+
+`python3 util/loops.py build/nuc.hex build/desktop.counts` lists the loops
+that ran, by the cycles spent in them: turns, instructions and cycles a
+turn, and each loop's instructions with how often each ran
+(`build/loops.txt`). Most of the work is not in a loop's own instructions
+but in the words it calls.
+
+`python3 util/shorter.py build/nuc.hex build/desktop.counts` looks at one
+turn of each loop that calls nothing, as a whole, for the fewest
+instructions that do the same: with the loop's values where they are, and
+with them kept in any other of the top cells of the two stacks
+(`build/shorter.txt`). It searches every ALU instruction, and checks what
+it finds with the model. A turn of more than about eight instructions is
+too much for it to search whole; it says when it gave up, and then
+shortens the turn a part at a time.
+
+A loop that tests at the top goes round with a jump. Where the test is one
+instruction that says whether two things are the same (`2dupxor while`,
+which every loop over memory has), `repeat` in `cross.fs` compiles the
+test the other way round and a conditional branch back after the body, so
+a turn is one instruction shorter and the loop one longer (`turned`).
 
 ### The Peephole
 

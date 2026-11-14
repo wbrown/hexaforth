@@ -1270,7 +1270,25 @@ warnings on
     0 0branch
     tcp @ 2 -
 ;
-:: repeat
+\ A loop that tests at the top goes round with a jump: test, branch out,
+\ body, jump.  If the test is one instruction that says whether two things
+\ are the same (xor, or =), the same instruction with the other of the two
+\ operations says the opposite, and a conditional branch after the body
+\ goes round on that: test, branch out, body, test, branch back.  A turn is
+\ then one instruction shorter, and the loop one longer.
+: turned ( insn -- insn' true | false )
+    dup h# f300 and h# 6000 <> if drop false exit then      \ ALU, to T, no return
+    dup h# f0 and dup h# 60 = swap h# 90 = or 0= if drop false exit then
+    h# f0 xor true
+;
+:: repeat ( dest orig -- )
+    2dup swap 2 + = if
+        over t@ turned if
+            tcode,
+            dup 2 + 2/ >target 0branch
+            nip resolve exit
+        then
+    then
     swap 2/ >target ubranch
     resolve
 ;
