@@ -168,6 +168,7 @@ header inval-window : inval-window ( win -- ) \ frame and all
     cw @ content origin!                            \ its content, and no more
     uclip  d# 0 d# 0 cw.w d# 2 - cw.h d# 20 - clip-to
     rpaint @ rgn-clip!
+    true text-or !                                  \ it has just been made white
     cw @ dup c# 5 + @ execute
     screen-port @ port!
 ;
