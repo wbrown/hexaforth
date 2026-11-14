@@ -2,7 +2,8 @@
 \
 \ Digits build a number.  Enter pushes it, or duplicates the top if no
 \ number is being entered.  + - * / work on the top two, n negates, x swaps
-\ and d drops.  The buttons send the same keys.
+\ and d drops.  The buttons send the same keys.  A key changes the numbers
+\ and not the buttons, so only the numbers are put out of date.
 
 create ci 0 ,           \ a loop counter
 
@@ -31,8 +32,7 @@ create cbtn ," 789/456*123-0nE+dx< "
     r> 0< if negate then
 ;
 
-header calc-key : calc-key ( c win -- )
-    drop
+: calc-do ( c -- )
     dup [char] 0 - d# 10 u< if
         [char] 0 - cacc @ d# 10 * + cacc !
         true centry !
@@ -60,6 +60,11 @@ header calc-key : calc-key ( c win -- )
     then
     dup d# 8 = if drop cacc @ d# 10 u/mod nip cacc ! exit then
     drop
+;
+
+header calc-key : calc-key ( c win -- )
+    >r calc-do
+    d# 0 d# 0 d# 136 d# 92 r> win-inval
 ;
 
 header calc-draw : calc-draw ( win -- )
@@ -98,8 +103,10 @@ header calc-draw : calc-draw ( win -- )
     repeat
 ;
 
+create cwin 0 ,
+
 header calc-click : calc-click ( x y win -- )
-    drop
+    cwin !
     d# 96 - dup 0< if 2drop exit then
     d# 24 u/mod nip dup d# 4 > if 2drop exit then   ( x row )
     swap dup 0< if 2drop exit then
@@ -107,5 +114,5 @@ header calc-click : calc-click ( x y win -- )
     swap d# 2 lshift + cbtn >c 1+ + c@
     dup [char] E = if drop d# 13 then
     dup [char] < = if drop d# 8 then
-    d# 0 calc-key
+    cwin @ calc-key
 ;

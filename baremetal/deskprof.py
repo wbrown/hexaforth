@@ -125,6 +125,8 @@ def main():
     def phase(name, settle=1.5):
         time.sleep(settle)
         phases.append((name, p.reading()))
+        if os.environ.get("SHOTS"):                 # a picture after each, to see what was done
+            m.screenshot(f"{os.environ['SHOTS']}/{len(phases):02d}.png")
 
     try:
         m.serial(b"desktop")
@@ -145,16 +147,19 @@ def main():
         m.drag(160, 90, 100, 40)
         phase("dragging the Forth window away and back")
         m.click(700, 308)                           # the calculator
+        phase("raising the calculator")
         m.type("12\r34+")
         for bx, by in ((0, 0), (3, 1)):
             m.click(627 + 34 * bx + 17, 319 + 96 + 24 * by + 12)
         phase("the calculator: keys and buttons")
-        m.click(300, 304)                           # the Words window
+        m.click(190, 388)                           # the Words window, by a line of its list
+        phase("raising the Words window and choosing a word")
         for _ in range(6):
             m.key("down")
         m.key("pgdn")
-        phase("the Words window: seven definitions shown")
+        phase("the Words window: six words down, and a page")
         m.click(480, 278)                           # the editor
+        phase("raising the editor")
         m.type("hello there")
         phase("typing eleven characters in the editor")
         for x in range(100, 700, 40):

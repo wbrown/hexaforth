@@ -2,13 +2,22 @@
 \
 \ Typing overwrites.  The cursor keys move, PgUp and PgDn change block,
 \ ^S writes the block to disk, and ^L writes it and then loads it as Forth.
+\
+\ A key that types or moves changes only the character the cursor was on
+\ and the one it comes to, so only those are put out of date.
 
 create ei 0 ,           \ a loop counter
 
 create eblk 1 ,
 create ecx 0 ,
 create ecy 0 ,
+create ewin 0 ,         \ the window
 create t-keys ," ^S save  ^L load  PgUp PgDn"
+
+: ecell ( -- ) \ the character the cursor is on is out of date
+    d# 2 ecx @ d# 3 lshift +  d# 2 ecy @ d# 4 lshift +  d# 8 d# 16
+    ewin @ win-inval
+;
 
 : eaddr ( -- a ) eblk @ block ecy @ d# 6 lshift + ecx @ + ;
 
@@ -36,20 +45,12 @@ header edit-draw : edit-draw ( win -- )
     d# 2 d# 263 sb-draw
 ;
 
-header edit-key : edit-key ( c win -- )
-    drop
+: ekey ( c -- ) \ a key that changes no more than where the cursor is
     dup d# 128 = if drop ecy @ 1- d# 0 max ecy ! exit then
     dup d# 129 = if drop ecy @ 1+ d# 15 min ecy ! exit then
     dup d# 130 = if drop ecx @ 1- d# 0 max ecx ! exit then
     dup d# 131 = if drop ecx @ 1+ d# 63 min ecx ! exit then
-    dup d# 132 = if drop flush eblk @ 1- d# 0 max eblk ! exit then
-    dup d# 133 = if drop flush d# 1 eblk +! exit then
     dup d# 19 = if drop flush exit then
-    dup d# 12 = if
-        drop flush
-        eblk @ ['] load catch if drop then
-        exit
-    then
     dup d# 13 = if
         drop
         d# 0 ecx !
@@ -64,4 +65,16 @@ header edit-key : edit-key ( c win -- )
     dup d# 32 < over d# 126 > or if drop exit then
     eaddr c! update
     ecx @ 1+ d# 63 min ecx !
+;
+
+header edit-key : edit-key ( c win -- )
+    ewin !
+    dup d# 132 = if drop flush eblk @ 1- d# 0 max eblk ! exit then
+    dup d# 133 = if drop flush d# 1 eblk +! exit then
+    dup d# 12 = if
+        drop flush
+        eblk @ ['] load catch if drop then
+        exit
+    then
+    ecell ekey ecell
 ;
