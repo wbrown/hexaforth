@@ -85,7 +85,12 @@ Each ALU instruction contains:
 
 This enables complex single-instruction operations like:
 - `+!` (add to memory): `[T]->IN IN+N ->[T]` - memory→ALU→memory in one cycle
-- `or!` (set bits of memory): `[T]->IN IN|N ->[T]`, the same path through the OR
+- the rest of that family, one instruction each: `or!` `and!` `xor!` `*!`
+  ( x addr -- ) and `not!` ( addr -- ) put the result back in the cell;
+  `@+` `@and` `@or` `@xor` `@*` `@=` `@<` `@u<` ( x addr -- y ) and `@not`
+  ( addr -- y ) leave it on the stack. A path the machine has costs nothing
+  to name: a line in `vm_opcodes.h`, and no change to `vm.c`, the kernels
+  or the Verilog
 - `@@` (double indirection): `[T]->IN [IN] ->T` - chains two memory loads
 - `swap>r`: Routes data through swap operation directly to return stack
 
@@ -203,8 +208,8 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,974 bytes
-with 64-bit cells, 3,978 with 32 and 3,942 with 16, against the 4,096 the
+task that runs past its part of a stack. The kernel's code is 3,982 bytes
+with 64-bit cells, 3,986 with 32 and 3,950 with 16, against the 4,096 the
 kernel ROM holds.
 
 On the desktop the Forth window's interpreter is a task with the upper half

@@ -67,15 +67,16 @@ BANKED? [if]
 [then]
 ;
 
+\ Each is one instruction or two: memory, through the ALU, back to memory.
 INK-BLACK? [if]
-header ink   : ink   ( mask a -- ) dup >r @ or r> ! ;
-header paper : paper ( mask a -- ) dup >r @ swap invert and r> ! ;
+header ink   : ink   ( mask a -- ) or! ;
+header paper : paper ( mask a -- ) swap invert swap and! ;
 [else]
-header paper : paper ( mask a -- ) dup >r @ or r> ! ;
-header ink   : ink   ( mask a -- ) dup >r @ swap invert and r> ! ;
+header paper : paper ( mask a -- ) or! ;
+header ink   : ink   ( mask a -- ) swap invert swap and! ;
 [then]
 
-: x!   ( bits a -- ) dup >r @ xor r> ! ;                    \ invert
+: x!   ( bits a -- ) xor! ;                                 \ invert
 : seg! ( bits mask a -- ) dup >r @ swap invert and or r> ! ; \ replace
 
 \ Where a pixel is: its cell, and how far into the cell it is.
@@ -171,7 +172,7 @@ create mnone 0 ,
         hn @ 0>
     while
         PXCELL bn @ - hn @ min
-        dup leftn bn @ PIXR  ba @ dup >r @ or r> !
+        dup leftn bn @ PIXR  ba @ or!
         negate hn +!
         d# 0 bn !  d# 1 ba +!
     repeat

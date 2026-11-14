@@ -114,6 +114,10 @@ header ?dup     : ?dup  dup if dup then ;
 header 2dup     :noname     2dup     ;
 header +!       :noname     +!       ;
 header or!      :noname     or!      ;
+header and!     :noname     and!     ;
+header xor!     :noname     xor!     ;
+header *!       :noname     *!       ;
+header not!     :noname     not!     ;
 header 2swap    : 2swap rot >r rot r> ;
 header 2over    : 2over >r >r 2dup r> r> 2swap ;
 
