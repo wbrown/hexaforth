@@ -303,7 +303,10 @@ Page 1 is what the rest is built on:
   - the *port* is the state drawing depends on: origin (`ox`, `oy`), clip
     rectangle, clip region, `pattern`, `'mode`, `font`, and `inverse`
     `bold` `italic`. Everything that draws takes coordinates in the port.
-    `port!` changes port; a port not in use is a record of thirteen cells
+    `port!` changes port; a port not in use is a record of seventeen cells.
+    A clip region that is a rectangle, as most are, needs no mask: it and
+    the clip rectangle asked for are one smaller rectangle (`reclip`), and
+    only a region that is not one is masked a row at a time
   - a *slab* is a run of pixels in the pattern and mode, and every fill is
     made of slabs (`pat-hline`, `pat-rect`). Modes are `copy-mode`
     `or-mode` `xor-mode` `bic-mode`; a pattern is eight rows of eight

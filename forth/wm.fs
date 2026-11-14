@@ -137,8 +137,7 @@ header inval-window : inval-window ( win -- ) \ frame and all
 ;
 
 : uclip ( -- ) \ clip to what is being painted
-    urect @ clip !  urect CELL + @ clip CELL + !
-    urect CELL2 + @ clip CELL2 + !  urect c# 3 + @ clip c# 3 + !
+    urect @  urect CELL + @  urect CELL2 + @  urect c# 3 + @  clip-screen!
 ;
 
 : touches? ( win -- f ) \ is any of it being painted?
@@ -189,7 +188,32 @@ header win-inval : win-inval ( x y w h win -- ) \ in a window's content
     d# 0 auto !
 ;
 
+\ What can be seen of each window changes only when a window is made,
+\ moved or brought to the front, and is worked out again only then.  Which
+\ windows there are, in what order, and where each is, are summed, and the
+\ sum is kept: it is a few instructions a window to see that nothing has
+\ changed, whoever might have changed it.
+create vsum -1 ,
+create vacc 0 ,
+: v+ ( x -- ) vacc @ d# 31 * + vacc ! ;
+
+: layout ( -- sum )
+    nwin @ vacc !
+    wins nwin @ bounds
+    begin
+        2dupxor
+    while
+        dup @                                       ( end p win )
+        dup v+  dup @ v+  dup CELL + @ v+  dup CELL2 + @ v+  c# 3 + @ v+
+        1+
+    repeat
+    2drop
+    vacc @
+;
+
 : visible ( -- ) \ work out what can be seen of each window, and of the desk
+    layout dup vsum @ = if drop exit then
+    vsum !
     d# 0 rcov @ !
     nwin @
     begin

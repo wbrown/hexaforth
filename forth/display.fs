@@ -29,6 +29,7 @@ header fb-h create fb-h  meta disp-h target ,
 \     clip        the rectangle it may draw in: left, top, and past the
 \                 right and bottom, on the screen
 \     clip-rgn    a region it may draw in, as well, or 0 for none
+\     clip0       the rectangle that was asked for (see reclip)
 \     pattern     what fills are made of
 \     'mode       how what is drawn meets what is there
 \     inverse bold italic     how text looks
@@ -36,9 +37,10 @@ header fb-h create fb-h  meta disp-h target ,
 \
 \ Everything that draws takes coordinates in the port.  These words are
 \ the port in use.  A port that is not in use is a record of the same
-\ thirteen cells, and port! changes from one to another.
+\ seventeen cells, and port! changes from one to another.
 
-create gstate 0 , 0 ,  0 , 0 , 0 , 0 ,  0 , 0 ,  0 , 0 , 0 ,  0 ,  0 ,
+create gstate 0 , 0 ,  0 , 0 , 0 , 0 ,  0 , 0 ,  0 , 0 , 0 ,  0 ,  0 ,  0 , 0 , 0 , 0 ,
+$11 constant PORT-CELLS
 
 header ox      : ox      gstate ;
 header oy      : oy      gstate CELL + ;
@@ -55,7 +57,7 @@ header clip-rgn : clip-rgn gstate c# 12 + ;
 $0 at: gstate ox        $1 at: gstate oy        $2 at: gstate clip
 $6 at: gstate pattern   $7 at: gstate 'mode     $8 at: gstate inverse
 $9 at: gstate bold      $a at: gstate italic    $b at: gstate font
-$c at: gstate clip-rgn
+$c at: gstate clip-rgn  $d at: gstate clip0
 
 header origin! : origin! ( x y -- ) oy ! ox ! ;
 
@@ -164,6 +166,7 @@ create mbase 0 ,        \ the first cell of the row on the screen
 create my 0 ,
 create mfound 0 ,
 create mnone 0 ,
+create mrgn 0 ,         \ the region the mask is of, or 0 if none is needed
 
 : mspan ( x0 x1 -- ) \ set those pixels of mrow
     fb-w @ min swap d# 0 max tuck - hn !
@@ -182,7 +185,7 @@ create mnone 0 ,
     my !
     h# 7fffffff negate mk0 !  h# 7fffffff mk1 !
     d# 0 mfound !
-    clip-rgn @ dup 1+ swap @ bounds                 ( end p )
+    mrgn @ dup 1+ swap @ bounds                     ( end p )
     begin
         2dupxor
     while
@@ -194,7 +197,7 @@ create mnone 0 ,
 ;
 
 : rmask ( y -- ) \ y on the screen
-    clip-rgn @ 0= if drop exit then
+    mrgn @ 0= if drop exit then
     dup row mbase !
     dup mk0 @ < 0=  over mk1 @ <  and if drop exit then
     mrow DISP-STRIDE bounds begin 2dupxor while d# 0 over ! 1+ repeat 2drop
@@ -214,10 +217,36 @@ create mnone 0 ,
 ;
 
 : rm ( mask a -- mask' a )
-    clip-rgn @ if dup mbase @ - mrow + @ rot and swap then
+    mrgn @ if dup mbase @ - mrow + @ rot and swap then
 ;
 
-header rgn-clip! : rgn-clip! ( rgn|0 -- ) clip-rgn !  d# 1 mk0 !  d# 0 mk1 !  d# 0 mnone ! ;
+\ Drawing is clipped to a rectangle and to a region.  A region that is a
+\ rectangle, as most are, needs no mask: it and the rectangle asked for are
+\ one smaller rectangle.  So `clip` is what drawing is clipped to, worked
+\ out here from clip0, the rectangle asked for, and the region; and mrgn is
+\ the region if a mask is needed for it, or 0.  A region with nothing in it
+\ leaves a rectangle with nothing in it.
+: reclip ( -- )
+    clip0 @ clip !  clip0 CELL + @ clip CELL + !
+    clip0 CELL2 + @ clip CELL2 + !  clip0 c# 3 + @ clip c# 3 + !
+    d# 0 mrgn !  d# 1 mk0 !  d# 0 mk1 !  d# 0 mnone !
+    clip-rgn @ ?dup if
+        dup @ d# 6 = if                             \ a rectangle: y 2 x0 x1, y 0
+            >r
+            r@ c# 3 + @ clip @ max clip !
+            r@ 1+ @ clip CELL + @ max clip CELL + !
+            r@ c# 4 + @ clip CELL2 + @ min clip CELL2 + !
+            r> c# 5 + @ clip c# 3 + @ min clip c# 3 + !
+        else
+            dup @ if mrgn ! else drop  clip @ clip CELL2 + ! then
+        then
+    then
+    clip CELL2 + @ clip @ >  clip c# 3 + @ clip CELL + @ >  and 0= if
+        clip @ clip CELL2 + !  clip CELL + @ clip c# 3 + !      \ nothing at all
+    then
+;
+
+header rgn-clip! : rgn-clip! ( rgn|0 -- ) clip-rgn !  reclip ;
 
 header slab
 : slab ( x y n -- )
@@ -247,23 +276,30 @@ header solid : solid ( on? -- ) if p-white else p-black then pattern !  copy-mod
 
 header clip! : clip! ( x y w h -- )
     >r >r >screen
-    over d# 0 max clip !
-    dup d# 0 max clip CELL + !
-    swap r> + fb-w @ min clip CELL2 + !
-    r> + fb-h @ min clip c# 3 + !
+    over d# 0 max clip0 !
+    dup d# 0 max clip0 CELL + !
+    swap r> + fb-w @ min clip0 CELL2 + !
+    r> + fb-h @ min clip0 c# 3 + !
+    reclip
+;
+
+header clip-screen! : clip-screen! ( x0 y0 x1 y1 -- ) \ on the screen: left, top, past the right and bottom
+    clip0 c# 3 + !  clip0 CELL2 + !  clip0 CELL + !  clip0 !
+    reclip
 ;
 
 header noclip : noclip ( -- ) \ the whole screen
-    d# 0 rgn-clip!
-    d# 0 clip !  d# 0 clip CELL + !  fb-w @ clip CELL2 + !  fb-h @ clip c# 3 + !
+    d# 0 clip-rgn !
+    d# 0 d# 0 fb-w @ fb-h @ clip-screen!
 ;
 
 header clip-to : clip-to ( x y w h -- ) \ what is in both this and the clip rectangle
     >r >r >screen
-    over clip @ max clip !
-    dup clip CELL + @ max clip CELL + !
-    swap r> + clip CELL2 + @ min clip CELL2 + !
-    r> + clip c# 3 + @ min clip c# 3 + !
+    over clip0 @ max clip0 !
+    dup clip0 CELL + @ max clip0 CELL + !
+    swap r> + clip0 CELL2 + @ min clip0 CELL2 + !
+    r> + clip0 c# 3 + @ min clip0 c# 3 + !
+    reclip
 ;
 
 : clip-span ( x n -- x' n' ) \ n' is not positive if nothing is left
@@ -364,7 +400,7 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
     bn @ if false exit then
     hn @ PXCELL < if false exit then
     bstore @ 0= if false exit then
-    clip-rgn @ if ba @ mbase @ - mrow + @ 1+ 0= else true then
+    mrgn @ if ba @ mbase @ - mrow + @ 1+ 0= else true then
 ;
 
 : row-out ( -- ) \ hn pixels from rowbuf to the row at ba, bn
@@ -735,16 +771,17 @@ header port create port 0 ,         \ the record of the port in use, or 0
 header screen-port create screen-port 0 ,
 
 header port! : port! ( port -- ) \ put the port in use away, and take up another
-    port @ ?dup if gstate swap d# 13 cells-move then
+    port @ ?dup if gstate swap PORT-CELLS cells-move then
     dup port !
-    gstate d# 13 cells-move
-    d# 1 mk0 !  d# 0 mk1 !
+    gstate PORT-CELLS cells-move
+    reclip
 ;
 
 header new-port : new-port ( -- port ) \ the whole screen, black, copying, plain text in mono
-    d# 13 cells >c halloc >r
+    PORT-CELLS cells >c halloc >r
     mono r@ c# 11 + !
     fb-w @ r@ c# 4 + !  fb-h @ r@ c# 5 + !
+    fb-w @ r@ c# 15 + !  fb-h @ r@ c# 16 + !
     p-black r@ c# 6 + !
     ['] m-copy r@ c# 7 + !
     r>
