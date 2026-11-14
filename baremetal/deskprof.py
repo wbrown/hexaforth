@@ -196,11 +196,13 @@ def main():
         by[word(a)] += c
     print("  " + ", ".join(f"{n} {v / turns:.0f}" for n, v in by.most_common(9)))
 
+    work = [0.0] * CODE                             # every activity's work, by address
     for name, counts in phases:
         if name == "nothing happening":
             continue
         t = max(counts[a] for a in loop)
         net = [max(0.0, c - t * r) for c, r in zip(counts, per_turn)]
+        work = [a + b for a, b in zip(work, net)]
         total = sum(net)
         print(f"\n{name}: {total:,.0f} instructions of work "
               f"({sum(counts):,} executed, {t:,} turns of the loop)")
@@ -217,6 +219,10 @@ def main():
             for n, v in bw.most_common(40):
                 calls = sum(net[a] for a in starts if names[a] == n)
                 print(f"    {n:14} {v:12,.0f} {calls:10,.0f} calls {v / max(calls, 1):8.1f} each")
+    # For util/survey.py: how often each instruction ran, as work and as a turn of the idle loop.
+    with open(os.path.join(os.path.dirname(image), "desktop.counts"), "wb") as f:
+        f.write(struct.pack(f"<{CODE}d", *work))
+        f.write(struct.pack(f"<{CODE}d", *per_turn))
 
 
 if __name__ == "__main__":
