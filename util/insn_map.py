@@ -513,20 +513,38 @@ def dictionary_names(path):
 
 
 def write_fused(image, path, words, classes, canonical):
-    """The table see.fs uses to show a fused instruction as the words it stands for.
+    """The table see.fs uses to show an instruction as words.
 
-    For every ALU instruction in the image's code, the shortest sequence of
-    two or three words that does the same and is made only of primitives
-    with a dictionary entry, so that each can be typed and looked up.
-    Instructions that are a single word need no entry; see.fs finds those
-    in the dictionary.  A return folded into an instruction is taken off
-    first, as see.fs does.
+    What is shown is meant to be read, so it is the plain words a
+    programmer would write, not the name of whatever the instruction
+    happens to be.  For every ALU instruction in the image's code, and
+    every one that a word of vm_opcodes.h in the dictionary is, the first
+    of these that there is:
+
+      the standard word that is the instruction (dup, +, @)
+      two standard words (2dup xor, over +, dup @), which read better than
+        a name made of them (2dupxor, over+, dup@)
+      the machine's own name for it, if that is in the dictionary (or!)
+      three standard words, then two or three of any in the dictionary,
+        then four
+
+    A word is standard if gforth has it.  A word of the dictionary that is
+    not in vm_opcodes.h is never used, though it be one instruction (ink,
+    which is or!).  A return folded into an instruction is taken off first,
+    as see.fs does.
     """
     code, _ = load_image(image)
     names = dictionary_names(image)
-    singles = {c[0] for n, c in words.items() if len(c) == 1 and n in names}
-    one = single_words(image, code)
-    wanted = set()
+    every = {n: c for n, c in words.items()
+             if c and modelled(c) and n not in ("noop", "halt", "exit", "r@;")}
+    typed = {n: c for n, c in every.items() if n in names}
+    standard_words = gforth_has(list(typed))
+    plain = {n: c for n, c in typed.items() if n in standard_words}
+    own = {}                                    # instruction -> the machine's name for it
+    for n, c in words.items():                  # io@ and io! too, which the model leaves out
+        if len(c) == 1 and c[0] >> 13 == 3 and not c[0] & 0x1000 and n in names and n != "noop":
+            own.setdefault(c[0], n)
+    wanted = set(own)
     uses = Counter()
     for ins in code:
         if ins >> 13 == 3:
@@ -535,36 +553,42 @@ def write_fused(image, path, words, classes, canonical):
                     continue
                 ins &= ~0x1003
             uses[ins] += 1
-            if ins not in singles and ins not in one and ins != 0x6400:
+            if ins != 0x6400:
                 wanted.add(ins)
-
-    every = {n: c for n, c in words.items()
-             if c and modelled(c) and n not in ("noop", "halt", "exit", "r@;")}
-    typed = {n: c for n, c in every.items() if n in names}
     want = {behaviour([ins]): ins for ins in wanted}
-    found = {}                                  # instruction -> its words
 
-    # Two or three words: first of those that are in the dictionary, then
-    # of all the machine has a name for.
-    for vocab in (typed, every):
+    def shortest(vocab, lengths):
         best = {}
-        for length in (2, 3):
+        for length in lengths:
             for seq in itertools.product(vocab, repeat=length):
                 seq_code = [i for w in seq for i in vocab[w]]
                 key = behaviour(seq_code)
-                if key in want and want[key] not in found:
+                if key in want:
                     rank = (length, len(seq_code), sum(len(w) for w in seq))
                     if key not in best or rank < best[key][0]:
                         best[key] = (rank, seq)
-        for key, (_, seq) in best.items():
-            found[want[key]] = " ".join(seq)
+        return {want[key]: seq for key, (_, seq) in best.items()}
 
-    # Four words, for what is left.  That is forty million sequences, so
-    # what it finds is kept beside the image, for as long as the words and
-    # this file are the same.
+    standard = shortest(plain, (1, 2, 3))
+    other = shortest(typed, (2, 3))
+    found = {}                                  # instruction -> its words
+    for ins in wanted:
+        if ins in standard and len(standard[ins]) <= 2:
+            found[ins] = " ".join(standard[ins])
+        elif ins in own:
+            found[ins] = own[ins]
+        elif ins in standard:
+            found[ins] = " ".join(standard[ins])
+        elif ins in other:
+            found[ins] = " ".join(other[ins])
+
+    # Four words, for what is left.  That is millions of sequences, so what
+    # it finds is kept beside the image, for as long as the words are the
+    # same.
     left = [ins for ins in sorted(wanted) if ins not in found]
     if left:
-        stamp = hashlib.sha256((repr(sorted(every.items())) + "four_words 1").encode()).hexdigest()
+        every = typed
+        stamp = hashlib.sha256((repr(sorted(every.items())) + "four_words 2").encode()).hexdigest()
         cache_path = os.path.join(os.path.dirname(os.path.abspath(image)), "fused4.cache")
         cache = {}
         if os.path.exists(cache_path):
@@ -591,64 +615,34 @@ def write_fused(image, path, words, classes, canonical):
     # An instruction whose words do not all have one is left out, and shown
     # as its number until the word is given a header in nuc.fs.
     none = [ins for ins in sorted(wanted) if ins not in found]
-    unnamed = sorted({w for text in found.values() for w in text.split() if w not in names})
-    fused = len(found)
-    found.update(one)                           # and the instructions that are one word
     with open(path, "w") as f:
         f.write("\\ fused.fs - the image's instructions as words, for see.fs\n"
                 "\\ GENERATED by `python3 util/insn_map.py --fused build/nuc.hex forth/fused.fs`\n"
                 "\\ from a built image.  Do not edit.\n\\\n"
                 "\\ Each entry is cells: the instruction, how many words it is, and the\n"
-                "\\ address of each word's header.  An instruction that a word of the\n"
-                "\\ dictionary is has that one word; one the peephole made has the two,\n"
-                "\\ three or four it stands for.  Those the image has most of are first,\n"
-                "\\ since the table is searched from the start.  A zero ends the table.\n\n"
+                "\\ address of each word's header.  The words are the plain ones a\n"
+                "\\ programmer would write: one standard word, or two, before the\n"
+                "\\ machine's own name for the instruction.  Those the image has most of\n"
+                "\\ are first, since the table is searched from the start.  A zero ends\n"
+                "\\ the table.\n\n"
                 "header fused create fused\n")
-        written = 0
         for ins in sorted(found, key=lambda i: (-uses[i], i)):
             seq = found[ins].split()
-            if all(w in names for w in seq):
-                f.write(f"${ins:04x} , ${len(seq):x} , " + " ".join(f"hdr, {w}" for w in seq) + "\n")
-                written += 1
+            f.write(f"${ins:04x} , ${len(seq):x} , " + " ".join(f"hdr, {w}" for w in seq) + "\n")
         f.write("0 ,\n")
-    print(f"{len(one)} single and {written - len(one)} fused instructions written to {path}; "
+    single = sum(1 for text in found.values() if " " not in text)
+    print(f"{single} instructions as one word and {len(found) - single} as more written to {path}; "
           f"{len(left)} needed four words"
-          + (f"; no four words are {' '.join(f'{i:04x}' for i in none)}" if none else "")
-          + (f"; {fused + len(one) - written} are left out until these have a header: {' '.join(unnamed)}"
-             if unnamed else ""))
+          + (f"; no four words are {' '.join(f'{i:04x}' for i in none)}" if none else ""))
 
 
-def single_words(image, code):
-    """instruction -> the word of the image's dictionary that is it, as see.fs
-    would choose: a compiling word that is a call to inline: and then the
-    instruction, before any other; and of those, the newest.  A word is an
-    instruction if its code is that with the return folded in, or that and
-    then a return."""
-    raw = b"".join(struct.pack("<I", int(l, 16)) for l in open(image) if l.strip())
-    cells = struct.unpack(f"<{len(raw) // 2}H", raw)
-    chain = []
-    link = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
-    while link:
-        name = raw[link + 17:link + 17 + raw[link + 16]].decode("latin-1")
-        chain.append((name, struct.unpack_from("<Q", raw, link + 8)[0] & 0xFFFF))
-        link = 8 * struct.unpack_from("<Q", raw, link)[0]
-    inline = next((xt for name, xt in chain if name == "inline:"), None)
-    compiling, plain = {}, {}
-    for name, xt in chain:
-        if xt + 1 >= len(code):
-            continue
-        c, nxt = code[xt], code[xt + 1]
-        if inline is not None and c == 0x4000 | inline:
-            if nxt >> 13 == 3:
-                compiling.setdefault(nxt, name)
-        elif c >> 13 == 3:
-            if c & 0x1000:
-                if c & 3 == 3 and c != 0x7403:
-                    plain.setdefault(c & ~0x1003, name)
-            elif nxt == 0x7403:
-                plain.setdefault(c, name)
-    plain.update(compiling)
-    return plain
+def gforth_has(names):
+    """Those of some names that gforth has: the standard words."""
+    script = ": t parse-name find-name 0<> . ; " + " ".join(f"t {n}" for n in names) + " bye"
+    out = subprocess.run(["gforth", "-e", script], capture_output=True, text=True).stdout.split()
+    if len(out) != len(names):
+        raise SystemExit("gforth did not say which words it has: " + " ".join(out[:8]))
+    return {n for n, f in zip(names, out) if f == "-1"}
 
 
 def four_words(vocab, want):

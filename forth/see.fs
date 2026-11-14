@@ -18,13 +18,13 @@
 \   jump anywhere else                a call that does not come back
 \   an instruction with RET           its word, then exit
 \
-\ An ALU instruction is named by finding a word that is that instruction
-\ and a return.  One that the peephole made by fusing two or three words is
-\ shown as those words, from the table in fused.fs, with sbold set so that
-\ they can be told from words that were compiled one by one.  The table is
-\ made from the image, so it has every such instruction that is in it, as
-\ up to four words, each by the address of its header.  One that is in
-\ neither place is shown as its number in brackets.
+\ An ALU instruction is shown as words from the table in fused.fs, which is
+\ made from the image and has every instruction that is in it: the plain
+\ words a programmer would write for it, up to four, each by the address
+\ of its header.  Where it is more than one word, sbold is set, so that an
+\ instruction that is several words can be told from words compiled one by
+\ one.  An instruction that is not in the table is shown as its number in
+\ brackets.
 \
 \ The tokens are laid out as source is written.  The name has the first
 \ line and the semicolon the last.  What is inside an if or a begin is
@@ -203,50 +203,6 @@ header names-unload
 : data>lbl ( a -- lbl|0 ) \ the label for the data at a
     dtab @ 0= if drop d# 0 exit then
     dtab @ tfind dup if dup label? if >hdr else drop d# 0 then then
-;
-
-: ret>hdr ( w -- hdr|0 ) \ the newest word whose code is the one instruction w
-    stmp !  forth @
-    begin
-        dup
-    while
-        dup hxt ins@ stmp @ = if exit then
-        @
-    repeat
-;
-
-\ A word is the instruction in stmp if it is that instruction with the
-\ return folded in, or that instruction and then a return.
-: op? ( hdr -- f )
-    hxt dup ins@
-    stmp @ d# 3 and 0= if
-        dup stmp @ h# 1003 or = if 2drop true exit then
-    then
-    stmp @ = swap 1+ ins@ h# 7403 = and
-;
-
-\ >r, r> and their like are compiling words: a call to inline: and then the
-\ instruction to compile.  Such a word names its instruction best of all.
-: inl>hdr ( -- hdr|0 ) \ for the instruction in stmp
-    forth @
-    begin
-        dup
-    while
-        dup hxt dup ins@ ['] inline: h# 4000 or =
-        swap 1+ ins@ stmp @ = and if exit then
-        @
-    repeat
-;
-
-: op>hdr ( w -- hdr|0 ) \ the word that is the instruction w
-    stmp !  inl>hdr ?dup if exit then
-    forth @
-    begin
-        dup
-    while
-        dup op? if exit then
-        @
-    repeat
 ;
 
 \ A number on its own is not an address of code unless it is in the kernel
@@ -494,11 +450,12 @@ create hv 0 ,
     bg-add  snl s- k-until wt snl
 ;
 
-\ The table has every instruction the image was built with, so the
-\ dictionary is searched only for one that a word made since is.
+\ An instruction is shown as the plain words for it, from the table, which
+\ has every instruction the image was built with and every one that has a
+\ name: never as some other word of the dictionary that happens to be that
+\ one instruction.
 : sop ( w -- ) \ an instruction with no return in it
     dup sfused if drop exit then
-    dup op>hdr ?dup if nip sname exit then
     sraw
 ;
 
@@ -511,7 +468,7 @@ create hv 0 ,
             dup d# 3 and d# 3 = if                  \ a return folded in: the instruction
                 h# 1003 invert and sop
             else
-                dup ret>hdr ?dup if nip sname else sraw then
+                sraw
             then
         then
         stail exit
