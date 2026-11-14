@@ -38,6 +38,7 @@ CHECKS = [
     # or! sets bits of a cell, typed and compiled.
     ("create w 5 ,  10 w or!  w @ .", "15  ok"),
     (": o 48 w or! w @ ; o .", "63  ok"),
+    ("60 w and!  w @ .  5 w xor!  w @ .  3 w *!  w @ .  w not!  w @ .", "60 57 171 -172  ok"),
     # Tasks: one that counts, and a loop that keeps its index across pauses.
     ("create rec 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,", " ok"),
     ("create n 0 ,", " ok"),
