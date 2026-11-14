@@ -417,6 +417,16 @@ the Words window and the editor, reading the counts out of the machine
 after each. What a turn of the idle event loop costs is taken off, and the
 rest is given by file, by word and by kind of instruction.
 
+`python3 util/survey.py build/nuc.hex build/desktop.counts` lays the whole
+encoding out against that profile, which `demo-profile` leaves in
+`build/desktop.counts`: for every source, operation and destination, how
+many behaviours there are, how many have a name, how many the peephole can
+produce, how many the image uses and how often they run; every behaviour
+used, by how often; and every run of up to six instructions that one or two
+would do the work of, by what that would save. The report is
+`build/survey.txt`. Run it before deciding that anything about the
+instruction set does or does not matter.
+
 ### The Peephole
 
 `cross.fs` emits one instruction at a time and offers it to those just
