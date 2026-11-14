@@ -650,20 +650,54 @@ header words-draw : words-draw ( win -- )
     srow @ 1+ wrows !
 ;
 
+\ What a key or a click changes is put out of date, and no more: the
+\ definition, and the two lines of the list the choice moved between.  If
+\ the list itself moved, or the choice was made by following a link, it is
+\ everything inside the frame.
+
+create wwin 0 ,
+create wsel0 0 ,        \ the choice and the top of the list before
+create wtop0 0 ,
+
+: wall ( -- )
+    d# 0 d# 0  wwin @ CELL2 + @ d# 2 -  wwin @ c# 3 + @ d# 20 -  wwin @ win-inval
+;
+
+: wpane ( -- ) \ the definition
+    d# 108 d# 0  wwin @ CELL2 + @ d# 110 -  wwin @ c# 3 + @ d# 20 -  wwin @ win-inval
+;
+
+: wline ( i -- ) \ a line of the list
+    wtop @ - dup d# 16 u< if
+        >r d# 0 r> d# 4 lshift d# 108 d# 16 wwin @ win-inval
+    else
+        drop
+    then
+;
+
+: wbefore ( win -- ) wwin !  wsel @ wsel0 !  wtop @ wtop0 ! ;
+
+: wpicked ( -- ) \ after wpick
+    wtop @ wtop0 @ <> if wall exit then
+    wsel0 @ wline  wsel @ wline  wpane
+;
+
 header words-key : words-key ( c win -- )
-    drop
-    dup d# 128 = if drop wsel @ 1- wpick exit then
-    dup d# 129 = if drop wsel @ 1+ wpick exit then
-    dup d# 132 = if drop wsel @ d# 16 - wpick exit then
-    dup d# 133 = if drop wsel @ d# 16 + wpick exit then
-    dup d# 130 = if drop wsrc @ d# 8 - d# 0 max wsrc ! exit then
-    dup d# 131 = if drop wsrc @ d# 8 + wrows @ 1- min wsrc ! exit then
+    wbefore
+    dup d# 128 = if drop wsel @ 1- wpick wpicked exit then
+    dup d# 129 = if drop wsel @ 1+ wpick wpicked exit then
+    dup d# 132 = if drop wsel @ d# 16 - wpick wpicked exit then
+    dup d# 133 = if drop wsel @ d# 16 + wpick wpicked exit then
+    dup d# 130 = if drop wsrc @ d# 8 - d# 0 max wsrc ! wpane exit then
+    dup d# 131 = if drop wsrc @ d# 8 + wrows @ 1- min wsrc ! wpane exit then
     d# 8 = if wback then
+    wall
 ;
 
 header words-click : words-click ( x y win -- )
-    drop d# 4 rshift crow !
-    dup d# 108 < if drop crow @ wtop @ + wpick exit then
+    wbefore d# 4 rshift crow !
+    dup d# 108 < if drop crow @ wtop @ + wpick wpicked exit then
+    wall
     d# 112 - d# 3 rshift ccol !
     d# 0
     begin
