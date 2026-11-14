@@ -267,8 +267,8 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,970 bytes
-with 64-bit cells, 3,990 with 32 and 3,930 with 16, against the 4,096 the
+task that runs past its part of a stack. The kernel's code is 3,974 bytes
+with 64-bit cells, 3,994 with 32 and 3,934 with 16, against the 4,096 the
 kernel ROM holds.
 
 On the desktop the Forth window's interpreter is a task with the upper half
@@ -607,6 +607,28 @@ instruction or none always stays, and in the kernel a word stays only if
 what is left is no longer than the call. The build writes which calls were
 compiled in place to `build/<name>.inline`, and a `PEEPHOLE=off` build
 reads it and does the same, so build with the peephole on first.
+
+The nucleus has a peephole of its own (`forth/join.fs`), so that what is
+typed at the prompt is plain words too: `2dup xor`, `over +` and `dup @`
+are each compiled to the one instruction. An instruction about to be
+compiled is offered to the two before it and then to the one before, and
+if there is a rule they become one, which is offered again; nothing is
+joined across a place a branch lands on. A word of up to three
+instructions with no call or branch, that leaves the return stack alone,
+is compiled in place so that its instructions can be joined (`2dup` is
+two), and `+` after a push makes it an add. The rules are
+`forth/joins.fs`, generated with `fused.fs` by `python3 util/insn_map.py
+--fused build/nuc.hex forth/fused.fs forth/joins.fs`: they are the
+decompiler's table the other way round, so what `see` shows compiles, when
+typed, to the instruction it was shown for, and every instruction a rule
+gives is one the image has and the decompiler can show. A rule is four
+instructions laid down among the code of page 1 with `i,` (nothing or the
+instruction two before, the one before, the one being compiled, and what
+they are together), in order, and found by halving. The kernel's ROM has
+only a vector for this: `compile,` runs `'compile`, which the build sets
+to `pcompile,`. It is in every size of machine. `insn_map.py` takes the
+rules out of the code it reads, finding them by the word `join-rules`.
+Build until `fused.fs` and `joins.fs` stop changing.
 
 After changing any of this, build with and without `PEEPHOLE=off` and run
 `python3 util/insn_map.py --compare plain.hex optimised.hex`: every

@@ -1219,6 +1219,16 @@ variable ntf#  0 ntf# !
     does>   @ literal
 ;
 
+\ A table that is instructions, as the rules of the nucleus's peephole are,
+\ is laid down among the code, an instruction to a place, where i@ reads
+\ it.  It is not code to be run, and nothing is joined to it or across it.
+:: i, ( w -- )
+    settle
+    tcp @ $1fff and $1ffe = abort" a table of instructions has run off its page"
+    tcp @ tw!  2 tcp +!
+    label
+;
+
 \ A header in front of create names the data.  The header points at code,
 \ so code is laid down for it that pushes the data's address, as a word
 \ made with create at run time has.

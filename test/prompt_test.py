@@ -35,6 +35,17 @@ CHECKS = [
     # Nothing is joined across the start of a loop: here the fetch is done
     # twice, of y and then of x, and only the first follows the address.
     (": u 5 x ! x y ! y begin @ dup 100 u< until ; u .", "5  ok"),
+    # The nucleus joins instructions as it compiles them (join.fs): plain
+    # words are typed, and each of these is one instruction and the exit.
+    # 2dup is compiled in place, so that its two instructions can be joined.
+    ("' compile, drop cp @ : j1 over + ; cp @ swap - .", "2  ok"),
+    ("cp @ : j2 2dup xor ; cp @ swap - .", "2  ok"),
+    ("cp @ : j3 dup @ ; cp @ swap - .", "2  ok"),
+    ("cp @ : j4 2 + ; cp @ swap - .", "2  ok"),
+    ("3 4 j1 . .  5 5 j2 . . .  6 7 j2 . . .  9 x ! x j3 . drop  40 j4 .", "7 3 0 5 5 1 7 6 9 42  ok"),
+    # Nothing is joined across the start of a loop: the + after begin does
+    # not take the over before it.  (It is counted, not run.)
+    ("cp @ : j5 over begin + dup until ; cp @ swap - .", "5  ok"),
     # or! sets bits of a cell, typed and compiled.
     ("create w 5 ,  10 w or!  w @ .", "15  ok"),
     (": o 48 w or! w @ ; o .", "63  ok"),

@@ -1144,8 +1144,11 @@ header-imm repeat
     r> h# 6308 = if h# f000 else h# b000 then or code,
 ;
 
-header compile,
-: compile, ( xt -- )
+\ compile, goes through a vector: the build sets it to pcompile, in join.fs,
+\ which joins instructions as they are compiled and comes here for the rest.
+create 'compile 0 ,
+
+: (compile,) ( xt -- )
     dup i@ isreturn if
         i@ h# effc and      \ single-instruction word: inline it without RET r-1
         dup h# 6800 = over h# 6308 = or if var, else code, then
@@ -1170,6 +1173,9 @@ header compile,
         then
     then
 ;
+
+header compile,
+: compile, ( xt -- ) 'compile @ execute ;
 
 header-imm recurse
 :noname
@@ -1586,22 +1592,23 @@ header quit
     quit
 ;
 
-\ Everything below is compiled into code page 1.  The kernel never calls it
-\ directly: these words are reached by name from the prompt, or through an
-\ execution token.
-\ It is written for 64-bit cells: the drivers and the display work in
-\ 64-bit quantities throughout.
-\ It has not yet been moved to cell addresses, so it is left out of a
-\ machine built with them.
-W64? [if]
+\ Everything below is compiled into code page 1 and after.  The kernel
+\ never calls it directly: these words are reached by name from the
+\ prompt, or through an execution token or a vector.
 meta
     $2000 org
 target
 
+include join.fs         \ the nucleus's peephole, in every size of machine
+
+\ The rest is written for 64-bit cells: the drivers and the display work
+\ in 64-bit quantities throughout.
+W64? [if]
 include system.fs
 [then]
 
 meta
+    t' pcompile, t' 'compile tvar!
     >hdr  link @ t,  hdr>               \ the newest header, last in the image
     t' main-task t' main-task tvar!     \ the first task, in a ring of one
     t' main-task t' up tvar!

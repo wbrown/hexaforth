@@ -10,14 +10,14 @@
 \ the table.
 
 header fused create fused
-$643c , $1 , hdr, +
 $6020 , $1 , hdr, swap
+$643c , $1 , hdr, +
 $649c , $1 , hdr, =
-$6800 , $1 , hdr, @
 $644c , $1 , hdr, and
 $600c , $1 , hdr, drop
-$6004 , $1 , hdr, over
+$6800 , $1 , hdr, @
 $6480 , $1 , hdr, invert
+$6004 , $1 , hdr, over
 $6404 , $1 , hdr, dup
 $6308 , $1 , hdr, !
 $6c07 , $1 , hdr, r>
@@ -35,23 +35,23 @@ $64a0 , $2 , hdr, over hdr, >
 $6494 , $2 , hdr, 2dup hdr, =
 $6464 , $2 , hdr, 2dup hdr, xor
 $647c , $1 , hdr, *
+$6440 , $2 , hdr, over hdr, and
 $64ec , $2 , hdr, nip hdr, @
 $6804 , $2 , hdr, dup hdr, @
 $6c17 , $2 , hdr, swap hdr, r>
 $612d , $2 , hdr, swap hdr, >r
-$60c0 , $3 , hdr, over hdr, swap hdr, rshift
-$6440 , $2 , hdr, over hdr, and
 $64bc , $1 , hdr, u<
-$6208 , $1 , hdr, io!
+$60c0 , $3 , hdr, over hdr, swap hdr, rshift
 $642c , $1 , hdr, nip
+$6208 , $1 , hdr, io!
 $630c , $3 , hdr, over hdr, swap hdr, !
 $63e8 , $4 , hdr, swap hdr, @ hdr, swap hdr, !
 $6414 , $1 , hdr, tuck
 $6403 , $1 , hdr, rdrop
 $683c , $2 , hdr, @ hdr, +
+$60d0 , $3 , hdr, over hdr, swap hdr, lshift
 $64f0 , $1 , hdr, io@
 $689c , $2 , hdr, @ hdr, =
-$60d0 , $3 , hdr, over hdr, swap hdr, lshift
 $646c , $1 , hdr, xor
 $6501 , $2 , hdr, >r hdr, r@
 $6b58 , $1 , hdr, or!
@@ -59,14 +59,14 @@ $6c34 , $3 , hdr, over hdr, r@ hdr, +
 $600f , $2 , hdr, r> hdr, 2drop
 $65ed , $2 , hdr, @ hdr, >r
 $6880 , $2 , hdr, @ hdr, invert
-$6c03 , $2 , hdr, r> hdr, nip
 $6008 , $2 , hdr, drop hdr, nip
+$6c03 , $2 , hdr, r> hdr, nip
 $6084 , $2 , hdr, over hdr, invert
+$64b0 , $2 , hdr, over hdr, u>
 $6539 , $2 , hdr, + hdr, >r
 $6014 , $2 , hdr, swap hdr, dup
 $60e4 , $2 , hdr, over hdr, @
 $6460 , $2 , hdr, over hdr, xor
-$64b0 , $2 , hdr, over hdr, u>
 $64e8 , $3 , hdr, nip hdr, nip hdr, @
 $6830 , $3 , hdr, @ hdr, over hdr, +
 $686c , $2 , hdr, @ hdr, xor
@@ -79,6 +79,7 @@ $63ec , $3 , hdr, over@ hdr, swap hdr, !
 $6434 , $2 , hdr, 2dup hdr, +
 $6b3c , $3 , hdr, over hdr, swap hdr, +!
 $6ce4 , $2 , hdr, r@ hdr, @
+$6000 , $2 , hdr, drop hdr, dup
 $6101 , $2 , hdr, over hdr, >r
 $611c , $3 , hdr, swap hdr, rdrop hdr, >r
 $632c , $2 , hdr, tuck hdr, !
@@ -86,7 +87,6 @@ $671c , $3 , hdr, tuck hdr, swap hdr, !
 $684c , $2 , hdr, @ hdr, and
 $68bc , $2 , hdr, @ hdr, u<
 $6b48 , $1 , hdr, and!
-$6000 , $2 , hdr, drop hdr, dup
 $6111 , $3 , hdr, swap hdr, >r hdr, r@
 $61c9 , $2 , hdr, rshift hdr, >r
 $6454 , $2 , hdr, 2dup hdr, or
