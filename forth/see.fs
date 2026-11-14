@@ -242,9 +242,9 @@ create hv 0 ,
     2drop d# 0
 ;
 
-: sfused ( w -- f ) \ show a fused instruction as its words, if it is in the table
+: sfused ( w -- f ) \ show an instruction as its word or words, if it is in the table
     fused? ?dup 0= if false exit then
-    true sbold !
+    dup @ d# 1 > sbold !                            \ more than one: the peephole made it
     dup @ swap 1+ swap bounds                       ( end a )
     begin
         2dupxor
@@ -388,9 +388,11 @@ create hv 0 ,
     bg-add  snl s- k-until wt snl
 ;
 
+\ The table has every instruction the image was built with, so the
+\ dictionary is searched only for one that a word made since is.
 : sop ( w -- ) \ an instruction with no return in it
-    dup op>hdr ?dup if nip sname exit then
     dup sfused if drop exit then
+    dup op>hdr ?dup if nip sname exit then
     sraw
 ;
 
@@ -400,10 +402,10 @@ create hv 0 ,
         dup h# 7403 = if
             drop
         else
-            dup ret>hdr ?dup if
-                nip sname
+            dup d# 3 and d# 3 = if                  \ a return folded in: the instruction
+                h# 1003 invert and sop
             else
-                dup d# 3 and d# 3 = if h# 1003 invert and sop else sraw then
+                dup ret>hdr ?dup if nip sname else sraw then
             then
         then
         stail exit
