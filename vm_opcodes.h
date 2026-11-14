@@ -227,7 +227,7 @@ static forth_define FORTH_OPS[] = {
         {"1+",      "1      imm+                                   imm"},
         {"2+",      "2      imm+                                   imm"},
         {"2*",      "1                                             imm lshift", CODE},
-        {"2/",      "1                                             imm rshift", CODE},
+        {"u2/",     "1                                             imm rshift", CODE},
         {"negate",  "invert 1+", CODE},
         {"-",       "negate +", CODE},
         {"emit",    "241                                           imm io!", CODE},

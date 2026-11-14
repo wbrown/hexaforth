@@ -23,6 +23,20 @@ There are no opcodes, and a baseword is only a name for one of them.
 - A name costs a line in `vm_opcodes.h` and nothing in the machine. An
   encoding with no name is one the programmer cannot say and the nucleus's
   compiler cannot emit
+- Any control word can be said in source by its fields, and the peephole
+  joins it to its neighbours as it does a named one:
+  `meta N->IN [IN] ->[T] d-1 alu target`
+- Most instructions are said by a phrase of standard words that the
+  peephole joins. `python3 util/phrases.py` is the phrase book: for each
+  instruction that a run of up to three of the machine's words equals (four
+  with `LONGEST=4`, five minutes), the shortest run, and whether `cross.fs`
+  makes one instruction of it; the report is `build/phrases.txt`. With
+  four words 1,289 of the 3,856 behaviours (not counting those that also
+  return) have a phrase and 1,136 compile to one instruction. It also runs
+  every word here that gforth has in gforth, to see that the name means
+  the same. A baseword's name must mean what the standard says: the shift
+  right by one is `u2/`, and `2/`, which keeps the sign, is a word of the
+  nucleus
 - Do not propose a new ALU operation or any other change to the machine
   for speed. The operation field is full, the ALU has two inputs, and the
   design is that the fields compose. First show what the existing fields

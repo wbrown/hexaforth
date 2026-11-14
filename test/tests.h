@@ -108,7 +108,7 @@ static hexaforth_test TESTS[] = {
      .dstack = "2"},
     {.label = "- ( a b -- b-a )", .input = "500 300 -", .dstack = "200"},
     {.label = "2* ( a -- a << 1 )", .input = "512 2*", .dstack = "1024"},
-    {.label = "2/ ( a -- a >> 1 )", .input = "512 2/", .dstack = "256"},
+    {.label = "u2/ ( a -- a >> 1 )", .input = "512 u2/", .dstack = "256"},
     {.label = "@ ( a -- [a] )",
      .init = "1024 -1024 2048 -2048 4096 -4096",
      .input = "0 @ 1 @ 2 @ 3 @ 4 @ 5 @",

@@ -132,7 +132,7 @@
 :: 2+             2          imm+                               imm     ;
 :: 2*             1                                             imm    
                      N->IN   IN<<T     ->T     d-1    r+0       alu     ;
-:: 2/             1                                             imm    
+:: u2/            1                                             imm    
                      N->IN   IN>>T     ->T     d-1    r+0       alu     ;
 :: negate            T->IN   ~IN       ->T     d+0    r+0       alu    
                   1          imm+                               imm     ;
