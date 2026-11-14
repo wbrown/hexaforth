@@ -373,6 +373,14 @@ pointer events through QMP, and checks the screen: text is read back by
 matching font cells, and the image viewer is compared with a reference
 dither computed on the host.
 
+`make demo-profile` says where the desktop's instructions go. It builds the
+small kernel with `-DPROFILE`, which counts how often the instruction at
+each address is executed, and `baremetal/deskprof.py` drives the desktop
+through typing, scrolling, raising and dragging windows, the calculator,
+the Words window and the editor, reading the counts out of the machine
+after each. What a turn of the idle event loop costs is taken off, and the
+rest is given by file, by word and by kind of instruction.
+
 ### The Peephole
 
 `cross.fs` emits one instruction at a time and offers it to those just

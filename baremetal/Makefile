@@ -7,6 +7,7 @@
 #   make KERNEL=hexaforth-fast ...   any target, with the table-decoded kernel
 #   make demo       boot into the desktop, with a disk, keyboard and pointer
 #   make demo-test  drive the desktop headless and check the screen
+#   make demo-profile  drive it, and say where the instructions went
 
 # KERNEL picks the native kernel: hexaforth (small) or hexaforth-fast.
 KERNEL ?= hexaforth
@@ -42,6 +43,14 @@ $(B)/ramfb.o: ramfb.S
 	clang $(TARGET) -c $< -o $@
 
 $(B)/%-display.elf: $(B)/ramfb.o $(B)/%-display.o
+	ld.lld -Ttext=$(LOAD) -e _start -o $@ $^
+
+# And the same again, counting how often each instruction is executed.
+$(B)/%-profile.o: %.S $(B)/image.bin
+	clang $(TARGET) -c -DIMAGE='"$(B)/image.bin"' -DBRIDGE -DPROFILE \
+	    -DADDR_BITS=$(ADDR_BITS) $< -o $@
+
+$(B)/%-profile.elf: $(B)/ramfb.o $(B)/%-profile.o
 	ld.lld -Ttext=$(LOAD) -e _start -o $@ $^
 
 $(B)/%.bin: $(B)/%.elf
@@ -85,4 +94,9 @@ demo-test: $(B)/$(KERNEL)-display.elf $(B)/disk.img
 	cp $(B)/disk.img $(B)/gui.img
 	python3 guitest.py $< $(B)/gui.img $(B)/disk.tiff $(B)/gui
 
-.PHONY: all size run test demo demo-test clean
+# Drive the desktop as demo-test does, and say where the instructions went.
+demo-profile: $(B)/hexaforth-profile.elf $(B)/disk.img
+	cp $(B)/disk.img $(B)/gui.img
+	python3 deskprof.py $< $(B)/gui.img $(HEX) ../build/nuc.sizes
+
+.PHONY: all size run test demo demo-test demo-profile clean
