@@ -37,6 +37,18 @@ There are no opcodes, and a baseword is only a name for one of them.
   (`cells-move`). A loop that only counts starts below nothing and goes up
   to it: `negate begin dup while ... 1+ repeat drop`
 
+## Shell code is a last resort
+
+Change a file with the Edit tool, and make a new one with Write. Do not
+write a shell or Python script to edit source: a change made that way
+cannot be read as a diff or approved, the harness does not know the file
+changed, and a wrong replacement is easy to miss. Read and search with
+Read, Grep and Glob, not `cat`, `sed` and `grep`.
+
+The shell is for what has no tool: building, running the suites,
+measuring, and git. When a suite is run, keep all of its output in a file
+and print a summary from that; do not cut or head the results.
+
 ## IMPORTANT: Read UNDERSTANDING.md First
 
 Before working with this codebase, read `UNDERSTANDING.md` which provides deep insights into:
