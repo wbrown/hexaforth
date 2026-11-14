@@ -303,7 +303,7 @@ Page 1 is what the rest is built on:
   - the *port* is the state drawing depends on: origin (`ox`, `oy`), clip
     rectangle, clip region, `pattern`, `'mode`, `font`, and `inverse`
     `bold` `italic`. Everything that draws takes coordinates in the port.
-    `port!` changes port; a port not in use is a record of seventeen cells.
+    `port!` changes port; a port not in use is a record of eighteen cells.
     A clip region that is a rectangle, as most are, needs no mask: it and
     the clip rectangle asked for are one smaller rectangle (`reclip`), and
     only a region that is not one is masked a row at a time
@@ -320,7 +320,11 @@ Page 1 is what the rest is built on:
     row of each glyph. `draw-text` works a cell of the screen at a time, for
     all the rows of the font at once: each glyph is set into a band of
     cells, one for each row (`or!`, memory through the ALU to memory), and
-    the band is stored when it is full
+    the band is stored when it is full. With `text-or` set in the port, text
+    that is not inverse only adds its black to what is there; then plain
+    text with no region to mask goes straight to the screen with `or!`, and
+    no band is gathered. The window manager sets it for what a window
+    draws, having just made the window white
 - `region.fs`: regions, as rows of where a shape goes in and out, with
   `rect-rgn`, `rgn-and`, `rgn-or`, `rgn-diff`, `rgn-offset`, `rgn-box`.
   `rgn-clip!` clips a port to one: drawing makes a mask of the region for

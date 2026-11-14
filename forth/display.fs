@@ -30,6 +30,7 @@ header fb-h create fb-h  meta disp-h target ,
 \                 right and bottom, on the screen
 \     clip-rgn    a region it may draw in, as well, or 0 for none
 \     clip0       the rectangle that was asked for (see reclip)
+\     text-or     true if text only adds its black to what is there
 \     pattern     what fills are made of
 \     'mode       how what is drawn meets what is there
 \     inverse bold italic     how text looks
@@ -37,10 +38,10 @@ header fb-h create fb-h  meta disp-h target ,
 \
 \ Everything that draws takes coordinates in the port.  These words are
 \ the port in use.  A port that is not in use is a record of the same
-\ seventeen cells, and port! changes from one to another.
+\ eighteen cells, and port! changes from one to another.
 
-create gstate 0 , 0 ,  0 , 0 , 0 , 0 ,  0 , 0 ,  0 , 0 , 0 ,  0 ,  0 ,  0 , 0 , 0 , 0 ,
-$11 constant PORT-CELLS
+create gstate 0 , 0 ,  0 , 0 , 0 , 0 ,  0 , 0 ,  0 , 0 , 0 ,  0 ,  0 ,  0 , 0 , 0 , 0 ,  0 ,
+$12 constant PORT-CELLS
 
 header ox      : ox      gstate ;
 header oy      : oy      gstate CELL + ;
@@ -52,12 +53,13 @@ header bold    : bold    gstate c# 9 + ;
 header italic  : italic  gstate c# 10 + ;
 header font    : font    gstate c# 11 + ;
 header clip-rgn : clip-rgn gstate c# 12 + ;
+header text-or : text-or gstate c# 17 + ;
 
 \ Those are for the dictionary.  Code compiled here has the addresses in line.
 $0 at: gstate ox        $1 at: gstate oy        $2 at: gstate clip
 $6 at: gstate pattern   $7 at: gstate 'mode     $8 at: gstate inverse
 $9 at: gstate bold      $a at: gstate italic    $b at: gstate font
-$c at: gstate clip-rgn  $d at: gstate clip0
+$c at: gstate clip-rgn  $d at: gstate clip0     $11 at: gstate text-or
 
 header origin! : origin! ( x y -- ) oy ! ox ! ;
 
@@ -472,6 +474,12 @@ header xor8
 \ `bold` set each stroke is a pixel wider, and with `italic` set the top
 \ half of each character leans a pixel to the right.
 \
+\ With `text-or` set, text that is not inverse only adds its black to what
+\ is there, and what is there is taken to be the white it would have had:
+\ whoever sets it has made that so.  Then plain text with no region to
+\ mask goes straight to the screen, a row of a glyph at a time with or!,
+\ and nothing is gathered or stored.
+\
 \ A font is a strike: all its glyphs side by side in one bitmap as high as
 \ the font, and a table of where each starts.  The record is five cells
 \ (height, first character, how many, cells in a row of the strike, and
@@ -589,6 +597,7 @@ create gd 0 ,           \ from a cell of tband to the glyph's row for it
 create tk 0 ,
 create tq 0 ,
 create tcm 0 ,          \ the pixels drawn, of the cells being stored
+create tor 0 ,          \ true if the text only adds its black
 create hi 0 ,           \ how far across the cell they reach
 create cx 0 ,           \ where on the screen the cell starts
 create vx0 0 ,          \ the pixels of the row that are drawn: from here
@@ -663,10 +672,14 @@ INK-BLACK? [if] [else]
         else
             row cx @ PXSHIFT rshift + da !
             tcm @ da @ rm drop                      ( i mask )
-            dup 1+ if
-                ?dup if over tband + @ over and swap da @ seg! then
+            tor @ if
+                over tband + @ and  da @ or!
             else
-                drop dup tband + @ da @ !
+                dup 1+ if
+                    ?dup if over tband + @ over and swap da @ seg! then
+                else
+                    drop dup tband + @ da @ !
+                then
             then
         then
         d# 0 over tband + !
@@ -713,6 +726,83 @@ INK-BLACK? [if] [else]
     tsty r0 @ -
 ;
 
+\ ---- text that only adds its black, with nothing to mask: straight to the screen
+\
+\ This is for a display whose black is a set bit and whose rows follow one
+\ another in memory; on any other, such text is gathered and stored as the
+\ rest is.
+
+INK-BLACK? [if] BANKED? [if] [else]
+
+: or-plain ( rows dst -- ) \ tn rows of a glyph, hi pixels along, all of them drawn
+    >r tn @ bounds                                  ( end rows ) ( R: dst )
+    begin
+        2dupxor
+    while
+        dup @ hi @ PIXR  r@ or!
+        r> DISP-STRIDE + >r
+        1+
+    repeat
+    2drop rdrop
+;
+
+: or-right ( rows dst -- ) \ the same, of which only the pixels of tcm are drawn
+    >r tn @ bounds
+    begin
+        2dupxor
+    while
+        dup @ hi @ PIXR tcm @ and  r@ or!
+        r> DISP-STRIDE + >r
+        1+
+    repeat
+    2drop rdrop
+;
+
+: or-left ( rows dst -- ) \ the part of a glyph that runs over into the next cell
+    >r tn @ bounds
+    begin
+        2dupxor
+    while
+        dup @ tk @ PIXL tcm @ and  r@ or!
+        r> DISP-STRIDE + >r
+        1+
+    repeat
+    2drop rdrop
+;
+
+: glyph-or ( rows -- ) \ a glyph's rows from r0, at pen
+    r0 @ +
+    pen @ PXMASK invert and cx !  pen @ PXMASK and hi !
+    ty @ r0 @ + row  pen @ PXSHIFT rshift +         ( rows dst )
+    colmask
+    dup 1+ if
+        ?dup if tcm ! 2dup or-right then
+    else
+        drop 2dup or-plain
+    then
+    hi @ gw @ + PXCELL > if
+        PXCELL hi @ - tk !
+        PXCELL cx +!
+        colmask ?dup if tcm ! 1+ or-left exit then
+    then
+    2drop
+;
+
+: text-fast ( -- ) \ every glyph that will be seen
+    tx @ pen !
+    gbuf @ gn @ bounds
+    begin
+        2dupxor
+    while
+        dup @  dup CELL + @ gw !  @ glyph-or
+        gw @ pen +!
+        1+
+    repeat
+    2drop
+;
+
+[then] [then]
+
 header draw-text : draw-text ( addr u x y -- ) \ in the port's font, clipped to the pixel
     ty ! tx ! tu ! ta !
     ox @ tx +!  oy @ ty +!
@@ -732,6 +822,14 @@ INK-BLACK? [if] [else]
 [then]
     styled !
     r1 @ r0 @ - tn !
+INK-BLACK? [if]
+    text-or @ inverse @ 0= and tor !
+BANKED? [if] [else]
+    tor @  styled @ 0= and  mrgn @ 0= and if text-fast exit then
+[then]
+[else]
+    d# 0 tor !
+[then]
     tband tn @ + tend !
     tend @ tband begin 2dupxor while d# 0 over ! 1+ repeat 2drop
     tx @ PXMASK invert and cx !

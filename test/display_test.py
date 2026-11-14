@@ -39,6 +39,7 @@ class Model:
         self.pattern = PATTERNS["p-black"]
         self.mode = MODES["copy-mode"]
         self.style = {"inverse": 0, "bold": 0, "italic": 0}
+        self.text_or = 0                            # text only adds its black
         self.font = "mono"
         self.region = None                          # rows of 0 and 1, or None
 
@@ -78,9 +79,10 @@ class Model:
                         bits = [b | (bits[i - 1] if i else 0) for i, b in enumerate(bits)]
                     if self.style["inverse"]:
                         bits = [b ^ 1 for b in bits]
+                    adds = self.text_or and not self.style["inverse"]
                     for k, b in enumerate(bits):
                         if self.visible(pen + k, y + r):
-                            self.px[y + r][pen + k] = b
+                            self.px[y + r][pen + k] = self.px[y + r][pen + k] | b if adds else b
             pen += width
 
     def copy_bits(self, sx, sy, dx, dy, w, h):
@@ -121,7 +123,7 @@ def session(seed, count):
     for _ in range(count):
         op = rng.choice(only or ["rect"] * 4 + ["text"] * 4 + [
             "copy", "scroll", "clip", "noclip", "mode", "origin", "font", "region", "region",
-            "noregion", "pattern", "style"])
+            "noregion", "pattern", "style", "textor"])
         if op == "rect":
             x, y = rng.randint(-40, W), rng.randint(-40, H)
             w, h = rng.choice([1, 7, 64, 130, 300]), rng.choice([1, 3, 16, 60])
@@ -195,6 +197,9 @@ def session(seed, count):
             lines.append("noclip")
             m.clip = (0, 0, W, H)
             m.region = None
+        elif op == "textor":
+            m.text_or = rng.randint(0, 1)
+            lines.append(f"{-m.text_or} text-or !")
         elif op == "mode":
             name = rng.choice(list(MODES))
             lines.append(name)
