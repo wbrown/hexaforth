@@ -133,10 +133,55 @@ create qo 0 ,           \ where the next crossing of the answer goes
     po @ ro @ - 1- ro @ !
 ;
 
+\ Most regions are rectangles or nothing, and most of what is asked of two
+\ regions needs no band of either looked at: nothing and anything, and two
+\ rectangles.  A rectangle is six cells, y 2 x0 x1 and y 0, and nothing
+\ else is.
+create ga 0 ,
+create gb 0 ,
+create gt 0 ,
+: 3rgn ( a b to -- ) gt ! gb ! ga ! ;
+: rect? ( rgn -- f ) @ d# 6 = ;
+: none ( -- ) d# 0 gt @ ! ;
+: both-rect? ( -- f ) ga @ rect?  gb @ rect?  and ;
+
+: rect-and ( -- ) \ what two rectangles share
+    ga @ c# 3 + @  gb @ c# 3 + @  max               ( x0 )
+    ga @ 1+ @      gb @ 1+ @      max               ( x0 y0 )
+    over ga @ c# 4 + @  gb @ c# 4 + @  min  swap -  ( x0 y0 w )
+    over ga @ c# 5 + @  gb @ c# 5 + @  min  swap -  ( x0 y0 w h )
+    gt @ rect-rgn
+;
+
+: apart? ( -- f ) \ do two rectangles share nothing?
+    ga @ c# 4 + @  gb @ c# 3 + @  > 0=
+    gb @ c# 4 + @  ga @ c# 3 + @  > 0=  or
+    ga @ c# 5 + @  gb @ 1+ @      > 0=  or
+    gb @ c# 5 + @  ga @ 1+ @      > 0=  or
+;
+
 \ `to` must not be either of the regions combined.
-header rgn-and  : rgn-and  ( a b to -- ) d# 0 rgn-op ;  \ what is in both
-header rgn-or   : rgn-or   ( a b to -- ) d# 1 rgn-op ;  \ what is in either
-header rgn-diff : rgn-diff ( a b to -- ) d# 2 rgn-op ;  \ what is in a and not in b
+header rgn-and : rgn-and ( a b to -- ) \ what is in both
+    3rgn
+    ga @ rgn-empty?  gb @ rgn-empty?  or if none exit then
+    both-rect? if rect-and exit then
+    ga @ gb @ gt @ d# 0 rgn-op
+;
+
+header rgn-or : rgn-or ( a b to -- ) \ what is in either
+    3rgn
+    ga @ rgn-empty? if gb @ gt @ rgn-copy exit then
+    gb @ rgn-empty? if ga @ gt @ rgn-copy exit then
+    ga @ gb @ gt @ d# 1 rgn-op
+;
+
+header rgn-diff : rgn-diff ( a b to -- ) \ what is in a and not in b
+    3rgn
+    ga @ rgn-empty? if none exit then
+    gb @ rgn-empty? if ga @ gt @ rgn-copy exit then
+    both-rect? if apart? if ga @ gt @ rgn-copy exit then then
+    ga @ gb @ gt @ d# 2 rgn-op
+;
 
 create odx 0 ,
 create ody 0 ,
