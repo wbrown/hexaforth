@@ -2,9 +2,8 @@
 \
 \ This is compiled into code page 1 and code pages 8 and 9.  cross.fs
 \ compiles calls between pages as calls by execution token, so the split
-\ needs no care beyond each page's code fitting in 8KB, with room to spare
-\ for a build without the peephole, which is about a third bigger: a page
-\ should be no more than 6,300 bytes of code as build/nuc.sizes gives it.
+\ needs no care beyond each page's code fitting in its 8,192 bytes, as
+\ build/nuc.sizes gives them.
 \
 \ Storage is reached through a small interface, so a driver can be swapped
 \ without touching the code that uses it:
@@ -24,9 +23,7 @@ include display.fs      \ the display: a bitmap in memory, and text on it
 
 \ Page 8: regions, the drivers, the picture, and the window manager.
 
-meta
-    $10000 org
-target
+meta 8 code-page target
 
 include region.fs       \ shapes that are not rectangles, to clip to
 include virtio.fs       \ shared by the virtio drivers
@@ -41,9 +38,7 @@ include wm.fs           \ windows, pointer, event loop
 
 \ Page 9: the applications.
 
-meta
-    $12000 org
-target
+meta 9 code-page target
 
 include term.fs         \ text area and the Forth window
 include edit.fs         \ block editor

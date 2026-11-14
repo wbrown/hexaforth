@@ -297,14 +297,20 @@ if a definition runs off the end of its page. Execution tokens are stored in
 `forth/system.fs` (included at the end of `nuc.fs`) is cross-compiled into
 code page 1 (`0x2000`) and code pages 8 and 9 (`0x10000` up). The kernel
 never calls into it; its words are reached by name or by execution token.
-Each page has room for a build without the peephole, which is about a
-third bigger: `PEEPHOLE=off gforth cross.fs basewords.fs nuc.fs` must still
-fit, since `insn_map.py --compare` checks the optimised image against it.
-So a page should hold no more than 6,300 bytes of code as
-`build/nuc.sizes` gives it. If that build stops at `code page full`, the
-image left in `build/` is the optimised one, and a comparison made then is
-of that image with itself: it says the two have the same number of
-instructions.
+A page is 4,096 instructions, 8,192 bytes of code as `build/nuc.sizes`
+gives it, and the image may use all of each.
+
+`insn_map.py --compare` checks the image against a build with the peephole
+off (`PEEPHOLE=off gforth cross.fs basewords.fs nuc.fs`), which is about a
+third bigger. That build is never run, and nothing about the image is
+arranged for it: it takes no notice of where `system.fs` starts a page
+(`code-page`), and starts one of its own before any definition that has
+less than a quarter of a page left to go in (`?own-page` in `cross.fs`).
+The code is in the same order in both, and the comparison takes a call or
+a jump across pages (an execution token and `execute`) to be the same as
+one within a page. If the two are ever reported to have the same number of
+instructions, the bigger build did not finish, and the image left in
+`build/` was compared with itself.
 
 Page 1 is what the rest is built on:
 

@@ -352,6 +352,22 @@ ptcode, 'ptcode !
 ; is tcode,
 : org       settle tcp ! label ;
 
+\ Code past the kernel is in pages, and the program says where each starts
+\ (code-page).  A build with the peephole off is never run: it is made on
+\ the host to be compared with the real one, and is about a third bigger.
+\ Nothing about the real image is arranged for it.  It takes no notice of
+\ where the program starts its pages, and starts one of its own before any
+\ definition that has less than a quarter of a page left to go in.  The
+\ order of the code is the same in both, which is all the comparison
+\ needs; a call that is across pages in one and not in the other is the
+\ same call.
+: next-page ( -- ) tcp @ $1fff + $2000 negate and  $10000 max  org ;
+: code-page ( n -- ) plain @ if drop else $2000 * org then ;
+: ?own-page ( -- ) \ before a definition
+    plain @  tcp @ $2000 u< 0= and  tcp @ $1fff and $1800 u> and
+    if next-page then
+;
+
 wordlist constant target-wordlist
 : add-order ( wid -- ) >r get-order r> swap 1+ set-order ;
 : :: get-current >r target-wordlist set-current : r> set-current ;
@@ -787,6 +803,7 @@ variable named-cp
 cell-bits 64 = constant labelling
 
 : (header) ( immediate? "name" -- )
+    ?own-page
     label
     >hdr
     there >r
@@ -910,6 +927,7 @@ variable in-depth
     lst @ write-file throw
     wordstr lst @ write-line throw
 
+    ?own-page
     wants-label? if tcp @ 2/ (label) drop then
     tcp @ wordstart !
     label

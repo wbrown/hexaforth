@@ -578,10 +578,14 @@ def load_image(path):
     # A link is the address of a cell, which is 8 bytes.
     entries = set()
     labels = 0
+    global EXECUTE
+    EXECUTE = None
     link = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
     while link:
         xt = struct.unpack_from("<Q", raw, link + 8)[0] & 0xFFFF
         entries.add(xt)
+        if raw[link + 16:link + 24] == b"\x07execute":
+            EXECUTE = xt
         if raw[link + 16:link + 23] == b"\x06labels":
             # The word pushes the address of the variable that heads the label chain.
             where = sum((w & 0xFFF) << 12 * (w >> 12 & 3) for w in cells[xt:xt + 2] if w & 0x8000)
@@ -600,6 +604,7 @@ def load_image(path):
 
 
 LABELLED = False            # the image last loaded names every definition
+EXECUTE = None              # and where its `execute` is
 
 
 def flat_target(at, ins):
@@ -624,8 +629,19 @@ def split_runs(code, entries):
             value = (w & 0xFFF) << 12 | nxt & 0xFFF
             if 0x1000 <= value < 0x2000 or 0x8000 <= value < len(code):
                 targets.add(value)
+    # What is left of a page after its code is nothing, and is not code: how
+    # much there is depends on where the pages start, not on the program.
+    last = {}
+    for i, w in enumerate(code):
+        if w:
+            last[i >> 12] = i
     items, run, start = [], [], 0
     for i, w in enumerate(code):
+        if i > last.get(i >> 12, -1):
+            if run:
+                items.append(("run", start, run))
+                run = []
+            continue
         if run and i in targets:
             items.append(("run", start, run))
             run = []
@@ -640,12 +656,37 @@ def split_runs(code, entries):
             if run:
                 items.append(("run", start, run))
                 run = []
-            if w == 0 and i and code[i - 1] == 0:
-                continue                # padding between code regions
             items.append(("ctl", i, w))
     if run:
         items.append(("run", start, run))
     return items
+
+
+def join_far_calls(items, entries, execute):
+    """A call to a word on another page is its execution token pushed and a
+    call to `execute`, and a jump to one, at the end of a word, is the
+    token and a jump to `execute`.  Whether a word is on another page
+    depends on where the pages start, so each is made one thing here:
+    ("far", call or jump, the word)."""
+    out = []
+    for kind, at, x in items:
+        if kind == "ctl" and x >> 13 in (0, 2) and flat_target(at, x) == execute \
+                and out and out[-1][0] == "run" and out[-1][1] + len(out[-1][2]) == at:
+            _, start, run = out[-1]
+            k = len(run)
+            while k and run[k - 1] & 0xC000 == 0xC000 and run[k - 1] >> 12 & 3 != 3:
+                k -= 1                              # the adds of the number pushed
+            if k and run[k - 1] & 0xC000 == 0x8000 and run[k - 1] >> 12 & 3 != 3:
+                k -= 1
+                value = sum((w & 0xFFF) << 12 * (w >> 12 & 3) for w in run[k:])
+                if value in entries:
+                    out.pop()
+                    if k:
+                        out.append(("run", start, run[:k]))
+                    out.append(("ctl", start + k, ("far", x >> 13, value)))
+                    continue
+        out.append((kind, at, x))
+    return out
 
 
 def compare_images(plain_path, opt_path):
@@ -653,10 +694,21 @@ def compare_images(plain_path, opt_path):
     the matching run of the unoptimised one, and every branch must go to the
     matching place.  Literals that are code addresses are translated."""
     State.DEPTH = 64
-    plain, opt = (split_runs(*load_image(p)) for p in (plain_path, opt_path))
+
+    def items_of(path):
+        code, entries = load_image(path)
+        return join_far_calls(split_runs(code, entries), entries, EXECUTE)
+
+    plain, opt = items_of(plain_path), items_of(opt_path)
     if [k for k, _, _ in plain] != [k for k, _, _ in opt]:
         print("images do not have the same control structure")
         return 1
+
+    def goes(at, w):
+        """What kind of control instruction, and where it goes."""
+        if isinstance(w, tuple):
+            return w[1], w[2]
+        return w >> 13, flat_target(at, w)
     moved = {a[1]: b[1] for a, b in zip(plain, opt)}
 
     def translations(run):
@@ -690,24 +742,27 @@ def compare_images(plain_path, opt_path):
     bad = runs = 0
     for n, ((kind, at_a, a), (_, at_b, b)) in enumerate(zip(plain, opt)):
         if kind == "ctl":
-            same = a >> 13 == b >> 13 and (
-                a == b == 0 or moved.get(flat_target(at_a, a)) == flat_target(at_b, b))
+            (ka, ta), (kb, tb) = goes(at_a, a), goes(at_b, b)
+            same = ka == kb and moved.get(ta) == tb
         else:
             runs += 1
             # A run that ends at a conditional branch need only leave the same
             # answer to what the branch asks.
             nxt = opt[n + 1] if n + 1 < len(opt) else None
-            br = bool(nxt and nxt[0] == "ctl" and nxt[2] >> 13 == 1 and nxt[1] == at_b + len(b))
+            br = bool(nxt and nxt[0] == "ctl" and isinstance(nxt[2], int) and nxt[2] >> 13 == 1
+                      and nxt[1] == at_b + len(b))
             want = effect(b, br)
             same = want is not None and (
                 want == effect(a, br) or any(want == effect(t, br) for t in translations(a)))
         if not same:
             bad += 1
-            text = lambda x: " ".join(f"{w:04x}" for w in x) if isinstance(x, list) else f"{x:04x}"
+            text = lambda x: " ".join(f"{w:04x}" for w in x) if isinstance(x, list) else \
+                f"{'call' if x[1] else 'jump'} {x[2]:04x} by way of execute" if isinstance(x, tuple) \
+                else f"{x:04x}"
             print(f"DIFFERENT at {at_a:04x} / {at_b:04x}\n  plain:     {text(a)}\n  optimised: {text(b)}")
-    count = lambda items: sum(len(x) if k == "run" else 1 for k, _, x in items)
+    count = lambda path: sum(1 for w in load_image(path)[0] if w)
     print(f"{runs} straight-line runs and {len(plain) - runs} branches compared: "
-          f"{bad} differ.  {count(plain)} -> {count(opt)} instructions")
+          f"{bad} differ.  {count(plain_path)} -> {count(opt_path)} instructions")
     return 1 if bad else 0
 
 
