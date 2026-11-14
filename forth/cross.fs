@@ -80,8 +80,66 @@ variable tcp    0 tcp !         \ Code pointer
 variable tfence     0 tfence !
 variable tpinned    -1 tpinned !
 variable peephole   true peephole !
-s" PEEPHOLE" getenv s" off" compare 0= [if] false peephole ! [then]   \ PEEPHOLE=off gforth ...
-: label     tcp @ tfence ! ;
+variable plain      false plain !               \ true for a build with PEEPHOLE=off
+s" PEEPHOLE" getenv s" off" compare 0= [if] false peephole !  true plain ! [then]   \ PEEPHOLE=off gforth ...
+
+\ A small word is tried in place of a call to it.  Its instructions are
+\ compiled where the call would be, each offered to the peephole as any
+\ other is; a call hides from the peephole what the word does, and
+\ `a b - 0>` as two calls is two calls.  If the peephole joins any of them
+\ to what is before, or joins the instruction that comes next to them,
+\ they stay.  If it does nothing with them they are taken out again and
+\ the word is called: `pend` is such a word waiting for the instruction
+\ that comes next, and `settle` takes it out without waiting, for a place
+\ a branch lands on.  A word of one instruction or none stays whatever
+\ happens, being no longer than the call.  In the kernel, which has to fit
+\ its ROM, a word stays only if what is left is no longer than the call.
+\
+\ Every call compiled has a number, and inl-map says which were compiled
+\ in place.  A build with the peephole off cannot tell, so it reads the
+\ map the build with it on wrote (build/<name>.inline) and does the same,
+\ so that the two builds have the same calls and can be compared.
+
+create inl-map 65536 allot  inl-map 65536 erase
+variable call#      0 call# !
+variable pend       false pend !
+variable pend-body
+variable pend-tcp0
+variable pend-ord
+create pend-save 4 cells allot
+variable cur        false cur !                 \ true while a small word is being compiled in place
+variable cur-tcp0
+create cur-save 4 cells allot
+defer call,     ( body -- )                     \ compile a call to a word
+defer tcode,
+
+: snap ( tcp0 buf -- ) \ keep the four instructions before tcp0
+    4 0 do
+        over 8 - i 2* +  dup 0< if drop 0 else t@ then
+        over i cells + !
+    loop
+    2drop
+;
+
+: unsnap ( tcp0 buf -- )
+    4 0 do
+        over 8 - i 2* +  dup 0< if drop else over i cells + @ swap tw! then
+    loop
+    2drop
+;
+
+: (backout) ( -- ) \ take the word waiting out again, and call it
+    tcp @ pend-tcp0 @ > if
+        tcp @ pend-tcp0 @ do 0 i tw! 2 +loop
+    then
+    pend-tcp0 @ tcp !
+    pend-tcp0 @ pend-save unsnap
+    pend-body @ call,
+;
+
+: settle ( -- ) pend @ if false pend !  (backout) then ;
+
+: label     settle  tcp @ tfence ! ;
 
 s" peephole.fs" included
 
@@ -118,8 +176,6 @@ variable fmid
     dup h# f003 and h# 6000 =
     swap h# 0300 and dup h# 0100 <> swap h# 0200 <> and and
 ;
-
-defer tcode,
 
 : fold-exit ( insn -- insn false | true )
     dup h# 7403 = if
@@ -247,8 +303,26 @@ variable fv-base    -1 fv-base !            \ var-base, once the machine file ha
         then
     then
     (tcode,)
+; constant ptcode,                              \ an instruction, by way of the peephole
+
+: kernel? ( -- f ) tcp @ 2/ h# 1000 u< ;
+
+:noname ( insn -- )
+    pend @ 0= if ptcode, execute exit then
+    false pend !
+    tcp @ >r  dup ptcode, execute
+    tcp @ r> 2 + =                              \ nothing joined it,
+    kernel? if tcp @ pend-tcp0 @ - 4 > or then  \ or what is left is longer than a call and it
+    if
+        (backout)
+        cur @ if tcp @ cur-tcp0 !  tcp @ cur-save snap then
+        ptcode, execute
+    else
+        drop
+        1 inl-map pend-ord @ + c!
+    then
 ; is tcode,
-: org       tcp ! label ;
+: org       settle tcp ! label ;
 
 wordlist constant target-wordlist
 : add-order ( wid -- ) >r get-order r> swap 1+ set-order ;
@@ -512,6 +586,83 @@ cell-bits 64 = constant labelling
 
 variable wordstart
 variable lastdef    \ body of the most recent target colon definition
+variable indef      \ true from : to ; (and not from :noname)
+
+\ A word is small (see `pend`, above) if it is no more than four
+\ instructions, none a call or a branch, returns only at its end, and
+\ leaves the return stack alone below what it pushed itself, so that it
+\ does not look at its return address.
+
+4 constant inline-max
+
+variable in-n
+variable in-depth
+: small? ( -- m+1 | 0 ) \ the word just ended: instructions to compile in place, and 1
+    tcp @ wordstart @ - 2/ in-n !
+    in-n @ 1 inline-max 2 + within 0= if 0 exit then
+    0 in-depth !
+    in-n @ 0 do
+        wordstart @ i 2* + t@                       ( insn )
+        dup h# 8000 and 0= if
+            dup h# e000 and h# 6000 <> if drop 0 unloop exit then       \ a call or a branch
+            dup h# 1000 and  i in-n @ 1- <>  and if drop 0 unloop exit then  \ returns early
+            dup h# 0c00 and h# 0c00 =  in-depth @ 0=  and if drop 0 unloop exit then
+            dup h# 1000 and 0= if
+                dup 3 and  dup 1 = if 1 in-depth +! then
+                dup 3 = if -1 in-depth +! then
+                2 = if -2 in-depth +! then
+                in-depth @ 0< if drop 0 unloop exit then
+            then
+        then
+        drop
+    loop
+    in-depth @ if 0 exit then
+    wordstart @ in-n @ 1- 2* + t@                   ( the last )
+    dup h# 9000 and h# 1000 <> if drop 0 exit then  \ it must be what returns
+    h# 7403 = if in-n @ 1- else in-n @ then
+    dup inline-max > if drop 0 exit then
+    1+
+;
+
+: inline, ( body -- )
+    dup 2 cells + @ 1-  swap @ 2*                   ( m addr )
+    swap 0 ?do
+        dup i 2* + t@
+        dup h# 9000 and h# 1000 = if h# 1003 invert and then     \ without its return
+        tcode,
+    loop
+    drop
+;
+
+: try-inline ( body ord -- )
+    >r
+    dup 2 cells + @ 1-                          ( body m )
+    dup 2 <  over 0= kernel? 0= or  and if      \ no longer than the call (in the kernel a call
+        drop inline,  1 inl-map r> + c!  exit   \ before an exit is a jump, which is shorter)
+    then
+    tcp @ cur-tcp0 !  tcp @ cur-save snap  true cur !
+    over inline,
+    false cur !
+    kernel? if
+        drop  tcp @ cur-tcp0 @ - 2 > 0=         \ one instruction is left, or none
+    else
+        cur-tcp0 @ 2/ +  tcp @ 2/ >             \ something was joined
+    then
+    if
+        drop  1 inl-map r> + c!
+    else
+        pend-body !  cur-tcp0 @ pend-tcp0 !  r> pend-ord !
+        cur-save pend-save 4 cells move
+        true pend !
+    then
+;
+
+: plain-inline, ( body -- ) \ all of the word but its exit, as it is
+    dup 3 cells + @ 1-  swap @ 2*               ( n addr )
+    2dup swap 2* + t@ h# 7403 <> abort" a word compiled in place does not end with exit"
+    swap 0 ?do dup i 2* + t@ tcode, loop
+    drop
+;
 
 :: :
     hex
@@ -523,16 +674,26 @@ variable lastdef    \ body of the most recent target colon definition
     wants-label? if tcp @ 2/ (label) drop then
     tcp @ wordstart !
     label
-    create  here lastdef !  codeptr , 0 ,
-    does>   dup @ dup near? if
-                >target scall
-            else
-                literal
-                s" execute" target-wordlist search-wordlist 0= throw
-                >body @ scall
+    create  here lastdef !  codeptr , 0 , 0 , 0 ,
+    true indef !
+    does>   call# @  1 call# +!                 ( body ord )
+            plain @ if
+                inl-map + c@ if plain-inline, else call, then
+                exit
             then
-            cell+ @ if tcp @ tpinned ! then
+            over 2 cells + @  peephole @ and if try-inline else drop call, then
 ;
+
+:noname ( body -- )
+    dup @ dup near? if
+        >target scall
+    else
+        literal
+        s" execute" target-wordlist search-wordlist 0= throw
+        >body @ scall
+    then
+    cell+ @ if tcp @ tpinned ! then
+; is call,
 
 \ Mark the word just defined as one that reads the instruction after each
 \ call to it (through its return address).  That instruction is then left
@@ -547,6 +708,7 @@ variable lastdef    \ body of the most recent target colon definition
 ;
 
 :: :noname
+    false indef !
 ;
 
 \ A target data cell is cell-bytes wide: that is what `@` and `!` move.
@@ -618,7 +780,7 @@ variable lastdef    \ body of the most recent target colon definition
     nip
 ;
 
-:: ;
+: end-word ( -- )
     tcp @ wordstart @ = if
         s" exit" evaluate
     else
@@ -633,6 +795,23 @@ variable lastdef    \ body of the most recent target colon definition
             \ RET r-1 swap tw!
             s" exit" evaluate
         then
+    then
+;
+
+:: ;
+    \ A small word tried in place at the end: the exit settles it.  If the
+    \ exit was joined to it that is the end; if not, the word is called
+    \ after all, and the call may be made a jump as any other is.
+    pend @ if
+        h# 7403 tcode,
+        tcp @ 2 - t@ h# 7403 = if 1 retract end-word then
+    else
+        end-word
+    then
+    indef @ if
+        small? lastdef @ 2 cells + !
+        tcp @ wordstart @ - 2/ lastdef @ 3 cells + !
+        false indef !
     then
 ;
 
@@ -790,11 +969,13 @@ warnings on
 ;
 
 :: if
+    settle
     tcp @
     0 0branch
 ;
 
 :: DOUBLE
+    settle
     tcp @ 2 + 2/ >target scall
 ;
 
@@ -803,6 +984,7 @@ warnings on
 ;
 
 :: else
+    settle
     tcp @
     0 ubranch 
     swap resolve
@@ -817,6 +999,7 @@ warnings on
     2/ >target 0branch
 ;
 :: while
+    settle
     tcp @
     0 0branch
 ;
@@ -876,6 +1059,17 @@ next-arg 2dup .trim >str constant prefix.
     s" sizes" out-suffix sizes !
 ; execute
 
+\ The map of calls compiled in place: read for a build with the peephole
+\ off, and written at the end of one with it on.
+: inline-name ( -- c-addr u ) s" inline" >str prefix. +str s" ../build/" >str +str str@ ;
+plain @ [if]
+    inline-name r/o open-file 0= [if]
+        dup inl-map 65536 rot read-file throw drop  close-file throw
+    [else]
+        drop
+    [then]
+[then]
+
 
 target included                         \ include the program.fs
 
@@ -912,6 +1106,9 @@ decimal
 s" (all)" tcp @  tdp @ $4000 -  thp @ hdr-base - +  hdr-bytes @ lbl-bytes @ size-line
 tdp @ hdr-base > [if] cr .( the data has run into the dictionary headers) abort [then]
 sizes @ close-file throw
+plain @ 0= [if]
+    inline-name create-output-file  dup inl-map call# @ rot write-file throw  close-file throw
+[then]
 dumpall.32
 ." tdp " tdp @ . ." thp " thp @ .
 ." tcp " tcp @ .

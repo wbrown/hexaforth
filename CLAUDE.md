@@ -231,8 +231,8 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,982 bytes
-with 64-bit cells, 3,986 with 32 and 3,950 with 16, against the 4,096 the
+task that runs past its part of a stack. The kernel's code is 3,986 bytes
+with 64-bit cells, 3,986 with 32 and 3,928 with 16, against the 4,096 the
 kernel ROM holds.
 
 On the desktop the Forth window's interpreter is a task with the upper half
@@ -446,6 +446,19 @@ symbolic model of `vm.c`; `--verify` runs every entry on the VM as well.
 - `@` or `!` after the address of a variable becomes the one instruction
   that fetches or stores it. The nucleus's own compiler does this too
   (`var,` in `nuc.fs`), and never across a place a branch lands on
+
+The peephole sees only instructions that are next to each other, and a
+call hides what a word does. So `cross.fs` tries a small word in place of a
+call to it: a word of up to four instructions, with no call or branch, that
+returns only at its end and does not look at its return address. Its
+instructions are compiled where the call would be, each offered to the
+peephole. If the peephole joins any of them to what is before, or joins the
+next instruction to them, they stay; if it does nothing with them they are
+taken out and the word is called (`pend`, `settle`). A word of one
+instruction or none always stays, and in the kernel a word stays only if
+what is left is no longer than the call. The build writes which calls were
+compiled in place to `build/<name>.inline`, and a `PEEPHOLE=off` build
+reads it and does the same, so build with the peephole on first.
 
 After changing any of this, build with and without `PEEPHOLE=off` and run
 `python3 util/insn_map.py --compare plain.hex optimised.hex`: every
