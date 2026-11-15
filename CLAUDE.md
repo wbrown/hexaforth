@@ -28,6 +28,21 @@ image. One definition, said once, and everything else made from it.
   another language, the change is wrong: the codes of a name were said in
   `cross.fs`, in `insn_map.py` and in `vm.h`, and that was written down
   as if it were how things are done
+- Contrastive testing is good, and it is not that. A source of truth is
+  the place a fact is defined, which everything that needs the fact is
+  built from: two of them can disagree, nothing says which is right, and
+  the build depends on someone keeping them in step. A contrastive test
+  is a second thing, made independently, that nothing is built from: it
+  is there only to be compared with the first, and when the two disagree
+  that is what it was for, one of them is wrong and it is already
+  settled which has the say. `test/main.c` compiles each test with the C
+  compiler and with `cross.fs` and compares the instructions; the two
+  kernels and the Verilog are run against `vm.c`, which is the machine.
+  To tell which a second thing is: take it away, and see whether
+  something stops building or only a check goes. A model of the machine
+  that the peephole's tables were made from was a second source of
+  truth. The same model, used only to check tables made from `vm.c`,
+  would have been a contrastive test
 - Do not ask whether C and Forth can do a thing. They did all of it
   before there was anything else here. "I do not know how much of this
   they can absorb; I have not measured it" was said of exactly this, and
