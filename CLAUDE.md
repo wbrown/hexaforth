@@ -623,7 +623,13 @@ Pages 8 and 9 are the drivers and the desktop:
   `names-load` reads them into memory from `halloc` and `names-unload`
   gives the memory back, if nothing has taken more since. The Words
   window has them in while it is the window in front (`'front` in `wm.fs`
-  is run when the front window changes; windows do not close), and `see`
+  is run when the front window changes; windows do not close) and
+  whenever it is drawn: it takes them in to be drawn if they are not in,
+  and gives them back when it has been drawn and is not the one in front.
+  So what it shows is the same wherever it is, a word with no header by
+  its name, and it is not left to go through the dictionary for every
+  name when it is painted behind another window: that made leaving it
+  1,147,000 instructions, and it is 666,000. `see` has them in
   for as long as it runs. A stamp in the file must be the image's.
   Without them, or with no disk (the reference VM has none), the
   decompiler searches the dictionary a word at a time and has no labels

@@ -632,8 +632,17 @@ create hovy 0 ,
 create hovw 0 ,
 header t-words create t-words ," Words"
 
-\ The tables of names are in memory while the window is the one in front.
-: words-front ( -- ) top wwin @ = if names-load else names-unload then ;
+\ The tables of names are in memory while the window is the one in front,
+\ and whenever it is drawn.  It takes them in when it comes to the front,
+\ and to be drawn if they are not in (words-draw); it gives them back when
+\ it has been drawn and is not the one in front.  So it does not give them
+\ back the moment another window comes to the front: it is painted once
+\ more then, behind the other, and with the tables gone every name in it
+\ was found by going through the dictionary, which made leaving this
+\ window four times the work of leaving any other.  And what it shows is
+\ the same whenever it is drawn: a word with no header by its name, where
+\ behind another window it was a number.
+: words-front ( -- ) top wwin @ = if names-load then ;
 
 : nwords ( -- n )
     d# 0 forth @
@@ -832,6 +841,7 @@ header words-draw : words-draw ( win -- )
         ['] words-front 'front !  words-front
         ['] words-moved 'moved !
     then
+    names-load                                      \ in for as long as it is drawn, if not in already
     wxt @ xt>hdr ?dup if hdr>i else d# -1 then wsel !
     d# 0 wi !
     wtop @ nth
@@ -852,6 +862,7 @@ header words-draw : words-draw ( win -- )
     wxt @ sdecomp
     srow @ 1+ wrows !
     hov-draw
+    top wwin @ <> if names-unload then              \ drawn behind another: the tables can go
 ;
 
 \ What a key or a click changes is put out of date, and no more: the

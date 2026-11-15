@@ -51,8 +51,8 @@ $630c , $3 , hdr, over hdr, swap hdr, !
 $642c , $1 , hdr, nip
 $64ec , $2 , hdr, nip hdr, @
 $6880 , $2 , hdr, @ hdr, invert
-$6403 , $1 , hdr, rdrop
 $646c , $1 , hdr, xor
+$6403 , $1 , hdr, rdrop
 $6539 , $2 , hdr, + hdr, >r
 $6084 , $2 , hdr, over hdr, invert
 $64f0 , $1 , hdr, io@
