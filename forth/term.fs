@@ -1,12 +1,25 @@
 \ term.fs - a scrolling text area, and the Forth window built on it
 
-$32 constant TCOLS
-$10 constant TROWS
+\ The text is a grid of characters, and each row of it starts where a
+\ cell does: a row is the cells that hold TCOLS characters, which is
+\ TCOLS characters or a few more.  So the text is moved up a row and a
+\ row is made empty a cell at a time, and a row is drawn as the cell it
+\ starts at.
+meta
+#50 constant term-cols
+#16 constant term-rows
+term-cols cell-bytes 1- + cell-bytes / constant term-row    \ the cells of a row
+target
+
+meta term-cols target constant TCOLS
+meta term-rows target constant TROWS
+meta term-row  target constant TSPAN     \ the cells from a row to the next
+meta $2020202020202020 cell-mask and target constant BLANKS     \ a cell of spaces
 
 bulk
-create tcells #800 allot
+create tcells  meta term-row term-rows * cell-bytes * target allot
 unbulk
-: tbuf ( -- a ) tcells >c ;             \ the text, by the address of its first byte
+: trow-cell ( row -- a ) TSPAN * tcells + ;      \ where a row starts
 create tcol 0 ,
 create trow 0 ,
 create ti 0 ,
@@ -19,7 +32,9 @@ create twin 0 ,         \ the window it is in, once that is known
     then
 ;
 
-header tclear : tclear ( -- ) tbuf d# 800 d# 32 fill  d# 0 tcol !  d# 0 trow ! ;
+: tat ( -- c-addr ) trow @ trow-cell >c tcol @ + ;  \ the character the cursor is at
+
+header tclear : tclear ( -- ) BLANKS tcells TSPAN TROWS * cells-fill  d# 0 tcol !  d# 0 trow ! ;
 
 \ The text moves up a line.  The picture of it is moved too, where the
 \ window can be seen, and what could not be moved is put out of date: the
@@ -28,8 +43,8 @@ header tclear : tclear ( -- ) tbuf d# 800 d# 32 fill  d# 0 tcol !  d# 0 trow ! ;
 \ that what moves is the text as it was.
 : tscroll ( -- )
     twin @ if refresh then
-    tbuf TCOLS + tbuf TCOLS TROWS 1- * cmove
-    tbuf TCOLS TROWS 1- * + TCOLS d# 32 fill
+    d# 1 trow-cell  tcells  TROWS 1- trow-cell tcells -  cells-move
+    BLANKS  TROWS 1- trow-cell  TSPAN  cells-fill
     twin @ 0= if exit then
     cursor-off
     twin @ c# 8 + @ port!
@@ -55,11 +70,11 @@ header tclear : tclear ( -- ) tbuf d# 800 d# 32 fill  d# 0 tcol !  d# 0 trow ! ;
         drop
         tcol @ if
             d# -1 tcol +!
-            d# 32 trow @ TCOLS * tcol @ + tbuf + c!
+            d# 32 tat c!
         then
         exit
     then
-    trow @ TCOLS * tcol @ + tbuf + c!
+    tat c!
     tcol @ 1+ dup TCOLS = if drop tnewline else tcol ! then
 ;
 
@@ -71,8 +86,8 @@ header term-draw : term-draw ( win -- )
     begin
         ti @ TROWS <
     while
-        ti @ TCOLS * tbuf + TCOLS
-        d# 2  d# 2 ti @ d# 4 lshift +  draw-text
+        ti @ trow-cell d# 0 TCOLS
+        d# 2  d# 2 ti @ d# 4 lshift +  draw-chars
         d# 1 ti +!
     repeat
     true inverse !                                  \ the cursor: a solid cell

@@ -146,9 +146,9 @@ class Machine:
         shot.save(path)
         return shot
 
-    def block(self, n):
+    def block(self, n, count=1):
         time.sleep(0.5)
-        return open(self.disk, "rb").read()[1024 * n:1024 * (n + 1)]
+        return open(self.disk, "rb").read()[1024 * n:1024 * (n + count)]
 
     def picture(self):
         im = Image.open(self.tiff).convert("RGB")

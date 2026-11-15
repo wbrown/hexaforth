@@ -27,8 +27,8 @@ header edit-draw : edit-draw ( win -- )
     begin
         ei @ d# 16 <
     while
-        eblk @ block ei @ d# 6 lshift + d# 64
-        d# 2  d# 2 ei @ d# 4 lshift +  draw-text
+        eblk @ cblock  ei @ d# 6 lshift  d# 64     \ a line is 64 characters on from the last
+        d# 2  d# 2 ei @ d# 4 lshift +  draw-chars
         d# 1 ei +!
     repeat
     true inverse !

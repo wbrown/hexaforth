@@ -48,7 +48,7 @@ target
 \ Page 1: what everything else is built on.
 
 include machine.fs      \ device registers, high memory, byte-order helpers
-include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD, disk-read
+include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD
 include vmdisk.fs       \ block driver for the reference VM's disk
 include font.fs         \ the fonts
 include display.fs      \ the display: a bitmap in memory, and text on it

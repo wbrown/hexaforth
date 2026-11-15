@@ -103,12 +103,14 @@ create k-store  ," !"
 \
 \ The file is on the disk from block 1024: a stamp that must be the
 \ image's, how many cells follow, the two tables, and the labels.  It is
-\ read into memory, whole blocks to where they are wanted, when there is
-\ decompiling to do (names-load), and the memory is given back after
+\ read into memory when there is decompiling to do (names-load): whole
+\ blocks to where they are wanted, and what is left that is less than a
+\ block through the block buffer, so that it has the memory it is long
+\ and not the block's worth more.  The memory is given back after
 \ (names-unload), if nothing has taken more since: so it is in memory
 \ only while the Words window is in front or being drawn, or `see` is
-\ running, which on
-\ the machine with cells of 16 bits is 5,000 of its cells.
+\ running, which on the machine with cells of 16 bits is more than 6,000
+\ of its cells.
 \ While it is in, only the words made since the build are searched
 \ for one at a time, back to forth0, which was the newest then.  While it
 \ is not, or with no disk, the whole dictionary is searched, and what has
@@ -133,19 +135,25 @@ $400 constant NAMES-BLK     \ the block of the disk the file starts at
     NAMES-BLK cblock                                ( b )
     dup @ tstamp @ <> if drop exit then
     1+ @ CELL2 +                                    ( cells )
-    BLKCELLS 1- + BLKSHIFT rshift                   ( blocks )
     himem @ nm-mark !
-    dup d# 10 lshift halloc                         ( blocks a )
+    dup >c halloc                                   ( cells a )
     himem @ nm-end !
-    tuck swap BLKCELLS * over + swap                ( a end p )
+    tuck + over                                     ( a end p )
     NAMES-BLK >r
     begin
-        2dupxor
+        2dup - BLKCELLS u< 0=                       \ a whole block of it is still to come: to where it goes
+                                                    \ (what is left, not where a block would end: at the top
+                                                    \ of memory that is past what a cell of 16 bits can say)
     while
         dup r@ blk-read
         r> 1+ >r  BLKCELLS +
     repeat
-    2drop rdrop
+    2dupxor if                                      \ and what is less than a block, through the buffer
+        tuck -  r@ cblock -rot  cells-move
+    else
+        2drop
+    then
+    rdrop
     CELL2 +                                         ( the first table )
     dup dup @ 2* + 1+ dtab !
     dtab @ dup @ 2* + 1+ lbase !
@@ -867,7 +875,7 @@ header words-draw : words-draw ( win -- )
     winit @ 0= if
         true winit !  d# 0 wpick
         d# 192 >c halloc lk !  d# 384 >c halloc mt !
-        ['] words-front 'front !  words-front
+        ['] words-front on-front  words-front
         ['] words-moved 'moved !
     then
     names-load                                      \ in for as long as it is drawn, if not in already
@@ -878,8 +886,8 @@ header words-draw : words-draw ( win -- )
         dup 0<> wi @ d# 16 < and
     while
         wi @ wtop @ + wsel @ = inverse !
-        dup CELL2 + >c count d# 13 min
-        d# 2  wi @ d# 4 lshift  draw-text
+        dup CELL2 + ctext d# 13 min
+        d# 2  wi @ d# 4 lshift  draw-chars
         d# 0 inverse !
         @
         d# 1 wi +!

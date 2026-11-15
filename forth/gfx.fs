@@ -42,4 +42,4 @@ create sb-old 0 ,
 
 header sb-begin : sb-begin ( -- ) d# 0 sbn !  'emit @ sb-old !  ['] sb-emit 'emit ! ;
 header sb-end : sb-end   ( -- ) sb-old @ 'emit ! ;
-header sb-draw : sb-draw  ( x y -- ) >r >r sb sbn @ r> r> draw-text ;
+header sb-draw : sb-draw  ( x y -- ) >r >r sbuf d# 0 sbn @ r> r> draw-chars ;

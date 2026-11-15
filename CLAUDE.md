@@ -240,6 +240,43 @@ cell it is in, and `,` aligns first. `create` gives the address of a cell,
 so a buffer of text is used as `buf >c`. In source, `CELL` and `CELL2` are
 the steps to the next cell and the one after, and `c# n` to the nth.
 
+Little needs the address of a byte, and before anything is given one it
+is asked whether it does. A table that is looked up is cells: the key
+map is a cell a key code, the pointer's arrow a cell a row (`pcell,`),
+the calculator's buttons a cell each (`chars,"`). Text that is drawn is
+characters packed into cells, a cell's lowest eight bits first, and is
+said by a cell and which character of the cells from there is its first:
+`draw-chars ( a i u x y -- )` and `chars-width ( a i u -- n )`, and
+`ctext ( cstr -- a i u )` gives those for a counted string that starts
+where a cell does. So it may be anywhere in memory, and a line of a grid
+of characters is the grid's cell and the line's number times its length
+(the editor: `eblk @ cblock  line 6 lshift  64`). Along the text a
+character is eight bits on from the last, so the loop counts bits: the
+cell is that over the bits in a cell and the character is shifted down
+by the rest (`char@`), which is what `c@` does and costs what it costs.
+`draw-text` and `text-width` take the address of a byte and are those
+words. A grid that is moved has each row start where a cell does: the
+Forth window's text is rows of `TSPAN` cells, moved up a row with
+`cells-move` and a row made empty with `cells-fill` of a cell of spaces.
+What still takes the address of a byte is what stores a character
+(`c!`), `type` and `count`, which are the kernel's, and what the
+interpreter reads (`evaluate`, `load`).
+
+What it was worth, in the profile: the Forth window's text was moved up
+a byte at a time, since a row of 50 characters did not start where a
+cell does, and that was 31,520 instructions of the 178,600 a scroll of
+that window cost; a scroll is now 142,300. `c@` ran 54,702 times and
+runs 2,278, and `c!` 27,642 and 1,246. A key is 215 instructions to
+hand on where it was 255. The desktop's work went from 39.60 million
+instructions to 37.80, and from 48.9 million cycles to 46.6. Reading
+the characters of text that is drawn by the bit and not with `c@` is
+2% of what noting a string's glyphs costs (1,243 instructions a string
+to 1,217) and a quarter of a percent of the drawing benchmark's cycles:
+it was done so that text need not be where the address of a byte
+reaches, not for speed, and nothing on the machine of 64K cells has
+been moved above its display for it, where there are 306 cells to
+spare.
+
 Code is addressed by instruction: `cp`, a branch origin and an execution
 token are instruction numbers, and `i@` and `i!` fetch and store one.
 
@@ -324,7 +361,13 @@ and `execute` cross pages with no extra state. Memory layout:
 
 On a 64-bit machine these are cells `0-0x3ff`, `0x800-0x13ff`,
 `0x1400-0x1fff` and `0x2000-0x3fff`; the display is at cell `0x4000` and `halloc` gives out
-memory from cell `0x6000`.
+memory from cell `0x6000`. With cells of 32 bits the 4,096 cells that one
+instruction reaches end at byte `0x8000`, what is bulk (below) has the
+16KB after them, and the headers start at byte `0xc000` and have the 16KB
+after that. They started at `0xa000` there too, which left the bulk 8KB,
+and it was 44 bytes more than that the day the key map became a cell a
+key. `unbulk` now says so when the bulk has run into the headers: before,
+the next thing to walk the headers failed, with nothing to say why.
 
 That is the layout where memory is more than 64K cells. Where it is 64K
 cells, which is the machine with cells of 16 bits, code has to be in the
@@ -424,18 +467,22 @@ Page 1 is what the rest is built on:
   given memory after says so (`hfree`), and whoever does not mind where
   its memory is asks for that first (`hreuse`). The viewer gives back
   what a picture was read and dithered in, which it has between its
-  record and its bitmap so that it is one run
+  record and its bitmap so that it is one run. What is had from the run
+  is had from its start, so cells given back that end where the run now
+  starts make it whole again: `hgive ( a cells -- )` is for memory that
+  is done with, wherever it was had from. If it was the last given out,
+  `himem` comes back down, and if not it is the run's. A scroll's three
+  regions and HexaPaint's canvas are had and given back so
 - `blocks.fs`: block device interface (`'blk-read`, `'blk-write`), `block`
-  `update` `flush` `load`, and `disk-read` for byte ranges. There is one
-  block buffer; `block` gives the address of its first byte and `cblock`
-  the cell it starts at, for whoever cannot use the address of a byte.
-  `disk-read` does not use it for a whole block that is
-  wanted where a cell starts: the driver is handed that place, so nothing
-  is copied, and the block being edited is not turned out of the buffer or
-  written back by something else reading the disk. It keeps nothing in a
-  variable: what is read goes up through the device from the offset to
-  where it ends, and where it goes in memory is that plus how far apart
-  the two are, on the return stack
+  `update` `flush` `load`. There is one block buffer; `block` gives the
+  address of its first byte and `cblock` the cell it starts at, for
+  whoever cannot use the address of a byte. Whoever reads more of the
+  disk than a block reads whole blocks, by their numbers, to where they
+  are wanted (`blk-read`: the driver is handed that place, so nothing is
+  copied and the buffer is left alone): the picture, the tables of names
+  and HexaPaint's canvas do. There was a word that copied any run of
+  bytes of the device to the address of a byte (`disk-read`); nothing
+  called it once they did, and it is gone
 - `vmdisk.fs`: the driver for the reference VM's disk. The VM can be
   given a file to be one, as its second argument (`hexaforth IMAGE.hex
   DISK.img`), and it is reached through ports as any device is: port
@@ -614,8 +661,10 @@ Pages 8 and 9 are the drivers and the desktop:
   its own size; the middle 256 by 256 at its own size, which is what that
   window showed before, was 51.1, 29.9 and 12.0
 - `font.fs`, `keymap.fs`: generated by `util/mkfont.py` (the two fonts;
-  Linux key codes to ASCII, a table of bytes that `b8,` lays down eight
-  at a time whatever the cell is); `font.fs` is on page 1
+  Linux key codes to ASCII, a cell a key code: what the key is in its low
+  eight bits and what it is shifted in the eight above, so a key is one
+  fetch and no byte is asked for; `mkfont.py --keymap` makes it alone,
+  which wants neither font installed); `font.fs` is on page 1
 - `virtio-input.fs`: keyboard and tablet events, delivered to `'event`
 - `gfx.fs`, `wm.fs`: rectangles in plain white and black; windows,
   pointer, event loop. Nothing draws when something changes: it is added
@@ -670,12 +719,32 @@ Pages 8 and 9 are the drivers and the desktop:
   outline as part of what the window draws, by the same words with the
   run going to the screen (`'run`, `prun`), and drawn in the canvas when
   the button goes up. The tools' pictures are `icons.fs`, generated by
-  `util/mkicons.py`, where they are drawn in text. It is 1.8KB of code.
+  `util/mkicons.py`, where they are drawn in text. It is 2.4KB of code.
   Where there are pages to spare it has a page with `desk.fs`; where
   there are not, on the machine of 64K cells, it is in the upper half of
   the kernel's page, which the kernel, a ROM of 4KB, leaves empty: 4KB of
-  code that any page calls with one instruction, of which it uses less
-  than half
+  code that any page calls with one instruction, of which it uses 2.4KB.
+  Where there is a disk the canvas's place is the disk, from block 1152,
+  and it is in memory only while HexaPaint is the window in front
+  (`paint-front`, a word given to `on-front`). It is read in when the
+  window comes to the front (`canvas`); when another does it is written
+  back, if it was drawn in, and its memory is given up (`page-out`,
+  `hgive`). Behind another window it is painted from the disk
+  (`cv-show`): a block is a bitmap of as many whole rows as a block
+  holds, shown with `copy-bits`, and only the blocks that have rows in
+  what is to be painted are read. A block is read to memory that is taken
+  for as long as it is wanted (`with-blk`), not through the block buffer,
+  so the block being edited stays where it is. The first block says the
+  canvas is there: a mark, its size, and what one pixel is in a cell, so
+  a disk written by a machine with another cell or another display has
+  no canvas for this one, and a new disk has none; then the canvas is
+  not asked for until it is drawn in, as with no disk. If the disk cannot
+  be read or written there (`baremetal/mkdisk.py` makes it long enough)
+  the canvas stays in memory. So a drawing is there the next time the
+  machine is started. With the block that says so the canvas is 14
+  blocks with cells of 64 bits or 32 and 6 with 16, which on a disk held
+  to a floppy's speed (`DISK=40`) is a third of a second to come to the
+  front, and again to leave it after drawing
 - `see.fs`: a decompiler (`see name`), and the Words window, which lists
   the dictionary and shows a definition with each word in it as a link.
   Words in bold are one instruction between them, and are underlined as
@@ -725,13 +794,16 @@ Pages 8 and 9 are the drivers and the desktop:
   is too small for.
   The tables and the labels are not in the image: they are
   the file `build/nuc.tables`, which `mkdisk.py` puts on the disk
-  from block 1024: 32KB with cells of 64 bits, 17KB with 32 and 10.5KB
-  with 16, two thirds of it the labels.
+  from block 1024: 37.8KB with cells of 64 bits, 20.4KB with 32 and
+  12.3KB with 16, two thirds of it the labels.
   `names-load` reads it into memory from `halloc`, whole blocks to where
-  they are wanted, and `names-unload`
+  they are wanted and what is less than a block through the block
+  buffer, so that it has the memory it is long and not a block's worth
+  more, and `names-unload`
   gives the memory back, if nothing has taken more since. The Words
-  window has them in while it is the window in front (`'front` in `wm.fs`
-  is run when the front window changes; windows do not close) and
+  window has them in while it is the window in front (a word given to
+  `on-front` in `wm.fs` is run when the front window changes, and there
+  is room for three such; windows do not close) and
   whenever it is drawn: it takes them in to be drawn if they are not in,
   and gives them back when it has been drawn and is not the one in front.
   So what it shows is the same wherever it is, a word with no header by
@@ -1034,7 +1106,9 @@ fetched back.)
   written, and the last one is made to end where it would have
 - only `display.fs` (`mfind`, `rmask`, `reclip`) reads the form besides
   `region.fs`. `scroll-rect` works in three regions next to each other,
-  taken from `halloc` and given back, with one place on the return stack
+  taken and given back (`hreuse`, `hgive`: from the run of memory that
+  has been given back, if that is big enough, and if not from what has
+  not been given out), with one place on the return stack
   for the three; `scroll-update`, which whoever scrolled reads, is the one
   variable left
 - coordinates are less than `END-MIN` from nothing either way: 2^31 with
@@ -1176,7 +1250,7 @@ nucleus and the reference VM for a size, into `build/`. The default
 `test/sizes.sh` builds the machine with cells of 64 bits, of 32 and of 16,
 each with a display and each `STRICT`, and runs on each the tests that
 type at the reference VM's prompt: the nucleus, the desktop
-(`test/desktop_test.py`, above: 42 checks, the Mandrill, the menu and
+(`test/desktop_test.py`, above: 45 checks, the Mandrill, the menu and
 HexaPaint among them; what is drawn in HexaPaint is drawn too in a model
 of its canvas in `test/deskcheck.py`, and every pixel compared), the
 drawing words against their model, regions a cell at a time, the dither
@@ -1204,8 +1278,8 @@ the drivers of QEMU's devices (`virtio*.fs`) and what brings them up
 and those are written for 64 bits. With cells of 32 bits its bytes are
 laid out as the big machine's are, code pages from page 8. What had to
 change for it: a table of bytes
-(`keymap.fs`) was laid down as cells of 64 bits and is now laid down as
-bytes (`b8,`); the decompiler kept where it drew each instruction in a
+(`keymap.fs`) was laid down as cells of 64 bits and is now a cell a key,
+of whatever size a cell is; the decompiler kept where it drew each instruction in a
 cell of more than 32 bits, and a place is now 16 bits and the instruction
 a cell of its own; and labels and the tables of names were written in
 cells of 64 bits. The table of instructions as words (`fused.fs`) is made
@@ -1243,19 +1317,33 @@ of 512 by 342 is 21KB, and the desktop runs in that. What it took:
 
 Of the ALU instructions its image uses, the table of instructions as
 words lacks three, which are shown as numbers. With the desktop up,
-the picture loaded and every window drawn, 15,088 of the 21,824 cells
-above the display are in use (`0 halloc .` in the Forth window says where
-the next would be): 4,490 that the image has there, the two fonts opened
+the picture loaded and every window drawn, 15,346 of the 21,824 cells
+above the display have been given out (`0 halloc .` in the Forth window
+says where the next would be, and `test/deskcheck.py` notes it with the
+names out and in): 4,490 that the image has there, the two fonts opened
 out and the table of instructions as words, the picture's bitmap of
-4,096, thirteen regions of 258, and the rest. The names are 5,632 more
-for as long as the Words window is in front, is being drawn, or `see`
-runs, which leaves 1,104: enough for a scroll,
-which wants 774 for as long as it takes, and not for a second picture.
-HexaPaint's canvas there is 2,280 cells, which would not leave room for
-the names: it is not asked for until it is drawn in, and then it goes in
-the 2,350 cells that the picture was read and dithered in, which the
-viewer gives back when the picture is made (`hfree`, `hreuse`). Drawn in
-before the picture is made, it is new memory and the names go without. A
+4,096, fourteen regions of 258, and the rest; 2,350 of them are the run
+that the picture was read and dithered in, which the viewer gives back
+when the picture is made (`hfree`). That leaves 6,478. The names are
+6,172 of those for as long as the Words window is in front, is being
+drawn, or `see` runs, which leaves 306: so a scroll, which wants 774 for
+as long as it takes, has them from the run that was given back
+(`hreuse`, `hgive`), and `see` of a word longer than the window is one
+of the desktop's checks at every size. The names were 5,376 cells when
+this was first written, and whole blocks of memory were taken for them,
+which was 5,632; HexaPaint's labels made that 6,144, which left less
+than a scroll wants and nothing looked; and the day they were 30 cells
+more than twelve blocks they wanted a thirteenth and did not load. They
+now have the memory they are long. A label is five or six cells there,
+so there is room for some fifty more words with no header before the
+names do not fit again; what there is to have then is a label's link,
+a cell each of 625, which only a search by name follows.
+HexaPaint's canvas there is 2,280 cells, and is in memory only while
+HexaPaint is in front, in that same run (`hreuse`): the names are not in
+memory then but for as long as the Words window is drawn behind it,
+which is at the top. Brought to the front before the picture is made,
+the canvas is new memory, which it gives up when another window comes to
+the front. A
 shift count is taken modulo 64, so a shift by
 16 to 63 gives zero where cells are 16 or 32 bits, which `w!` and the
 dictionary search rely on, but a shift by 64 shifts by nothing.

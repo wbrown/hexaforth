@@ -26,6 +26,14 @@
 \ on the machine with cells of 16 bits it goes where the picture was read
 \ and dithered.  It is 384 by 256, or 240 by 152 on a screen smaller than
 \ 768 by 576.
+\
+\ Where there is a disk the canvas's place is the disk, and it is in
+\ memory only while this is the window in front: it is read in when the
+\ window comes to the front, and when another does it is written back, if
+\ it was drawn in, and its memory given up.  Behind another window it is
+\ shown from the disk, a block at a time, and only the blocks that have
+\ rows to be painted.  So the drawing is there the next time the machine
+\ is started.
 
 include icons.fs        \ the tools' pictures
 
@@ -52,20 +60,143 @@ create px1 0 ,          \ and where the pointer is now, of a shape being pulled 
 create py1 0 ,
 create pshape 0 ,       \ true while one is
 
+\ ---- the canvas on the disk
+\
+\ It has a block that says it is there, and then its rows, as many whole
+\ rows to a block as a block holds: so a block is a bitmap of those rows,
+\ and is shown as one.  The block that says so has a mark, the canvas's
+\ size, and what one pixel is in a cell, so that a disk written by a
+\ machine with another cell, or another display, has no canvas for this
+\ one.  A block is read to memory that is taken for as long as it is
+\ wanted, not through the block buffer: the block being edited stays
+\ where it is.
+\
+\ If the disk cannot be read or written there (it is too small, or there
+\ is none) the canvas stays in memory, as it does with no disk.
+
+$480 constant CANVAS-BLK        \ the block that says so; the rows are in those after it
+$4850 constant CANVAS-MARK
+
+create pblk 0 , 0 ,     \ a block of the canvas, as a bitmap: where it is, and the cells in a row
+create prpb 0 ,         \ the rows a block holds
+create pdirty 0 ,       \ true if the canvas has been drawn in since it was read or written
+create pstate 0 ,       \ 0 not looked at yet, 1 the disk has the canvas, 2 it has none yet, 3 it cannot
+
+: rows-of ( row -- n ) cv-h @ swap - prpb @ min ;   \ how many rows the block that starts with this one has
+
+: chunk ( row -- a n ) \ those rows in memory: where they start, and how many cells they are
+    dup pcv CELL + @ * pcv @ +
+    swap rows-of pcv CELL + @ *
+;
+
+: (with-blk) ( xt -- ) d# 1024 halloc pblk !  execute ;
+
+: with-blk ( xt -- ok? ) \ run it with memory for a block in hand; false if the disk would not
+    himem @ >r
+    ['] (with-blk) catch if drop false else true then
+    r> himem !
+;
+
+: mark? ( -- f ) \ the block in hand says there is a canvas of this machine's
+    pblk @ @ CANVAS-MARK =
+    pblk @ 1+ @ cv-w @ = and
+    pblk @ CELL2 + @ cv-h @ = and
+    pblk @ c# 3 + @ d# 1 RAW>SRC = and
+;
+
+: look ( -- ) pblk @ CANVAS-BLK blk-read  mark? if d# 1 else d# 2 then pstate ! ;
+
+: paged? ( -- f ) \ is the canvas's place the disk?
+    pstate @ 0= if
+        d# 3 pstate !
+        'blk-read @ if ['] look with-blk drop then
+    then
+    pstate @ d# 3 <
+;
+
+: cv-read ( -- ) \ its rows, from the disk
+    CANVAS-BLK 1+  d# 0                             ( blk row )
+    begin
+        dup cv-h @ <
+    while
+        over pblk @ swap blk-read
+        dup chunk pblk @ -rot cells-move
+        prpb @ +  swap 1+ swap
+    repeat
+    2drop
+;
+
+: cv-write ( -- ) \ and to it; and then that they are there
+    d# 0 pblk @ BLKCELLS cells-fill
+    CANVAS-BLK 1+  d# 0                             ( blk row )
+    begin
+        dup cv-h @ <
+    while
+        dup chunk pblk @ swap cells-move
+        over pblk @ swap blk-write
+        prpb @ +  swap 1+ swap
+    repeat
+    2drop
+    d# 0 pblk @ BLKCELLS cells-fill
+    CANVAS-MARK pblk @ !  cv-w @ pblk @ 1+ !  cv-h @ pblk @ CELL2 + !  d# 1 RAW>SRC pblk @ c# 3 + !
+    pblk @ CANVAS-BLK blk-write
+;
+
+: cv-show ( -- ) \ the canvas from the disk: the blocks that have rows to be painted
+    CANVAS-BLK 1+  d# 0                             ( blk row )
+    begin
+        dup cv-h @ <
+    while
+        dup rows-of over +  clip CELL + @ oy @ -  >     \ it ends below where the painting starts,
+        over  clip c# 3 + @ oy @ -  <  and if           \ and starts above where that ends
+            over pblk @ swap blk-read
+            dup >r  pblk d# 0 d# 0  d# 45 r@  cv-w @ r> rows-of  copy-bits
+        then
+        prpb @ +  swap 1+ swap
+    repeat
+    2drop
+;
+
+: canvas ( -- ) \ see that it is in memory: as the disk has it, or white
+    pcv @ if exit then
+    pcv CELL + @ cv-h @ *  dup >c hreuse  dup pcv ! ( cells a )
+    swap  d# 0 RAW>SRC -rot  cells-fill
+    d# 0 pdirty !
+    paged? if
+        pstate @ d# 1 = if ['] cv-read with-blk 0= if d# 3 pstate ! then then
+    then
+;
+
+: page-out ( -- ) \ it is written back, if it was drawn in, and is no longer in memory
+    pcv @ 0= if exit then
+    paged? 0= if exit then
+    pdirty @ if
+        ['] cv-write with-blk 0= if d# 3 pstate ! exit then
+        d# 1 pstate !  d# 0 pdirty !
+    then
+    pcv @  pcv CELL + @ cv-h @ *  hgive
+    d# 0 pcv !
+;
+
+: paint-front ( -- ) \ the window in front has changed
+    paged? 0= if exit then
+    top pwin @ = if
+        pstate @ d# 1 = if canvas then              \ one that has not been drawn in is asked for when it is
+    else
+        page-out
+    then
+;
+
 : paint-init ( -- ) \ once
     cv-w @ if exit then
     fb-h @ d# 576 < if d# 240 d# 152 else d# 384 d# 256 then cv-h ! cv-w !
+    cv-w @ PXMASK + PXSHIFT rshift  dup pcv CELL + !  dup pblk CELL + !
+    BLKCELLS swap u/mod nip prpb !
     icon-bits picons !  d# 128 PXSHIFT rshift picons CELL + !
     p-white ppats !  p-black ppats 1+ !  p-dkgray ppats CELL2 + !  p-gray ppats c# 3 + !
     p-ltgray ppats c# 4 + !  p-brick ppats c# 5 + !  p-diag ppats c# 6 + !  p-dots ppats c# 7 + !
     p-black ppat !
-;
-
-: canvas ( -- ) \ see that there is one: white
-    pcv @ if exit then
-    cv-w @ PXMASK + PXSHIFT rshift dup pcv CELL + !
-    cv-h @ *  dup >c hreuse  dup pcv !              ( cells a )
-    swap  d# 0 RAW>SRC -rot  cells-fill
+    ['] paint-front on-front  paint-front
 ;
 
 \ ---- a run of pixels, in the canvas
@@ -244,7 +375,7 @@ create oxo 0 ,  create oin 0 ,                  \ of its edge at a row: how far 
 : shape? ( -- f ) ptool @ d# 2 > ;                  \ one that is pulled out
 
 : stroke-pen ( -- ) \ the pen and the pattern of a tool that draws as it goes
-    ['] span 'run !
+    ['] span 'run !  true pdirty !
     ptool @ 0= if d# 1 pen !  p-black pfill !  exit then
     ptool @ d# 1 = if d# 4 pen !  ppat @ pfill !  exit then
     d# 12 pen !  p-white pfill !
@@ -257,7 +388,7 @@ create oxo 0 ,  create oin 0 ,                  \ of its edge at a row: how far 
 ;
 
 : commit ( -- ) \ it is drawn in the canvas: filled, if it is a filled one, and then its outline
-    ['] span 'run !
+    ['] span 'run !  true pdirty !
     ppat @ pfill !
     ptool @ d# 5 = if box! rect-fill then
     ptool @ d# 7 = if oval-fill then
@@ -359,5 +490,9 @@ header paint-draw
             ['] prun 'run !  p-black pattern !  copy-mode
             shape
         then
+        exit
+    then
+    paged? if                                       \ or it is on the disk, and is shown from there
+        pstate @ d# 1 = if copy-mode  ['] cv-show with-blk drop then
     then
 ;

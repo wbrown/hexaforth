@@ -49,11 +49,12 @@ NAMED = {"ret": 28, "backspace": 14, "up": 103, "down": 108, "left": 105, "right
 def keycodes():
     """{character: (Linux key code, shifted?)}, from the map the desktop itself uses."""
     text = open(f"{HERE}/../forth/keymap.fs").read()
-    table = b"".join(int(v, 16).to_bytes(8, "little") for v in re.findall(r"^\$([0-9a-f]+) b8,", text, re.M))
+    table = [int(v, 16) for v in re.findall(r"\$([0-9a-f]{4}) ,", text)]    # a cell a key: plain, and shifted above it
+    assert len(table) == 128, "keymap.fs is not 128 cells"
     codes = {}
     for shifted in (1, 0):
         for code in range(127, 0, -1):              # the lowest code that gives it, unshifted if it can be
-            ch = table[shifted * 128 + code]
+            ch = table[code] >> 8 * shifted & 0xff
             if ch:
                 codes[chr(ch)] = (code, bool(shifted))
     return codes
@@ -159,7 +160,10 @@ class Machine:
         self.send(b"s")
         end = self.until(b"]", start)
         text = bytes(self.out[self.out.index(b"[", start) + 1:end - 1]).decode()
-        cells = [int(v, 16) & (1 << self.bits) - 1 for v in text.split()]
+        try:
+            cells = [int(v, 16) & (1 << self.bits) - 1 for v in text.split()]
+        except ValueError:                          # not the screen: the VM has stopped, and said why
+            raise RuntimeError("the VM stopped: " + bytes(self.out[-400:]).decode("latin1")) from None
         bits, stride = self.bits, self.W // self.bits
         assert len(cells) == stride * self.H, f"{len(cells)} cells of the screen were printed"
         raw = bytearray(self.W * self.H)
@@ -175,12 +179,12 @@ class Machine:
         shot.save(path)
         return shot
 
-    def block(self, n):
+    def block(self, n, count=1):
         self.idle(4)
         start = len(self.out)                       # by now the VM has done all that was sent before:
         self.send(b"s")                             # it prints the screen only after it
         self.until(b"]", start)
-        return open(self.disk, "rb").read()[BLOCK * n:BLOCK * (n + 1)]
+        return open(self.disk, "rb").read()[BLOCK * n:BLOCK * (n + count)]
 
     def picture(self):
         im = Image.open(self.tiff).convert("RGB")

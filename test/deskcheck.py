@@ -209,6 +209,34 @@ class Canvas:
         self.outline(tool, a, b)
 
 
+CANVAS_BLOCK = 1152     # where HexaPaint keeps its canvas on the disk (CANVAS-BLK in paint.fs)
+
+
+def canvas_on_disk(m, model):
+    """HexaPaint's canvas as the disk has it, rows of 0 and 1, or None if the disk does not say it has one.
+    A block says it is there: a mark, its size, and what one pixel is in a cell.  Then its rows, as
+    many whole rows to a block as a block holds; a cell's lowest bit is its leftmost pixel, and set is black."""
+    bits = m.cell_pixels
+    size = bits // 8
+    stride = (model.w + bits - 1) // bits
+    per = 1024 // size // stride                    # rows to a block
+    blocks = (model.h + per - 1) // per
+    data = m.block(CANVAS_BLOCK, 1 + blocks)
+
+    def cells(n):
+        return [int.from_bytes(data[at:at + size], "little") for at in range(1024 * n, 1024 * (n + 1), size)]
+
+    if cells(0)[:4] != [0x4850, model.w, model.h, 1]:
+        return None
+    rows = []
+    for b in range(blocks):
+        block = cells(1 + b)
+        for r in range(min(per, model.h - b * per)):
+            row = block[r * stride:(r + 1) * stride]
+            rows.append([row[x // bits] >> x % bits & 1 for x in range(model.w)])
+    return rows
+
+
 class Desk:
     """Where the windows are, from back to front, as the checks move them."""
 
@@ -522,6 +550,28 @@ def run(m, d, out, scale_note=None):
     else:
         check("with no tables of names on the disk, none are loaded", text[14] == "0 0  ok", repr(text[12:16]))
 
+    # see has them in memory for as long as it runs, and what it prints
+    # scrolls the window, which wants memory of its own for as long as a
+    # scroll takes: there has to be room for both.  The word decompiled is
+    # long enough to scroll, and near its end calls a word with no header,
+    # which is shown by its name only if the names are in.
+    m.type("see scroll-rect\r")
+    shot = m.screenshot(f"{out}/13-see.png")
+    text = forth_text(shot)
+    check("see prints a word longer than the window, with the names in memory",
+          text[14].endswith(" ok") and not any("? -" in row for row in text)    # an error is ? and its number
+          and (not d.names_loaded or any("in-port" in row for row in text)), repr(text[9:16]))
+    # Where memory has got to: the next cell that would be given out, with the names out and in.
+    m.type("0 halloc . names-load 0 halloc . names-unload\r")
+    shot = m.screenshot(f"{out}/13-memory.png")
+    text = forth_text(shot)
+    try:
+        out_, in_ = (int(v) % (1 << m.cell_pixels) for v in text[14].split()[:2])
+        print(f"note the next cell to be given out is {out_}, and with the tables of names in memory {in_}: "
+              f"they are {in_ - out_} cells")
+    except ValueError:
+        print(f"note where memory has got to was not read: {text[13:16]!r}")
+
     # The picture was read and dithered by a task of its own, a row at a
     # turn, which took itself out of the ring when the last row was made.
     # Count the tasks round the ring: the desktop's and the Forth window's.
@@ -624,12 +674,18 @@ def run(m, d, out, scale_note=None):
         m.drag(*at(a), *at(b))
         canvas.draw(hand["tool"], hand["pattern"], a, b)
 
-    def wrong(shot, model, but=None):
-        """Pixels of the canvas on the screen that are not the model's, but for a box round a place."""
+    def wrong(shot, model, but=None, under=()):
+        """Pixels of the canvas on the screen that are not the model's, but for a box round a place,
+        and but for what is under the windows named."""
         px = shot.load()
         return sum(1 for y in range(model.h) for x in range(model.w)
                    if bool(px[at((x, y))]) == bool(model.px[y][x])
-                   and not (but and but[0] - 1 <= x < but[0] + 9 and but[1] - 1 <= y < but[1] + 13))
+                   and not (but and but[0] - 1 <= x < but[0] + 9 and but[1] - 1 <= y < but[1] + 13)
+                   and not covered(at((x, y)), under))
+
+    def covered(p, names):                          # is a place of the screen under one of those windows?
+        return any(x - 2 <= p[0] < x + w + 4 and y - 2 <= p[1] < y + h + 4
+                   for x, y, w, h in (d.rect[n] for n in names))
 
     shot = m.screenshot(f"{out}/16-paint.png")
     check("HexaPaint comes to the front from the menu, with nothing drawn",
@@ -669,8 +725,34 @@ def run(m, d, out, scale_note=None):
     m.move(*away)
     shot = m.screenshot(f"{out}/16-let-go.png")
     check("and is drawn when the button goes up", wrong(shot, canvas) == 0, f"{wrong(shot, canvas)} pixels differ")
-    # The drawing is the canvas, not the screen: another window over it, and it is as it was.
-    raise_("forth")
+    # The canvas's place is the disk, and it is in memory only while HexaPaint
+    # is in front.  Another window comes to the front: the disk has what was
+    # drawn, every pixel.  That window is then pulled over the canvas and
+    # back, so that some of the canvas is painted again, behind it: which is
+    # from the disk, since it is no longer in memory.
+    raise_("calc")
+    saved = canvas_on_disk(m, canvas)
+    differ = None if saved is None else sum(a != b for ra, rb in zip(saved, canvas.px) for a, b in zip(ra, rb))
+    check("the canvas is written to the disk when another window comes to the front", differ == 0,
+          "the disk does not say it has one" if saved is None else f"{differ} pixels differ")
+    cx, cy = d.rect["calc"][:2]
+    dx, dy = at((100, 0))[0] - cx, py0 - 5 - cy     # to where it is over the middle of what was drawn
+    x, y = d.title("calc")
+    m.drag(x, y, x + dx, y + dy)
+    d.moved("calc", dx, dy)
+    over = [(x, y) for y in range(canvas.h) for x in range(canvas.w) if covered(at((x, y)), ["calc"])]
+    black = sum(canvas.px[y][x] for x, y in over)   # of the drawing, what the window is over
+    x, y = d.title("calc", -dx, -dy)
+    m.drag(x, y, x - dx, y - dy)
+    d.moved("calc", -dx, -dy)
+    m.move(*away)
+    shot = m.screenshot(f"{out}/16-behind.png")
+    seen = sum(1 for y in range(canvas.h) for x in range(canvas.w) if not covered(at((x, y)), ["calc"]))
+    check("behind another window it is painted from the disk",
+          black > 500 and seen > 5000 and wrong(shot, canvas, under=["calc"]) == 0,
+          f"{wrong(shot, canvas, under=['calc'])} of {seen} pixels differ; "
+          f"{black} black pixels were under the window pulled over it")
+    # It is read back when HexaPaint comes to the front again.
     m.click(20, 8)
     m.click(32, 20 + 16 * list(reversed(d.order)).index("paint") + 8)
     d.front("paint")
@@ -678,10 +760,9 @@ def run(m, d, out, scale_note=None):
     shot = m.screenshot(f"{out}/16-again.png")
     check("what was drawn is there when the window has been under another",
           in_front(shot, "paint") and wrong(shot, canvas) == 0, f"{wrong(shot, canvas)} pixels differ")
-    # The canvas is memory, and so are the tables of names while the Words
-    # window is drawn.  The machine with cells of 16 bits has room for both
-    # only because the canvas is where the picture was read and dithered:
-    # the Words window, brought to the front, still has its names.
+    # The tables of names are memory while the Words window is drawn, and
+    # the canvas is while HexaPaint is in front.  The Words window, brought
+    # to the front, has its names.
     m.click(20, 8)
     m.click(32, 20 + 16 * list(reversed(d.order)).index("words") + 8)
     d.front("words")

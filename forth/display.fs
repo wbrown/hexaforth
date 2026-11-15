@@ -932,17 +932,46 @@ create kg 0 ,           \ its cells in what is opened out
     d# 2 lshift font @ c# 4 + @ +
 ;
 
-header text-width : text-width ( addr u -- n ) \ in pixels
+\ Text is characters packed into cells, a cell's lowest eight bits first.
+\ It is said by a cell and which character of the cells from there is its
+\ first: so it may be anywhere in memory, which the address of a byte
+\ cannot say of the upper half where a cell is 16 bits, and a line of a
+\ grid of characters is the grid's cell and the line's number times its
+\ length.  A character is eight bits on from the one before, so text is
+\ gone along by the bit: the cell is that over the bits in a cell, and the
+\ character is shifted down by the rest.
+header char@ : char@ ( a bit -- c ) \ the character that starts that many bits into the cells from a
+    dup PXSHIFT rshift rot + @
+    swap PXMASK and rshift
+    h# ff and
+;
+
+header ctext : ctext ( cstr -- a i u ) \ the text of a counted string that starts where a cell does
+    d# 1 over @ h# ff and
+;
+
+: >chars ( addr -- a i ) \ the address of a byte as a cell and a character of it
+    dup c> swap OFFSET-MASK and
+;
+
+header chars-width : chars-width ( a i u -- n ) \ in pixels
     font-open
-    d# 0 -rot bounds
+    rot >r                                          ( i u ) ( R: a )
+    d# 3 lshift swap d# 3 lshift swap
+    d# 0 -rot bounds                                ( n end bit )
     begin
         2dupxor
     while
-        dup c@ glyph CELL + @                       ( n end a w )
+        r@ over char@ glyph CELL + @                ( n end bit w )
         >r rot r> + -rot
-        1+
+        d# 8 +
     repeat
     2drop
+    r> drop
+;
+
+header text-width : text-width ( addr u -- n ) \ of text at the address of a byte
+    >r >chars r> chars-width
 ;
 
 \ A string is drawn a cell of the screen at a time: as many characters as
@@ -966,8 +995,9 @@ $80 constant MAX-GLYPHS  \ the most that one call will draw
 header text-busy create text-busy 0 ,
 
 header text-state create text-state
-create ta 0 ,           \ the string
-create tu 0 ,
+create ta 0 ,           \ the text: a cell,
+create tf 0 ,           \ which character of the cells from there is its first,
+create tu 0 ,           \ and how many there are
 create tx 0 ,           \ where the first glyph drawn goes
 create ty 0 ,
 create pen 0 ,          \ where the next glyph goes
@@ -1005,11 +1035,14 @@ header text-end create text-end
 : glyphs ( -- ) \ note each glyph that will be seen
     d# 0 gn !
     tx @ pen !
-    ta @ tu @ bounds
+    ta @ >r                                         \ the cell is where the fetch has it to hand
+    tf @ d# 3 lshift  tu @ d# 3 lshift  bounds      ( end bit )
     begin
         2dupxor
     while
-        dup c@ glyph dup CELL + @ gw !              ( end a glyph )
+        dup PXSHIFT rshift r@ + @                   \ the cell the character is in,
+        over PXMASK and rshift  h# ff and           \ and the character out of it
+        glyph dup CELL + @ gw !                     ( end bit glyph )
         pen @ gw @ + clip @ > 0=  pen @ 0<  or      \ off the left, or cut by the screen's edge
         pen @ clip CELL2 + @ < 0= or                \ or off the right
         gn @ MAX-GLYPHS = or  if
@@ -1020,9 +1053,10 @@ header text-end create text-end
             pen @ gw @ + vx1 !                      \ where the last one drawn ends
         then
         gw @ pen +!
-        1+
+        d# 8 +
     repeat
     2drop
+    r> drop
 ;
 
 : style ( pixels n -- pixels' n ) \ a row of a glyph as it goes in the bitmap
@@ -1269,8 +1303,8 @@ BANKED? [if] [else]
 \ all in one band of it.  If that band is one run of pixels, the clip
 \ rectangle is trimmed to the run for as long as the text is drawn, and
 \ nothing is masked.  Otherwise the text is masked a row at a time.
-: (draw-text) ( addr u x y -- ) \ with a record to work in
-    ty ! tx ! tu ! ta !
+: (draw-chars) ( a i u x y -- ) \ with a record to work in
+    ty ! tx ! tu ! tf ! ta !
     ox @ tx +!  oy @ ty +!
     clip CELL + @ ty @ - d# 0 max r0 !
     clip c# 3 + @ ty @ - font @ @ min MAX-ROWS min r1 !
@@ -1293,23 +1327,27 @@ BANKED? [if] [else]
     mforce @ if d# 0 mforce !  band-stale then
 ;
 
-header draw-text : draw-text ( addr u x y -- ) \ in the port's font, clipped to the pixel
-    text-busy @ if                                  \ a string is being drawn: set it aside
-        dp @ >r
+header draw-chars : draw-chars ( a i u x y -- ) \ u characters from character i of the cells from a,
+    text-busy @ if                                  \ in the port's font, clipped to the pixel
+        dp @ >r                                     \ a string is being drawn: set it aside
         text-end text-state - borrow >r             ( R: where memory was, the copy )
         text-state r@ text-end text-state - cells-move
-        (draw-text)
+        (draw-chars)
         r> text-state text-end text-state - cells-move
         r> dp !
         exit
     then
-    true text-busy !  (draw-text)  d# 0 text-busy !
+    true text-busy !  (draw-chars)  d# 0 text-busy !
 ;
 
-header draw-char : draw-char ( c x y -- ) \ the character is a string of one, in a cell taken for it
+header draw-text : draw-text ( addr u x y -- ) \ text at the address of a byte
+    >r >r >r >chars r> r> r> draw-chars
+;
+
+header draw-char : draw-char ( c x y -- ) \ the character is text of one, in a cell taken for it
     dp @ >r
     rot d# 1 borrow tuck !                          ( x y a )
-    >c d# 1 2swap draw-text
+    -rot >r >r  d# 0 d# 1  r> r> draw-chars
     r> dp !
 ;
 

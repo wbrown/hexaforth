@@ -64,47 +64,9 @@ header load
     block d# 1024 tevaluate
 ;
 
-\ Copy any byte range of the device into memory, across block boundaries.
-\
-\ A whole block that is wanted where a cell starts is not copied: the
-\ driver is handed the place it is wanted, and the buffer is left holding
-\ whatever block it held.  So something read a great deal at a time, as a
-\ picture is, does not turn out the block that is being edited, or write
-\ it back before it was asked to.  Only if the buffer holds that very
-\ block, which may have been changed since it was read, is it taken from
-\ there.
-
-\
-\ What is read goes up through the device from offset to where it ends,
-\ and where it goes in memory is that plus how far apart the two are, which
-\ is on the return stack: nothing is kept anywhere else, so it does not
-\ matter who else is reading.
-
-: room ( end offset -- end offset n ) \ how much of what is left is in the block the offset is in
-    2dup -  over h# 3ff and d# 1024 swap -  min
-;
-
-: piece ( offset n dest -- ) \ n bytes of one block, to dest
-    over d# 1024 =  over CELLB 1- and 0=  and       \ a whole block, to go where a cell starts,
-    >r rot r>                                       ( n dest offset f )
-    over d# 10 rshift blk-cur @ <> and if           \ and not the one in the buffer
-        d# 10 rshift  swap c> swap  blk-read  drop
-    else
-        dup d# 10 rshift block  swap h# 3ff and +   ( n dest src )
-        swap rot cmove
-    then
-;
-
-header disk-read
-: disk-read ( dest u offset -- ) \ dest is the address of a byte
-    rot over - >r                                   ( u offset ) ( R: from an offset to where it goes )
-    tuck + swap                                     ( end offset )
-    begin
-        2dupxor
-    while
-        room                                        ( end offset n )
-        2dup over r@ + piece
-        +
-    repeat
-    2drop rdrop
-;
+\ Whoever reads more of the disk than a block at a time reads whole blocks,
+\ by their numbers, to where they are wanted (blk-read) or through the
+\ buffer (cblock): the picture, the tables of names and HexaPaint's canvas
+\ do.  There was a word here that copied any run of bytes of the device
+\ to the address of a byte; nothing called it once they did, and it is
+\ gone.

@@ -44,11 +44,23 @@ header halloc
 \ memory after says so (hfree), and whoever does not mind where its memory
 \ is asks for that first (hreuse).  What halloc gives is always new: those
 \ that take memory and put himem back to give it up rely on that.
+\
+\ What is had from the run is had from its start, so whoever gives back
+\ what it had from it, before anyone has had more, gives back cells that
+\ end where the run now starts, and the run is whole again (hfree).  The
+\ cells given back are as many as were asked for, made even.
 create hole 0 , 0 ,     \ where it starts, and how many cells of it are left
 
 header hfree
 : hfree ( a cells -- ) \ that many cells from a, which is an even cell, are nobody's
+    2dup + hole @ = if hole CELL + +!  hole !  exit then    \ they end where the run starts: it is one run
     dup hole CELL + @ u> if hole CELL + !  hole ! else 2drop then
+;
+
+header hgive
+: hgive ( a cells -- ) \ memory that is done with: if it was the last given out it is not given out, or else it is nobody's
+    2dup + himem @ = if drop himem ! exit then
+    hfree
 ;
 
 header hreuse

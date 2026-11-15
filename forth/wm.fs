@@ -57,16 +57,16 @@ header content : content ( win -- x y ) \ top left of the area inside the frame
 create mx 0 ,
 create my 0 ,
 create cur-on 0 ,
-create arrow
-    $80 p, $c0 p, $e0 p, $f0 p, $f8 p, $fc p,
-    $fe p, $f0 p, $d8 p, $18 p, $0c p, $0c p,
+create arrow            \ twelve rows of eight pixels, a cell each
+    $80 pcell, $c0 pcell, $e0 pcell, $f0 pcell, $f8 pcell, $fc pcell,
+    $fe pcell, $f0 pcell, $d8 pcell, $18 pcell, $0c pcell, $0c pcell,
 
 : cursor-xor ( -- )
     d# 0
     begin
         dup d# 12 <
     while
-        dup arrow >c + c@  over my @ +  mx @ swap  xor8
+        dup arrow + @  over my @ +  mx @ swap  xor8
         1+
     repeat
     drop
@@ -184,7 +184,7 @@ header inval-window : inval-window ( win -- ) \ frame and all
     dup if false cw.x 1+ cw.y 1+ cw.w d# 2 - d# 17 fill-rect then
     inverse !
     sans font !
-    cw @ c# 4 + @ >c count  cw.x d# 8 + cw.y d# 2 + draw-text
+    cw @ c# 4 + @ ctext  cw.x d# 8 + cw.y d# 2 + draw-chars
     mono font !
     d# 0 inverse !
 ;
@@ -206,12 +206,12 @@ header inval-window : inval-window ( win -- ) \ frame and all
     true d# 0 d# 0 fb-w @ d# 19 fill-rect
     false d# 0 d# 19 fb-w @ hline
     sans font !
-    t-menu >c count text-width d# 16 + menu-tw !
+    t-menu ctext chars-width d# 16 + menu-tw !
     menu-open @ if                                  \ its title is white on black while it is down
         false d# 4 d# 1 menu-tw @ d# 8 - d# 17 fill-rect
         true inverse !
     then
-    t-menu >c count d# 8 d# 2 draw-text
+    t-menu ctext d# 8 d# 2 draw-chars
     d# 0 inverse !
     mono font !
     p-gray pattern !
@@ -230,8 +230,8 @@ header inval-window : inval-window ( win -- ) \ frame and all
             false  d# 5  r@ d# 4 lshift d# 20 +  menu-w @ d# 2 -  d# 16  fill-rect
             true inverse !
         then
-        nwin @ 1- r@ - cells wins + @ c# 4 + @ >c count
-        d# 12  r@ d# 4 lshift d# 20 +  draw-text
+        nwin @ 1- r@ - cells wins + @ c# 4 + @ ctext
+        d# 12  r@ d# 4 lshift d# 20 +  draw-chars
         d# 0 inverse !
         r> 1+
     repeat
@@ -360,8 +360,11 @@ header refresh : refresh ( -- ) \ paint what is out of date
 
 \ A window may want to know when the one in front has changed: to take
 \ something into memory while it is in front, and give it back after.
-header 'front create 'front 0 ,     \ ( -- )
-: fronted ( -- ) 'front @ ?dup if execute then ;
+\ It says so once (on-front), and its word is run each time: there is
+\ room for three.
+create fronts 0 , 0 , 0 , 0 ,       \ the words, ( -- ) each, and nothing after the last
+header on-front : on-front ( xt -- ) fronts begin dup @ while 1+ repeat ! ;
+: fronted ( -- ) fronts begin dup @ ?dup while execute 1+ repeat drop ;
 
 : raise ( i -- )
     dup cells wins + @ >r
@@ -391,7 +394,7 @@ header 'front create 'front 0 ,     \ ( -- )
     begin
         2dupxor
     while
-        dup @ c# 4 + @ >c count text-width  >r rot r> max -rot
+        dup @ c# 4 + @ ctext chars-width  >r rot r> max -rot
         1+
     repeat
     2drop
@@ -544,7 +547,7 @@ header on-event : on-event ( type code value -- )
     over ctrl-key?  if nip 0<> ctrl ! exit then
     0= if drop exit then                            \ a key going up
     dup d# 127 u> if drop exit then
-    shift @ if d# 128 + then keymap >c + c@
+    keymap + @  shift @ if d# 8 rshift then  h# ff and     \ a cell a key: what it is, and above that what it is shifted
     ctrl @ if h# 1f and then
     ?dup if on-key then
 ;

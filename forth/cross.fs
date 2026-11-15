@@ -429,7 +429,11 @@ cell-bits #64 = [if] -1 [else] 1 cell-bits lshift 1- [then] constant cell-mask
 \ pages is for code compiled at run time (code-base, code-size, in
 \ instructions).
 addr-bits #16 > 0= constant small           \ a machine whose memory is 64K cells
-small [if] $6000 [else] $a000 [then] constant hdr-base
+\ The headers start at byte $a000, which with cells of 64 bits is inside
+\ the 4,096 cells that one instruction reaches.  With cells of 32 bits
+\ those end at byte $8000 and what is bulk comes after them (below): it
+\ has 16KB and the headers the 16KB after that.
+small [if] $6000 [else] cell-bits #64 < [if] $c000 [else] $a000 [then] [then] constant hdr-base
 hdr-base thp !
 small [if] $4000 [else] $8000 [then] constant code-base
 small [if] $4000 [else] $8000 [then] constant code-size
@@ -519,9 +523,20 @@ variable sizes      0 sizes !
     in-bulk @ abort" bulk within bulk"  true in-bulk !
     bulky if tdp @ bsave !  tbp @ tdp ! then
 ;
+\ The bulk is looked at as soon as it is laid down: what runs past it would
+\ be laid over the headers, and the next thing to follow them would fail
+\ with nothing to say why.
+: bulk-fits ( -- )
+    bulky if
+        tbp @ hdr-base > if
+            cr ." the bulk has run into the dictionary headers, by " tbp @ hdr-base - . ." bytes" abort
+        then
+    then
+;
 :: unbulk ( -- )
     in-bulk @ 0= abort" unbulk with no bulk"  false in-bulk !
     bulky if tdp @ tbp !  bsave @ tdp ! then
+    bulk-fits
 ;
 :: high ( -- ) \ what is laid down from here is reached only a cell at a time
     in-bulk @ abort" high within bulk"  true in-bulk !
@@ -530,6 +545,7 @@ variable sizes      0 sizes !
 :: unhigh ( -- )
     in-bulk @ 0= abort" unhigh with no high"  false in-bulk !
     lofty if tdp @ thi !  hsave @ tdp ! else bulky if tdp @ tbp !  bsave @ tdp ! then then
+    bulk-fits
 ;
 :: included     included ;
 :: marker       marker ;
@@ -1068,11 +1084,6 @@ variable in-depth
     tc,
 ;
 
-\ Eight bytes, the lowest first, of a number written as 64 bits: a table of
-\ bytes is written so, eight to a line, and is the same bytes whatever the
-\ machine's cell is.
-:: b8, ( x -- ) 8 0 do dup $ff and tc, 8 rshift loop drop ;
-
 \ Pixels are written here with the leftmost in the highest bit.  A machine
 \ whose leftmost pixel is the lowest bit of a cell has them the other way
 \ round in each byte.  p, lays down a byte of eight pixels and glyph, a
@@ -1082,6 +1093,9 @@ variable in-depth
         0 swap 8 0 do dup 1 and rot 2* or swap 2/ loop drop
     then ;
 :: p,  pixels tc, ;
+\ The same eight pixels as a cell of their own: a row of a small bitmap that
+\ is fetched a row at a time.
+:: pcell, ( byte -- ) tcalign pixels tcell, ;
 \ A row of a pattern: eight pixels, repeated across a cell.
 :: prow, ( byte -- )
     tcalign
@@ -1301,6 +1315,13 @@ variable ntf#  0 ntf# !
 :: ,"
     [char] " parse dup tc,
     bounds ?do i c@ tc, loop
+;
+
+\ chars," text" lays down a cell for each character: a table of characters
+\ that is looked in by number, not text that is read from its start.
+:: chars,"
+    tcalign
+    [char] " parse bounds ?do i c@ tcell, loop
 ;
 
 :: allot

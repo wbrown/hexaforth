@@ -273,9 +273,11 @@ header scroll-update create scroll-update 0 ,   \ a region, on the screen
 
 \
 \ It works in three regions of its own, which are next to each other, so
-\ that one place on the return stack is all three: taken from halloc for as
-\ long as it runs and given back.  (Not at here: three regions are more
-\ cells than the data space has left.)  How far to move is on the data
+\ that one place on the return stack is all three: taken for as long as it
+\ runs and given back, from memory that has been given back if there is
+\ enough of that (hreuse, hgive), and if not from what has not been given
+\ out.  (Not at here: three regions are more cells than the data space
+\ has left.)  How far to move is on the data
 \ stack throughout.  Once the regions are made the rectangle itself is not
 \ wanted again: what is moved is clipped to the region of what may move,
 \ and what is made white to scroll-update, so the rectangle round each will
@@ -293,8 +295,7 @@ $102 constant RGN-STEP      \ from one region to the next, of several taken toge
 header scroll-rect : scroll-rect ( x y w h dx dy -- )
     scroll-update @ 0= if new-rgn scroll-update ! then
     2swap >r >r 2swap r> r>                         ( dx dy x y w h )
-    himem @ >r
-    RGN-STEP d# 3 * >c halloc >r                    ( R: himem, three regions )
+    RGN-STEP d# 3 * >c hreuse >r                    ( R: three regions )
     on-screen r@ rect-rgn                           \ the first: the rectangle
     clip @  clip CELL + @  clip CELL2 + @ clip @ -  clip c# 3 + @ clip CELL + @ -
     r@ RGN-STEP + rect-rgn                          \ the second: the clip rectangle
@@ -327,5 +328,5 @@ header scroll-rect : scroll-rect ( x y w h dx dy -- )
         rgn-box in-port pat-rect
     then
     rgn-clip!
-    r> drop  r> himem !
+    r> RGN-STEP d# 3 * hgive
 ;
