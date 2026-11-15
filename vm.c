@@ -38,9 +38,17 @@ static inline uint64_t ucell(int64_t x) {
 #endif
 
 // Built with -DSTRICT_ALIGN, a fetch or store outside memory stops the VM.
-// The Forth system does not make any.
+// The Forth system does not make any.  Nor does it run what is outside
+// memory, and that stops the VM too: an instruction is in the cell it is
+// in, so a jump, a call or a return to a place that is in no cell is seen
+// before the VM looks there.
+//
+// Such a VM can also be told to run so many instructions and no more
+// (strict_steps; none is until it halts), so that what is run is what was
+// meant to be and not what happens to come after it.
 #ifdef STRICT_ALIGN
 static int64_t strict_pc;
+static uint64_t strict_steps;
 static void strict(const char *what, int64_t addr) {
     if (ucell(addr) >> ADDR_BITS) {
         fprintf(stderr, "\n%s outside memory, at %llx, by the instruction at %llx\n", what,
@@ -48,8 +56,10 @@ static void strict(const char *what, int64_t addr) {
         exit(3);
     }
 }
+#define strict_run(pc) strict("execution", (int64_t)((uint64_t)(pc) / (CELL_BYTES / 2)))
 #else
 #define strict(what, addr)
+#define strict_run(pc) ((void)0)
 #endif
 
 // Where a cell is.  An address is the number of a cell; one outside memory
@@ -67,11 +77,15 @@ static inline int64_t mem_load(context *ctx, int64_t addr) {
 
 // Built with -DROM_BYTES=n, a store below address n stops the VM: that part
 // of the kernel can then be a ROM.  The Forth system keeps every variable
-// above the kernel and makes no such store.
+// above the kernel and makes no such store.  The ROM starts at the start
+// of memory unless ROM_FROM says where, in bytes.
+#ifndef ROM_FROM
+#define ROM_FROM 0
+#endif
 static inline void mem_store(context *ctx, int64_t addr, int64_t v) {
     strict("store", addr);
 #ifdef ROM_BYTES
-    if (ucell(addr) < ROM_BYTES / CELL_BYTES) {
+    if (ucell(addr) >= ROM_FROM / CELL_BYTES && ucell(addr) < ROM_BYTES / CELL_BYTES) {
         fprintf(stderr, "\nstore to the kernel at %llx by the instruction at %llx\n",
                 (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
         exit(3);
@@ -255,7 +269,10 @@ int vm(context *ctx) {
     register int64_t OUT = 0;               // OUT - result from ALU
     register uint64_t cycles = ctx->CYCLES; // how many instructions processed
 
-    for (; ctx->memory[EIP] != 0; ++cycles) {
+    for (; ctx->memory[EIP] != 0; ++cycles, strict_run(EIP)) {
+#ifdef STRICT_ALIGN
+        if (strict_steps && cycles - ctx->CYCLES >= strict_steps) break;
+#endif
         // #ifdef DEBUG
         //    show_registers(T, R, EIP, SP, RSP, ctx);
         // #endif // DEBUG

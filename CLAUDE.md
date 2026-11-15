@@ -56,6 +56,36 @@ image. One definition, said once, and everything else made from it.
 - A test that finds nothing to test is to fail, not pass. Look at how
   many things a test says it compared
 
+## A tool's flaw is not the product's limit
+
+What is written here to make the product or to check it can be wrong, and
+can fall short. That is a bug in it.
+
+- It is fixed where it is. No rule is added to keep away from what a tool
+  gets wrong, and nothing the product had is given up because a tool
+  cannot do it or cannot confirm it. "It declines these" is not a cost of
+  a change: it is the change not being finished
+- What replaces a thing does all that the thing did before the thing is
+  taken out. What the product had, and the machine ran, is where a new way
+  of making it starts from: put the new beside the old and ask each of
+  everything the old one said, before the old one goes
+- What an instruction or a run of them does is found by running it on
+  `vm.c`, not by reading its fields. A belief about what the machine does,
+  however sure, is run before anything is built on it or taken away for
+  it. If a tool and a belief disagree, neither has the say until the
+  machine has been asked
+- A state that something is tested from is one a program can be in. A
+  return goes to a return address, and a fetch through a cell finds an
+  address there. What the machine does from a state no program reaches
+  says nothing of the machine or of the product, and is no reason to leave
+  anything out
+- Being too careful is a defect like any other. To leave out what is right
+  because it could not be checked is to put the tool before the product.
+  Say what could not be checked and why, and fix that
+- When what was done is questioned, stop and look at the premise. Do not
+  go on building on it, and do not answer by showing that some other thing
+  is so
+
 ## The machine model
 
 `MODEL.md` says what the machine is: the stacks, memory and display that
@@ -195,7 +225,12 @@ with the peephole off reads, so build with it on first) and `.tables`
 `cross.fs` asks the machine which instruction does the work of two or
 three: `util/fuse.c`, which has `vm.c` in it, is built by gforth each time
 an image is and called through gforth's C interface. gforth builds C with
-`libtool`, which has to be installed. Where gforth is Homebrew's, the
+`libtool`, which has to be installed. Which two instructions do the work
+of three is slow to find, so what is found is kept beside the images
+(`build/fuse-*.kept`, named for the text of `fuse.c` and of the machine,
+so that a change to either starts another): the first image built after
+one takes some twenty seconds, and the rest a few. Where gforth is
+Homebrew's, the
 compiler is told where Homebrew's headers are: `CMakeLists.txt` and
 `build-machine.sh` do, and by hand it is
 `CPATH="$(brew --prefix)/include" gforth ...`.
