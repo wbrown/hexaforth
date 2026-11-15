@@ -39,9 +39,13 @@ endif
 
 all: $(B)/$(KERNEL).bin
 
-$(B)/image.bin: $(HEX) hex2bin.py
+$(B)/hex2bin: ../util/hex2bin.c ../util/image.c ../util/image.h
 	@mkdir -p $(B)
-	python3 hex2bin.py $(HEX) $@
+	cc -O1 -w -o $@ ../util/hex2bin.c ../util/image.c
+
+$(B)/image.bin: $(HEX) $(B)/hex2bin
+	@mkdir -p $(B)
+	$(B)/hex2bin $(HEX) $@
 
 # The kernel with a display: built to call the bridge, and linked after
 # ramfb.S, since the machine's memory runs on from the end of the kernel.

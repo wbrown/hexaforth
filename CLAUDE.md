@@ -1525,7 +1525,14 @@ in logic, read without a clock, so a jump, call or return into it costs no
 extra cycle: about 15% fewer cycles for a clock about 5% slower and 2,400
 more LUTs. The kernel's code fits in 4KB and nothing stores there: every
 variable is above the kernel. Build the reference VM with `-DROM_BYTES=4096`
-to check, or the small kernel with `STRICT=1`.
+to check, or the small kernel with `STRICT=1`. The ROM's size is
+`KROM_BYTES` in `vm_constants.h`. `util/memimage.c`, built for the cell and
+the memory (`-DCELL_BITS`, `-DADDR_BITS`), writes from an image what the
+Verilog memory is loaded from and the ROM (`krom.vh`: the function, and
+`KB`, the size, which the Verilog has from there and does not say). The
+flag to the VM and the kernel's `STRICT` still say 4096 themselves.
+`util/hex2bin.c` writes an image as bytes for the AArch64 kernels to be
+assembled round; both read the image with `load_image` in `util/image.c`.
 
 - `make -C rtl test W=64` (or 32, or 16) replays differential cases from
   `baremetal/difftest_dump.c`, built for that cell width, on the Verilog

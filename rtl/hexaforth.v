@@ -414,10 +414,11 @@ module hexaforth #(
     // the two is the last thing made.
     //
     // The ROM is compiled in when HF_KROM is defined (and needs LAT = 2).
-    // Its contents are the function kromf in krom.vh, which memimage.py
+    // Its contents are the function kromf in krom.vh, which util/memimage.c
     // writes from a nucleus image: a function and not a memory, so that
-    // the tools leave it as logic behind the address registers.
-    localparam KB = 11;             // log2 of the ROM's size in instructions (4KB)
+    // the tools leave it as logic behind the address registers.  KB, the
+    // log2 of the ROM's size in instructions, is in krom.vh too: the size
+    // is KROM_BYTES in vm_constants.h.
     wire [PCW-1:0] btarget = op_type == 2'd3 ? R[PCW-1:0] : target;
 `ifdef HF_KROM
 `include "krom.vh"

@@ -27,6 +27,12 @@
 // one instruction.  VAR_BASE is where the image's data starts.
 #define VAR_BASE (0x4000 / CELL_BYTES)
 
+// The kernel's ROM, on a machine built with one: this many bytes from the
+// start of the image, which the kernel's code is to fit in and nothing
+// stores to.  The Verilog has it from here (krom.vh, which util/memimage.c
+// writes).
+#define KROM_BYTES 4096
+
 // Each of the two stacks is this many cells.  The stacks are not part of
 // memory: they are reached by pushing, popping and the depth ports.  Going
 // past either end is undefined; a strict build stops there.

@@ -52,10 +52,17 @@ $(B)/tb_mem: hf_mem.v tb_mem.cpp
 $(HEX) $(VM):
 	$(TOP)/util/build-machine.sh $(W)
 
+# What makes an image into what the memory is loaded from, and the kernel's
+# ROM, built for this cell width and this much memory.
+MEMIMAGE := build/memimage-$(W)-$(AB)
+$(MEMIMAGE): $(TOP)/util/memimage.c $(TOP)/util/image.c $(TOP)/util/image.h $(TOP)/vm_constants.h
+	@mkdir -p build
+	gcc -O1 -w -DCELL_BITS=$(W) -DADDR_BITS=$(AB) -o $@ $(TOP)/util/memimage.c $(TOP)/util/image.c
+
 # The whole system, CPU and memory, with the nucleus image built in.
-$(B)/tb_soc: soc.v hexaforth.v hf_mem.v tb_soc.cpp memimage.py $(HEX)
+$(B)/tb_soc: soc.v hexaforth.v hf_mem.v tb_soc.cpp $(MEMIMAGE) $(HEX)
 	@mkdir -p $(B)
-	python3 memimage.py $(HEX) $(B) $(W) $(AB)
+	$(MEMIMAGE) $(HEX) $(B)
 	verilator $(VFLAGS) --cc soc.v hexaforth.v hf_mem.v --top-module soc -GW=$(W) -GAB=$(AB) -GLAT=$(LAT) \
 	    -GINIT='"$(B)/mem.hex"' $(if $(filter 1,$(KROM)),+define+HF_KROM -I$(B)) --exe $(CURDIR)/tb_soc.cpp --Mdir $(B)/soc -o ../tb_soc \
 	    --build -j 4 > $(B)/build.log 2>&1 || (cat $(B)/build.log; false)
@@ -84,9 +91,9 @@ test-mem: build/c64/tb_mem
 # Synthesis.
 S       := build/synth-c$(W)-ab$(AB)$(if $(filter 2,$(LAT)),-lat2)$(if $(filter 1,$(KROM)),-krom)
 
-synth: $(if $(filter 1,$(KROM)),$(HEX))
+synth: $(if $(filter 1,$(KROM)),$(HEX) $(MEMIMAGE))
 	@mkdir -p $(S)
-	$(if $(filter 1,$(KROM)),python3 memimage.py $(HEX) $(S) $(W) $(AB))
+	$(if $(filter 1,$(KROM)),$(MEMIMAGE) $(HEX) $(S))
 	yosys -q -l $(S)/yosys.log -p "read_verilog $(if $(filter 1,$(KROM)),-DHF_KROM -I$(S)) soc.v hexaforth.v hf_mem.v; \
 	    chparam -set W $(W) -set AB $(AB) -set LAT $(LAT) soc; \
 	    synth_ecp5 -top soc -json $(S)/soc.json"
