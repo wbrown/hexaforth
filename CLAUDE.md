@@ -826,7 +826,11 @@ are and how many. It is in every size of machine: on code page 1 where
 only the kernel is built, and with 64-bit cells on a page of its own,
 page 10, after the desktop's, since page 1 is the display's. `insn_map.py`
 takes the rules out of the code it reads, finding them through
-`join-rules`. Build until `fused.fs` and `joins.fs` stop changing.
+`join-rules`. The rules are all on one page, since they are found by how
+far along they are: `joins.fs` says how many instructions they are first
+(`table-room` in `cross.fs`), and a page is started if this one has not
+room, which the build with the peephole off needs. Build until `fused.fs`
+and `joins.fs` stop changing.
 
 After changing any of this, build with and without `PEEPHOLE=off` and run
 `python3 util/insn_map.py --compare plain.hex optimised.hex`: every

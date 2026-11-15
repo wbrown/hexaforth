@@ -715,8 +715,8 @@ def write_joins(path, words, own, found, used):
                 "\\ A rule is four instructions, and they are in order: nothing or the\n"
                 "\\ instruction two before, the one before, the one being compiled, and\n"
                 "\\ the one instruction they are together.  join-rules, in the kernel,\n"
-                "\\ is told where they are and how many.\n\n"
-                "meta tcp @ 2/ t' join-rules tvar! target\n")
+                "\\ is told where they are and how many.  They are all on one page.\n\n"
+                f"meta ${4 * len(rules):x} table-room  tcp @ 2/ t' join-rules tvar! target\n")
         name = lambda i: own.get(i) or found.get(i) or describe(i)
         for (x, a, b), y in sorted(rules.items()):
             f.write(f"${x:04x} i, ${a:04x} i, ${b:04x} i, ${y:04x} i,   \\ "

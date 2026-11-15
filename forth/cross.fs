@@ -1224,6 +1224,14 @@ variable ntf#  0 ntf# !
 \ A table that is instructions, as the rules of the nucleus's peephole are,
 \ is laid down among the code, an instruction to a place, where i@ reads
 \ it.  It is not code to be run, and nothing is joined to it or across it.
+\
+\ It has to be all on one page, since what reads it goes by how far along
+\ it is.  table-room is said before a table, with how many instructions it
+\ is: if this page has not room for them, the next is started.
+: table-room ( n -- )
+    settle
+    2* tcp @ $1fff and + $1ffe u> if next-page then
+;
 :: i, ( w -- )
     settle
     tcp @ $1fff and $1ffe = abort" a table of instructions has run off its page"

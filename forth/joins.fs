@@ -5,9 +5,9 @@
 \ A rule is four instructions, and they are in order: nothing or the
 \ instruction two before, the one before, the one being compiled, and
 \ the one instruction they are together.  join-rules, in the kernel,
-\ is told where they are and how many.
+\ is told where they are and how many.  They are all on one page.
 
-meta tcp @ 2/ t' join-rules tvar! target
+meta $4bc table-room  tcp @ 2/ t' join-rules tvar! target
 $0000 i, $6000 i, $600c i, $600c i,   \ drop dup , drop
 $0000 i, $6000 i, $6020 i, $6000 i,   \ drop dup , swap
 $0000 i, $6000 i, $642c i, $600c i,   \ drop dup , nip
