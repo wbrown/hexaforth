@@ -81,9 +81,7 @@ INK-BLACK? [if]
     amask !
 ;
 
-: apixel ( -- )
-    'pixel @ execute
-    asp @ @ ash @ rshift h# ffff and +
+: athresh ( x -- ) \ x: the pixel's gray and what it is owed from the rows above
     aprev @ + aprev2 @ +                            ( old+768 )
     dup d# 895 > if                                 \ old > 127: white, which is 255
         1+ true                                     \ old - 255 + 1024
@@ -97,12 +95,30 @@ INK-BLACK? [if]
     alane
 ;
 
+: apixel ( -- ) \ a pixel whose gray is asked for
+    'pixel @ execute
+    asp @ @ ash @ rshift h# ffff and +
+    athresh
+;
+
+: alaned ( -- ) \ a pixel whose gray is in its lane already, with what it is owed
+    asp @ @ ash @ rshift h# ffff and
+    athresh
+;
+
+\ Where the image can give a row's grays in lanes ('grays), they are added
+\ to what the row is owed, a cell at a time, before any pixel is looked at.
 : arow ( -- ) \ one row of the image
     acur @ asp !  aerr @ aep !
     d# 0 ash !  d# 0 aew !  d# 128 aprev !  d# 128 aprev2 !
     d# 0 aout !  LEFT1 amask !
     d# 128 alane
-    tw @ negate begin dup while apixel 1+ repeat drop     \ up to nothing: an add of one
+    'grays @ ?dup if
+        acur @ swap execute
+        tw @ negate begin dup while alaned 1+ repeat drop     \ up to nothing: an add of one
+    else
+        tw @ negate begin dup while apixel 1+ repeat drop
+    then
     d# 128 alane
     ash @ if aew @ aep @ ! then
     amask @ LEFT1 <> if aout @ adst @ ! then

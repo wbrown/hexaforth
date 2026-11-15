@@ -196,9 +196,76 @@ W32+? [if]
 
 header 'pixel create 'pixel 0 ,     \ ( -- g )  the next pixel's gray
 
+\ A row of an image of three samples, where the row lies on cells, is not
+\ taken a pixel at a time.  Eight pixels are three cells.  Two pixels are
+\ six bytes of a cell, and their grays are made together: the two reds are
+\ masked out where they are and multiplied by 77, the greens and the blues
+\ shifted down to the same two places and multiplied by theirs, and the
+\ three added, which is each pixel's gray times 256 with nothing carried
+\ from one to the other.  Four pixels' grays are then a cell of four
+\ lanes, sixteen bits each, and that is how whoever dithers keeps what each
+\ pixel is owed: so the grays are added to those a cell at a time, and
+\ nothing is fetched for a pixel.
+
+W64? [if]
+
+create tsrc 0 ,         \ the cell the next row starts in
+
+: pair ( w -- y ) \ two pixels, the first lowest: their grays, in two lanes
+    dup h# ff0000ff and d# 77 *
+    over d# 8 rshift h# ff0000ff and d# 150 * +
+    swap d# 16 rshift h# ff0000ff and d# 29 * +     \ each times 256, and twenty-four bits apart
+    d# 8 rshift
+    dup h# ff and  swap d# 8 rshift h# ff0000 and  or
+;
+
+: quad ( wa wb -- y ) \ four pixels' grays, in four lanes
+    pair swap pair swap d# 32 lshift or
+;
+
+\ The eight pixels in the three cells at p: the first two are the first
+\ cell's, and each two after start sixteen bits further up the cell before.
+: quad-a ( p -- y ) \ the first four
+    dup @  swap dup @ d# 48 rshift swap 1+ @ d# 16 lshift or  quad
+;
+: quad-b ( p -- y ) \ and the next four
+    dup 1+ @ d# 32 rshift over CELL2 + @ d# 32 lshift or
+    swap CELL2 + @ d# 16 rshift  quad
+;
+
+: lanes+ ( y a -- ) \ four grays, to the lanes of four pixels that start a lane into the cell at a
+    over d# 16 lshift over +!
+    swap d# 48 rshift swap 1+ +!
+;
+
+: gray-lanes ( lanes -- ) \ the next row's grays, each added to its pixel's lane; pixel 0 is lane 1
+    tsrc @ >r                                       ( a ) ( R: the three cells )
+    tw @ d# 2 rshift over + swap                    ( end a )
+    begin
+        2dupxor
+    while
+        r@ quad-a over lanes+
+        r@ quad-b over 1+ lanes+
+        CELL2 +  r> c# 3 + >r
+    repeat
+    2drop
+    r> tsrc !
+;
+
+[then]
+
+\ ( lanes -- ) adds a row's grays to a row of lanes, or is 0 if the image
+\ is one whose pixels have to be asked for one at a time.
+header 'grays create 'grays 0 ,
+
 header pixels
 : pixels ( -- ) \ start again from the first pixel
     raw @ tbp !  d# 0 tbn !  d# 0 tbuf !
     tspp @ d# 3 = if ['] rgb else tspp @ d# 1 = if ['] gray1 else ['] grayn then then
     'pixel !
+    d# 0 'grays !
+W64? [if]
+    raw @ tsrc !
+    tspp @ d# 3 =  tw @ d# 7 and 0=  and if ['] gray-lanes 'grays ! then
+[then]
 ;

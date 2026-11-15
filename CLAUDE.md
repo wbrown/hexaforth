@@ -444,7 +444,15 @@ Pages 8 and 9 are the drivers and the desktop:
   shifts a pixel out of a cell fetched once, the errors for the rows below
   are kept in 16-bit lanes (as many to a cell as fit) and added a cell at a
   time, and the pixels are gathered into a cell of a bitmap in the
-  display's form. `atkinson ( bitmap -- )` makes the bitmap; `copy-bits`
+  display's form. A row of an image of three samples that lies on cells
+  (its width a multiple of eight) is not asked for a pixel at a time:
+  eight pixels are three cells, two pixels' grays are made together (the
+  reds masked where they are and multiplied by 77, the greens and blues
+  shifted to the same two places and multiplied by theirs, and the three
+  added), and four pixels' grays are a cell of lanes, which is added to
+  the lanes of what those pixels are owed (`gray-lanes`, through
+  `'grays`). Any other image gives a pixel at a time (`'pixel`).
+  `atkinson ( bitmap -- )` makes the bitmap; `copy-bits`
   shows it. Each can be done a row at a time, by something that has other
   things to do between the rows: `tiff-start` and `tiff-row` read the
   image, noting where the strips are first so that the directory is not
@@ -631,6 +639,20 @@ that ran, by the cycles spent in them: turns, instructions and cycles a
 turn, and each loop's instructions with how often each ran
 (`build/loops.txt`). Most of the work is not in a loop's own instructions
 but in the words it calls.
+
+`python3 util/paths.py build/nuc.hex build/desktop.counts` charges each
+word with the work of all it calls (`build/paths.txt`): a call that ran c
+times is charged c times what the word called costs each time it is
+entered. So a word's figure is what would be saved if it were never
+called; then, for the words that cost most, where the cost is, by the word
+it calls; and the words reached by `execute` of a vector, whose callers
+cannot be seen. Read it before saying what a change will save, and before
+choosing what to change. A count of how often a thing is done, times what
+one is thought to cost, leaves out the loop that does them and whatever
+is rare and dear (a fill under a region was a sixth dearer for the 3% of
+its rows that needed a mask); and the profile by word shows a way of doing
+something as a dozen words that each look like little, which is how fills
+were half the display's work for as long as nobody added them up.
 
 `python3 util/shorter.py build/nuc.hex build/desktop.counts` looks at one
 turn of each loop that calls nothing, as a whole, for the fewest
