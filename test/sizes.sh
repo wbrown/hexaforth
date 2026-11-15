@@ -40,6 +40,10 @@ for m in "64 22 768 576 0x4000" "32 17 768 576 0x8000" "16 16 512 342 0x8000"; d
     mv build/nuc-$C-$A.hex $OUT/nuc-$C.hex
     [ -f build/nuc-$C-$A.tables ] && mv build/nuc-$C-$A.tables $OUT/nuc-$C.tables
     run prompt-$C python3 test/prompt_test.py $OUT/vm-$C $OUT/nuc-$C.hex $C
+    if [ $C = 64 ]; then
+        run desktop-$C python3 test/desktop_test.py $OUT/vm-$C $OUT/nuc-$C.hex $OUT/desktop-$C \
+            $C $W $H $BASE $OUT/nuc-$C.tables
+    fi
     for s in $SEEDS; do
         run display-$C-$s python3 test/display_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s 150 $C $W $H
         run regions-$C-$s python3 test/region_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s 400 $C

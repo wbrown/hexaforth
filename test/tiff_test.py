@@ -46,9 +46,9 @@ def disk_block(blk):
 class File:
     """A TIFF on the disk: only its header and directory are written."""
 
-    def __init__(self, n, w, h, spp, rps, offsets, be=False, photo=None, short=False, ifd_at=8):
+    def __init__(self, n, w, h, spp, rps, offsets, be=False, photo=None, short=False, ifd_at=8, base=None):
         self.n, self.w, self.h, self.spp, self.rps = n, w, h, spp, rps
-        self.base = (n + 1) * SPACING
+        self.base = (n + 1) * SPACING if base is None else base
         self.photo = photo if photo is not None else (2 if spp == 3 else 1)
         e = ">" if be else "<"
         strips = (h + rps - 1) // rps if rps else 1
@@ -94,8 +94,8 @@ class File:
             out.append((self.base + fb, (lo % BLOCK) // cellb, cells))
         return out
 
-    def bitmap(self, bits):
-        """The cells its dither should be."""
+    def rows(self):
+        """Its dither: rows of 0 and 1, 1 for white."""
         w, h, spp = self.w, self.h, self.spp
         gray = []
         for y in range(h):
@@ -106,9 +106,14 @@ class File:
                     gray.append((77 * s[0] + 150 * s[1] + 29 * s[2]) >> 8)
                 else:
                     gray.append(s[0] if self.photo else 255 - s[0])
+        return reference(gray, w, h)
+
+    def bitmap(self, bits):
+        """The cells its dither should be."""
+        w = self.w
         stride = (w + bits - 1) // bits
         return [sum(1 << b for b in range(bits) if c * bits + b < w and not row[c * bits + b])
-                for row in reference(gray, w, h) for c in range(stride)]
+                for row in self.rows() for c in range(stride)]
 
 
 def session(vm, image, bits, files, script):

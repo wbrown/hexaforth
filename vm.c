@@ -175,6 +175,7 @@ static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
     }
     switch (io_addr) {
         case 0xe0:
+            fflush(ctx->OUT);       // what was printed is seen before a key is waited for
             return(fgetc(ctx->IN));
         default:
             return(false);

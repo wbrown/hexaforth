@@ -404,15 +404,21 @@ header on-event : on-event ( type code value -- )
     ?dup if on-key then
 ;
 
-: uart-poll ( -- ) key? if key on-key then ;
+\ Keys and pointer events come from whatever the machine has, which is
+\ asked for them each time round: a driver stores the word that asks in
+\ 'poll, and hands what it has to on-event.  A machine with nothing but
+\ its console has the console's keys.
+header 'poll create 'poll 0 ,       \ ( -- )
+
+header uart-poll : uart-poll ( -- ) key? if key on-key then ;
 
 header event-loop : event-loop ( -- )
     d# 0 quitting !
+    'poll @ 0= if ['] uart-poll 'poll ! then
     wm-regions
     repaint
     begin
-        input-poll
-        uart-poll
+        'poll @ execute
         refresh
         pause                                       \ the other tasks' turn
         quitting @

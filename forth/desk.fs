@@ -6,14 +6,15 @@ create t-view ," Mandrill"
 create t-calc ," Calculator"
 create t-up   ," desktop"
 
-header desktop
-: desktop ( -- ) \ runs until ^Q
-    display-init
-    ['] on-event 'event !
-    input-init
-    nidev @ 0= d# 37 -throw                         \ nothing to work it with
+\ The windows are opened by one word and the machine's devices brought up
+\ by another, so that a machine with other devices, or with none, opens
+\ the same windows.  The picture and the editor are there if there is a
+\ disk, which is to say if a driver has said how a block is read.
+
+header windows
+: windows ( -- ) \ open them, and run until ^Q
     d# 0 nwin !
-    ['] vblk-init catch 0= if                       \ these two need the disk
+    'blk-read @ if
         d# 16 ['] view-load catch if drop d# 0 then >r       ( R: the viewer, or 0 if there is no picture )
         d# 250 d# 40 d# 514 d# 532 t-view
         ['] view-draw ['] ignore-key d# 0 window
@@ -31,6 +32,22 @@ header desktop
     ['] term-draw ['] repl-key d# 0 window drop
     t-up >c count type cr
     event-loop
+;
+
+\ The QEMU virt machine: keyboards and pointers are virtio input devices,
+\ and the disk a virtio block device.  The console's keys are taken too.
+
+: virt-poll ( -- ) input-poll uart-poll ;
+
+header desktop
+: desktop ( -- ) \ runs until ^Q
+    display-init
+    ['] on-event 'event !
+    input-init
+    nidev @ 0= d# 37 -throw                         \ nothing to work it with
+    ['] virt-poll 'poll !
+    ['] vblk-init catch drop
+    windows
 ;
 
 \ The kernel runs a word called cold, if there is one, before its own

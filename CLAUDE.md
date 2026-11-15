@@ -516,7 +516,10 @@ Pages 8 and 9 are the drivers and the desktop:
   seen, in its own port. What a window says has changed (`win-inval`) is
   out of date only where the window can be seen: where another lies over
   it there is nothing of it to paint, and the one on top is not painted
-  again for it
+  again for it. Keys and pointer events come from whatever the machine
+  has: each time round, the event loop runs the word in `'poll`, which a
+  driver stores there, and the driver hands what it has to `on-event`.
+  With none stored it is `uart-poll`, the console's keys
 - `term.fs`, `edit.fs`, `view.fs`, `calc.fs`: the Forth window, block
   editor, image viewer and RPN calculator
 - `see.fs`: a decompiler (`see name`), and the Words window, which lists
@@ -547,7 +550,10 @@ Pages 8 and 9 are the drivers and the desktop:
   address of each word's header (`hdr, name` in `cross.fs`), not text: the
   name is in one place and nothing is looked up to show it. Regenerate and
   rebuild after changing code
-- `desk.fs`: `desktop`, and `cold`, which the kernel runs at boot
+- `desk.fs`: `windows`, which opens the desktop's windows and runs the
+  event loop, the picture and the editor being there if a driver has said
+  how a block is read; `desktop`, which first brings up the QEMU `virt`
+  machine's devices; and `cold`, which the kernel runs at boot
 - when all of that is compiled, `name-tables` in `cross.fs` makes two
   tables of the names for the decompiler, the dictionary's words and the
   labels: by execution token, and those that are a number (a word that
@@ -662,6 +668,24 @@ keyboard and tablet. `make demo-test` runs it headless, sends key and
 pointer events through QMP, and checks the screen: text is read back by
 matching font cells, and the image viewer is compared with a reference
 dither computed on the host.
+
+What is checked is one script, `test/deskcheck.py`, run on a machine that
+is given to it as something that can type, click, drag and show its
+screen. `baremetal/guitest.py` is QEMU and the AArch64 kernel.
+`test/desktop_test.py VM IMAGE.hex OUTDIR [CELL_BITS [W H BASE [TABLES]]]`
+is the reference VM, which has no devices, so the test is its devices,
+typed at the prompt before `windows` is run: a disk (`'blk-read`,
+`'blk-write`: block 1 kept in memory, the picture a TIFF laid over blocks
+made from their numbers, the tables of names from block 1024), and a word
+in `'poll` that takes one thing from the console each time round (a key
+going down or up by its Linux code, the pointer's place, its button,
+nothing, or to print the screen) and hands events to `on-event` as a
+driver does. The VM waits for the console when asked for a key, so the
+desktop takes one turn of its loop for each thing sent and the test is
+the same every time; the screen is the display in the VM's memory. The
+checks do not say where a window is: they are told how the desktop is
+laid out, keep track of what is in front, and find a part of a title bar
+that can be seen. `test/sizes.sh` runs it.
 
 `make demo-profile` says where the desktop's instructions go. It builds the
 small kernel with `-DPROFILE`, which counts how often the instruction at

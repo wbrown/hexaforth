@@ -16,8 +16,8 @@ $649c , $1 , hdr, =
 $6800 , $1 , hdr, @
 $6004 , $1 , hdr, over
 $644c , $1 , hdr, and
-$6c07 , $1 , hdr, r>
 $600c , $1 , hdr, drop
+$6c07 , $1 , hdr, r>
 $650d , $1 , hdr, >r
 $6308 , $1 , hdr, !
 $6480 , $1 , hdr, invert
