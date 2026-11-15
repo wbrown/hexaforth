@@ -426,6 +426,93 @@ header pat-hline : pat-hline ( x y n -- )
     dup 0> if slab else drop 2drop then
 ;
 
+\ A rectangle of plain white or plain black, which most are, is the same in
+\ every row: the same pixels of the same cells, made the same.  So it is
+\ filled a column at a time, a column being one cell of every row: the
+\ pixels that are to change are taken out of each cell of the column
+\ (and!), and those that are to be set put in (or!); a cell that is all in
+\ the rectangle is stored.  That is an instruction for a cell, memory
+\ through the ALU to memory, and a few to go round; and what a row would
+\ have to work out, where it starts in a cell and which pixels of its two
+\ ends are its own, is worked out once.
+\
+\ A column is gone down by adding the stride, so this is for a display
+\ whose rows are one after another in memory, and not for one whose rows
+\ are dealt into banks.
+BANKED? [if]
+
+: plain-rect ( x y n rows -- ) drop drop 2drop ;
+: plain? ( -- f ) false ;
+
+[else]
+
+: col-and! ( x a n -- ) \ in one cell of each of n rows, from the one at a
+    DISP-STRIDE * over + swap rot >r                ( end a ) ( R: x )
+    begin 2dupxor while  r@ over and!  DISP-STRIDE +  repeat
+    2drop rdrop
+;
+
+: col-or! ( x a n -- )
+    DISP-STRIDE * over + swap rot >r
+    begin 2dupxor while  r@ over or!  DISP-STRIDE +  repeat
+    2drop rdrop
+;
+
+: col! ( x a n -- )
+    DISP-STRIDE * over + swap rot >r
+    begin 2dupxor while  r@ over !  DISP-STRIDE +  repeat
+    2drop rdrop
+;
+
+: column ( v mask a n -- ) \ the pixels of v that the mask says, in one cell of each of n rows
+    >r >r                                           ( v mask ) ( R: n a )
+    dup invert 0= if drop r> r> col! exit then      \ the whole cell
+    dup invert r> r> 2dup >r >r col-and!
+    and ?dup if r> r> col-or! else rdrop rdrop then
+;
+
+\ How n pixels from bit b lie in cells: the mask of the first cell, if they
+\ start part of the way into it or end in it; how many whole cells; and the
+\ mask of the cell they end part of the way into.  A mask of 0 is no cell.
+: spans ( b n -- m1 w m0 )
+    2dup + PXCELL > 0= if                           \ all in one cell
+        leftn swap PIXR  >r d# 0 d# 0 r> exit
+    then
+    over if
+        over PXCELL - +  swap d# -1 swap PIXR       ( n' m0 )
+    else
+        nip d# 0
+    then
+    >r  dup PXMASK and leftn  swap PXSHIFT rshift  r>
+;
+
+: strip ( a n mask -- a n ) \ a column of the pattern
+    >r 2dup  pattern @ @ RAW>SRC  r> 2swap column
+;
+
+: plain-rect ( x y n rows -- ) \ on the screen and clipped; n and rows are more than none
+    >r >r prow r> swap >r                           ( b n ) ( R: rows a )
+    spans r> r> rot                                 ( m1 w a rows m0 )
+    ?dup if strip swap 1+ swap then
+    rot negate                                      ( m1 a rows -w )
+    begin
+        dup
+    while
+        >r  d# -1 strip swap 1+ swap  r> 1+
+    repeat
+    drop
+    rot ?dup if strip then
+    2drop
+;
+
+: plain? ( -- f ) \ can what is to be filled go a column at a time?
+    pattern @ dup p-white = swap p-black = or
+    'mode @ ['] m-copy = and
+    mmask @ 0= and
+;
+
+[then]
+
 \ A rectangle is clipped once, not a row at a time: the rows the clip
 \ rectangle has, and, where no region has to be looked at, the pixels of a
 \ row that it has, which are the same in every row.
@@ -443,6 +530,9 @@ header pat-rect : pat-rect ( x y w h -- )
         drop 2drop rdrop exit
     then
     >r swap r> clip-span rot swap                   ( x' y n' )
+    over r@ <  over 0> and  plain? and if           \ plain, and something of it is left
+        over r> swap - plain-rect exit
+    then
     dup 0> if
         begin
             over r@ <

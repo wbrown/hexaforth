@@ -280,9 +280,10 @@ The image viewer reads and dithers its picture in a third task (`view-row`
 in `view.fs`), a row of the image at each of its turns, so the desktop is up
 at once and the picture comes down its window. It has cells 96 to 127 of
 each stack: the desktop's own task was measured to reach cell 35 and no
-further, and this one uses 10 cells of the data stack and 14 of the return
-stack (7 and 14 before the regions kept what they work on on the stacks:
-putting rows out of date is where it goes deepest). `make demo-profile`
+further, and this one uses 10 cells of the data stack and 16 of the return
+stack (7 and 14 before the regions kept what they work on on the stacks,
+and a window put out of date only what can be seen of it: putting rows
+out of date is where it goes deepest). `make demo-profile`
 says how far each task got. Nothing stops a task from outside. This one takes itself out of the
 ring when the last row is made (`retire`): the task before it is made to
 point past it, and its next `pause` does not come back. The rows are put
@@ -356,7 +357,10 @@ Page 1 is what the rest is built on:
   block buffer. `disk-read` does not use it for a whole block that is
   wanted where a cell starts: the driver is handed that place, so nothing
   is copied, and the block being edited is not turned out of the buffer or
-  written back by something else reading the disk
+  written back by something else reading the disk. It keeps nothing in a
+  variable: what is read goes up through the device from the offset to
+  where it ends, and where it goes in memory is that plus how far apart
+  the two are, on the return stack
 - `display.fs`: the display, a bitmap in memory of the size, place, bit
   order, polarity and row layout that `vm_constants.h` gives (see
   `MODEL.md`), and all drawing on it; nothing outside this file knows the
@@ -398,7 +402,23 @@ Page 1 is what the rest is built on:
     cell at each end under its mask and stores the row of the pattern into
     every cell between (`fast-slab`); a copy of the same kind from cells
     lined up with those they go to, which every scroll up or down is,
-    moves the cells between straight across (`move-row`)
+    moves the cells between straight across (`move-row`: where a cell
+    comes from is on the return stack, where it is what the store reads
+    from, so a cell is two instructions and a turn six)
+  - a rectangle is clipped once and not a row at a time (`pat-rect`): the
+    rows the clip rectangle has, and the pixels of a row, which are the
+    same for every row unless a region has to be looked at. A rectangle of
+    plain white or plain black in copy mode, which most are, is then
+    filled a column at a time, a column being one cell of every row
+    (`plain-rect`, `column`): where it starts in a cell and which pixels
+    of its two ends are its own is worked out once (`spans`), the pixels
+    that change are taken out of each cell of the column with `and!` and
+    those to be set put in with `or!`, and a cell that is all in the
+    rectangle is stored. That is an instruction a cell and five to go
+    round, where a row at a time was about 75 before a cell was touched.
+    A display whose rows are dealt into banks goes a row at a time. In the
+    profile the display's work went from 13.6 million instructions to 8.9
+    with the two
 
 Pages 8 and 9 are the drivers and the desktop:
 
@@ -429,7 +449,10 @@ Pages 8 and 9 are the drivers and the desktop:
   pointer, event loop. Nothing draws when something changes: it is added
   to the region that is out of date (`inval-rect`, `win-inval`), and the
   event loop paints that (`refresh`), each window only where it can be
-  seen, in its own port
+  seen, in its own port. What a window says has changed (`win-inval`) is
+  out of date only where the window can be seen: where another lies over
+  it there is nothing of it to paint, and the one on top is not painted
+  again for it
 - `term.fs`, `edit.fs`, `view.fs`, `calc.fs`: the Forth window, block
   editor, image viewer and RPN calculator
 - `see.fs`: a decompiler (`see name`), and the Words window, which lists
@@ -707,9 +730,9 @@ fetched back.)
 In the profile `region.fs` ran 1,617,696 instructions and 2,142,456 cycles
 as it was, 29% of them fetches and stores of variables, and runs 1,166,113
 and 1,280,433 now. The merges are half what `merge` and `inside` were; the
-sweep is about what it was. It does not make the picture come sooner:
-putting a row out of date costs about 27,000 instructions, and most of
-that is painting. `scroll-rect` is about 470 instructions a scroll dearer,
+sweep is about what it was. It did not make the picture come sooner:
+putting a row out of date cost about 27,000 instructions, and most of
+that was painting. `scroll-rect` is about 470 instructions a scroll dearer,
 0.3% of one, for asking its regions for the rectangle round them. The
 stacks are no deeper in the desktop's task (18 cells and 30) and three
 cells of the data stack deeper in the picture's (10 of its 32).
