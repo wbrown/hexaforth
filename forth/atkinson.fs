@@ -100,15 +100,23 @@ create dth 0 ,          \ the dither in hand: its record
 : anx2  ( -- a ) dth @ c# 4 + ;         \ and the one after: each a row of lanes
 : ay    ( -- a ) dth @ c# 5 + ;         \ how many rows are done
 : aimg  ( -- a ) dth @ c# 6 + ;         \ the image it is of
+\ The bitmap need not be of the whole image.  Every pixel is dithered, since
+\ what a pixel is depends on those before it; but the bitmap is what is
+\ kept, and whoever shows less than the picture keeps less: the rows from
+\ ay0, akh of them, and of each row the cells from the one aoff lanes along.
+: afull ( -- a ) dth @ c# 7 + ;         \ cells in a row of a bitmap of the whole image
+: aoff  ( -- a ) dth @ c# 8 + ;         \ where in a row of lanes the first cell kept starts
+: ay0   ( -- a ) dth @ c# 9 + ;         \ the first row kept,
+: akh   ( -- a ) dth @ c# 10 + ;        \ and how many are
 
-\ A row of lanes has as many cells as make whole cells of the bitmap, so
-\ that the pixels can be gathered sixteen cells at a time, and a cell at
-\ each end for what leaves the row.
+\ A row of lanes has as many cells as make whole cells of a bitmap of the
+\ whole image, so that the pixels can be gathered sixteen cells at a time,
+\ and a cell at each end for what leaves the row.
 : alanes ( x a -- ) \ set a row of lanes, and the cell at each end of it
-    1-  abm @ CELL + @ d# 4 lshift d# 2 +  cells-fill
+    1-  afull @ d# 4 lshift d# 2 +  cells-fill
 ;
 
-: anew ( x -- a ) abm @ CELL + @ d# 4 lshift d# 2 + >c halloc 1+  tuck alanes ;
+: anew ( x -- a ) afull @ d# 4 lshift d# 2 + >c halloc 1+  tuck alanes ;
 
 : apreset ( a -- ) \ what the pixel that is not there, beside each end of the row, would give the row
     d# 128 over +!
@@ -239,13 +247,15 @@ INK-BLACK? [if] [else] invert [then]
 \ A row is dithered at a time, so that whoever wants the picture can do
 \ something else between the rows, and can show the rows that are made.
 
-header dither-start
-: dither-start ( bitmap img -- dither ) \ a new bitmap for the image, as the display is, with no rows made
-    dup image!
-    d# 7 >c halloc dth !
-    aimg !  abm !
-    tw @ PXMASK + PXSHIFT rshift abm @ CELL + !
-    abm @ CELL + @ th @ * >c halloc abm @ !
+header dither-part
+: dither-part ( bitmap img x y w h -- dither ) \ a new bitmap, as the display is, with no rows made,
+    d# 11 >c halloc dth !               \ for the w by h of the image from x, y; x is where a cell starts
+    akh !  >r  ay0 !  LANESHIFT rshift aoff !  r>   ( bitmap img w )
+    swap dup aimg ! image!                          ( bitmap w )
+    swap abm !
+    PXMASK + PXSHIFT rshift abm @ CELL + !
+    abm @ CELL + @ akh @ * >c halloc abm @ !
+    tw @ PXMASK + PXSHIFT rshift afull !
     tw @ LANES 1- + LANESHIFT rshift an !
     d# 512 LANE1 * anew acur !                      \ the rows that are not there gave the first row four
     d# 128 LANE1 * anew dup apreset anxt !          \ times nothing, and the second once
@@ -255,12 +265,21 @@ header dither-start
     dth @
 ;
 
+header dither-start
+: dither-start ( bitmap img -- dither ) \ for the whole of the image
+    dup image!  d# 0 d# 0 tw @ th @ dither-part
+;
+
 header dither-row
 : dither-row ( dither -- ) \ the next row of its image, which is read if it has to be
     dth !  aimg @ tiff-row
-    acur @  abm @ @  ay @ abm @ CELL + @ * +        ( lanes dst )
-    over agrays  over apixels  over atrim
-    abits
+    acur @  dup agrays  dup apixels  dup atrim      ( lanes )
+    ay @ ay0 @ -  dup akh @ u< if                   \ a row that is kept: its pixels, from the first cell kept
+        abm @ CELL + @ *  abm @ @ +                 ( lanes dst )
+        swap aoff @ + swap abits
+    else
+        2drop
+    then
     acur @ anx2 @ adown2
     acur @ anxt @ adown1
     acur @  anxt @ acur !  anx2 @ anxt !  dup anx2 !

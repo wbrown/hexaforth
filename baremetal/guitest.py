@@ -34,6 +34,7 @@ import deskcheck                                    # noqa: E402
 
 class Machine:
     W, H = W, H
+    cell_pixels = 64
 
     def __init__(self, elf, disk, tiff=None):
         self.disk, self.tiff = disk, tiff

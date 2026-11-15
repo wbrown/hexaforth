@@ -98,7 +98,7 @@ header ink   : ink   ( mask a -- ) swap invert swap and! ;
 \ putting dp where it was: a word's locals.
 : borrow ( cells -- a ) \ that many cells, for as long as the word that asks is running
     align here swap >c dp +!
-    dp @ HDR-BASE u> d# 8 -throw
+    dp @ DATA-LIMIT u> d# 8 -throw
 ;
 
 : x!   ( bits a -- ) xor! ;                                 \ invert

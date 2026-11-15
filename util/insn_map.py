@@ -632,7 +632,8 @@ def write_fused(image, path, words, classes, canonical, joins=None):
                 "\\ programmer would write: one standard word, or two, before the\n"
                 "\\ machine's own name for the instruction.  Those the image has most of\n"
                 "\\ are first, since the table is searched from the start.  A zero ends\n"
-                "\\ the table.\n\n"
+                "\\ the table.  It is a table and not variables: bulk.\n\n"
+                "bulk\n"
                 "header fused create fused\n")
         for ins in sorted(found, key=lambda i: (-uses[i], i)):
             seq = found[ins].split()
@@ -643,6 +644,7 @@ def write_fused(image, path, words, classes, canonical, joins=None):
                 "\\ Each is counted strings laid end to end.\n")
         for table, field in (("f-in", IN_MUX), ("f-op", ALU_OPS), ("f-out", OUT_MUX)):
             f.write(f"create {table}  " + " ".join(f',\" {n}\"' for n in field) + "\n")
+        f.write("unbulk\n")
     single = sum(1 for text in found.values() if " " not in text)
     print(f"{single} instructions as one word and {len(found) - single} as more written to {path}; "
           f"{len(left)} needed four words"

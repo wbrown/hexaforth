@@ -112,18 +112,22 @@ number wider than 36 bits is made with a shift.
 
 A machine's layout is in whole pages, since code must start on a page
 boundary; data and the display may lie between pages of code. With 16-bit
-cells an instruction is one cell and a page is 4,096 cells, so a layout for
-such a machine is:
+cells an instruction is one cell and a page is 4,096 cells.  Code is then
+in the lower half of memory, by rule 5, and so is whatever is reached by
+the address of a byte, which is twice a cell's address and must be a
+number a cell holds.  The layout of the machine that is built and tested
+with such cells, which has 65,536 of them, is:
 
 | Page | Cells | Use |
 |---|---|---|
 | 0 | `0x0000`-`0x0FFF` | kernel code |
-| 1-3 | `0x1000`-`0x3FFF` | dictionary and data |
-| 4 up | `0x4000` up | the display: 384 by 288 ends at `0x5AFF`, 768 by 576 at `0xABFF` |
-| above it | to `0xFFFF` | run-time code pages and heap |
-
-How many of the pages above the display are for code is set in the machine
-definition.
+| 1 | `0x1000`-`0x1FFF` | system code |
+| 2 | `0x2000`-`0x2FFF` | data: the 4,096 cells from `VAR_BASE` |
+| 3 | `0x3000`-`0x3FFF` | data that is not variables |
+| 4 | `0x4000`-`0x4FFF` | dictionary headers |
+| 5-7 | `0x5000`-`0x7FFF` | system code, and code compiled at run time |
+| 8 up | `0x8000` up | the display: 512 by 342 ends at `0xAABF` |
+| above it | to `0xFFFF` | memory that is given out as it is asked for |
 
 ## Display
 
@@ -187,3 +191,11 @@ hosted machine's order, polarity and row layout only.
 
 The keyboard, the pointer and the disk are reached through QEMU's virtio
 devices, by drivers written in Forth. They are not yet part of this model.
+
+The reference VM (`vm.c`) can be given a file to be a disk, of blocks of
+1,024 bytes, which is reached through three ports.  Port `0xb0` holds the
+number of a block, and reads as how many blocks the disk has.  The address
+of a cell written to port `0xb1` has that block read into the 1,024 bytes
+from the cell, and written to port `0xb2` has it written from them.  It is
+this VM's own: on a machine without it the ports read zero, as every port
+that a machine has not does, and writing them does nothing.

@@ -382,14 +382,23 @@ create quitting 0 ,
 
 \ ---- events from the input devices
 
+\ A pointer says where it is in 32,768ths of the screen.  That times the
+\ screen's size is more than a cell of 16 bits holds, and there it is
+\ multiplied into two cells.
+W32+? [if]
+: scaled ( v n -- x ) * d# 15 rshift ;
+[else]
+: scaled ( v n -- x ) um* d# 1 lshift swap d# 15 rshift or ;
+[then]
+
 header on-event : on-event ( type code value -- )
     rot
     dup d# 3 = if                                   \ absolute position
         drop
         swap if
-            fb-h @ * d# 15 rshift mx @ swap set-mouse
+            fb-h @ scaled mx @ swap set-mouse
         else
-            fb-w @ * d# 15 rshift my @ set-mouse
+            fb-w @ scaled my @ set-mouse
         then
         exit
     then

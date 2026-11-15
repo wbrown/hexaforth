@@ -9,7 +9,19 @@ header 'blk-write create 'blk-write 0 ,   \ ( buf blk# -- )
 : blk-read  ( buf blk# -- ) 'blk-read  @ dup 0= d# 37 -throw execute ;
 : blk-write ( buf blk# -- ) 'blk-write @ dup 0= d# 37 -throw execute ;
 
-\ One block buffer.
+\ One block buffer.  `block` gives the address of its first byte, so it has
+\ to be where the address of a byte can say: with cells of 16 bits that is
+\ the lower half of memory, and the buffer is in the data and not in the
+\ memory that halloc gives out, which is all above the display.
+
+W32+? [if]
+: blk-room ( -- a ) d# 1024 halloc ;
+[else]
+bulk
+create blk-cells #1024 allot
+unbulk
+: blk-room ( -- a ) blk-cells ;
+[then]
 
 create blk-buf   0 ,    \ its address, once allocated
 header blk-cur create blk-cur   -1 ,   \ the block it holds
@@ -25,7 +37,7 @@ header flush
 
 header cblock
 : cblock ( blk# -- a ) \ the cell that a buffer holding the block starts at
-    blk-buf @ 0= if d# 1024 halloc blk-buf ! then
+    blk-buf @ 0= if blk-room blk-buf ! then
     dup blk-cur @ = if drop blk-buf @ exit then
     flush
     d# -1 blk-cur !

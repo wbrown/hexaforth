@@ -3,7 +3,9 @@
 $32 constant TCOLS
 $10 constant TROWS
 
+bulk
 create tcells #800 allot
+unbulk
 : tbuf ( -- a ) tcells >c ;             \ the text, by the address of its first byte
 create tcol 0 ,
 create trow 0 ,

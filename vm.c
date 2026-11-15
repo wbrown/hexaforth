@@ -124,9 +124,44 @@ static inline uint8_t *io_target(context *ctx, int width) {
     return (p >= lo && p + width <= lo + sizeof(ctx->memory)) ? p : NULL;
 }
 
+// A disk.  This VM can be given a file to be one (main.c), of blocks of
+// 1,024 bytes, and it is reached as any device is, through ports:
+//   0xb0  write: a block's number           read: how many blocks there are
+//   0xb1  write: the address of a cell; the block is read into the 1,024
+//         bytes from it, with nothing where the file has ended
+//   0xb2  write: the address of a cell; the block is written from them
+// Only this VM has it.  On a machine without, the ports read zero, which
+// is a disk of no blocks, and writing them does nothing.
+#define IO_DISK_BLOCK 0xb0
+#define IO_DISK_READ  0xb1
+#define IO_DISK_WRITE 0xb2
+#define DISK_BLOCK    1024
+
+static inline void disk_io(context *ctx, int64_t addr, int write) {
+    uint64_t at = ucell(addr) * CELL_BYTES;
+    if (!ctx->DISK || at + DISK_BLOCK > sizeof(ctx->memory)) return;
+    uint8_t *p = (uint8_t *)ctx->memory + at;
+    fseek(ctx->DISK, (long)(ucell(ctx->DISKBLK) * DISK_BLOCK), SEEK_SET);
+    if (write) {
+        fwrite(p, 1, DISK_BLOCK, ctx->DISK);
+        fflush(ctx->DISK);
+    } else {
+        size_t n = fread(p, 1, DISK_BLOCK, ctx->DISK);
+        memset(p + n, 0, DISK_BLOCK - n);
+    }
+}
+
 static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write) {
     if (io_addr == IO_ADDR) {
         ctx->IOADDR = io_write;
+        return(TRUE);
+    }
+    if (io_addr == IO_DISK_BLOCK) {
+        ctx->DISKBLK = io_write;
+        return(TRUE);
+    }
+    if (io_addr == IO_DISK_READ || io_addr == IO_DISK_WRITE) {
+        disk_io(ctx, io_write, io_addr == IO_DISK_WRITE);
         return(TRUE);
     }
     if (io_width(io_addr)) {
@@ -166,6 +201,9 @@ static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
     }
     if (io_addr == 0xe1) {
         return TRUE;        // key?: reading stdin just blocks until there is one
+    }
+    if (io_addr == IO_DISK_BLOCK) {
+        return ctx->DISK ? ctx->DISKBLOCKS : 0;
     }
     if (io_width(io_addr)) {
         uint64_t value = 0;

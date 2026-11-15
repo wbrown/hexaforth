@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """Run the desktop on the reference VM and check what is on the screen.
 
-    desktop_test.py VM IMAGE.hex OUTDIR [CELL_BITS [W H BASE [TABLES]]]
+    desktop_test.py VM IMAGE.hex OUTDIR DISK.img [CELL_BITS [W H BASE [TABLES]]]
 
 The checks are those of test/deskcheck.py, which baremetal/guitest.py runs
 on the AArch64 kernel under QEMU.  Here the machine is the reference VM,
-which has cells of 64 bits, 32 or 16, and no devices: so the test is its
-devices, given at the prompt before the desktop is started.
+which has cells of 64 bits, 32 or 16.
 
-    the disk        a word in 'blk-read and one in 'blk-write.  Block 1 is
-                    kept in memory, so that the editor can save it.  The
-                    picture, from block 16, is a TIFF whose header and
-                    directory are laid over blocks made from their numbers
-                    (as test/tiff_test.py does): it takes no memory, and is
-                    bigger than a machine with cells of 16 bits has.  The
-                    tables of names, where the build made them, are from
-                    block 1024.
-    keys, pointer   a word in 'poll, which the event loop runs each time
-                    round.  It takes one thing from the console: a key going
-                    down or up, by its Linux code, as a virtio keyboard gives
-                    them; the pointer's place; its button; nothing; or to
-                    print the screen, or block 1.  It hands events to
+    the disk        the VM's own: a file, given to it as its second
+                    argument, which vmdisk.fs is the driver for.  It is a
+                    copy of DISK.img, which baremetal/mkdisk.py made as it
+                    makes QEMU's: block 1 for the editor, the Mandrill as a
+                    TIFF from block 16 (DISK.tiff, beside it, is the same
+                    file, and is dithered here to compare the screen with),
+                    and from block 1024 the tables of names, if TABLES says
+                    the build made any.
+    keys, pointer   the VM has none, so the test is them: a word in 'poll,
+                    typed at the prompt, which the event loop runs each
+                    time round.  It takes one thing from the console: a key
+                    going down or up, by its Linux code, as a virtio
+                    keyboard gives them; the pointer's place; its button;
+                    nothing; or to print the screen.  It hands events to
                     on-event, as any driver does.
 
 The VM waits for the console whenever it is asked for a key, so the
@@ -30,6 +30,7 @@ memory, printed a cell at a time.
 """
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -39,8 +40,8 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import deskcheck                                    # noqa: E402
-from tiff_test import BLOCK, File                   # noqa: E402
 
+BLOCK = 1024
 NAMED = {"ret": 28, "backspace": 14, "up": 103, "down": 108, "left": 105, "right": 106,
          "pgup": 104, "pgdn": 109, "ctrl": 29, "shift": 42}
 
@@ -59,60 +60,26 @@ def keycodes():
 
 
 class Machine:
-    def __init__(self, vm, image, bits, W, H, base, tables=None, picture=(512, 512)):
+    def __init__(self, vm, image, disk, out, bits, W, H, base):
         self.bits, self.W, self.H, self.base = bits, W, H, base
+        self.cell_pixels = bits                     # a cell of the display is as many pixels as it has bits
         self.codes = keycodes()
-        cellb = bits // 8
-        cells = BLOCK // cellb
-
-        def as_cells(data):
-            data += bytes(-len(data) % cellb)
-            return [int.from_bytes(data[i:i + cellb], "little") for i in range(0, len(data), cellb)]
-
-        def laid(word, values):                     # lines that lay cells down with a word
-            return [" ".join(f"{v:x} {word}" for v in values[i:i + 6]) for i in range(0, len(values), 6)]
-
-        pw, ph = picture
-        self.tiff = File(0, pw, ph, 3, 64, [BLOCK + y * pw * 3 for y in range(0, ph, 64)], base=16)
-        source = open(f"{HERE}/../baremetal/block1.fs").read()
-        block1 = " ".join(source.split()).encode().ljust(BLOCK)
-        lines = ["variable sd  variable bf  variable bk",
-                 ": rnd sd @ 25173 * 13849 + 65535 and dup sd ! 8 rshift ;",
-                 f": cl 0 {cellb} 0 do rnd i 8 * lshift or loop ;",
-                 f": gen 40503 * 12345 + 65535 and sd !  {cells} over + swap do cl i ! loop ;"]
-        data, table = [], []
-        for blk, cell, values in self.tiff.patches(cellb):
-            table.append((blk, cell, len(values), len(data)))
-            data += values
-        lines += ["create pd hex"] + laid(",", data) + ["decimal create pt"]
-        lines += [f"{blk} , {cell} , {n} , pd {src} + ," for blk, cell, n, src in table]
-        lines += ["0 , 0 , 0 , 0 ,", "create b1 hex"] + laid(",", as_cells(bytearray(block1))) + ["decimal"]
-        names = ""
-        if tables:
-            content = bytearray(open(tables, "rb").read())
-            content += bytes(-len(content) % BLOCK)
-            lines += [f"{len(content)} halloc constant nm  variable np  nm np !", ": l, np @ ! 1 np +! ;", "hex"]
-            lines += laid("l,", as_cells(content)) + ["decimal"]
-            names = (f" bk @ 1024 - {len(content) // BLOCK} u< if"
-                     f" bk @ 1024 - {cells} * nm + bf @ {cells} cells-move then")
+        self.tiff = os.path.splitext(disk)[0] + ".tiff"
+        self.disk = f"{out}/disk.img"               # a copy, for the editor to save to
+        shutil.copyfile(disk, self.disk)
+        self.rows = Image.open(self.tiff).size[1]
         stride = W // bits
-        lines += [": lay dup >r 3 + @  r@ 1 + @ bf @ +  r@ 2 + @ cells-move r> ;",
-                  ": rd1 pt begin dup 2 + @ while dup @ bk @ = if lay then 4 + repeat drop ;",
-                  f": rd2 bk @ 1 = if b1 bf @ {cells} cells-move then{names} ;",
-                  ": rd 2dup gen  bk ! bf !  rd1 rd2 ;",
-                  f": wr 1 = if b1 {cells} cells-move else drop then ;",
-                  "' rd 'blk-read !  ' wr 'blk-write !",
-                  ": k2 key 8 lshift key or ;",
-                  f": scr 91 emit hex {base} {stride * H} over + swap do i @ . loop decimal 93 emit ;",
-                  f": blk1 123 emit hex b1 {cells} over + swap do i @ . loop decimal 125 emit ;",
-                  ": ek 1 key key 48 - on-event ;",
-                  ": em 3 0 k2 on-event 3 1 k2 on-event ;",
-                  ": eb 1 272 key 48 - on-event ;",
-                  ": t1 dup 107 = if ek then dup 109 = if em then dup 98 = if eb then ;",
-                  ": t2 dup 115 = if scr then dup 101 = if blk1 then ;",
-                  ": tp key t1 t2 drop ;",
-                  "display-init ' tp 'poll ! windows"]
-        self.vm = subprocess.Popen([vm, image], stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0)
+        lines = [": k2 key 8 lshift key or ;",
+                 f": scr 91 emit hex {base} {stride * H} over + swap do i @ . loop decimal 93 emit ;",
+                 ": ek 1 key key 48 - on-event ;",
+                 ": em 3 0 k2 on-event 3 1 k2 on-event ;",
+                 ": eb 1 272 key 48 - on-event ;",
+                 ": t1 dup 107 = if ek then dup 109 = if em then ;",
+                 ": t2 dup 98 = if eb then dup 115 = if scr then ;",
+                 ": tp key t1 t2 drop ;",
+                 "display-init vmdisk-init ' tp 'poll ! windows"]
+        self.vm = subprocess.Popen([vm, image, self.disk], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   bufsize=0)
         self.out = bytearray()
         self.more = threading.Condition()
         threading.Thread(target=self.reader, daemon=True).start()
@@ -149,7 +116,7 @@ class Machine:
 
     def boot(self):
         end = self.until(b"desktop")
-        self.idle(self.tiff.h + 80)                 # the picture comes down a row a turn
+        self.idle(self.rows + 80)                   # the picture comes down a row a turn
         return self.out[:end].decode(errors="replace")
 
     def key(self, name, *modifiers):
@@ -182,17 +149,13 @@ class Machine:
         self.send(b"b0")
         self.idle(6)
 
-    def printed(self, command, opening, closing):
-        """Send a command that prints cells between two characters; the cells."""
-        start = len(self.out)
-        self.send(command)
-        end = self.until(closing, start)
-        text = bytes(self.out[self.out.index(opening, start) + 1:end - 1]).decode()
-        return [int(v, 16) & (1 << self.bits) - 1 for v in text.split()]
-
     def screenshot(self, path, settle=1.5):
         self.idle(12)
-        cells = self.printed(b"s", b"[", b"]")
+        start = len(self.out)
+        self.send(b"s")
+        end = self.until(b"]", start)
+        text = bytes(self.out[self.out.index(b"[", start) + 1:end - 1]).decode()
+        cells = [int(v, 16) & (1 << self.bits) - 1 for v in text.split()]
         bits, stride = self.bits, self.W // self.bits
         assert len(cells) == stride * self.H, f"{len(cells)} cells of the screen were printed"
         raw = bytearray(self.W * self.H)
@@ -209,13 +172,18 @@ class Machine:
         return shot
 
     def block(self, n):
-        assert n == 1, "only block 1 is kept"
         self.idle(4)
-        cells = self.printed(b"e", b"{", b"}")
-        return b"".join(c.to_bytes(self.bits // 8, "little") for c in cells)
+        start = len(self.out)                       # by now the VM has done all that was sent before:
+        self.send(b"s")                             # it prints the screen only after it
+        self.until(b"]", start)
+        return open(self.disk, "rb").read()[BLOCK * n:BLOCK * (n + 1)]
 
     def picture(self):
-        return self.tiff.rows()
+        im = Image.open(self.tiff).convert("RGB")
+        w, h = im.size
+        px = im.tobytes()
+        gray = [(77 * px[i] + 150 * px[i + 1] + 29 * px[i + 2]) >> 8 for i in range(0, len(px), 3)]
+        return deskcheck.atkinson(gray, w, h)
 
     def stop(self):
         try:
@@ -227,15 +195,15 @@ class Machine:
 
 
 def main():
-    vm, image, out = sys.argv[1:4]
-    bits = int(sys.argv[4]) if len(sys.argv) > 4 else 64
-    W, H, base = (int(v, 0) for v in sys.argv[5:8]) if len(sys.argv) > 7 else (768, 576, 0x4000)
-    tables = sys.argv[8] if len(sys.argv) > 8 else None
+    vm, image, out, disk = sys.argv[1:5]
+    bits = int(sys.argv[5]) if len(sys.argv) > 5 else 64
+    W, H, base = (int(v, 0) for v in sys.argv[6:9]) if len(sys.argv) > 8 else (768, 576, 0x4000)
+    tables = len(sys.argv) > 9
     os.makedirs(out, exist_ok=True)
-    m = Machine(vm, image, bits, W, H, base, tables)
+    m = Machine(vm, image, disk, out, bits, W, H, base)
     try:
         # The newest words in the dictionary are the test's own: tp is the one in 'poll.
-        desk = deskcheck.standard(W, H, newest=("tp", "t2", " key t1 t2 drop"), names_loaded=tables is not None)
+        desk = deskcheck.standard(W, H, newest=("tp", "t2", " key t1 t2 drop"), names_loaded=tables)
         failures = deskcheck.run(m, desk, out)
     finally:
         m.stop()

@@ -119,12 +119,12 @@ create nm-head 0 , 0 ,  \ the first two cells of the file
 create nm-lo 0 ,        \ where the part of a table still to look in starts,
 create nm-n 0 ,         \ and how many entries it is
 
-$100000 constant NAMES-AT   \ where on the disk, in bytes: block 1024
-
 \ An entry of the tables is two halves of a cell, and the cells are the
 \ machine's.  A machine with cells of 16 bits is built with none: half of
 \ such a cell does not hold an execution token.
 W32+? [if]
+$100000 constant NAMES-AT   \ where on the disk, in bytes: block 1024
+
 : (names-load) ( -- )
     nm-head >c CELLB 2* NAMES-AT disk-read
     nm-head @ tstamp @ <> if exit then
@@ -214,8 +214,8 @@ header names-unload
 ;
 
 \ A number on its own is not an address of code unless it is in the kernel
-\ and system pages, or in the pages from 8 up.
-: code? ( x -- f ) dup h# 2000 u< swap h# 8000 - h# 8000 u< or ;
+\ or page 1, or in the pages after the data and the headers.
+: code? ( x -- f ) dup h# 2000 u< swap CODE-BASE - CODE-SIZE u< or ;
 
 : h4 ( n -- ) dup d# 12 rshift hex1 dup d# 8 rshift hex1 dup d# 4 rshift hex1 hex1 ;
 
@@ -291,11 +291,12 @@ create hv 0 ,
 : sxname ( hdr -- ) slab @ sital !  sname  d# 0 sital ! ;
 
 \ An execution token as a number is most often one given to catch or
-\ stored in a vector.  Code is in page 1 and from page 8 up.
-: xt? ( n -- f ) dup h# 8000 u< 0= swap h# 1001 - h# fff u< or ;
+\ stored in a vector.  Code is in page 1 and in the pages after the data
+\ and the headers.
+: xt? ( n -- f ) dup CODE-BASE - CODE-SIZE u< swap h# 1001 - h# fff u< or ;
 
 meta
-:: DATA-CELLS  $10000 $4000 - byte-shift rshift literal ;   \ cells of data and of headers, from VARS
+:: DATA-CELLS  code-base 2* $4000 - byte-shift rshift literal ;     \ cells of data and of headers, from VARS
 target
 
 : snum ( n -- )

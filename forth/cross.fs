@@ -30,9 +30,9 @@ variable tdp    $4000 tdp !     \ Data pointer
 \ 4,096 cells from var-base is fetched and stored by one instruction.  thp
 \ is where the next header goes.  At run time the nucleus does the same:
 \ its data carries on from the end of the data here, and its headers from
-\ the end of the headers.
-$a000 constant hdr-base
-variable thp    hdr-base thp !
+\ the end of the headers.  Where the region starts depends on the machine
+\ (hdr-base, below, once the machine's sizes have been read).
+variable thp
 variable dsave
 : >hdr ( -- ) tdp @ dsave !  thp @ tdp ! ;      \ lay down in the header region
 : hdr> ( -- ) tdp @ thp !  dsave @ tdp ! ;      \ and go back to the data
@@ -361,7 +361,8 @@ ptcode, 'ptcode !
 \ order of the code is the same in both, which is all the comparison
 \ needs; a call that is across pages in one and not in the other is the
 \ same call.
-: next-page ( -- ) tcp @ $1fff + $2000 negate and  $10000 max  org ;
+variable page-min   \ the first page past page 1, in bytes: code-base, once the machine's sizes are read
+: next-page ( -- ) tcp @ $1fff + $2000 negate and  page-min @ max  org ;
 : code-page ( n -- ) plain @ if drop else $2000 * org then ;
 : ?own-page ( -- ) \ before a definition
     plain @  tcp @ $2000 u< 0= and  tcp @ $1fff and $1800 u> and
@@ -414,12 +415,41 @@ cell-bytes 2 = [if] 1 [else] cell-bytes 4 = [if] 2 [else] 3 [then] [then] consta
 display-ok
 cell-bits #64 = [if] -1 [else] 1 cell-bits lshift 1- [then] constant cell-mask
 
-\ Where code compiled at run time goes, in instructions: two pages from
-\ $6000 on a small machine, or the eight pages from $8000 when there is
-\ room.  An execution token is 16 bits in a dictionary header, less the
-\ immediate flag when a cell is 16 bits, so code cannot go higher.
-addr-bits #16 > [if] $8000 [else] $6000 [then] constant code-base
-addr-bits #16 > [if] $8000 [else] $2000 [then] constant code-size
+\ Where things are, after the kernel's page and page 1, which every machine
+\ has, and the data, which starts at byte $4000 (var-base):
+\
+\                             headers          code pages past page 1
+\   memory of 64K cells       bytes $8000      3, instructions $5000-$7fff
+\   more                      bytes $a000      8, instructions $8000-$ffff
+\
+\ The data ends where the headers start, and the headers where that code
+\ starts.  An execution token is 16 bits in a dictionary header, less the
+\ immediate flag when a cell is 16 bits, so with such a cell code cannot be
+\ at instruction $8000 or above; nor can it be, since that is cell $8000,
+\ where the bytes that an address can say end.  What the system does not
+\ use of those pages is for code compiled at run time (code-base,
+\ code-size, in instructions).
+addr-bits #16 > [if] $a000 [else] $8000 [then] constant hdr-base
+hdr-base thp !
+addr-bits #16 > [if] $8000 [else] $5000 [then] constant code-base
+addr-bits #16 > [if] $8000 [else] $3000 [then] constant code-size
+code-base 2* page-min !
+
+\ One instruction fetches or stores a cell in the 4,096 from var-base, and
+\ the data is there so that a variable is such a cell.  Where a cell is 16
+\ bits those are 8KB, and the data is more: a font, a table, a buffer of
+\ text would push the variables that come after them out.  So what is
+\ bulk and not variables says so (`bulk`, and `unbulk` after it), and on
+\ such a machine it is laid down past those cells, up to where the headers
+\ start.  The data made at run time carries on after the variables, and
+\ must stop where the bulk starts.  On a machine whose 4,096 cells reach
+\ the headers there is nothing to do and the two words do nothing.
+$4000 4096 cell-bytes * + constant bulk-base
+bulk-base hdr-base < constant bulky
+variable tbp    bulk-base tbp !
+variable bsave
+variable in-bulk    false in-bulk !
+bulky [if] bulk-base [else] hdr-base [then] constant data-limit
 
 : tcalign   tdp @ cell-bytes 1- + cell-bytes negate and tdp ! ;
 
@@ -464,9 +494,18 @@ variable sizes      0 sizes !
 
 :: include
     parse-name save-mem { a u }
-    tcp @ tdp @ thp @ + hdr-bytes @ lbl-bytes @ { c d h l }
+    tcp @ tdp @ thp @ + tbp @ + hdr-bytes @ lbl-bytes @ { c d h l }
     a u included
-    a u  tcp @ c -  tdp @ thp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  c 2/  size-line
+    a u  tcp @ c -  tdp @ thp @ + tbp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  c 2/  size-line
+;
+
+:: bulk ( -- ) \ what is laid down from here is not variables
+    in-bulk @ abort" bulk within bulk"  true in-bulk !
+    bulky if tdp @ bsave !  tbp @ tdp ! then
+;
+:: unbulk ( -- )
+    in-bulk @ 0= abort" unbulk with no bulk"  false in-bulk !
+    bulky if tdp @ tbp !  bsave @ tdp ! then
 ;
 :: included     included ;
 :: marker       marker ;
@@ -1378,14 +1417,14 @@ warnings on
 :: LEFT1  disp-left-low if 1 else 1 cell-bits 1- lshift then literal ;
 :: M8     disp-left-low if $ff else $ff cell-bits 8 - lshift then literal ;
 :: VARS       var-base literal ;                \ the first cell one instruction can fetch
-:: HDR-BASE   hdr-base literal ;                \ where headers start, and data must stop
+:: HDR-BASE   hdr-base literal ;                \ where headers start
+:: DATA-LIMIT data-limit literal ;              \ where data must stop: there, or where the bulk starts
 :: CODE-BASE  code-base literal ;
 :: CODE-SIZE  code-size literal ;
 :: DISPLAY? disp-w 0<> ;                \ has the machine a display?
 :: W64?   cell-bits #64 = ;
 :: W32?   cell-bits #32 = ;
 :: W32+?  cell-bits #32 >= ;
-:: DESKTOP? disp-w 0<>  cell-bits #32 >=  and ; \ has it the desktop (system.fs)?
 
 :: asm-0branch
     ' >body @
@@ -1580,8 +1619,12 @@ decimal
     file close-file
 ;
 
-s" (all)" tcp @  tdp @ $4000 -  thp @ hdr-base - +  hdr-bytes @ lbl-bytes @ 0 size-line
-tdp @ hdr-base > [if] cr .( the data has run into the dictionary headers) abort [then]
+s" (all)" tcp @  tdp @ $4000 -  thp @ hdr-base - +  tbp @ bulk-base - +  hdr-bytes @ lbl-bytes @ 0 size-line
+in-bulk @ [if] cr .( bulk with no unbulk) abort [then]
+tdp @ data-limit > [if] cr .( the data has run into what is after it) abort [then]
+tbp @ hdr-base >  bulky and [if] cr .( the bulk has run into the dictionary headers) abort [then]
+thp @ code-base 2* > [if] cr .( the dictionary headers have run into the code) abort [then]
+tcp @ code-base code-size + 2* > [if] cr .( the code has run past where code can be) abort [then]
 sizes @ close-file throw
 plain @ 0= [if]
     inline-name create-output-file  dup inl-map call# @ rot write-file throw  close-file throw

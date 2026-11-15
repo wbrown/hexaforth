@@ -1,17 +1,19 @@
 #!/bin/sh
-# What draws, on every size of machine.
+# The system and the desktop, on every size of machine.
 #
 #   test/sizes.sh [SEED ...]
 #
 # Builds the machine with cells of 64 bits, of 32 and of 16, each with a
 # display and each stopping at a fetch or store outside memory (STRICT),
 # and on each runs the tests that type at the prompt of the reference VM:
-# the nucleus, the drawing words against a model of them, regions a cell
-# at a time against the one form of their pixels, and the dither against a
-# dither a pixel at a time.  The same sources and the same tests: what is
-# different is the cell.
+# the nucleus; the desktop, its windows worked with keys and a pointer and
+# its screen looked at; the drawing words against a model of them; regions
+# a cell at a time against the one form of their pixels; the dither
+# against a dither a pixel at a time; and the TIFF reader.  The same
+# sources and the same tests: what is different is the cell.
 #
-# The machine of 16 bits has 128KB, so its display is 512 by 342.
+# The machine of 16 bits has 128KB, so its display is 512 by 342, and the
+# desktop lays its windows out for that.
 #
 # Everything a test prints is kept in build/sizes/; one line a test is
 # printed, and the exit status is 0 only if all of them passed.
@@ -20,6 +22,8 @@ OUT=build/sizes
 mkdir -p $OUT
 SEEDS=${*:-3 4}
 fail=0
+PICTURE=baremetal/build/baboon.png          # the Mandrill, which baremetal/Makefile fetches
+[ -f $PICTURE ] || make -C baremetal build/baboon.png > $OUT/picture.log 2>&1
 
 run() { # name, command...
     name=$1; shift
@@ -38,11 +42,19 @@ for m in "64 22 768 576 0x4000" "32 17 768 576 0x8000" "16 16 512 342 0x8000"; d
     fi
     mv build/hexaforth-$C-$A $OUT/vm-$C
     mv build/nuc-$C-$A.hex $OUT/nuc-$C.hex
+    rm -f $OUT/nuc-$C.tables                # the names that go with the image, if it has any
     [ -f build/nuc-$C-$A.tables ] && mv build/nuc-$C-$A.tables $OUT/nuc-$C.tables
     run prompt-$C python3 test/prompt_test.py $OUT/vm-$C $OUT/nuc-$C.hex $C
-    if [ $C != 16 ]; then
+    # The desktop, with a disk made as QEMU's is: block 1 for the editor, the
+    # Mandrill, and the tables of names that go with this image, if it has any.
+    T=
+    [ -f $OUT/nuc-$C.tables ] && T=$OUT/nuc-$C.tables
+    if python3 baremetal/mkdisk.py $PICTURE $OUT/disk-$C.img baremetal/block1.fs $T > $OUT/disk-$C.log 2>&1; then
         run desktop-$C python3 test/desktop_test.py $OUT/vm-$C $OUT/nuc-$C.hex $OUT/desktop-$C \
-            $C $W $H $BASE $OUT/nuc-$C.tables
+            $OUT/disk-$C.img $C $W $H $BASE $T
+    else
+        printf 'FAIL %-18s %s\n' "disk-$C" "$(tail -1 $OUT/disk-$C.log | cut -c1-110)"
+        fail=1
     fi
     for s in $SEEDS; do
         run display-$C-$s python3 test/display_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s 150 $C $W $H

@@ -11,24 +11,54 @@ create t-up   ," desktop"
 \ the same windows.  The picture and the editor are there if there is a
 \ disk, which is to say if a driver has said how a block is read.
 
+\ Where each window goes: its left, top, width and height, for the
+\ picture, the editor, the Words window, the calculator and the Forth
+\ window, which are opened in that order, the last in front.  There are
+\ two arrangements.  One is for a screen of 768 by 576.  The other is for
+\ a smaller one, down to 512 by 342, where a window is as big as it was
+\ but for the picture's, which shows 256 by 256 of it: they lie over each
+\ other more, each with some of its title to be seen, and the editor,
+\ whose 64 characters are as wide as the screen, has its frame off both
+\ sides of it.
+
+create big-desk
+    #250 , #40 , #514 , #532 ,
+    #30 , #270 , #518 , #300 ,
+    #140 , #296 , #482 , #276 ,
+    #626 , #300 , #138 , #238 ,
+    #12 , #32 , #406 , #280 ,
+
+create small-desk
+    #246 , #22 , #258 , #276 ,
+    -3 , #40 , #518 , #300 ,
+    #4 , #60 , #482 , #276 ,
+    #366 , #96 , #138 , #238 ,
+    #6 , #26 , #406 , #280 ,
+
+: place ( i -- x y w h ) \ where window i goes, on this screen
+    d# 2 lshift  fb-h @ d# 576 < if small-desk else big-desk then  +
+    dup @ swap  dup 1+ @ swap  dup CELL2 + @ swap  c# 3 + @
+;
+
 header windows
 : windows ( -- ) \ open them, and run until ^Q
     d# 0 nwin !
     'blk-read @ if
-        d# 16 ['] view-load catch if drop d# 0 then >r       ( R: the viewer, or 0 if there is no picture )
-        d# 250 d# 40 d# 514 d# 532 t-view
+        d# 16  d# 0 place 2swap 2drop  swap d# 2 - swap d# 20 -     \ the picture, and what its window shows
+        ['] view-load catch if 2drop drop d# 0 then >r      ( R: the viewer, or 0 if there is no picture )
+        d# 0 place t-view
         ['] view-draw ['] ignore-key d# 0 window
         r> swap win-data !
-        d# 30 d# 270 d# 518 d# 300 t-edit
+        d# 1 place t-edit
         ['] edit-draw ['] edit-key d# 0 window drop
     then
-    d# 140 d# 296 d# 482 d# 276 t-words
+    d# 2 place t-words
     ['] words-draw ['] words-key ['] words-click window drop
-    d# 626 d# 300 d# 138 d# 238 t-calc
+    d# 3 place t-calc
     ['] calc-draw ['] calc-key ['] calc-click window drop
     tclear term-ok
     repl-start
-    d# 12 d# 32 d# 406 d# 280 t-repl
+    d# 4 place t-repl
     ['] term-draw ['] repl-key d# 0 window drop
     t-up >c count type cr
     event-loop

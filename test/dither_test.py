@@ -8,8 +8,10 @@ that is the same here, and dithered there (image-is, atkinson); the bitmap
 is printed and compared with the dither done here the plain way, every
 pixel.  They are of one sample and of three, and of widths that are and
 are not whole cells of lanes, of pixels and of the image's own bytes, so
-that both ways the grays are had and every end of a row are tried.  The
-machine may have cells of 64 bits, 32 or 16.
+that both ways the grays are had and every end of a row are tried.  Two
+are dithered a row of each in turn, and three have a bitmap made of a
+part of them (dither-part).  The machine may have cells of 64 bits, 32 or
+16.
 """
 import random
 import subprocess
@@ -49,8 +51,9 @@ def main():
              ": d rot . hex over 1 + @ * swap @ swap over + swap do i @ . loop decimal ;"]   # ( n bm h )
     want = []
 
-    def make(n, w, h, spp):
-        """Make image n in the VM; the cells its bitmap should be."""
+    def make(n, w, h, spp, part=None):
+        """Make image n in the VM; the cells its bitmap should be, or those of
+        a bitmap of a part of it: (x, y, w, h), x being where a cell starts."""
         start = rng.randrange(1, 65536)
         x, data = start, []
         for _ in range(w * h * spp):
@@ -58,12 +61,13 @@ def main():
             data.append(x >> 8)
         gray = data if spp == 1 else [(77 * data[i] + 150 * data[i + 1] + 29 * data[i + 2]) >> 8
                                       for i in range(0, len(data), 3)]
-        stride = (w + bits - 1) // bits
+        px, py, pw, ph = part or (0, 0, w, h)
+        stride = (pw + bits - 1) // bits
         cells = []
-        for row in reference(gray, w, h):
-            for c in range(stride):
+        for row in reference(gray, w, h)[py:py + ph]:
+            for c in range(stride):                 # whole cells of the row, as far as the image goes
                 cells.append(sum(1 << b for b in range(bits)
-                                 if c * bits + b < w and not row[c * bits + b]))
+                                 if px + c * bits + b < w and not row[px + c * bits + b]))
         lines.extend([f"{w * h * spp} halloc constant r{n}",
                       f"{start} sd !  r{n} {w * h * spp} fill",
                       f"create b{n} 0 , 0 ,",
@@ -85,6 +89,18 @@ def main():
         want.append((lines[-2], (wa, h, spa), ca))
         want.append((lines[-1], (wb, h, spb), cb))
         n += 2
+    # A bitmap of a part of an image: every row is dithered as far as the last
+    # that is kept, and the rows and the cells of the part are what is kept.
+    for (w, h, spp), part in (((3 * bits + 7, 12, 3), (bits, 3, bits + 9, 5)),
+                              ((4 * bits, 10, 3), (2 * bits, 2, bits, 6)),
+                              ((2 * bits + 3, 9, 1), (0, 4, bits + 5, 5))):
+        cells = make(n, w, h, spp, part)
+        px, py, pw, ph = part
+        lines += [f"b{n} i{n} {px} {py} {pw} {ph} dither-part constant d{n}",
+                  f": part{n} {py + ph} 0 do d{n} dither-row loop ; part{n}",
+                  f"{n} b{n} {ph} d"]
+        want.append((lines[-1], (pw, ph, spp), cells))
+        n += 1
     typed = "".join(line + "\n" for line in lines) + "8000 execute\n"
     out = subprocess.run([vm, image], input=typed, capture_output=True, text=True, timeout=600).stdout
     failed = 0

@@ -892,7 +892,7 @@ header s,
 
 : mkheader
     newpage?
-    dp @ HDR-BASE u> d# 8 -throw            \ the data has run into the headers
+    dp @ DATA-LIMIT u> d# 8 -throw          \ the data has run into what is after it
     hswap
     align
     here lastword !
@@ -1604,19 +1604,13 @@ meta
 target
 
 \ The nucleus's peephole (join.fs) is in every size of machine.  A machine
-\ with a display and cells of 64 bits or 32 has all of system.fs, the
-\ desktop, with the peephole on a page of its own after everything else.
-\ One with cells of 16 bits that has a display has what draws on it
-\ (graphics.fs): the display, regions and the dither.  One with no display
-\ has the peephole alone.
-DESKTOP? [if]
+\ with a display, whatever its cell, has all of system.fs, the desktop,
+\ with the peephole after everything else.  One with no display has the
+\ peephole alone.
+DISPLAY? [if]
 include system.fs
 [else]
-DISPLAY? [if]
-include graphics.fs
-[else]
 include join.fs
-[then]
 [then]
 
 meta

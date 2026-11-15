@@ -9,6 +9,7 @@ and the picture is compared with a dither done on the host.
 
 A machine has:
     W, H                    the screen
+    cell_pixels             how many pixels of it a cell of the display holds
     boot()                  what the console said as the desktop came up
     type(text)  key(name, *modifiers)  move(x, y)  click(x, y)  drag(x0, y0, x1, y1)
     screenshot(path)        the screen, as an image: a pixel is true if white
@@ -199,17 +200,24 @@ def run(m, d, out, scale_note=None):
     shot = m.screenshot(f"{out}/6-viewer.png")
     want = m.picture()
     ph, pw = len(want), len(want[0])
+    # A window smaller than the picture shows the middle of it: the rows in
+    # the middle, and across from the middle or the start of the cell of the
+    # display that is in.
+    _, _, vw, vh = d.rect["viewer"]
+    kw, kh = min(vw - 2, pw), min(vh - 20, ph)
+    ox, oy = (pw - kw) // 2 // m.cell_pixels * m.cell_pixels, (ph - kh) // 2
 
     def picture_wrong(shot, x0, y0, x1, y1):
         """Pixels of the picture, between two corners of the screen, that are not as dithered."""
         vx, vy = d.content("viewer")
         px = shot.load()
-        return sum(1 for y in range(max(y0, vy), min(y1, vy + ph, H))
-                   for x in range(max(x0, vx), min(x1, vx + pw, W))
-                   if bool(px[x, y]) != bool(want[y - vy][x - vx]))
+        return sum(1 for y in range(max(y0, vy), min(y1, vy + kh, H))
+                   for x in range(max(x0, vx), min(x1, vx + kw, W))
+                   if bool(px[x, y]) != bool(want[y - vy + oy][x - vx + ox]))
 
     bad = picture_wrong(shot, 0, 0, W, H)
-    check("viewer matches the reference dither", bad == 0, f"{bad} pixels differ")
+    check("viewer matches the reference dither", bad == 0,
+          f"{bad} pixels differ, of the {kw} by {kh} of the picture from {ox}, {oy}")
 
     # Drag the viewer by its title bar: 40 right, 42 down.
     tx, ty = d.title("viewer", 40, 42)
@@ -255,34 +263,32 @@ def run(m, d, out, scale_note=None):
     source = source_of(shot)
     check("Down moves to the next word", source[0] == ": " + second and source[1].endswith(ending)
           and source[2] == ";", repr(source[:3]))
-    # Two words of the dither, which are next to each other in the list:
-    # dither-row has a fused instruction in it, and dither-start a plain
-    # word that is one instruction, and a variable that has no header.
+    # Three words of the dither, which are next to each other in the list:
+    # dither-row has fused instructions in it, dither-start a variable that
+    # has no header, and dither-part a plain word that is one instruction.
+    wanted = ("dither-row", "dither-start", "dither-part")
     for _ in range(16):                             # page down to them
         names = read_text(m.screenshot(f"{out}/10-list.png", settle=1.0), lx, wy, 13, 16)
-        if "dither-row" in names and "dither-start" in names:
+        if all(name in names for name in wanted):
             break
         m.key("pgdn")
-    check("PgDn pages through the dictionary", "dither-row" in names and "dither-start" in names,
-          repr(names[:4]))
+    check("PgDn pages through the dictionary", all(name in names for name in wanted), repr(names[:4]))
 
     def listed(name):                               # click a name in the list
         m.click(lx + 8, wy + (names.index(name) * 16 + 8 if name in names else 30))
         m.move(*away)
 
+    # Words in bold are one instruction between them.  With the pointer on
+    # them, a box by them says which: its number, and its fields.  The box
+    # is a line down, or on the last two lines over them, and starts under
+    # the words unless that would take it past the edge of the window, so
+    # its text is looked for from there leftwards.
     listed("dither-row")
     shot = m.screenshot(f"{out}/10-fused.png")
     source = source_of(shot, 45)
-    check("a fused instruction is shown as its words",
-          source[0] == ": dither-row" and any(" @ * +" in line for line in source[:8]),
-          repr(source[:4]))
-
-    # Words in bold are one instruction.  With the pointer on them, a box
-    # by them says which: its number, and its fields.  The box is a line
-    # down, or on the last two lines over them, and starts under the
-    # words unless that would take it past the edge of the window, so
-    # its text is looked for from there leftwards.
     where = first_bold(shot, sx, wy, 45, 16)
+    check("a fused instruction is shown as its words, in bold",
+          source[0] == ": dither-row" and where is not None, repr(source[:4]))
     told = ""
     if where:
         r, c = where
@@ -295,10 +301,9 @@ def run(m, d, out, scale_note=None):
                 break
     check("the pointer on a fused instruction shows the machine's form of it",
           re.match(r"[0-9A-F]{4} \S*->IN \S+ ->\S+", told) is not None, repr((where, told)))
-    # A word that is an instruction by itself says so too: rshift, in
-    # dither-start, whose first line stores into img, which has no header.
+    # dither-start's first line stores into img, which has no header.
     listed("dither-start")
-    shot = m.screenshot(f"{out}/10-plain.png")
+    shot = m.screenshot(f"{out}/10-label.png")
     source = source_of(shot, 45)
     if d.names_loaded:
         check("a headerless variable is shown by its label",
@@ -306,6 +311,10 @@ def run(m, d, out, scale_note=None):
     else:
         check("a headerless variable is shown as its number, with no names on the disk",
               source[0] == ": dither-start" and re.search(r" \d+ !$", source[1]) is not None, repr(source[:2]))
+    # A word that is an instruction by itself says so too: rshift, in dither-part.
+    listed("dither-part")
+    shot = m.screenshot(f"{out}/10-plain.png")
+    source = source_of(shot, 45)
     told = ""
     rows = [i for i, line in enumerate(source[:13]) if "rshift" in line]
     if rows:
@@ -405,7 +414,13 @@ def run(m, d, out, scale_note=None):
 
 
 def standard(W=768, H=576, newest=("cold", "desktop", " catch drop"), names_loaded=True):
-    """The desktop as desk.fs lays it out on a screen of 768 by 576."""
-    return Desk(W, H, [("viewer", (250, 40, 514, 532)), ("editor", (30, 270, 518, 300)),
-                       ("words", (140, 296, 482, 276)), ("calc", (626, 300, 138, 238)),
-                       ("forth", (12, 32, 406, 280))], newest, names_loaded)
+    """The desktop as desk.fs lays it out: on a screen of 768 by 576, or on a smaller one."""
+    if H < 576:
+        windows = [("viewer", (246, 22, 258, 276)), ("editor", (-3, 40, 518, 300)),
+                   ("words", (4, 60, 482, 276)), ("calc", (366, 96, 138, 238)),
+                   ("forth", (6, 26, 406, 280))]
+    else:
+        windows = [("viewer", (250, 40, 514, 532)), ("editor", (30, 270, 518, 300)),
+                   ("words", (140, 296, 482, 276)), ("calc", (626, 300, 138, 238)),
+                   ("forth", (12, 32, 406, 280))]
+    return Desk(W, H, windows, newest, names_loaded)

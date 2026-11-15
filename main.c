@@ -134,6 +134,18 @@ int main(int argc, char *argv[]) {
     load_hex(argv[1], NULL, ctx);
     ctx->OUT=stdout;
     ctx->IN=stdin;
+    // A second argument is a file to be the disk (vm.c): one that can be
+    // written, if it can be opened so.
+    if (argc > 2) {
+        ctx->DISK = fopen(argv[2], "r+b");
+        if (!ctx->DISK) ctx->DISK = fopen(argv[2], "rb");
+        if (!ctx->DISK) {
+            perror(argv[2]);
+            exit(EXIT_FAILURE);
+        }
+        fseek(ctx->DISK, 0, SEEK_END);
+        ctx->DISKBLOCKS = ftell(ctx->DISK) / 1024;
+    }
     // ctx->EIP=0x462C / 2;
     vm(ctx);
     printf("\n[%lld instructions executed]\n", ctx->CYCLES);
