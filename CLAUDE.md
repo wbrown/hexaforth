@@ -2,6 +2,39 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## C and Forth, and nothing else
+
+This project is C and Forth. Where this branch began it was nothing
+else: the tests were C (`test/main.c`, an array of `hexaforth_test`, and
+the small Forth compiler in `test/compiler.c` that reads the same
+instruction definitions the VM does), the words were generated from
+`vm_opcodes.h` by `util/baseword_fs_gen.c`, and `cross.fs` built the
+image. One definition, said once, and everything else made from it.
+
+- Do not write Python. Not a test, not a generator, not a tool, not a
+  model of the machine. None is to be added to this repository
+- The Python that is here is to be removed, all of it: `util/*.py`,
+  `test/*.py`, `baremetal/*.py`, `rtl/*.py`. The generators and the codes
+  of a name go first. Until a file is gone it is not somewhere to add to
+  and not a pattern to follow, and what the rest of this document says of
+  those tools is of what is being taken out
+- What replaces it is not Python written in C. Read `test/main.c`,
+  `test/compiler.c`, `test/vm_test.c` and `util/baseword_fs_gen.c` before
+  writing any, and write as they are written. What is Forth's to do is
+  done in Forth: `cross.fs` already compiles and joins the image
+- A fact is said once. An encoding, a layout or a table is in one place,
+  and whatever else needs it is generated from that place or reads it
+  there. If a change has to say the same thing again in another file or
+  another language, the change is wrong: the codes of a name were said in
+  `cross.fs`, in `insn_map.py` and in `vm.h`, and that was written down
+  as if it were how things are done
+- Do not ask whether C and Forth can do a thing. They did all of it
+  before there was anything else here. "I do not know how much of this
+  they can absorb; I have not measured it" was said of exactly this, and
+  it was not a question of measurement: it was a way of keeping what
+  should not have been written. Measuring is for what a change costs, not
+  for whether the project's own languages are enough
+
 ## The machine model
 
 `MODEL.md` says what the machine is: the stacks, memory and display that
