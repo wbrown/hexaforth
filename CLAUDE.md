@@ -720,12 +720,15 @@ fetched back.)
 
 - a region is a count of the cells that follow, and then bands. A band is
   `n x0 .. x(n-1) end`: `n` crossings, and where the band ends, which is
-  the row it goes down to plus `AS-END` (2^32). The end is further along
-  than any crossing (anything from `END-MIN`, 2^31, up is an end), so it
-  is also what ends the crossings, and nothing counts them to merge them;
-  and the nearer of two bands' ends is the end of the band they make
+  the row it goes down to plus `AS-END`. The end is further along than any
+  crossing (anything from `END-MIN` up is an end), so it is also what ends
+  the crossings, and nothing counts them to merge them; and the nearer of
+  two bands' ends is the end of the band they make. `display.fs` makes
+  the three numbers from the width of a cell, `END-MIN` half `AS-END` and
+  `NEVER` twice it: 2^31, 2^32 and 2^33 with 64 bits, each a number one
+  instruction pushes; 2^28, 2^29, 2^30 with 32; 2^12, 2^13, 2^14 with 16
 - the first band has no crossings and ends at the region's top, and the
-  last has none and ends at `NEVER` (2^33): every row is in a band, and a
+  last has none and ends at `NEVER`: every row is in a band, and a
   top or a bottom is nothing special. Nothing at all is that last band
   (`rgn-none`; never store a count of 0). A rectangle is eight cells, and
   nothing else is
@@ -755,7 +758,10 @@ fetched back.)
   taken from `halloc` and given back, with one place on the return stack
   for the three; `scroll-update`, which whoever scrolled reads, is the one
   variable left
-- coordinates are within 2^31 of nothing either way
+- coordinates are less than `END-MIN` from nothing either way: 2^31 with
+  64 bits, 4,096 with 16. Nothing in `region.fs` or in what reads a region
+  has a number in it that wants a wide cell, but only the 64-bit machine
+  builds them, so that is by reading and not by test
 
 In the profile `region.fs` ran 1,617,696 instructions and 2,142,456 cycles
 as it was, 29% of them fetches and stores of variables, and runs 1,166,113

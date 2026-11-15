@@ -211,13 +211,21 @@ create mforce 0 ,
 \ any crossing, and ends them: anything from END-MIN up is an end.  The
 \ first band has no crossings and ends at the region's top, and the last
 \ has none and ends at NEVER, so every row is in a band.
-$100000000 constant AS-END
-$80000000  constant END-MIN
-$200000000 constant NEVER
+\
+\ The three are made from the width of a cell, so that a region is the
+\ same thing whatever the cell: END-MIN is half AS-END, and NEVER twice
+\ it.  A crossing or a row is then less than END-MIN from nothing, either
+\ way: 2^31 with a cell of 64 bits, where AS-END is 2^32 and each of the
+\ three is a number one instruction pushes; 2^28 with 32; 2^12 with 16.
+meta
+1 cell-bits 3 - #32 min lshift
+dup target constant AS-END
+meta dup 2/ target constant END-MIN
+meta 2* target constant NEVER
 
 : mfind ( y -- band ) \ the band of the region that y is in; sets mk0 and mk1
     AS-END + >r                                     ( R: y, as the end of a band is said )
-    h# 7fffffff negate mk0 !
+    END-MIN negate mk0 !
     mrgn @ 1+
     begin
         dup dup @ + 1+ @                            ( band end )

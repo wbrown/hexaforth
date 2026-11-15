@@ -29,12 +29,12 @@
 \ the one above is made to end where it would have.
 \
 \ Nothing here is kept in a variable, so any number of these can be in
-\ hand at once.  Coordinates are those of the screen, and within 2^31 of
-\ nothing either way.  A region is RGN-CELLS cells from halloc, and nothing
+\ hand at once.  Coordinates are those of the screen, and less than
+\ END-MIN from nothing either way, which display.fs makes from the width
+\ of a cell.  A region is RGN-CELLS cells from halloc, and nothing
 \ checks that it fits: the regions of a few windows are a few dozen cells.
 
 $100 constant RGN-CELLS
-$7fffffff constant FAR      \ further along than anything
 
 header rgn-none : rgn-none ( rgn -- ) \ nothing is in it
     d# 2 over !  d# 0 over 1+ !  NEVER swap CELL2 + !
@@ -229,7 +229,7 @@ header rgn-offset : rgn-offset ( dx dy rgn -- ) \ move it
 ;
 
 : rgn-left ( rgn -- x ) \ the least that the crossings of any band start at
-    FAR >r bands
+    END-MIN >r bands                                \ further along than any crossing
     begin
         2dupxor
     while
@@ -240,7 +240,7 @@ header rgn-offset : rgn-offset ( dx dy rgn -- ) \ move it
 ;
 
 : rgn-right ( rgn -- x ) \ and the most that they end at
-    FAR negate >r bands
+    END-MIN negate >r bands
     begin
         2dupxor
     while
