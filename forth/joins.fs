@@ -150,6 +150,7 @@ $0000 i, $6470 i, $6d08 i, $6d08 i,   \ over * , 2drop
 $0000 i, $647c i, $600c i, $6d08 i,   \ * , drop
 $0000 i, $647c i, $650d i, $6579 i,   \ * , >r
 $0000 i, $6480 i, $600c i, $600c i,   \ invert , drop
+$0000 i, $6480 i, $650d i, $658d i,   \ invert , >r
 $0000 i, $6480 i, $6d08 i, $6d08 i,   \ invert , 2drop
 $0000 i, $6484 i, $642c i, $6480 i,   \ dup invert , nip
 $0000 i, $6484 i, $6480 i, $6404 i,   \ dup invert , invert
@@ -188,6 +189,8 @@ $0000 i, $6559 i, $6403 i, $6d08 i,   \ or >r , rdrop
 $0000 i, $6559 i, $6c07 i, $645c i,   \ or >r , r>
 $0000 i, $6579 i, $6403 i, $6d08 i,   \ * >r , rdrop
 $0000 i, $6579 i, $6c07 i, $647c i,   \ * >r , r>
+$0000 i, $658d i, $6403 i, $600c i,   \ invert >r , rdrop
+$0000 i, $658d i, $6c07 i, $6480 i,   \ invert >r , r>
 $0000 i, $65b9 i, $6403 i, $6d08 i,   \ u< >r , rdrop
 $0000 i, $65b9 i, $6c07 i, $64bc i,   \ u< >r , r>
 $0000 i, $65e9 i, $6c07 i, $64ec i,   \ nip @ >r , r>
@@ -278,4 +281,4 @@ $6c07 i, $6004 i, $6308 i, $6f03 i,   \ r> , over , !
 $6c07 i, $6020 i, $60cc i, $6cc3 i,   \ r> , swap , rshift
 $6c07 i, $6020 i, $60dc i, $6cd3 i,   \ r> , swap , lshift
 $6c17 i, $643c i, $6718 i, $6f3b i,   \ swapr> , + , swap !
-$10f constant JOINS#
+$112 constant JOINS#

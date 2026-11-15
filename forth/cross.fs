@@ -440,22 +440,24 @@ warnings off
 
 :: org          org ;
 \ Each file included is measured: the code it compiled and the data it laid
-\ down, with the bytes of that data that are dictionary headers and labels.
-\ The figures go to the .sizes file beside the image, one line a file, a
-\ file's line coming after those of the files it includes.
+\ down, with the bytes of that data that are dictionary headers and labels,
+\ and the instruction its code starts at.  The figures go to the .sizes
+\ file beside the image, one line a file, a file's line coming after those
+\ of the files it includes, whose code and data are part of its own.
 variable hdr-bytes  0 hdr-bytes !
 variable lbl-bytes  0 lbl-bytes !
 variable sizes      0 sizes !
 
 : size-field ( n -- ) s>d <# bl hold #s #> sizes @ write-file throw ;
 
-: size-line ( a u code data headers labels -- )
-    sizes @ 0= if 2drop 2drop 2drop exit then
+: size-line ( a u code data headers labels start -- )
+    sizes @ 0= if drop 2drop 2drop 2drop exit then
     base @ >r decimal
-    2>r 2>r
+    >r 2>r 2>r
     sizes @ write-file throw  s"  " sizes @ write-file throw
     2r> swap size-field size-field
     2r> swap size-field size-field
+    r> size-field
     s" " sizes @ write-line throw
     r> base !
 ;
@@ -464,7 +466,7 @@ variable sizes      0 sizes !
     parse-name save-mem { a u }
     tcp @ tdp @ thp @ + hdr-bytes @ lbl-bytes @ { c d h l }
     a u included
-    a u  tcp @ c -  tdp @ thp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  size-line
+    a u  tcp @ c -  tdp @ thp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  c 2/  size-line
 ;
 :: included     included ;
 :: marker       marker ;
@@ -1546,7 +1548,7 @@ decimal
     file close-file
 ;
 
-s" (all)" tcp @  tdp @ $4000 -  thp @ hdr-base - +  hdr-bytes @ lbl-bytes @ size-line
+s" (all)" tcp @  tdp @ $4000 -  thp @ hdr-base - +  hdr-bytes @ lbl-bytes @ 0 size-line
 tdp @ hdr-base > [if] cr .( the data has run into the dictionary headers) abort [then]
 sizes @ close-file throw
 plain @ 0= [if]

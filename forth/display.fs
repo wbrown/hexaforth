@@ -277,37 +277,47 @@ header rgn-clip! : rgn-clip! ( rgn|0 -- ) clip-rgn !  reclip ;
 \ which is most fills, only the cells at the two ends of the slab hold other
 \ pixels that have to be kept.  Every cell between is the row of the
 \ pattern, stored as it is: one store, and nothing fetched.
-: fast-slab ( -- ) \ hn pixels from bn of the cell at ba, of the row of the pattern in psrc
-    psrc @ RAW>SRC >r                               ( R: the row as the bitmap has it )
-    bn @ hn @ + PXCELL > 0= if                      \ all in one cell
-        r>  hn @ leftn bn @ PIXR  tuck and swap  ba @ seg!
+\
+\ What is being drawn is on the stacks, not in variables: the pixels left
+\ and how far into the cell they start on the data stack, and the cell on
+\ the return stack.  Only the row of the pattern is fetched, where it is
+\ wanted.
+: seg-row ( a mask -- a ) \ the row of the pattern into the cell at a, where the mask says
+    over >r  psrc @ RAW>SRC over and  swap r> seg!
+;
+
+: fast-slab ( b a n -- ) \ n pixels from bit b of the cell at a, of the row of the pattern in psrc
+    swap >r swap                                    ( n b ) ( R: a )
+    2dup + PXCELL > 0= if                           \ all in one cell
+        swap leftn swap PIXR  r> swap seg-row drop
         exit
     then
-    bn @ if                                         \ the cell it starts part of the way into
-        r@  d# -1 bn @ PIXR  tuck and swap  ba @ seg!
-        bn @ PXCELL - hn +!  d# 1 ba +!
+    ?dup if                                         \ the cell it starts part of the way into
+        tuck PXCELL - +                             ( b n ) \ what is left after that cell
+        swap d# -1 swap PIXR
+        r> swap seg-row 1+ >r
     then
-    ba @  hn @ PXSHIFT rshift  bounds               ( end a )
+    dup PXSHIFT rshift  r> swap bounds              ( n end a ) \ the whole cells between,
+    psrc @ RAW>SRC >r                               \ with the row where the store takes it from
     begin
         2dupxor
     while
         r@ over ! 1+
     repeat
-    drop                                            ( the cell after the last whole one )
-    hn @ PXMASK and ?dup if                         \ and the cell it ends part of the way into
-        leftn  r@ over and  swap rot seg!
-    else
-        drop
+    rdrop drop                                      ( n a ) \ the cell after the last whole one
+    swap PXMASK and ?dup if                         \ and the cell it ends part of the way into
+        leftn seg-row
     then
-    rdrop
+    drop
 ;
 
 header slab
 : slab ( x y n -- )
-    hn !
+    >r
     dup d# 7 and pattern @ + @ psrc !
-    prow ba ! bn !
-    mmask @ 0=  'mode @ ['] m-copy =  and if fast-slab exit then
+    prow                                            ( b a ) ( R: n )
+    mmask @ 0=  'mode @ ['] m-copy =  and if r> fast-slab exit then
+    ba ! bn !  r> hn !
     begin
         hn @ 0>
     while

@@ -67,18 +67,26 @@ def word_names(raw, image):
 
 
 def modules(sizes_path):
-    """(first instruction, file) for each file's code, from the build's sizes."""
-    out, at = [(0, "nuc.fs (kernel)")], None
-    starts = {"machine.fs": 0x1000, "virtio.fs": 0x8000, "term.fs": 0x9000}
+    """(first instruction, file) for each stretch of code, from the build's
+    sizes: each line has the bytes of code a file compiled and the
+    instruction it starts at.  A file that includes others has their code
+    in its own, so an instruction is the smallest file's that has it; and
+    a file may be in several pages, its code in each ending where the
+    page's does."""
+    spans = []
     for line in open(sizes_path):
-        name, code = line.split()[:2]
-        if name in starts:
-            at = starts[name]
-        if at is None or name.startswith("("):
+        f = line.split()
+        if f[0].startswith("(") or len(f) < 6 or not int(f[1]):
             continue
-        out.append((at, name))
-        at += int(code) // 2
-    return sorted(out)
+        spans.append((int(f[5]), int(f[5]) + int(f[1]) // 2, f[0]))
+    edges = sorted({0} | {a for a, _, _ in spans} | {b for _, b, _ in spans})
+    out = []
+    for a in edges:
+        over = [(b - s, n) for s, b, n in spans if s <= a < b]
+        owner = min(over)[1] if over else "nuc.fs (kernel)" if a < 0x1000 else "(nothing)"
+        if not out or out[-1][1] != owner:
+            out.append((a, owner))
+    return out
 
 
 def kind(w):

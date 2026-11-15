@@ -480,8 +480,11 @@ The window manager puts a window's port in use before calling its draw
 routine, with the origin at the top left of its content and the clip set to
 what is to be painted of it. Each build writes `build/<name>.sizes`:
 for every file included, the bytes of code it compiled and of data it laid
-down, and how much of that data is dictionary headers (the last number
-was the labels, which are no longer in the image, and is nothing).
+down, how much of that data is dictionary headers, a number that was the
+labels (which are no longer in the image, so nothing), and the
+instruction its code starts at. A file's figures include those of the
+files it includes; `deskprof.py` gives an instruction to the smallest
+file that has it.
 
 `cross.fs` compiles a call to another code page as `literal xt` +
 `call execute`, so code past the kernel needs only an `org` per page and
@@ -557,6 +560,21 @@ too much for it to search whole; it says when it gave up, and then
 shortens the turn a part at a time. It also tries each number the turn
 pushes kept on the return stack instead, where it is an input of the ALU
 (`0 >r begin r@ over ! ...`).
+
+`python3 util/vars.py build/nuc.hex build/desktop.counts [file.fs ...]`
+says what variables cost the code of the files named: how much of the
+work is fetches and stores; each variable, with how often it is fetched
+and stored and by how many words; and each word, with the variables it
+uses (`build/vars.txt`). A variable is one instruction to fetch, as a
+cell of a stack is, so moving a value to a stack does not by itself save
+instructions, and if it takes juggling it costs them. What it saves is
+the store, the cycle a fetch takes to read memory, and an instruction
+wherever the value can be the ALU's input where it is (second on the
+stack, or on the return stack). Putting the fill's place and length on
+the stacks (`slab`, `fast-slab`) left the instructions of the drawing
+benchmark as they were and took 1.6% off its cycles. The port (`clip`,
+`ox`, `oy`, `pattern`, `'mode`) is state that many words read, and is
+rightly variables; what one word stores for the next to fetch is not.
 
 A loop that tests at the top goes round with a jump. Where the test is one
 instruction that says whether two things are the same (`2dupxor while`,
