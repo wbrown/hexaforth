@@ -18,20 +18,27 @@ header reg64! : reg64! ( x pa -- ) h# c0 io!  h# c8 io! ;
 
 \ It starts after the display, which is the last thing the machine itself
 \ lays out.
+\
+\ What is given out is counted in cells and is the address of a cell.  The
+\ address of a byte is twice a cell's address or more, and where a cell is
+\ 16 bits and memory is 65,536 of them, only the lower half of memory has
+\ bytes that an address can say: so nothing up here is reached by the
+\ address of a byte unless it is known to be low, and nothing up here is
+\ counted in bytes.
 meta
-: display-end ( -- byte ) \ where the last bank's last row ends
+: display-end ( -- cell ) \ where the last bank's last row ends
     disp-bank-step disp-banks 1- *
     disp-h disp-banks + 1- disp-banks / disp-stride * +
-    disp-base + cell-bytes *  $f + $f invert and
+    disp-base +  1+ -2 and
 ;
 target
-create himem  meta display-end target ,     \ in bytes
+create himem  meta display-end target ,     \ the next cell to give out
 
 header halloc
-: halloc ( u -- a ) \ u bytes, 16-byte aligned; a is the address of a cell
-    himem @ d# 15 + d# -16 and
-    dup >r + himem !
-    r> c>
+: halloc ( u -- a ) \ room for u bytes, in whole cells from an even cell; a is the address of a cell
+    CELLB 1- + c>                                   ( cells )
+    himem @ 1+ d# -2 and                            ( cells a )
+    tuck + himem !
 ;
 
 \ 32-bit fields in ordinary memory, as parts of the cells they are in.  Like

@@ -14,9 +14,10 @@ header desktop
     nidev @ 0= d# 37 -throw                         \ nothing to work it with
     d# 0 nwin !
     ['] vblk-init catch 0= if                       \ these two need the disk
-        d# 16 ['] view-load catch if drop then
+        d# 16 ['] view-load catch if drop d# 0 then >r       ( R: the viewer, or 0 if there is no picture )
         d# 250 d# 40 d# 514 d# 532 t-view
-        ['] view-draw ['] ignore-key d# 0 window drop
+        ['] view-draw ['] ignore-key d# 0 window
+        r> swap win-data !
         d# 30 d# 270 d# 518 d# 300 t-edit
         ['] edit-draw ['] edit-key d# 0 window drop
     then

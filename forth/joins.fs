@@ -7,7 +7,7 @@
 \ the one instruction they are together.  join-rules, in the kernel,
 \ is told where they are and how many.  They are all on one page.
 
-meta $4fc table-room  tcp @ 2/ t' join-rules tvar! target
+meta $504 table-room  tcp @ 2/ t' join-rules tvar! target
 $0000 i, $6000 i, $600c i, $600c i,   \ drop dup , drop
 $0000 i, $6000 i, $6020 i, $6000 i,   \ drop dup , swap
 $0000 i, $6000 i, $642c i, $600c i,   \ drop dup , nip
@@ -256,7 +256,9 @@ $0000 i, $6800 i, $649c i, $689c i,   \ @ , =
 $0000 i, $6800 i, $64ac i, $68ac i,   \ @ , <
 $0000 i, $6800 i, $64bc i, $68bc i,   \ @ , u<
 $0000 i, $6800 i, $650d i, $65ed i,   \ @ , >r
+$0000 i, $6800 i, $6559 i, $6959 i,   \ @ , or >r
 $0000 i, $6800 i, $6718 i, $6b18 i,   \ @ , swap !
+$0000 i, $6800 i, $6800 i, $68e0 i,   \ @ , @
 $0000 i, $6804 i, $642c i, $6800 i,   \ dup@ , nip
 $0000 i, $683c i, $642c i, $6838 i,   \ @ + , nip
 $0000 i, $6880 i, $6480 i, $6800 i,   \ @ invert , invert
@@ -308,6 +310,7 @@ $6004 i, $6020 i, $60dc i, $60d0 i,   \ over , swap , lshift
 $6004 i, $6020 i, $64ac i, $64a0 i,   \ over , swap , <
 $6004 i, $6020 i, $64bc i, $64b0 i,   \ over , swap , u<
 $6004 i, $6020 i, $6b38 i, $6b3c i,   \ over , swap , +!
+$6004 i, $6020 i, $6b68 i, $6b6c i,   \ over , swap , xor!
 $6004 i, $60e4 i, $649c i, $6894 i,   \ over , over@ , =
 $6004 i, $6c04 i, $643c i, $6c34 i,   \ over , r@ , +
 $6004 i, $6c04 i, $649c i, $6c94 i,   \ over , r@ , =
@@ -320,11 +323,10 @@ $6480 i, $642c i, $640f i, $648b i,   \ invert , nip , nip rdrop
 $6c04 i, $6004 i, $6308 i, $6f00 i,   \ r@ , over , !
 $6c04 i, $6020 i, $60cc i, $6cc0 i,   \ r@ , swap , rshift
 $6c04 i, $6020 i, $60dc i, $6cd0 i,   \ r@ , swap , lshift
-$6c04 i, $642c i, $643c i, $6c3c i,   \ r@ , nip , +
 $6c04 i, $650d i, $6804 i, $64e5 i,   \ r@ , >r , dup@
 $6c07 i, $6004 i, $6308 i, $6f03 i,   \ r> , over , !
 $6c07 i, $6020 i, $60cc i, $6cc3 i,   \ r> , swap , rshift
 $6c07 i, $6020 i, $60dc i, $6cd3 i,   \ r> , swap , lshift
 $6c17 i, $643c i, $6718 i, $6f3b i,   \ swapr> , + , swap !
 $6ce7 i, $6004 i, $6308 i, $6fe3 i,   \ r> @ , over , !
-meta $13f t' join-rules 1+ tvar! target
+meta $141 t' join-rules 1+ tvar! target

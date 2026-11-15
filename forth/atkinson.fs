@@ -40,9 +40,9 @@
 \ it.  A pixel at the end of a row has a neighbour that is not there, and
 \ is given what that would have given (128) when its row is made ready.
 \
-\ There are three rows of lanes, and the dither keeps where they are, the
-\ bitmap and how far down it is, between one row and the next.  Nothing
-\ else is kept: a row is done on the stacks.
+\ There are three rows of lanes, and a dither's record keeps where they
+\ are, the bitmap, the image and how far down it is, between one row and
+\ the next.  Nothing else is kept: a row is done on the stacks.
 \
 \ A cell of 16 bits is one lane, and what a pixel gives to the two after
 \ it cannot ride in the cell.  Then it is two numbers: what the next pixel
@@ -87,12 +87,19 @@ create aone    meta lane1 target ,                  \ 1 in each lane
 create aclean  meta lane1 $fff * target ,           \ the number in each lane, without whether it is black
 create agather meta gather target ,
 
-create abm   0 ,        \ the bitmap: its descriptor
-create an    0 ,        \ cells of lanes that have pixels
-create acur  0 ,        \ the row being done,
-create anxt  0 ,        \ the next,
-create anx2  0 ,        \ and the one after: each a row of lanes
-create ay    0 ,        \ how many rows are done
+\ A dither is a record, so that there may be more than one in hand at a
+\ time, each going down its own picture a row at a turn: `dth` is the one
+\ in hand, and these are its cells.  As with an image, it is in hand only
+\ for as long as the word that took it up runs.
+create dth 0 ,          \ the dither in hand: its record
+
+: abm   ( -- a ) dth @ ;                \ the bitmap: its descriptor
+: an    ( -- a ) dth @ 1+ ;             \ cells of lanes that have pixels
+: acur  ( -- a ) dth @ CELL2 + ;        \ the row being done,
+: anxt  ( -- a ) dth @ c# 3 + ;         \ the next,
+: anx2  ( -- a ) dth @ c# 4 + ;         \ and the one after: each a row of lanes
+: ay    ( -- a ) dth @ c# 5 + ;         \ how many rows are done
+: aimg  ( -- a ) dth @ c# 6 + ;         \ the image it is of
 
 \ A row of lanes has as many cells as make whole cells of the bitmap, so
 \ that the pixels can be gathered sixteen cells at a time, and a cell at
@@ -233,8 +240,10 @@ INK-BLACK? [if] [else] invert [then]
 \ something else between the rows, and can show the rows that are made.
 
 header dither-start
-: dither-start ( bitmap -- ) \ a new bitmap for the image, as the display is, with no rows made
-    abm !
+: dither-start ( bitmap img -- dither ) \ a new bitmap for the image, as the display is, with no rows made
+    dup image!
+    d# 7 >c halloc dth !
+    aimg !  abm !
     tw @ PXMASK + PXSHIFT rshift abm @ CELL + !
     abm @ CELL + @ th @ * >c halloc abm @ !
     tw @ LANES 1- + LANESHIFT rshift an !
@@ -243,10 +252,12 @@ header dither-start
     d# 0 anew dup apreset anx2 !
     pixels
     d# 0 ay !
+    dth @
 ;
 
 header dither-row
-: dither-row ( -- ) \ the next row of the image, which must have been read
+: dither-row ( dither -- ) \ the next row of its image, which must have been read
+    dth !  aimg @ image!
     acur @  abm @ @  ay @ abm @ CELL + @ * +        ( lanes dst )
     over agrays  over apixels  over atrim
     abits
@@ -258,11 +269,12 @@ header dither-row
 ;
 
 header atkinson
-: atkinson ( bitmap -- ) \ dither the whole image into a new bitmap
+: atkinson ( bitmap img -- ) \ dither the whole image into a new bitmap
     dither-start
     begin
         ay @ th @ <
     while
-        dither-row
+        dup dither-row
     repeat
+    drop
 ;

@@ -42,10 +42,15 @@ def main():
     shapes += [(rng.choice([8, 24, 33, 72, 100]), rng.randrange(1, 9), rng.choice([1, 3])) for _ in range(6)]
     lines = ["variable sd",
              ": rnd sd @ 25173 * 13849 + 65535 and dup sd ! 8 rshift ;",
-             ": fill swap >c swap over + swap do rnd i c! loop ;",
+             # A cell at a time, its lowest byte first: where a cell is 16 bits the address of a
+             # byte cannot say the upper half of memory, which is where halloc's memory is.
+             f": cl 0 {bits // 8} 0 do rnd i 8 * lshift or loop ;",
+             f": fill {bits // 8 - 1} + {(bits // 8).bit_length() - 1} rshift over + swap do cl i ! loop ;",
              ": d rot . hex over 1 + @ * swap @ swap over + swap do i @ . loop decimal ;"]   # ( n bm h )
     want = []
-    for n, (w, h, spp) in enumerate(shapes):
+
+    def make(n, w, h, spp):
+        """Make image n in the VM; the cells its bitmap should be."""
         start = rng.randrange(1, 65536)
         x, data = start, []
         for _ in range(w * h * spp):
@@ -59,12 +64,27 @@ def main():
             for c in range(stride):
                 cells.append(sum(1 << b for b in range(bits)
                                  if c * bits + b < w and not row[c * bits + b]))
-        lines += [f"{w * h * spp} halloc constant r{n}",
-                  f"{start} sd !  r{n} {w * h * spp} fill",
-                  f"create b{n} 0 , 0 ,",
-                  f"r{n} {w} {h} {spp} image-is  b{n} atkinson",
-                  f"{n} b{n} {h} d"]
+        lines.extend([f"{w * h * spp} halloc constant r{n}",
+                      f"{start} sd !  r{n} {w * h * spp} fill",
+                      f"create b{n} 0 , 0 ,",
+                      f"r{n} {w} {h} {spp} image-is constant i{n}"])
+        return cells
+
+    for n, (w, h, spp) in enumerate(shapes):
+        cells = make(n, w, h, spp)
+        lines += [f"b{n} i{n} atkinson", f"{n} b{n} {h} d"]
         want.append((lines[-1], (w, h, spp), cells))
+    # Two at once: a row of one and then a row of the other, to the end of
+    # both.  Each has its own image and its own dither.
+    n = len(shapes)
+    for (wa, spa), (wb, spb), h in (((48, 3), (30, 1), 7), ((64, 3), (64, 3), 5)):
+        ca, cb = make(n, wa, h, spa), make(n + 1, wb, h, spb)
+        lines += [f"b{n} i{n} dither-start constant d{n}  b{n + 1} i{n + 1} dither-start constant d{n + 1}",
+                  f": two{n} {h} 0 do d{n} dither-row d{n + 1} dither-row loop ; two{n}",
+                  f"{n} b{n} {h} d", f"{n + 1} b{n + 1} {h} d"]
+        want.append((lines[-2], (wa, h, spa), ca))
+        want.append((lines[-1], (wb, h, spb), cb))
+        n += 2
     typed = "".join(line + "\n" for line in lines) + "8000 execute\n"
     out = subprocess.run([vm, image], input=typed, capture_output=True, text=True, timeout=600).stdout
     failed = 0

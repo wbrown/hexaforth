@@ -470,7 +470,19 @@ Pages 8 and 9 are the drivers and the desktop:
   the lanes of what those pixels are owed (`gray-lanes`, through
   `'grays`). Any other image gives a pixel at a time (`'pixel`).
   `atkinson ( bitmap -- )` makes the bitmap; `copy-bits`
-  shows it. Each can be done a row at a time, by something that has other
+  shows it. An image is a record (`tiff-open` and `image-is` make one), a
+  dither is a record (`dither-start`), and a viewer is a record with its
+  task's record at the end of it, so there may be more than one of each:
+  two pictures can load at once, each task taking a row of its own. `img`,
+  `dth` and `vw` are the one in hand, and the old variables are words that
+  give a cell of it; one is in hand only for as long as the word that took
+  it up runs, so every word others use takes its record (`tiff-row`,
+  `dither-row`). A viewer's task finds its viewer from where its own
+  record is, and a window has a cell for whoever draws it (`win-data`).
+  Each viewer's task wants a part of the stacks, and there are two above
+  what the desktop reaches, so a third picture waits. `dither_test.py`
+  dithers two images a row of each in turn. Each can be done a row at a
+  time, by something that has other
   things to do between the rows: `tiff-start` and `tiff-row` read the
   image, noting where the strips are first so that the directory is not
   gone back to, and `dither-start` and `dither-row` dither it.
@@ -930,7 +942,11 @@ code is below instruction `0x8000`, where a header's 15 bits reach: page
 1, and the first of the two pages that run-time definitions have. The
 desktop and its drivers (`system.fs`) are built only with 64-bit cells,
 and so are the AArch64 kernels, which is why nothing of the desktop is
-tested at the other sizes yet. With a 16-bit cell memory is 65,536
+tested at the other sizes yet. `halloc` counts in cells and gives the
+address of a cell: with a 16-bit cell the address of a byte cannot say
+the upper half of memory, so nothing there is reached by a byte's address
+(the TIFF reader still does, and so reads only where a cell is 32 bits or
+more). With a 16-bit cell memory is 65,536
 cells, run-time code goes at instruction `0x6000`, and an execution token is
 15 bits, since the top bit of its cell in a header is the immediate flag. A shift count is taken modulo 64, so a shift by
 16 to 63 gives zero where cells are 16 or 32 bits, which `w!` and the

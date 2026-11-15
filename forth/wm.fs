@@ -25,11 +25,17 @@ create cw 0 ,           \ the window being drawn
 
 header top : top ( -- win ) nwin @ 1- cells wins + @ ;
 
+\ A window is eleven cells: where it is and how big, its title, the words
+\ that draw it and take its keys and clicks, its port, what can be seen of
+\ it, and a cell for whoever draws it to keep what it is a window on.
+header win-data : win-data ( win -- a ) c# 10 + ;
+
 header window
 : window ( x y w h title draw key click -- win )
-    d# 80 halloc >r
+    d# 11 >c halloc >r
     new-port r@ c# 8 + !
     new-rgn r@ c# 9 + !
+    d# 0 r@ win-data !
     r@ c# 7 + !  r@ c# 6 + !  r@ c# 5 + !  r@ c# 4 + !
     r@ c# 3 + !  r@ CELL2 + !  r@ CELL + !  r@ !
     r@ nwin @ cells wins + !

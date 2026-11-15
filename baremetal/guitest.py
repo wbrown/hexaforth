@@ -327,7 +327,8 @@ def main():
         shot = m.screenshot(f"{out}/10-fused.png")
         source = read_text(shot, 253, 315, 45, 16)
         check("a fused instruction is shown as its words",
-              source[0] == ": dither-row" and " abm @ 1 + @ * + " in source[1], repr(source[1]))
+              source[0] == ": dither-row" and any(" @ * +" in line for line in source[:8]),
+              repr(source[:4]))
 
         # Words in bold are one instruction.  With the pointer on them, a box
         # by them says which: its number, and its fields.  The box is a line
@@ -347,20 +348,22 @@ def main():
                     break
         check("the pointer on a fused instruction shows the machine's form of it",
               re.match(r"[0-9A-F]{4} \S*->IN \S+ ->\S+", told) is not None, repr((where, told)))
-        # A word that is an instruction by itself says so too: rshift, on the
-        # third line of dither-start.
+        # A word that is an instruction by itself says so too: rshift, in
+        # dither-start, whose first line stores into img, which has no header.
         listed("dither-start")
         shot = m.screenshot(f"{out}/10-plain.png")
         source = read_text(shot, 253, 315, 45, 16)
         check("a headerless variable is shown by its label",
-              source[0] == ": dither-start" and source[1] == "  abm !", repr(source[:2]))
+              source[0] == ": dither-start" and source[1].endswith(" img !"), repr(source[:2]))
         told = ""
-        if "rshift" in source[2]:
-            c = source[2].index("rshift")
-            m.move(253 + c * 8 + 4, 315 + 2 * 16 + 1)
+        rows = [i for i, line in enumerate(source[:13]) if "rshift" in line]
+        if rows:
+            r = rows[0]
+            c = source[r].index("rshift")
+            m.move(253 + c * 8 + 4, 315 + r * 16 + 1)
             hover = m.screenshot(f"{out}/10-hover-word.png")
             for x in range(254 + c * 8, 250, -1):
-                told = read_text(hover, x, 315 + 3 * 16 + 1, min(40, (W - x) // 8), 1)[0]
+                told = read_text(hover, x, 315 + (r + 1) * 16 + 1, min(40, (W - x) // 8), 1)[0]
                 if told.startswith("60CC "):
                     break
         check("and on a word that is one instruction", told.startswith("60CC N->IN IN>>T ->T d-1"), repr(told))

@@ -4,17 +4,49 @@
 \ strips.  The strips are read into memory at `raw` as they are stored, and
 \ `pixel` gives the image out of them a pixel at a time.
 
-create tiff-base 0 ,    \ device byte offset of the file
-create tiff-be   0 ,    \ true for a big-endian file
-header tw create tw      0 ,      \ width, height
-header th create th      0 ,
-create tspp    0 ,      \ samples per pixel
-create tphoto  0 ,      \ 0: white is zero  1: black is zero  2: RGB
-create tcomp   0 ,      \ compression
-create tstrips 0 ,      \ file offsets of the StripOffsets and
-create tcounts 0 ,      \ StripByteCounts directory entries
-create tscratch 0 ,
-create raw     0 ,      \ the strips as stored: the address of a cell
+\
+\ An image is a record, so that there may be more than one: what its file
+\ says of it, where its strips are and how far they have been read, and
+\ where its pixels have been taken up to.  `img` is the image in hand, and
+\ the words below are its cells.  Nothing here gives another task a turn,
+\ so an image is in hand for as long as the word that took it up runs; but
+\ no longer, and every word that others use takes the image it is to work
+\ on and takes it in hand.
+
+create img 0 ,          \ the image in hand: its record
+
+$19 constant IMG-CELLS
+
+header tw : tw     ( -- a ) img @ ;                 \ width, height
+header th : th     ( -- a ) img @ 1+ ;
+: tspp      ( -- a ) img @ CELL2 + ;                \ samples per pixel
+: tphoto    ( -- a ) img @ c# 3 + ;                 \ 0: white is zero  1: black is zero  2: RGB
+: tcomp     ( -- a ) img @ c# 4 + ;                 \ compression
+: tiff-base ( -- a ) img @ c# 5 + ;                 \ device byte offset of the file
+: tiff-be   ( -- a ) img @ c# 6 + ;                 \ true for a big-endian file
+: tstrips   ( -- a ) img @ c# 7 + ;                 \ file offsets of the StripOffsets and
+: tcounts   ( -- a ) img @ c# 8 + ;                 \ StripByteCounts directory entries
+: raw       ( -- a ) img @ c# 9 + ;                 \ the strips as stored: the address of a cell
+: tdest     ( -- a ) img @ c# 10 + ;                \ where the next piece goes: the address of a byte
+: tstab     ( -- a ) img @ c# 11 + ;                \ the table: each strip's place in the file, and its length
+: tsend     ( -- a ) img @ c# 12 + ;                \ the end of the table,
+: tsp       ( -- a ) img @ c# 13 + ;                \ and the next strip in it
+: toff      ( -- a ) img @ c# 14 + ;                \ where in the file the strip being read goes on,
+: tleft     ( -- a ) img @ c# 15 + ;                \ and how many bytes of it are still to come
+: tgot      ( -- a ) img @ c# 16 + ;                \ bytes of the image read
+: twant     ( -- a ) img @ c# 17 + ;                \ and how many the rows asked for come to
+: tbuf      ( -- a ) img @ c# 18 + ;                \ bits fetched and not yet taken,
+: tbn       ( -- a ) img @ c# 19 + ;                \ how many,
+: tbp       ( -- a ) img @ c# 20 + ;                \ and the next cell
+: tsrc      ( -- a ) img @ c# 21 + ;                \ the cell the next row starts in
+header 'pixel : 'pixel ( -- a ) img @ c# 22 + ;     \ ( -- g )  the next pixel's gray
+header 'grays : 'grays ( -- a ) img @ c# 23 + ;     \ ( lanes -- )  a row's grays, or 0: see below
+: tscratch  ( -- a ) img @ c# 24 + ;
+
+: new-image ( -- ) \ a record with nothing in it, in hand
+    IMG-CELLS >c halloc  dup img !
+    d# 0 swap IMG-CELLS cells-fill
+;
 
 : tbytes ( off n -- a ) \ n bytes of the file, in tscratch
     tscratch >c swap rot tiff-base @ + disk-read
@@ -44,7 +76,8 @@ create raw     0 ,      \ the strips as stored: the address of a cell
 ;
 
 header tiff-open
-: tiff-open ( blk# -- ) \ read the directory of the TIFF starting at a block
+: tiff-open ( blk# -- img ) \ read the directory of the TIFF starting at a block
+    new-image
     d# 10 lshift tiff-base !
     d# 1 tspp !  d# 1 tcomp !  d# 1 tphoto !
     d# 0 tiff-be !
@@ -70,6 +103,7 @@ header tiff-open
     repeat
     2drop
     tcomp @ d# 1 <> d# 38 -throw                    \ uncompressed only
+    img @
 ;
 
 : selem ( i entry -- x ) \ value i of a StripOffsets or StripByteCounts entry
@@ -87,17 +121,9 @@ header tiff-open
 \ and how long is noted before the first piece, in a table of two cells a
 \ strip, so that the directory is not gone back to while the image is read.
 
-create tdest 0 ,        \ where the next piece goes: the address of a byte
-create tstab 0 ,        \ the table: each strip's place in the file, and its length
-create tsend 0 ,        \ the end of the table,
-create tsp   0 ,        \ and the next strip in it
-create toff  0 ,        \ where in the file the strip being read goes on,
-create tleft 0 ,        \ and how many bytes of it are still to come
-create tgot  0 ,        \ bytes of the image read
-create twant 0 ,        \ and how many the rows asked for come to
-
 header tiff-start
-: tiff-start ( -- ) \ make room for the image, and note where its strips are
+: tiff-start ( img -- ) \ make room for the image, and note where its strips are
+    img !
     tw @ th @ * tspp @ * halloc raw !
     raw @ >c tdest !
     tstrips @ d# 4 + t32@                           ( strips )
@@ -128,7 +154,8 @@ header tiff-start
 ;
 
 header tiff-row
-: tiff-row ( -- ) \ read on until another row of the image is all there
+: tiff-row ( img -- ) \ read on until another row of the image is all there
+    img !
     tw @ tspp @ * twant +!
     begin
         tgot @ twant @ <
@@ -138,7 +165,7 @@ header tiff-row
 ;
 
 header tiff-decode
-: tiff-decode ( -- ) \ load every strip
+: tiff-decode ( img -- ) \ load every strip
     tiff-start
     begin tiff-more 0= until
 ;
@@ -146,9 +173,11 @@ header tiff-decode
 \ An image that is in memory already, as its strips would be if they had
 \ been read: for whoever has one from somewhere other than a file.
 header image-is
-: image-is ( cell w h samples -- ) \ gray, black being nothing, if it has one sample to a pixel
+: image-is ( cell w h samples -- img ) \ gray, black being nothing, if it has one sample to a pixel
+    new-image
     tspp !  th !  tw !  raw !
     d# 1 tphoto !
+    img @
 ;
 
 \ The image is a run of bits, and memory is cells.  A cell is fetched once
@@ -157,10 +186,6 @@ header image-is
 \ the next n, for n up to a cell, with whatever follows them above; when
 \ there are fewer than n it fetches the next cell, and the result is made
 \ of both.
-
-create tbuf 0 ,
-create tbn  0 ,
-create tbp  0 ,         \ the next cell
 
 : take ( n -- x )
     dup tbn @ > if
@@ -202,8 +227,6 @@ W32+? [if]
 ;
 [then]
 
-header 'pixel create 'pixel 0 ,     \ ( -- g )  the next pixel's gray
-
 \ A row of an image of three samples, where the row lies on cells, is not
 \ taken a pixel at a time.  Eight pixels are three cells.  Two pixels are
 \ six bytes of a cell, and their grays are made together: the two reds are
@@ -216,8 +239,6 @@ header 'pixel create 'pixel 0 ,     \ ( -- g )  the next pixel's gray
 \ nothing is fetched for a pixel.
 
 W64? [if]
-
-create tsrc 0 ,         \ the cell the next row starts in
 
 : pair ( w -- y ) \ two pixels, the first lowest: their grays, in two lanes
     dup h# ff0000ff and d# 77 *
@@ -257,12 +278,13 @@ create tsrc 0 ,         \ the cell the next row starts in
 
 [then]
 
-\ ( lanes -- ) adds a row's grays to a row of lanes, or is 0 if the image
-\ is one whose pixels have to be asked for one at a time.
-header 'grays create 'grays 0 ,
+\ 'grays ( lanes -- ) adds a row's grays to a row of lanes, or is 0 if the
+\ image is one whose pixels have to be asked for one at a time.
+
+header image! : image! ( img -- ) img ! ;           \ take an image in hand
 
 header pixels
-: pixels ( -- ) \ start again from the first pixel
+: pixels ( -- ) \ the image in hand starts again from its first pixel
     raw @ tbp !  d# 0 tbn !  d# 0 tbuf !
     tspp @ d# 3 = if ['] rgb else tspp @ d# 1 = if ['] gray1 else ['] grayn then then
     'pixel !
