@@ -134,11 +134,14 @@ header p-gray   create p-gray    $aa prow, $55 prow, $aa prow, $55 prow, $aa pro
 header p-ltgray create p-ltgray  $88 prow, $22 prow, $88 prow, $22 prow, $88 prow, $22 prow, $88 prow, $22 prow,
 header p-dkgray create p-dkgray  $77 prow, $dd prow, $77 prow, $dd prow, $77 prow, $dd prow, $77 prow, $dd prow,
 
-\ A slab: n pixels of a row, in the pattern and the mode, a cell at a time.
-\ Every filled shape is made of these.  No shift here is by a whole cell,
-\ which the machine does not promise is zero.
+\ What a word is working on is on the two stacks, not in variables, so that
+\ a word may be in use more than once: by two tasks, or by something that
+\ draws while something else is drawing.  A word has the top of the data
+\ stack, the cell under it and the top of the return stack to hand; where
+\ it needs more, it is made of smaller words that each need no more.
+\
+\ These three are still used by the words that copy (copy-bits).
 create hn  0 ,
-create psrc 0 ,         \ this row of the pattern
 create ba  0 ,          \ the cell being drawn in
 create bn  0 ,          \ and how far into it
 
@@ -170,8 +173,6 @@ create mrow  meta disp-stride cell-bytes * target allot
 create mk0 1 ,
 create mk1 0 ,
 create mbase 0 ,        \ the first cell of the row on the screen
-create my 0 ,
-create mfound 0 ,
 create mnone 0 ,
 create mrgn 0 ,         \ the region the mask is of, or 0 if none is needed
 create mone 0 ,
@@ -181,31 +182,32 @@ create mmask 0 ,
 create mforce 0 ,
 
 : mspan ( x0 x1 -- ) \ set those pixels of mrow
-    fb-w @ min swap d# 0 max tuck - hn !
-    dup PXSHIFT rshift mrow + ba !  PXMASK and bn !
+    fb-w @ min swap d# 0 max tuck -                 ( x n )
+    swap dup PXSHIFT rshift mrow + >r  PXMASK and   ( n b ) ( R: the cell )
     begin
-        hn @ 0>
+        over 0>
     while
-        PXCELL bn @ - hn @ min
-        dup leftn bn @ PIXR  ba @ or!
-        negate hn +!
-        d# 0 bn !  d# 1 ba +!
+        2dup PXCELL swap - min                      ( n b k ) \ pixels in this cell
+        tuck leftn swap PIXR  r@ or!                ( n k )
+        -  d# 0                                     \ and the next starts at its left
+        r> 1+ >r
     repeat
+    2drop rdrop
 ;
 
 : mfind ( y -- row|0 ) \ the row of the region that y is in; sets mk0 and mk1
-    my !
+    >r
     h# 7fffffff negate mk0 !  h# 7fffffff mk1 !
-    d# 0 mfound !
-    mrgn @ dup 1+ swap @ bounds                     ( end p )
+    d# 0                                            ( found ) ( R: y )
+    mrgn @ dup 1+ swap @ bounds                     ( found end p )
     begin
         2dupxor
     while
-        dup @ my @ > if @ mk1 !  drop mfound @ exit then    \ the first row below y
-        dup mfound !
+        dup @ r@ > if @ mk1 !  drop  rdrop exit then    \ the first row below y
+        rot drop tuck                               \ this one is the nearest so far
         dup CELL + @ + CELL2 +
     repeat
-    2drop mfound @
+    2drop rdrop
 ;
 
 : rmask ( y -- ) \ y on the screen
@@ -278,55 +280,76 @@ header rgn-clip! : rgn-clip! ( rgn|0 -- ) clip-rgn !  reclip ;
 \ pixels that have to be kept.  Every cell between is the row of the
 \ pattern, stored as it is: one store, and nothing fetched.
 \
-\ What is being drawn is on the stacks, not in variables: the pixels left
-\ and how far into the cell they start on the data stack, and the cell on
-\ the return stack.  Only the row of the pattern is fetched, where it is
-\ wanted.
-: seg-row ( a mask -- a ) \ the row of the pattern into the cell at a, where the mask says
-    over >r  psrc @ RAW>SRC over and  swap r> seg!
+\ A slab has four things in hand: the row of the pattern, the cell, how far
+\ into it the pixels start, and how many are left.  The row and the cell
+\ are on the return stack, the row under the cell, and the other two on
+\ the data stack; the row is on top while the cells between the two ends
+\ are stored, which is the store's own input.
+: under! ( a mask row -- a ) \ the row's pixels into the cell at a, where the mask says
+    over and >r  invert over @ and  r> or  over !
 ;
 
-: fast-slab ( b a n -- ) \ n pixels from bit b of the cell at a, of the row of the pattern in psrc
-    swap >r swap                                    ( n b ) ( R: a )
+: fast-slab ( b a row n -- ) \ n pixels from bit b of the cell at a, of a row of the pattern
+    swap RAW>SRC >r  swap >r  swap                  ( n b ) ( R: row a )
     2dup + PXCELL > 0= if                           \ all in one cell
-        swap leftn swap PIXR  r> swap seg-row drop
+        swap leftn swap PIXR  r> swap r> under! drop
         exit
     then
     ?dup if                                         \ the cell it starts part of the way into
         tuck PXCELL - +                             ( b n ) \ what is left after that cell
         swap d# -1 swap PIXR
-        r> swap seg-row 1+ >r
+        r> swap r@ under! 1+ >r
     then
-    dup PXSHIFT rshift  r> swap bounds              ( n end a ) \ the whole cells between,
-    psrc @ RAW>SRC >r                               \ with the row where the store takes it from
+    dup PXSHIFT rshift  r> swap bounds              ( n end a ) ( R: row ) \ the whole cells between
     begin
         2dupxor
     while
         r@ over ! 1+
     repeat
-    rdrop drop                                      ( n a ) \ the cell after the last whole one
+    drop                                            ( n a ) \ the cell after the last whole one
     swap PXMASK and ?dup if                         \ and the cell it ends part of the way into
-        leftn seg-row
+        leftn r@ under!
     then
+    drop rdrop
+;
+
+\ The same slab where a region masks it or the mode is not copy: each cell
+\ goes through the mode, with what the region leaves of its mask.
+: cell-mode ( a mask row -- a )
+    >r over rm  r> -rot  'mode @ execute
+;
+
+: slow-slab ( b a row n -- )
+    swap >r  swap >r  swap                          ( n b ) ( R: row a )
+    2dup + PXCELL > 0= if
+        swap leftn swap PIXR  r> swap r> cell-mode drop
+        exit
+    then
+    ?dup if
+        tuck PXCELL - +
+        swap d# -1 swap PIXR
+        r> swap r@ cell-mode 1+ >r
+    then
+    dup PXSHIFT rshift  r> swap bounds              ( n end a ) ( R: row )
+    begin
+        2dupxor
+    while
+        d# -1 r@ cell-mode 1+
+    repeat
     drop
+    swap PXMASK and ?dup if
+        leftn r@ cell-mode
+    then
+    drop rdrop
 ;
 
 header slab
 : slab ( x y n -- )
     >r
-    dup d# 7 and pattern @ + @ psrc !
-    prow                                            ( b a ) ( R: n )
-    mmask @ 0=  'mode @ ['] m-copy =  and if r> fast-slab exit then
-    ba ! bn !  r> hn !
-    begin
-        hn @ 0>
-    while
-        PXCELL bn @ - hn @ min                      ( pixels in this cell )
-        dup leftn bn @ PIXR
-        ba @ rm  psrc @ -rot  'mode @ execute
-        negate hn +!
-        d# 0 bn !  d# 1 ba +!
-    repeat
+    dup d# 7 and pattern @ + @ >r                   ( x y ) ( R: n row )
+    prow r> r>                                      ( b a row n )
+    mmask @ 0=  'mode @ ['] m-copy =  and if fast-slab exit then
+    slow-slab
 ;
 
 \ Plain white or black, for the words that take a flag.
@@ -385,18 +408,16 @@ header pat-hline : pat-hline ( x y n -- )
     dup 0> if slab else drop 2drop then
 ;
 
-create py1 0 ,          \ past the last row of a rectangle that is to be drawn
-
 header pat-rect : pat-rect ( x y w h -- ) \ only the rows the clip rectangle has
-    >r over r> +  clip c# 3 + @ oy @ - min  py1 !
-    swap  clip CELL + @ oy @ - max  swap            ( x y w )
+    >r over r> +  clip c# 3 + @ oy @ - min  >r      ( x y w ) ( R: past the last row drawn )
+    swap  clip CELL + @ oy @ - max  swap
     begin
-        over py1 @ <
+        over r@ <
     while
         >r 2dup r@ pat-hline
         1+ r>
     repeat
-    drop 2drop
+    drop 2drop rdrop
 ;
 
 \ ---- copying
@@ -577,17 +598,17 @@ header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
 \ Eight pixels at x: the part of them in the cell x is in, and the part
 \ that runs over into the next, which is nothing unless x is in the last
 \ seven pixels of the cell.
-: over8 ( bits -- here next )
-    dup bn @ PIXR swap
-    bn @ PXCELL d# 8 - > if PXCELL bn @ - PIXL else drop d# 0 then
+: over8 ( bits b -- here next ) \ b is how far into the cell x is
+    >r dup r@ PIXR swap r>                          ( here bits b )
+    dup PXCELL d# 8 - > if PXCELL swap - PIXL else 2drop d# 0 then
 ;
 
 header xor8
 : xor8 ( bits x y -- ) \ invert the pixels where bits are set
-    prow ba ! bn !
-    EDGE over8
-    ?dup if ba @ 1+ x! then
-    ba @ x!
+    prow >r                                         ( bits b ) ( R: the cell )
+    swap EDGE swap over8
+    ?dup if r@ 1+ x! then
+    r> x!
 ;
 
 \ ---- text

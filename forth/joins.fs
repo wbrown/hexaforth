@@ -266,6 +266,7 @@ $6004 i, $6020 i, $6b38 i, $6b3c i,   \ over , swap , +!
 $6004 i, $60e4 i, $649c i, $6894 i,   \ over , over@ , =
 $6004 i, $6c04 i, $643c i, $6c34 i,   \ over , r@ , +
 $6004 i, $6c04 i, $649c i, $6c94 i,   \ over , r@ , =
+$6004 i, $6c04 i, $64ac i, $6ca4 i,   \ over , r@ , <
 $6004 i, $6c04 i, $64bc i, $6cb4 i,   \ over , r@ , u<
 $6004 i, $6c07 i, $643c i, $6c37 i,   \ over , r> , +
 $6020 i, $6403 i, $650d i, $611c i,   \ swap , rdrop , >r
@@ -281,4 +282,4 @@ $6c07 i, $6004 i, $6308 i, $6f03 i,   \ r> , over , !
 $6c07 i, $6020 i, $60cc i, $6cc3 i,   \ r> , swap , rshift
 $6c07 i, $6020 i, $60dc i, $6cd3 i,   \ r> , swap , lshift
 $6c17 i, $643c i, $6718 i, $6f3b i,   \ swapr> , + , swap !
-$112 constant JOINS#
+$113 constant JOINS#

@@ -25,6 +25,14 @@ It also counts the fetches that are followed at once by an operation on
 what was fetched and the cell under it: each is two instructions that one
 would do if the value were on the return stack.
 
+And it says which words can be in use more than once, which matters more
+than what they cost.  A word that keeps what it is working on in a
+variable has one of it, however many are running it: two tasks, or
+something that draws while something else is drawing, would each write
+over the other's.  A word that keeps it on the stacks has no such limit,
+since a task's stacks are its own.  The port's own cells (gstate) are not
+counted: they are what drawing is told to draw with.
+
 The report is build/vars.txt.
 """
 import os
@@ -92,6 +100,31 @@ def main():
         return var_name.get(im.VAR_BASE + off, f"cell {im.VAR_BASE + off:x}")
 
     wanted = lambda a: not files or file_of(a) in files
+
+    # Which words can be in use more than once.  A word that keeps what it is
+    # working on in a variable cannot, and nor can any that fetches what such
+    # a word left there.  The port (the cells of gstate) is not that: it is
+    # what drawing is told to draw with.  This is of the code as it is, not
+    # of what ran.
+    port = next((v & 0xFFFF for v, n in im.labels_of(image) if n == "gstate" and v >> 63), None)
+    is_port = lambda cell: port is not None and port <= cell < port + 18
+    touches = defaultdict(set)
+    every = set()
+    written = {w & 0xFFF for a, w in enumerate(code)        # a cell nothing here stores to is
+               if w & 0xF000 == 0xF000 and wanted(a)}       # a number, not something kept
+    for a, w in enumerate(code):
+        if not w or not wanted(a):
+            continue
+        every.add(word_of(a))
+        if w & 0xB000 == 0xB000 and w & 0xFFF in written and not is_port(im.VAR_BASE + (w & 0xFFF)):
+            touches[word_of(a)].add(var(w & 0xFFF))
+    census = [f"words: {len(every)}; {len(every) - len(touches)} keep nothing in a variable but the "
+              f"port's, and {len(touches)} do:"]
+    for word in sorted(touches, key=lambda w: (-len(touches[w]), w)):
+        census.append(f"    {word}: {' '.join(sorted(touches[word]))}")
+    kept = sorted({v for vs in touches.values() for v in vs})
+    census.append(f"the variables they keep it in ({len(kept)}): {' '.join(kept)}")
+
     total = fetched = stored = joined = 0.0
     by_var = defaultdict(lambda: [0.0, 0.0, set(), set()])     # fetches, stores, words fetching, words storing
     by_word = defaultdict(lambda: [0.0, 0.0, 0.0, Counter()])  # all, fetches, stores, by variable
@@ -149,9 +182,14 @@ def main():
         out.append(f"{word}: {allw:,.0f} run, {f:,.0f} fetches and {s:,.0f} stores "
                    f"({100 * (f + s) / allw:.0f}%)")
         out.append("    " + ", ".join(f"{v} {n:,.0f}" for v, n in c.most_common()))
+    out += ["", "Which words can be in use more than once: by two tasks, or by something that draws",
+            "while something else is drawing.", ""] + census
     with open(report, "w") as fh:
         fh.write("\n".join(out) + "\n")
-    print("\n".join(out[:min(summary, 46)]))
+    print("\n".join(out[:min(summary, 20)]))
+    print()
+    print(census[0])
+    print(census[-1])
     print(f"\nall of it, and every word: {report}")
 
 
