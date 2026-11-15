@@ -518,6 +518,20 @@ runs the same checks on one pixel of each block, and checks as well that
 every block is all one colour. The profile build is always the plain
 bridge.
 
+`make demo MIPS=5` (and `make run MIPS=5`) builds the kernel to execute
+that many million instructions a second and no more, to see what a machine
+of that speed is like to use. After every 256 instructions it waits for the
+time at which such a machine would have finished them, so it is slow
+evenly: QEMU's own speed setting runs the CPU flat out for 10 ms and stops
+it for the rest of each tenth of a second, which makes the pointer jump.
+The speed is the same on either kernel and on any host that can reach it,
+and it may have a fraction (`MIPS=0.5`). If the time has passed already
+(the host is slower, or the machine has been waiting for a key) it carries
+on from where it is and does not hurry to catch up. The count and the time
+are in two registers and nothing is kept in memory; a kernel built without
+`MIPS` is the same to the byte as before. The tests and the profile are
+always at full speed.
+
 `test/prompt_test.py VM IMAGE.hex [CELL_BITS]` types Forth at the nucleus's
 prompt on the reference VM and checks what comes back: definitions, wide
 numbers, that the nucleus's compiler uses the variable instructions and

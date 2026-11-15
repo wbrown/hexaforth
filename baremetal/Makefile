@@ -9,6 +9,8 @@
 #   make demo-test  drive the desktop headless and check the screen
 #   make demo SCALE=2   the same with each pixel two across and two down, for
 #                   a screen whose own pixels are small (demo-test too)
+#   make demo MIPS=5    the same at five million instructions a second and
+#                   no more, however fast the host is (make run MIPS=5 too)
 #   make demo-profile  drive it, and say where the instructions went
 
 # KERNEL picks the native kernel: hexaforth (small) or hexaforth-fast.
@@ -68,6 +70,30 @@ $(B)/%-display$(X).elf: $(B)/ramfb$(X).o $(B)/%-display.o
 	ld.lld -Ttext=$(LOAD) -e _start -o $@ $^
 endif
 
+# MIPS=n: the kernel executes n million instructions a second and no more,
+# evenly, so the machine is as slow as one of that speed and as smooth.  n
+# may have a fraction.  It is another kernel file, named for n.  demo and
+# run take it; the tests and the profile are always at full speed.
+MIPS ?=
+M    := $(if $(MIPS),-m$(MIPS))
+IPS  := $(if $(MIPS),$(shell awk 'BEGIN { printf "%d", $(MIPS) * 1000000 }'))
+
+ifneq ($(M),)
+$(B)/%-display$(M).o: %.S $(B)/image.bin
+	clang $(TARGET) -c -DIMAGE='"$(B)/image.bin"' $(if $(STRICT),-DSTRICT) -DBRIDGE -DIPS=$(IPS) \
+	    -DADDR_BITS=$(ADDR_BITS) $< -o $@
+
+$(B)/%-display$(M)$(X).elf: $(B)/ramfb$(X).o $(B)/%-display$(M).o
+	ld.lld -Ttext=$(LOAD) -e _start -o $@ $^
+
+$(B)/%$(M).o: %.S $(B)/image.bin
+	clang $(TARGET) -c -DIMAGE='"$(B)/image.bin"' $(if $(STRICT),-DSTRICT) -DIPS=$(IPS) \
+	    -DADDR_BITS=$(ADDR_BITS) $< -o $@
+
+$(B)/%$(M).elf: $(B)/%$(M).o
+	ld.lld -Ttext=$(LOAD) -e _start -o $@ $<
+endif
+
 # And the same again, counting how often each instruction is executed.  The
 # counts are kept 4MB past the stacks, which is clear of the pixels only
 # when they are not scaled, so this is always the plain bridge.
@@ -97,7 +123,7 @@ size: $(B)/$(KERNEL).elf
 	    END{print "native code: " e-s " bytes"}'
 	@ls -l $(B)/$(KERNEL).bin | awk '{print "whole image: " $$5 " bytes"}'
 
-run: $(B)/$(KERNEL).elf
+run: $(B)/$(KERNEL)$(M).elf
 	qemu-system-aarch64 -M virt -cpu cortex-a53 -nographic -nic none -kernel $<
 
 test: $(B)/$(KERNEL).bin
@@ -121,7 +147,7 @@ DEVICES := -device ramfb -global virtio-mmio.force-legacy=false \
 # Boot into the desktop.  Needs a QEMU with a graphical display; the serial
 # console also types into the front window.  ^Q leaves the desktop for the
 # serial prompt.
-demo: $(B)/$(KERNEL)-display$(X).elf $(B)/disk.img
+demo: $(B)/$(KERNEL)-display$(M)$(X).elf $(B)/disk.img
 	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 -serial mon:stdio -nic none $(DEVICES) -kernel $<
 
 # Boot headless, drive the desktop with key and pointer events, and check

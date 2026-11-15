@@ -55,6 +55,13 @@
 // first 4KB of the kernel, or a stack that leaves its 256 cells, sends '!'
 // and the address of the instruction, and halts.  The Forth system does
 // none of these.
+//
+// Built with -DIPS=n, the kernel executes n instructions a second and no
+// more, and evenly: after every 256 it waits for the time at which a
+// machine of that speed would have finished them.  If that time has passed
+// already (the host is slower than that, or the machine has been waiting
+// for a key) it carries on from now, and does not hurry to make it up.  It
+// keeps the count and the time in two registers and nothing in memory.
         .macro  INMEM reg
 #ifdef STRICT
         lsr     x17, \reg, #ADDR_BITS          // outside memory
@@ -81,6 +88,8 @@ RS      .req    x25     // return stack pointer
 UART    .req    x26
 STK     .req    x27     // host address of the data stack; the return stack follows
 PROF    .req    x28     // with -DPROFILE: a count for each instruction address
+GOVN    .req    x29     // with -DIPS: instructions left before the time is looked at
+GOVT    .req    x18     // and the time before which the next of them may not start
 INS     .req    x9      // current instruction
 INSw    .req    w9
 IO      .req    x10     // IN on the way into the ALU, OUT on the way out
@@ -115,8 +124,17 @@ _start:
         mov     IOA, MEM
         mov     T, #0
         mov     R, #0
+#ifdef IPS
+        mrs     GOVT, cntvct_el0
+        mov     GOVN, #1                        // look at the time at once
+#endif
 
 next:
+#ifdef IPS
+        subs    GOVN, GOVN, #1
+        b.eq    govern
+governed:
+#endif
 #ifdef PROFILE
         ldr     x16, [PROF, PC, lsl #3]         // count this instruction
         add     x16, x16, #1
@@ -385,6 +403,26 @@ trap:                                      // '!' and the address of the instruc
 #endif
 halt:   wfi
         b       halt
+
+#ifdef IPS
+// Hold the machine to its speed.  May use x0 and x1.
+govern: mrs     x0, cntfrq_el0                  // how long 256 instructions take,
+        lsl     x0, x0, #8                      // in ticks of the timer
+        ldr     x1, =IPS
+        udiv    x0, x0, x1
+        mrs     x1, cntvct_el0
+        cmp     x1, GOVT
+        b.hs    2f                              // late already: carry on from now
+1:      mrs     x1, cntvct_el0                  // early: wait for the time
+        cmp     x1, GOVT
+        b.lo    1b
+        add     GOVT, GOVT, x0
+        b       3f
+2:      add     GOVT, x1, x0
+3:      mov     GOVN, #256
+        b       governed
+        .ltorg
+#endif
 
         .balign 16
 native_end:

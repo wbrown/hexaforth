@@ -35,6 +35,13 @@
         .equ    IO_SP,       0xd0
         .equ    IO_RSP,      0xd1
 
+// Built with -DIPS=n, the kernel executes n instructions a second and no
+// more, and evenly: after every 256 it waits for the time at which a
+// machine of that speed would have finished them.  If that time has passed
+// already (the host is slower than that, or the machine has been waiting
+// for a key) it carries on from now, and does not hurry to make it up.  It
+// keeps the count and the time in two registers and nothing in memory.
+
 MEM     .req    x19     // host address of cell 0
 IOA     .req    x20     // latched machine address for the device ports
 PC      .req    x21     // word address of next instruction
@@ -51,15 +58,26 @@ INS     .req    x9      // current instruction
 INSw    .req    w9
 OUT     .req    x10     // ALU result, between the stages
 N       .req    x11
+GOVN    .req    x16     // with -DIPS: instructions left before the time is looked at
+GOVT    .req    x17     // and the time before which the next of them may not start
 
 // Fetch the next instruction and go to its first routine.
-        .macro  NEXT
+        .macro  FETCH
         ldrh    INSw, [MEM, PC, lsl #1]
         add     PC, PC, #1
         lsr     w12, INSw, #4
         ldrh    w12, [TBL1, x12, lsl #1]
         add     x12, HB, x12
         br      x12
+        .endm
+
+// The end of every routine: the next instruction, when it is time for one.
+        .macro  NEXT
+#ifdef IPS
+        subs    GOVN, GOVN, #1
+        b.eq    govern
+#endif
+        FETCH
         .endm
 
 // Go to the stage 2 routine for this instruction's out_mux, dstack, rstack.
@@ -95,6 +113,10 @@ _start:
         mov     IOA, MEM
         mov     T, #0
         mov     R, #0
+#ifdef IPS
+        mrs     GOVT, cntvct_el0
+        mov     GOVN, #1                        // look at the time at once
+#endif
 next:   NEXT
 
 hbase:
@@ -394,6 +416,26 @@ io_write:                                       // port in x15, value in OUT
 
 halt:   wfi
         b       halt
+
+#ifdef IPS
+// Hold the machine to its speed.  May use x0 and x1.
+govern: mrs     x0, cntfrq_el0                  // how long 256 instructions take,
+        lsl     x0, x0, #8                      // in ticks of the timer
+        ldr     x1, =IPS
+        udiv    x0, x0, x1
+        mrs     x1, cntvct_el0
+        cmp     x1, GOVT
+        b.hs    2f                              // late already: carry on from now
+1:      mrs     x1, cntvct_el0                  // early: wait for the time
+        cmp     x1, GOVT
+        b.lo    1b
+        add     GOVT, GOVT, x0
+        b       3f
+2:      add     GOVT, x1, x0
+3:      mov     GOVN, #256
+        FETCH
+        .ltorg
+#endif
 
 // ---------------------------------------------------------------- tables
 // tbl1 is indexed by instruction >> 4, whose bits are, high to low:
