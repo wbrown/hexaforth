@@ -370,15 +370,15 @@ the kernel's, as `words` is, and both pack with one word (`pack,`: codes
 of five bits into the key, characters of eight into the text). The C that
 wants a word by its name (`main.c` for its trace, `test/main.c` to find a
 test, `util/disasm_hex.c` for its labels) reads the image's headers, from
-the newest, whose address an image ends with, and a name with
-`decode_name` in `vm_opcodes.c`, which reads the same table. So an image
-that is to be read ends so: `nuc.fs` lays that cell down, and the test
-cases do (`test/generate_test_cases.c`). For as long as the test cases did
-not, and `test/main.c` looked for headers where they once were, it found
-no test and compared nothing, and passed: it now fails if the image has
-fewer tests than there are. `insn_map.py` still has the codes a second
-time (`name_at`),
-until it is gone.
+the newest, with one word, `read_header` in `vm_opcodes.c`: it reads a
+name with `decode_name`, which reads the same table, and what does not
+fit in the image, or has a link that does not go back, is not a header
+to it.
+
+The address of the newest header is the first cell of an image's data,
+the cell at `VAR_BASE`. `cross.fs` keeps that cell for it in every image
+and stores it there when the program is compiled; in the nucleus that
+cell is `forth`.
 Labels are laid out the same, so `see` searches them with `sfind`.
 
 What that cost and what it saved, counted. A name was a count and its
@@ -446,9 +446,9 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 4,014 bytes
-with 64-bit cells, 4,050 with 32 and 3,990 with 16, against the 4,096 the
-kernel ROM holds: 46 bytes to spare with cells of 32 bits. When it does
+task that runs past its part of a stack. The kernel's code is to fit in
+the 4,096 bytes the kernel ROM holds, at every cell size; the VM says how
+long it is when it loads an image (`CODE=`). When it does
 not fit, look in it for what is written twice before moving a word out
 of it (Addresses, above, says what was found the last time).
 
@@ -1526,13 +1526,8 @@ extra cycle: about 15% fewer cycles for a clock about 5% slower and 2,400
 more LUTs. The kernel's code fits in 4KB and nothing stores there: every
 variable is above the kernel. Build the reference VM with `-DROM_BYTES=4096`
 to check, or the small kernel with `STRICT=1`. The ROM's size is
-`KROM_BYTES` in `vm_constants.h`. `util/memimage.c`, built for the cell and
-the memory (`-DCELL_BITS`, `-DADDR_BITS`), writes from an image what the
-Verilog memory is loaded from and the ROM (`krom.vh`: the function, and
-`KB`, the size, which the Verilog has from there and does not say). The
-flag to the VM and the kernel's `STRICT` still say 4096 themselves.
-`util/hex2bin.c` writes an image as bytes for the AArch64 kernels to be
-assembled round; both read the image with `load_image` in `util/image.c`.
+`KROM_BYTES` in `vm_constants.h`, and the Verilog has it from `krom.vh`,
+which `util/memimage.c` writes.
 
 - `make -C rtl test W=64` (or 32, or 16) replays differential cases from
   `baremetal/difftest_dump.c`, built for that cell width, on the Verilog

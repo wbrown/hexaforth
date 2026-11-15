@@ -321,7 +321,7 @@ create hv 0 ,
 : xt? ( n -- f ) dup CODE-BASE - CODE-SIZE u< swap h# 1001 - h# fff u< or ;
 
 meta
-:: DATA-CELLS  code-base 2* $4000 - byte-shift rshift literal ;     \ cells of data and of headers, from VARS
+:: DATA-CELLS  code-base 2* data-base - byte-shift rshift literal ;     \ cells of data and of headers, from VARS
 target
 
 : snum ( n -- )

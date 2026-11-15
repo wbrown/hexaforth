@@ -57,7 +57,7 @@ def word_names(raw, image):
     """Where each word starts: the dictionary in the image's bytes, and for
     the rest the labels, which are in the file of names beside the image."""
     cells = struct.unpack(f"<{0x10000 // 2}H", raw[:0x10000])     # the first 64KB
-    head = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]    # as insn_map.py
+    head = 8 * cells[0x2000]                # the first cell of the data: cross.fs
     names = {}
     for value, n in insn_map.labels_of(image):
         if not value >> 63:

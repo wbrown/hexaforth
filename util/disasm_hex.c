@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) {
 
   char line[100];
   int addr = 0;
-  while (fgets(line, sizeof(line), f)) {
+  while (addr < 65536 && fgets(line, sizeof(line), f)) {
     // Remove newline
     line[strcspn(line, "\n")] = 0;
 
@@ -113,27 +113,21 @@ int main(int argc, char *argv[]) {
   }
   fclose(f);
 
-  // Walk the dictionary from the newest header, whose address is the last
-  // nonzero word of the image.  A header is cells: link, xt (top bit:
-  // immediate), then the name, five bits a character (decode_name in
-  // vm_opcodes.c).  That address and a link are the numbers of cells.
+  // The words of the image's dictionary, from the newest (read_header in
+  // vm_opcodes.c), each a label for the instruction its code starts at.
   printf("Dictionary entries:\n");
   const uint8_t *bytes = (const uint8_t *)memory;
-  int last = 0;
-  for (int i = 0x2000; i < addr && i < 0x8000; i++)
-    if (memory[i]) last = i;
-  uint32_t head = last ? memory[last] * CELL_BYTES : 0;
-  for (int n = 0; head && n < 1000; n++) {
-    uint64_t link = 0, xt = 0;
-    memcpy(&link, bytes + head, CELL_BYTES);
-    memcpy(&xt, bytes + head + CELL_BYTES, CELL_BYTES);
-    xt &= ~(1ull << (CELL_BITS - 1));
+  size_t image_len = (size_t)addr * 2;
+  uint32_t head = newest_header(bytes, image_len);
+  while (head) {
+    uint64_t xt;
     char name[256];
-    decode_name(bytes + head + 2 * CELL_BYTES, name);
+    uint32_t before = read_header(bytes, image_len, head, &xt, name);
+    if (!name[0]) break;
     printf("  '%s' @ 0x%04X: code at word 0x%04X (byte 0x%04X), link=0x%04X\n",
-           name, head, (unsigned)xt, (unsigned)xt * 2, (unsigned)link);
+           name, head, (unsigned)xt, (unsigned)xt * 2, before);
     add_label((uint16_t)xt, name);
-    head = (uint32_t)link * CELL_BYTES;
+    head = before;
   }
   printf("\n");
 

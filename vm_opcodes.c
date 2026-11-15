@@ -93,16 +93,23 @@ bool lookup_op_word(word_node* nodes, char* word, instruction* lookup) {
     return(interpret_imm(word, lookup));
 }
 
-// Given where the name in a dictionary header starts, write the name out as
-// a string, and return how many bytes of the header the name's cells are.
+// Given where the name in a dictionary header starts, and how many bytes
+// there are from there to the end of the image, write the name out as a
+// string, and return how many bytes of the header the name's cells are.
+// What does not end inside the image, or goes on longer than a name does,
+// is not a name: then the string is empty and nothing is returned.
 // See `NAME_CODES_REPR` for what the codes of a name are.
-int decode_name(const uint8_t* cells, char* out) {
+int decode_name(const uint8_t* cells, size_t room, char* out) {
     const char* lot = NULL;     // which lot the next code is one of, if any
     int len = 0;
     int bytes = 0;
     bool last = false;
 
-    while (!last && len < 128) {
+    while (!last) {
+        if (bytes + CELL_BYTES > room || len > 128) {
+            out[0] = '\0';
+            return(0);
+        }
         uint64_t cell = 0;
         memcpy(&cell, cells + bytes, CELL_BYTES);
         bytes += CELL_BYTES;
@@ -123,6 +130,38 @@ int decode_name(const uint8_t* cells, char* out) {
     }
     out[len] = '\0';
     return(bytes);
+}
+
+// The dictionary of an image of `len` bytes.  A header is cells: the address
+// of the header before it, which is nothing for the first; the word's
+// execution token, with the top bit set if the word is immediate; and the
+// name.  The address of the newest header is the first cell of the image's
+// data, the cell at VAR_BASE, where cross.fs puts it.  An address is the
+// number of a cell, and a header is said here by the byte it starts at.
+uint32_t newest_header(const uint8_t* image, size_t len) {
+    uint64_t head = 0;
+    if ((VAR_BASE + 1) * CELL_BYTES > len) return(0);
+    memcpy(&head, image + VAR_BASE * CELL_BYTES, CELL_BYTES);
+    return(head < len / CELL_BYTES ? head * CELL_BYTES : 0);
+}
+
+// Read the header at byte `head`: its name, and its execution token without
+// the top bit.  Returns the byte the header before it starts at, which is
+// nothing for the first.  What does not fit in the image, or has a link
+// that does not go back, is not a header: then the name is empty and
+// nothing is returned.
+uint32_t read_header(const uint8_t* image, size_t len, uint32_t head,
+                     uint64_t* xt, char* name) {
+    uint64_t link = 0;
+    name[0] = '\0';
+    *xt = 0;
+    if (head + 2 * CELL_BYTES > len) return(0);
+    memcpy(&link, image + head, CELL_BYTES);
+    memcpy(xt, image + head + CELL_BYTES, CELL_BYTES);
+    *xt &= ~(1ull << (CELL_BITS - 1));
+    if (link >= head / CELL_BYTES) return(0);
+    decode_name(image + head + 2 * CELL_BYTES, len - head - 2 * CELL_BYTES, name);
+    return(link * CELL_BYTES);
 }
 
 void decode_instruction(char* out, instruction ins, word_node words[]) {

@@ -23,7 +23,7 @@ tflash      131072 erase
 _tbranches  131072 cells erase
 : tbranches cells _tbranches + ;
 
-variable tdp    $4000 tdp !     \ Data pointer
+variable tdp                    \ Data pointer: set where the data starts (data-base, below)
 
 \ Dictionary headers and labels are laid down in a region of their own,
 \ above the data, so that they do not push variables up: a variable in the
@@ -385,6 +385,7 @@ next-arg included       \ include the machine.fs
 cell-bits 8 / constant cell-bytes
 var-base fv-base !
 cell-bytes 2 = [if] 1 [else] cell-bytes 4 = [if] 2 [else] 3 [then] [then] constant byte-shift
+var-base byte-shift lshift constant data-base       \ the byte of the image the data starts at
 
 \ An address on the target is the number of a cell.  The data pointer here
 \ counts bytes, since bytes are laid down one at a time; taddr turns it into
@@ -435,6 +436,12 @@ addr-bits #16 > 0= constant small           \ a machine whose memory is 64K cell
 \ has 16KB and the headers the 16KB after that.
 small [if] $6000 [else] cell-bits #64 < [if] $c000 [else] $a000 [then] [then] constant hdr-base
 hdr-base thp !
+\ The first cell of the data, the cell at var-base, is every image's: the
+\ address of its newest header, stored when the program has been compiled
+\ (at the end of this file).  It is where whoever reads an image finds its
+\ dictionary (read_header in vm_opcodes.c), and a program that keeps a
+\ dictionary keeps its newest word there: `forth`, below.
+data-base cell-bytes + tdp !
 small [if] $4000 [else] $8000 [then] constant code-base
 small [if] $4000 [else] $8000 [then] constant code-size
 code-base 2* page-min !
@@ -450,7 +457,7 @@ code-base 2* page-min !
 \ time carries on after the variables, and must stop where the bulk
 \ starts.  On a machine whose 4,096 cells reach the headers there is
 \ nothing to do and the two words do nothing.
-small [if] $5400 [else] $4000 4096 cell-bytes * + [then] constant bulk-base
+small [if] $5400 [else] data-base 4096 cell-bytes * + [then] constant bulk-base
 bulk-base hdr-base < constant bulky
 variable tbp    bulk-base tbp !
 variable bsave
@@ -1633,6 +1640,7 @@ warnings on
 :: LEFT1  disp-left-low if 1 else 1 cell-bits 1- lshift then literal ;
 :: M8     disp-left-low if $ff else $ff cell-bits 8 - lshift then literal ;
 :: VARS       var-base literal ;                \ the first cell one instruction can fetch
+:: forth      var-base literal ;                \ which holds the newest header's address
 :: HDR-BASE   hdr-base literal ;                \ where headers start
 :: DATA-LIMIT data-limit literal ;              \ where data must stop: there, or where the bulk starts
 \ The cell after the last of memory.  Where memory is as many cells as a
@@ -1837,7 +1845,7 @@ decimal
     file close-file
 ;
 
-s" (all)" tcp @  tdp @ $4000 -  thp @ hdr-base - +  tbp @ bulk-base - +  hdr-bytes @ lbl-bytes @ 0 size-line
+s" (all)" tcp @  tdp @ data-base -  thp @ hdr-base - +  tbp @ bulk-base - +  hdr-bytes @ lbl-bytes @ 0 size-line
 in-bulk @ [if] cr .( bulk with no unbulk) abort [then]
 tdp @ data-limit > [if] cr .( the data has run into what is after it) abort [then]
 tbp @ hdr-base >  bulky and [if] cr .( the bulk has run into the dictionary headers) abort [then]
@@ -1845,6 +1853,7 @@ thi @ 131072 >  lofty and [if] cr .( what is laid down above the display has run
 thp @ code-base 2* > [if] cr .( the dictionary headers have run into the code) abort [then]
 tcp @ code-base code-size + 2* > [if] cr .( the code has run past where code can be) abort [then]
 sizes @ close-file throw
+link @ var-base tvar!                   \ the newest header, in the first cell of the data
 plain @ 0= [if]
     inline-name create-output-file  dup inl-map call# @ rot write-file throw  close-file throw
 [then]

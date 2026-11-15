@@ -538,7 +538,7 @@ def dictionary_names(path):
     raw = b"".join(struct.pack("<I", int(l, 16)) for l in open(path) if l.strip())
     cells = struct.unpack(f"<{len(raw) // 2}H", raw)
     names = set()
-    link = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
+    link = 8 * cells[0x2000]                # the first cell of the data: cross.fs
     while link:
         names.add(name_at(raw, link + 16))
         link = 8 * struct.unpack_from("<Q", raw, link)[0]
@@ -870,7 +870,7 @@ def load_image(path):
     entries = set()
     global EXECUTE
     EXECUTE = None
-    link = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
+    link = 8 * cells[0x2000]                # the first cell of the data: cross.fs
     while link:
         xt = struct.unpack_from("<Q", raw, link + 8)[0] & 0xFFFF
         entries.add(xt)
@@ -927,7 +927,7 @@ def image_stamp(image):
     cell that the word `tstamp` of its dictionary pushes the address of."""
     raw = b"".join(struct.pack("<I", int(l, 16)) for l in open(image) if l.strip())
     cells = struct.unpack(f"<{len(raw) // 2}H", raw)
-    link = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
+    link = 8 * cells[0x2000]                # the first cell of the data: cross.fs
     while link:
         if name_at(raw, link + 16) == "tstamp":
             xt = struct.unpack_from("<Q", raw, link + 8)[0] & 0xFFFF

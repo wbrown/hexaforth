@@ -14,7 +14,6 @@
 
 
 typedef struct {
-  uint16_t start_addr;
   uint16_t *bytes;
   int count;
 } test_bytecode;
@@ -56,80 +55,33 @@ static uint16_t *load_hex_file(const char *filename, int *total_words) {
   return memory;
 }
 
-// Parse dictionary header to find code pointer
-static uint16_t get_code_pointer(uint16_t *memory, uint16_t dict_addr) {
-  // Convert byte address to word index
-  // The .lst addresses are absolute byte addresses in the image
-  uint16_t word_idx = dict_addr / 2;
-  uint16_t start_idx = word_idx;
-
-  // Dictionary format:
-  // - link (2 bytes = 1 word)
-  // - name length (1 byte)
-  // - name chars (length bytes)
-  // - padding to align to word boundary
-  // - code pointer (2 bytes = 1 word)
-
-  // Skip link field
-  word_idx++;
-
-  // Get name length (it's in the low byte of the word)
-  uint8_t name_len = memory[word_idx] & 0xFF;
-
-  // The name length byte is in the low byte, so we need to account for that
-  // when calculating how many words to skip
-  // We have: [length_byte + name_bytes], and need to round up to word
-  // boundary
-  int name_bytes = name_len;
-  int total_name_bytes = 1 + name_bytes;       // 1 for the length byte itself
-  int name_words = (total_name_bytes + 1) / 2; // Round up to word boundary
-
-  word_idx += name_words;
-
-  // Now we're at the code field pointer
-  // Return the value at this location (the pointer to the actual code)
-  return memory[word_idx];
-}
-
-// Dictionary parsing structure
+// A word of a test image's dictionary: its name, and the instruction its
+// code starts at.
 typedef struct dict_entry {
   char name[64];
-  uint16_t dict_addr; // Word address of dictionary entry
-  uint16_t code_addr; // Word address of code
-  uint16_t link;      // Link to previous entry
+  uint16_t code_addr;
 } dict_entry;
 
-// Parse the dictionary of a test image.  The image ends with the address of
-// the newest header, which is the last nonzero word below the code pages,
-// and each header says where the one before it is: nothing here says where
-// the headers start.  A header is cells: link, xt (top bit: immediate), then
-// the name, five bits a character (decode_name in vm_opcodes.c).  A link and
-// the address the image ends with are the numbers of cells.
+// The words of a test image's dictionary, from the newest (read_header in
+// vm_opcodes.c).
 static int parse_dictionary(uint16_t *memory, int total_words,
                             dict_entry *entries, int max_entries) {
   const uint8_t *bytes = (const uint8_t *)memory;
-  int last = 0;
-  for (int i = 0x2000; i < total_words && i < 0x8000; i++) {
-    if (memory[i])
-      last = i;
-  }
-  uint32_t head = last ? memory[last] * CELL_BYTES : 0;
+  size_t image_len = (size_t)total_words * 2;
+  uint32_t head = newest_header(bytes, image_len);
   int count = 0;
 
-  while (head && head < (uint32_t)total_words * 2 && count < max_entries) {
-    uint64_t link = 0, xt = 0;
-    memcpy(&link, bytes + head, CELL_BYTES);
-    memcpy(&xt, bytes + head + CELL_BYTES, CELL_BYTES);
+  while (head && count < max_entries) {
+    uint64_t xt;
     char name[256];
-    decode_name(bytes + head + 2 * CELL_BYTES, name);
+    head = read_header(bytes, image_len, head, &xt, name);
+    if (!name[0])
+      break;
     if (strlen(name) <= 63) {
       strcpy(entries[count].name, name);
-      entries[count].dict_addr = head / 2;
-      entries[count].code_addr = (uint16_t)(xt & ~(1ull << (CELL_BITS - 1)));
-      entries[count].link = (uint16_t)(link * CELL_BYTES / 2);
+      entries[count].code_addr = (uint16_t)xt;
       count++;
     }
-    head = (uint32_t)link * CELL_BYTES;
   }
 
   return count;

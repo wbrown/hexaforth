@@ -57,7 +57,8 @@ static char* RSTACK_REPR[] = {
 // Codes 1 to 26 are the letters.  These are the rest, in three lots: those
 // with a code of their own, and those said by a code that says which lot
 // and then which of it, counted from 1.  cross.fs packs names with these
-// (they are written into basewords.fs), and `decode_name` reads one.
+// (they are written into basewords.fs), and `decode_name` reads one;
+// `read_header` reads the header it is in.
 static char* NAME_CODES_REPR[] = {
         "-!?",                                  // codes 27, 28 and 29
         "0123456789><@'(),.+*/=\"#:;[]$%&",     // after code 30
@@ -270,7 +271,8 @@ static forth_define FORTH_OPS[] = {
         {">><<",    "tuck rshift swap lshift", CODE},
         {"nmask8",  "255 imm invert", CODE},
         {"nmask16",  "0 imm invert 16 imm lshift", CODE},
-        {".s",      "0 imm 224 imm io!", CODE}};
+        {".s",      "0 imm 224 imm io!", CODE},
+        {"",        "", CODE}};
 
 // Instructions associated with string representations.
 typedef struct {
@@ -292,6 +294,9 @@ uint8_t lookup_word(word_node* nodes, const char* word, instruction* lookup);
 const char* lookup_opcode(word_node nodes[], instruction ins);
 char* instruction_to_str(instruction ins);
 bool init_opcodes(word_node opcodes[]);
-int decode_name(const uint8_t* cells, char* out);
+int decode_name(const uint8_t* cells, size_t room, char* out);
+uint32_t newest_header(const uint8_t* image, size_t len);
+uint32_t read_header(const uint8_t* image, size_t len, uint32_t head,
+                     uint64_t* xt, char* name);
 
 #endif //HEXAFORTH_VM_OPCODES_H

@@ -100,12 +100,6 @@ void generate_test_cases_fs() {
   fprintf(f, "header main : main halt ;\n");
   fprintf(f, "header quit : quit halt ;\n");
 
-  // The image ends with the address of its newest header, as the nucleus's
-  // does: that is where whoever reads the dictionary starts (test/main.c).
-  fprintf(f, "\nmeta\n");
-  fprintf(f, "    >hdr  link @ t,  hdr>\n");
-  fprintf(f, "target\n");
-
   fclose(f);
   printf("Generated forth/test_cases.fs with %d test words\n", test_num);
 }

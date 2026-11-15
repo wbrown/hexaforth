@@ -83,7 +83,7 @@ def main():
         if value >> 63:
             var_name.setdefault(value & 0xFFFF, n)
     cells = struct.unpack(f"<{len(raw) // 2}H", raw)
-    link = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
+    link = 8 * cells[0x2000]                # the first cell of the data: cross.fs
     while link:
         xt = struct.unpack_from("<Q", raw, link + 8)[0] & 0xFFFF
         w = code[xt] if xt < len(code) else 0

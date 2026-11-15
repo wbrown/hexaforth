@@ -190,7 +190,8 @@ create "cold"
 create "error:"
     'e' c, 'r' c, 'r' c, 'o' c, 'r' c, ':' c,
 
-create forth    0 ,
+\ forth, the newest word of the dictionary, is the first cell of the data in
+\ every image, and cross.fs says so: it is not laid down here.
 create labels   0 ,         \ names of definitions that have no header, while they are read in (see.fs)
 create cp       0 ,         \ Code pointer, grows up
 create dp       0 ,         \ Data pointer, grows up
@@ -1668,10 +1669,8 @@ include join.fs
 
 meta
     t' pcompile, t' 'compile tvar!
-    >hdr  link @ t,  hdr>               \ the newest header, last in the image
     t' main-task t' main-task tvar!     \ the first task, in a ring of one
     t' main-task t' up tvar!
-    link @ t' forth tvar!
     there  t' dp tvar!                  \ data carries on after the data,
     thp @  t' hdp tvar!                 \ and headers after the headers
     tcp @ 2/ code-base max $fff + $fff invert and
