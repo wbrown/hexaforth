@@ -31,6 +31,8 @@ import insn_map                                     # noqa: E402
 PROFILE_AT = 0x400000       # as hexaforth.S
 ADDR_BITS = 22
 CODE = 0x10000              # instruction addresses
+# Each task's part of the two stacks, as it is spawned with (wm.fs, view.fs, term.fs).
+TASKS = (("the desktop", 0, 96), ("the picture", 96, 128), ("the Forth window", 128, 256))
 
 
 def symbols(elf):
@@ -169,6 +171,7 @@ def main():
             m.move(x, 150 + x // 10)
         phase("moving the pointer across the screen")
         raw = p.dump(p.mem, 0x20000)
+        stacks = p.dump(p.mem + (8 << ADDR_BITS), 0x1000)
     finally:
         m.stop()
 
@@ -222,6 +225,15 @@ def main():
             for n, v in bw.most_common(40):
                 calls = sum(net[a] for a in starts if names[a] == n)
                 print(f"    {n:14} {v:12,.0f} {calls:10,.0f} calls {v / max(calls, 1):8.1f} each")
+    # How far up its part of each stack every task got.  The kernel clears the
+    # stacks at boot and nothing clears a cell that is dropped, so the highest
+    # cell of a task's part that is not zero is as far as it reached (or one
+    # short, if the last thing it put there was a zero).
+    cells = struct.unpack("<512Q", stacks)
+    print("\nThe deepest each task went, of the cells it has (data stack, return stack):")
+    for task, lo, hi in TASKS:
+        deep = [max((i - lo + 1 for i in range(lo, hi) if cells[base + i]), default=0) for base in (0, 256)]
+        print(f"  {task}: {deep[0]} and {deep[1]} of {hi - lo}")
     # For util/survey.py: how often each instruction ran, as work and as a turn of the idle loop.
     with open(os.path.join(os.path.dirname(image), "desktop.counts"), "wb") as f:
         f.write(struct.pack(f"<{CODE}d", *work))

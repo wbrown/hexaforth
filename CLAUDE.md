@@ -280,8 +280,10 @@ The image viewer reads and dithers its picture in a third task (`view-row`
 in `view.fs`), a row of the image at each of its turns, so the desktop is up
 at once and the picture comes down its window. It has cells 96 to 127 of
 each stack: the desktop's own task was measured to reach cell 35 and no
-further, and this one uses 7 cells of the data stack and 14 of the return
-stack. Nothing stops a task from outside. This one takes itself out of the
+further, and this one uses 10 cells of the data stack and 14 of the return
+stack (7 and 14 before the regions kept what they work on on the stacks:
+putting rows out of date is where it goes deepest). `make demo-profile`
+says how far each task got. Nothing stops a task from outside. This one takes itself out of the
 ring when the last row is made (`retire`): the task before it is made to
 point past it, and its next `pause` does not come back. The rows are put
 out of date eight at a time, since every window that lies over what is out
@@ -400,13 +402,14 @@ Page 1 is what the rest is built on:
 
 Pages 8 and 9 are the drivers and the desktop:
 
-- `region.fs`: regions, as rows of where a shape goes in and out, with
-  `rect-rgn`, `rgn-and`, `rgn-or`, `rgn-diff`, `rgn-offset`, `rgn-box`.
-  `rgn-clip!` clips a port to one: drawing makes a mask of the region for
-  the row it is on. `scroll-rect` moves what is in a rectangle: a pixel
-  moves only if where it comes from and where it goes can both be seen, and
-  the places left with nothing are made white and returned as the region
-  `scroll-update`, to be drawn again (`inval-rgn`)
+- `region.fs`: regions, as bands of where a shape goes in and out, with
+  `rect-rgn`, `rgn-and`, `rgn-or`, `rgn-diff`, `rgn-offset`, `rgn-box`,
+  `rgn-none`. `rgn-clip!` clips a port to one: drawing makes a mask of the
+  region for the row it is on. `scroll-rect` moves what is in a rectangle:
+  a pixel moves only if where it comes from and where it goes can both be
+  seen, and the places left with nothing are made white and returned as the
+  region `scroll-update`, to be drawn again (`inval-rgn`). See Regions,
+  below
 - `virtio.fs`, `virtio-blk.fs`: the QEMU `virt` block driver
 - `tiff.fs`, `atkinson.fs`, `mandrill.fs`: uncompressed TIFF reader, Atkinson
   dithering, and the demo. Neither touches memory a pixel at a time: `take`
@@ -579,7 +582,8 @@ each address is executed, and `baremetal/deskprof.py` drives the desktop
 through typing, scrolling, raising and dragging windows, the calculator,
 the Words window and the editor, reading the counts out of the machine
 after each. What a turn of the idle event loop costs is taken off, and the
-rest is given by file, by word and by kind of instruction.
+rest is given by file, by word and by kind of instruction. At the end it
+says how far up its part of each stack every task got.
 
 `python3 util/survey.py build/nuc.hex build/desktop.counts` lays the whole
 encoding out against that profile, which `demo-profile` leaves in
@@ -652,6 +656,71 @@ other's. `vars.py` counts the words that do. In `display.fs`:
 - what is left is the port's own: the mask of the clip region for the row
   in hand (`rmask`, thirteen words), which goes with where a task's port
   is to live; and the opening of a font, which is done once
+
+### Regions
+
+A region's data says what code for a machine with registers would keep, so
+`region.fs` keeps nothing: none of its words has a variable, and any
+number of them can be in hand at once. (It had 45: limits, flags for
+inside and outside, cursors, the operation, and arguments stored to be
+fetched back.)
+
+- a region is a count of the cells that follow, and then bands. A band is
+  `n x0 .. x(n-1) end`: `n` crossings, and where the band ends, which is
+  the row it goes down to plus `AS-END` (2^32). The end is further along
+  than any crossing (anything from `END-MIN`, 2^31, up is an end), so it
+  is also what ends the crossings, and nothing counts them to merge them;
+  and the nearer of two bands' ends is the end of the band they make
+- the first band has no crossings and ends at the region's top, and the
+  last has none and ends at `NEVER` (2^33): every row is in a band, and a
+  top or a bottom is nothing special. Nothing at all is that last band
+  (`rgn-none`; never store a count of 0). A rectangle is eight cells, and
+  nothing else is
+- a band is an even number of cells and a region starts on an even cell
+  (`new-rgn`), so a crossing in is at an even address and a crossing out
+  at an odd one. A place among the crossings is inside the region if its
+  address is odd; that is so of the two regions read and of the one
+  written, and nothing keeps a flag. A region anywhere else would read as
+  everything it is not
+- a merge has two places to read on the data stack and the place to write
+  on the return stack. The nearer crossing is written where the answer's
+  next would go; each place that was at it moves on; and it stays written
+  if the answer is not what it was. Whether the answer is inside is one
+  instruction on the two places to read: `and` for what is in both, `or`
+  for either, `invert and` for the first and not the second. The three
+  merges are that instruction between two words of the cross-compiler
+  (`MERGE[` `]MERGE`), compiled in line
+- the end of a band is a crossing like any other: the place that was at
+  the nearer end moves on to its region's next band, and the other is left
+  at its end. So the sweep (`rgn-op`) has the band of each region on the
+  data stack and the last band written on the return stack, and takes the
+  next band of each from where the merge left its place (`on?`). It starts
+  with a band of nothing; a band with the crossings of the last one is not
+  written, and the last one is made to end where it would have
+- only `display.fs` (`mfind`, `rmask`, `reclip`) reads the form besides
+  `region.fs`. `scroll-rect` works in three regions next to each other,
+  taken from `halloc` and given back, with one place on the return stack
+  for the three; `scroll-update`, which whoever scrolled reads, is the one
+  variable left
+- coordinates are within 2^31 of nothing either way
+
+In the profile `region.fs` ran 1,617,696 instructions and 2,142,456 cycles
+as it was, 29% of them fetches and stores of variables, and runs 1,166,113
+and 1,280,433 now. The merges are half what `merge` and `inside` were; the
+sweep is about what it was. It does not make the picture come sooner:
+putting a row out of date costs about 27,000 instructions, and most of
+that is painting. `scroll-rect` is about 470 instructions a scroll dearer,
+0.3% of one, for asking its regions for the rectangle round them. The
+stacks are no deeper in the desktop's task (18 cells and 30) and three
+cells of the data stack deeper in the picture's (10 of its 32).
+
+`test/region_test.py VM IMAGE.hex [SEED [COUNT]]` checks it: a set of
+pixels has one form as a region, so random rectangles are made, combined,
+moved, copied and boxed at the prompt of the reference VM, and every cell
+of every region is compared with the one form of what it should hold. Run
+with no machine it checks the idea alone: the merge and the sweep in
+Python, with memory an array and inside taken from the address. Run it
+after changing `region.fs`, on a VM built with `-DSTRICT`.
 
 A loop that tests at the top goes round with a jump. Where the test is one
 instruction that says whether two things are the same (`2dupxor while`,
