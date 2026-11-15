@@ -22,5 +22,5 @@ header show
 header mandrill
 : mandrill ( -- )
     devices
-    d# 16 show
+    PICTURE-BLK show
 ;

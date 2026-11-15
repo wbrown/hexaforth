@@ -135,7 +135,6 @@ static inline uint8_t *io_target(context *ctx, int width) {
 #define IO_DISK_BLOCK 0xb0
 #define IO_DISK_READ  0xb1
 #define IO_DISK_WRITE 0xb2
-#define DISK_BLOCK    1024
 
 static inline void disk_io(context *ctx, int64_t addr, int write) {
     uint64_t at = ucell(addr) * CELL_BYTES;

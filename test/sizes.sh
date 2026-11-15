@@ -22,8 +22,9 @@ OUT=build/sizes
 mkdir -p $OUT
 SEEDS=${*:-3 4}
 fail=0
-PICTURE=baremetal/build/baboon.png          # the Mandrill, which baremetal/Makefile fetches
-[ -f $PICTURE ] || make -C baremetal build/baboon.png > $OUT/picture.log 2>&1
+PICTURE=baremetal/build/mandrill.tiff       # the Mandrill, which baremetal/Makefile fetches,
+MKDISK=baremetal/build/mkdisk               # and what makes a disk, which it builds
+make -C baremetal build/mandrill.tiff build/mkdisk > $OUT/picture.log 2>&1
 
 run() { # name, command...
     name=$1; shift
@@ -49,7 +50,8 @@ for m in "64 22 768 576 0x4000" "32 17 768 576 0x8000" "16 16 512 342 0x8000"; d
     # Mandrill, and the tables of names that go with this image, if it has any.
     T=
     [ -f $OUT/nuc-$C.tables ] && T=$OUT/nuc-$C.tables
-    if python3 baremetal/mkdisk.py $PICTURE $OUT/disk-$C.img baremetal/block1.fs $T > $OUT/disk-$C.log 2>&1; then
+    if $MKDISK $PICTURE $OUT/disk-$C.img baremetal/block1.fs $T > $OUT/disk-$C.log 2>&1; then
+        cp $PICTURE $OUT/disk-$C.tiff       # where the test looks for the picture that is on the disk
         run desktop-$C python3 test/desktop_test.py $OUT/vm-$C $OUT/nuc-$C.hex $OUT/desktop-$C \
             $OUT/disk-$C.img $C $W $H $BASE $T
     else

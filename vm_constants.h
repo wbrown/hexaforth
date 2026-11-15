@@ -33,6 +33,16 @@
 // writes).
 #define KROM_BYTES 4096
 
+// A disk is blocks of this many bytes, and this is what the system keeps on
+// the one it is given, by block.  The Forth has these from here, through
+// basewords.fs, and so has what makes a disk (util/mkdisk.c).
+#define DISK_BLOCK          1024
+#define DISK_SOURCE_BLOCK   1       // Forth source, which the editor opens at
+#define DISK_PICTURE_BLOCK  16      // a TIFF, for the viewer
+#define DISK_NAMES_BLOCK    1024    // the names that go with the image
+#define DISK_CANVAS_BLOCK   1152    // HexaPaint's canvas,
+#define DISK_CANVAS_BLOCKS  16      // and how many blocks are kept for it
+
 // Each of the two stacks is this many cells.  The stacks are not part of
 // memory: they are reached by pushing, popping and the depth ports.  Going
 // past either end is undefined; a strict build stops there.

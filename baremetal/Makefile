@@ -137,16 +137,21 @@ run: $(B)/$(KERNEL)$(M).elf
 test: $(B)/$(KERNEL).bin
 	KERNEL=$(KERNEL) ADDR_BITS=$(ADDR_BITS) python3 difftest.py
 
-# The Mandrill test image comes from the baboon-image npm package.
-$(B)/baboon.png:
+# The Mandrill, as the USC-SIPI image database has it: a TIFF that is not
+# compressed, which is what the system reads.
+$(B)/mandrill.tiff:
 	@mkdir -p $(B)
-	cd $(B) && npm pack --silent baboon-image && tar xzf baboon-image-*.tgz package/baboon.png \
-	    && mv package/baboon.png . && rm -rf package baboon-image-*.tgz
+	curl -sSfL -o $@ "https://sipi.usc.edu/database/download.php?vol=misc&img=4.2.03" \
+	    || (rm -f $@; false)
+
+$(B)/mkdisk: ../util/mkdisk.c ../vm_constants.h
+	@mkdir -p $(B)
+	cc -O1 -w -o $@ ../util/mkdisk.c
 
 # The disk also has the tables of names the build of the image made, which
 # the decompiler reads in: so it is made again when the image is.
-$(B)/disk.img: $(B)/baboon.png mkdisk.py block1.fs ../build/nuc.tables
-	python3 mkdisk.py $(B)/baboon.png $@ block1.fs ../build/nuc.tables
+$(B)/disk.img: $(B)/mandrill.tiff $(B)/mkdisk block1.fs ../build/nuc.tables
+	$(B)/mkdisk $(B)/mandrill.tiff $@ block1.fs ../build/nuc.tables
 
 # DISK=n: the disk gives and takes n thousand bytes a second and no more,
 # as a floppy did: about 40 for an 8-inch one at double density, 23 for a
@@ -173,7 +178,7 @@ demo: $(B)/$(KERNEL)-display$(M)$(X).elf $(B)/disk.img
 # well that every pixel came out as a whole block.
 demo-test: $(B)/$(KERNEL)-display$(X).elf $(B)/disk.img
 	cp $(B)/disk.img $(B)/gui.img
-	DISK= SCALE=$(SCALE) python3 guitest.py $< $(B)/gui.img $(B)/disk.tiff $(B)/gui
+	DISK= SCALE=$(SCALE) python3 guitest.py $< $(B)/gui.img $(B)/mandrill.tiff $(B)/gui
 
 # Drive the desktop as demo-test does, and say where the instructions went.
 demo-profile: $(B)/hexaforth-profile.elf $(B)/disk.img
@@ -185,6 +190,6 @@ demo-profile: $(B)/hexaforth-profile.elf $(B)/disk.img
 # and with DISK from a disk of that speed.
 demo-time: $(B)/$(KERNEL)-display$(M).elf $(B)/disk.img
 	cp $(B)/disk.img $(B)/gui.img
-	DISK=$(DISK) python3 desktime.py $< $(B)/gui.img $(B)/disk.tiff $(HEX)
+	DISK=$(DISK) python3 desktime.py $< $(B)/gui.img $(B)/mandrill.tiff $(HEX)
 
 .PHONY: all size run test demo demo-test demo-profile demo-time clean

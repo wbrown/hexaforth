@@ -8,7 +8,7 @@
 
 create ei 0 ,           \ a loop counter
 
-create eblk 1 ,
+create eblk  meta disk-source-block target ,
 create ecx 0 ,
 create ecy 0 ,
 create ewin 0 ,         \ the window

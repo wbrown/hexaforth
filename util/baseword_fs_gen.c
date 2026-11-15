@@ -23,6 +23,12 @@ void generate_basewords_fs(const char* path) {
     fprintf(out, "#%d constant disp-banks\n", DISP_BANKS);
     fprintf(out, "#%d constant disp-bank-step\n", DISP_BANK_STEP);
 
+    fprintf(out, "\n\\ what is where on the disk, from vm_constants.h\n");
+    fprintf(out, "#%d constant disk-source-block\n", DISK_SOURCE_BLOCK);
+    fprintf(out, "#%d constant disk-picture-block\n", DISK_PICTURE_BLOCK);
+    fprintf(out, "#%d constant disk-names-block\n", DISK_NAMES_BLOCK);
+    fprintf(out, "#%d constant disk-canvas-block\n", DISK_CANVAS_BLOCK);
+
     // The characters of a name that are not letters, a lot to a table: the
     // characters as their numbers, and how many there are.
     static const char* name_tables[] = { "n-direct", "n-page1", "n-page2" };

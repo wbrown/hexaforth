@@ -120,7 +120,7 @@ int main(int argc, char *argv[]) {
             exit(EXIT_FAILURE);
         }
         fseek(ctx->DISK, 0, SEEK_END);
-        ctx->DISKBLOCKS = ftell(ctx->DISK) / 1024;
+        ctx->DISKBLOCKS = ftell(ctx->DISK) / DISK_BLOCK;
     }
     // ctx->EIP=0x462C / 2;
     vm(ctx);

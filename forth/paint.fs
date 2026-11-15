@@ -74,7 +74,7 @@ create pshape 0 ,       \ true while one is
 \ If the disk cannot be read or written there (it is too small, or there
 \ is none) the canvas stays in memory, as it does with no disk.
 
-$480 constant CANVAS-BLK        \ the block that says so; the rows are in those after it
+\ CANVAS-BLK (cross.fs) is the block that says so; the rows are in those after it.
 $4850 constant CANVAS-MARK
 
 create pblk 0 , 0 ,     \ a block of the canvas, as a bitmap: where it is, and the cells in a row

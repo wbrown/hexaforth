@@ -893,7 +893,7 @@ Pages 8 and 9 are the drivers and the desktop:
   a disk written by a machine with another cell or another display has
   no canvas for this one, and a new disk has none; then the canvas is
   not asked for until it is drawn in, as with no disk. If the disk cannot
-  be read or written there (`baremetal/mkdisk.py` makes it long enough)
+  be read or written there (`util/mkdisk.c` makes it long enough)
   the canvas stays in memory. So a drawing is there the next time the
   machine is started. With the block that says so the canvas is 14
   blocks with cells of 64 bits or 32 and 6 with 16, which on a disk held
@@ -947,7 +947,7 @@ Pages 8 and 9 are the drivers and the desktop:
   an entry was once the two halves of one cell, which a cell of 16 bits
   is too small for.
   The tables and the labels are not in the image: they are
-  the file `build/nuc.tables`, which `mkdisk.py` puts on the disk
+  the file `build/nuc.tables`, which `util/mkdisk.c` puts on the disk
   from block 1024: 37.3KB with cells of 64 bits, 18.9KB with 32 and
   10.7KB with 16, more than half of it the labels (it was 37.8, 20.4 and
   12.4 with a label's name eight bits a character).
@@ -1101,7 +1101,7 @@ screen. `baremetal/guitest.py` is QEMU and the AArch64 kernel.
 `test/desktop_test.py VM IMAGE.hex OUTDIR DISK.img [CELL_BITS [W H BASE
 [TABLES]]]` is the reference VM, with cells of 64 bits, 32 or 16. Its
 disk is the VM's own (`vmdisk.fs`), a copy of an image that
-`baremetal/mkdisk.py` made as it makes QEMU's: block 1 for the editor,
+`util/mkdisk.c` made as it makes QEMU's: block 1 for the editor,
 the Mandrill, and the tables of names that go with the build. So the
 picture that is checked is the Mandrill, against a dither of the same
 file done on the host, every pixel that the window shows: all of it at

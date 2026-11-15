@@ -126,7 +126,7 @@ create nm-all 0 ,       \ how many entries the table being looked in has,
 create nm-lo 0 ,        \ where the part of its keys still to look in starts,
 create nm-n 0 ,         \ and how many keys that is
 
-$400 constant NAMES-BLK     \ the block of the disk the file starts at
+\ NAMES-BLK is the block of the disk the file starts at (cross.fs).
 
 \ Nothing here is a count of bytes on the disk or the address of a byte in
 \ memory, which a cell of 16 bits could not hold for a file so far along

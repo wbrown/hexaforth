@@ -12,6 +12,12 @@
 #1 constant disp-banks
 #0 constant disp-bank-step
 
+\ what is where on the disk, from vm_constants.h
+#1 constant disk-source-block
+#16 constant disk-picture-block
+#1024 constant disk-names-block
+#1152 constant disk-canvas-block
+
 \ the codes of a name, from vm_opcodes.h
 create n-direct  #45 c, #33 c, #63 c,
 #3 constant n-directs

@@ -50,7 +50,7 @@ header windows
     d# 5 place t-paint                              \ at the back: it is as big as its canvas, and has no canvas
     ['] paint-draw ['] ignore-key ['] paint-click window drop      \ until it is drawn in
     'blk-read @ if
-        d# 16  d# 0 place 2swap 2drop  swap d# 2 - swap d# 20 -     \ the picture, and what its window shows
+        PICTURE-BLK  d# 0 place 2swap 2drop  swap d# 2 - swap d# 20 -     \ the picture, and what its window shows
         ['] view-load catch if 2drop drop d# 0 then >r      ( R: the viewer, or 0 if there is no picture )
         d# 0 place t-view
         ['] view-draw ['] ignore-key d# 0 window

@@ -1642,6 +1642,9 @@ warnings on
 :: VARS       var-base literal ;                \ the first cell one instruction can fetch
 :: forth      var-base literal ;                \ which holds the newest header's address
 :: HDR-BASE   hdr-base literal ;                \ where headers start
+:: PICTURE-BLK disk-picture-block literal ;     \ what is where on the disk: vm_constants.h
+:: NAMES-BLK   disk-names-block literal ;
+:: CANVAS-BLK  disk-canvas-block literal ;
 :: DATA-LIMIT data-limit literal ;              \ where data must stop: there, or where the bulk starts
 \ The cell after the last of memory.  Where memory is as many cells as a
 \ cell can count that is nothing, and is still right to take from.
