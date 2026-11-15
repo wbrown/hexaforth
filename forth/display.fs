@@ -411,28 +411,46 @@ header clip-to : clip-to ( x y w h -- ) \ what is in both this and the clip rect
     over + clip CELL2 + @ min over -
 ;
 
-header pat-hline : pat-hline ( x y n -- )
-    >r >screen r>
-    over dup clip CELL + @ < swap clip c# 3 + @ < 0= or if drop 2drop exit then
-    mrgn @ if                                       \ a region that is not a rectangle
-        over rmask
-        mnone @ if drop 2drop exit then
-        swap >r clip-span  mone @ if span-clip then  r> swap
-    else
-        swap >r clip-span r> swap
-    then
+: rgn-slab ( x y n -- ) \ on the screen, in a row the clip rectangle has: what the region leaves of it
+    over rmask
+    mnone @ if drop 2drop exit then
+    swap >r clip-span  mone @ if span-clip then  r> swap
     dup 0> if slab else drop 2drop then
 ;
 
-header pat-rect : pat-rect ( x y w h -- ) \ only the rows the clip rectangle has
-    >r over r> +  clip c# 3 + @ oy @ - min  >r      ( x y w ) ( R: past the last row drawn )
-    swap  clip CELL + @ oy @ - max  swap
-    begin
-        over r@ <
-    while
-        >r 2dup r@ pat-hline
-        1+ r>
-    repeat
+header pat-hline : pat-hline ( x y n -- )
+    >r >screen r>
+    over dup clip CELL + @ < swap clip c# 3 + @ < 0= or if drop 2drop exit then
+    mrgn @ if rgn-slab exit then                    \ a region that is not a rectangle
+    swap >r clip-span r> swap
+    dup 0> if slab else drop 2drop then
+;
+
+\ A rectangle is clipped once, not a row at a time: the rows the clip
+\ rectangle has, and, where no region has to be looked at, the pixels of a
+\ row that it has, which are the same in every row.
+header pat-rect : pat-rect ( x y w h -- )
+    >r >r >screen r> r>                             \ on the screen from here
+    >r over r> +  clip c# 3 + @ min  >r             ( x y w ) ( R: past the last row drawn )
+    swap  clip CELL + @ max  swap
+    mrgn @ if
+        begin
+            over r@ <
+        while
+            >r 2dup r@ rgn-slab
+            1+ r>
+        repeat
+        drop 2drop rdrop exit
+    then
+    >r swap r> clip-span rot swap                   ( x' y n' )
+    dup 0> if
+        begin
+            over r@ <
+        while
+            >r 2dup r@ slab
+            1+ r>
+        repeat
+    then
     drop 2drop rdrop
 ;
 
@@ -574,7 +592,12 @@ header copy-end create copy-end
     begin
         2dupxor
     while
-        dup r@ + @ over ! 1+
+        \ Where the cell comes from goes on the return stack, where it is
+        \ what the store reads from: two instructions for a cell moved, and
+        \ the test that ends the turn takes it off again.
+        over  meta R->IN IN+N ->R d-1 r+1 alu target    ( R: dist from )
+        meta R->IN [IN] ->[T] alu target
+        1+ rdrop
     repeat
     drop
     swap PXMASK and ?dup if

@@ -188,12 +188,6 @@ header inval-window : inval-window ( win -- ) \ frame and all
     d# 0 d# 20 fb-w @ fb-h @ d# 20 - pat-rect
 ;
 
-header win-inval : win-inval ( x y w h win -- ) \ in a window's content
-    >r 2swap r> content
-    rot + >r + r> 2swap inval-rect
-    d# 0 auto !
-;
-
 \ What can be seen of each window changes only when a window is made,
 \ moved or brought to the front, and is worked out again only then.  Which
 \ windows there are, in what order, and where each is, are summed, and the
@@ -236,6 +230,21 @@ create vsum -1 ,
     drop
     d# 0 d# 0 fb-w @ fb-h @ rwin @ rect-rgn
     rwin @ rcov @ rdesk @ rgn-diff
+;
+
+\ What a window says has changed is out of date only where the window can
+\ be seen.  Where another window lies over it there is nothing of this one
+\ to paint, and to put that out of date would have the one on top painted
+\ again for nothing.
+header win-inval : win-inval ( x y w h win -- ) \ in a window's content
+    >r 2swap r@ content
+    rot + >r + r> 2swap                             ( x y w h ) \ on the screen
+    d# 0 auto !
+    rd @ 0= if rdrop inval-rect exit then
+    visible
+    rwin @ rect-rgn
+    rwin @  r> c# 9 + @  rcov @ rgn-and             \ rcov is free once visible is done
+    rcov @ inval-rgn
 ;
 
 header refresh : refresh ( -- ) \ paint what is out of date
