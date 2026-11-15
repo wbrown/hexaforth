@@ -123,11 +123,10 @@ with such cells, which has 65,536 of them, is:
 | 0 | `0x0000`-`0x0FFF` | kernel code |
 | 1 | `0x1000`-`0x1FFF` | system code |
 | 2 | `0x2000`-`0x2FFF` | data: the 4,096 cells from `VAR_BASE` |
-| 3 | `0x3000`-`0x3FFF` | data that is not variables |
-| 4 | `0x4000`-`0x4FFF` | dictionary headers |
-| 5-7 | `0x5000`-`0x7FFF` | system code, and code compiled at run time |
+| 3 | `0x3000`-`0x3FFF` | dictionary headers |
+| 4-7 | `0x4000`-`0x7FFF` | system code, and code compiled at run time |
 | 8 up | `0x8000` up | the display: 512 by 342 ends at `0xAABF` |
-| above it | to `0xFFFF` | memory that is given out as it is asked for |
+| above it | to `0xFFFF` | data of the image's that is reached only a cell at a time, and then memory that is given out as it is asked for |
 
 ## Display
 

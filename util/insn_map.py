@@ -632,16 +632,16 @@ def write_fused(image, path, words, classes, canonical, joins=None):
                 "\\ programmer would write: one standard word, or two, before the\n"
                 "\\ machine's own name for the instruction.  Those the image has most of\n"
                 "\\ are first, since the table is searched from the start.  A zero ends\n"
-                "\\ the table.  It is a table and not variables: bulk.\n\n"
-                "bulk\n"
+                "\\ the table.  It is a table of cells, reached a cell at a time: high.\n\n"
+                "high\n"
                 "header fused create fused\n")
         for ins in sorted(found, key=lambda i: (-uses[i], i)):
             seq = found[ins].split()
             f.write(f"${ins:04x} , ${len(seq):x} , " + " ".join(f"hdr, {w}" for w in seq) + "\n")
-        f.write("0 ,\n")
+        f.write("0 ,\nunhigh\n")
         f.write("\n\\ The names of an instruction's fields, as vm_opcodes.h has them: where\n"
                 "\\ the ALU's input is from, the operation, and where the result goes.\n"
-                "\\ Each is counted strings laid end to end.\n")
+                "\\ Each is counted strings laid end to end: text, so bulk.\nbulk\n")
         for table, field in (("f-in", IN_MUX), ("f-op", ALU_OPS), ("f-out", OUT_MUX)):
             f.write(f"create {table}  " + " ".join(f',\" {n}\"' for n in field) + "\n")
         f.write("unbulk\n")

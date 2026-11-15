@@ -327,29 +327,60 @@ On a 64-bit machine these are cells `0-0x3ff`, `0x800-0x13ff`,
 memory from cell `0x6000`.
 
 That is the layout where memory is more than 64K cells. Where it is 64K
-cells, which is the machine with cells of 16 bits, everything that is code
-or is reached by the address of a byte has to be in the lower half, and
-the same bytes are laid out so (`hdr-base`, `code-base`, `code-size` in
-`cross.fs`):
+cells, which is the machine with cells of 16 bits, code has to be in the
+lower half, since an execution token is 15 bits there, and the same bytes
+are laid out so (`hdr-base`, `code-base`, `code-size` in `cross.fs`):
 
-- bytes `0x4000-0x5fff`: data, which is the 4,096 cells that one
-  instruction fetches and stores, and the data made at run time after it
-- bytes `0x6000-0x7fff`: data that is bulk (below)
-- bytes `0x8000-0x9fff`: dictionary headers
-- instructions `0x5000-0x7fff`: three code pages, of which the system
-  takes two and definitions made at run time have the third
+- bytes `0x4000-0x53ff`: data, in the cells that one instruction fetches
+  and stores, and the data made at run time after it
+- bytes `0x5400-0x5fff`: data that is bulk (below)
+- bytes `0x6000-0x7fff`: dictionary headers
+- instructions `0x4000-0x7fff`: four code pages, of which the system
+  takes two and definitions made at run time have two
+- above the display, cells `0xaac0` up: data that is reached only a cell
+  at a time (`high`, below), and then what `halloc` gives out
 
-With cells of 16 bits the 4,096 cells that one instruction reaches are
-8KB, and the data is more than that: a font, a table or a buffer of text
-laid down before a variable would put the variable out of reach, and it
-would cost three instructions to fetch and not one (the decompiler was
-900 bytes longer for it, and did not fit its page). So what is bulk and
-not variables is between `bulk` and `unbulk` in the source: the fonts,
-the key map, the table of instructions as words, the Forth window's text
-and the block buffer. On such a machine `cross.fs` lays it down past
-those cells; on any other the two words do nothing, and the image is the
-same to the byte. Data made at run time stops where the bulk starts
-(`DATA-LIMIT`), and so has those cells too.
+With cells of less than 64 bits the 4,096 cells that one instruction
+reaches are fewer bytes than the data is: a font, a table or a buffer of
+text laid down before a variable would put the variable out of reach, and
+it would cost three instructions to fetch and not one (with cells of 16
+bits the decompiler was 900 bytes longer for it, and did not fit its
+page). So what is bulk and not variables is between `bulk` and `unbulk`
+in the source: the fonts, the key map, the Forth window's text, the block
+buffer, the tools' pictures. `cross.fs` lays it down in a place of its
+own after the variables: past the 4,096 cells, or on the machine of 64K
+cells in the last of them. With cells of 64 bits the 4,096 cells reach
+the headers, the two words do nothing, and the image is the same to the
+byte. Data made at run time stops where the bulk starts (`DATA-LIMIT`):
+on the machine of 64K cells it has 2.4KB, and `allot` does not look, so
+a buffer bigger than that, made at the prompt, runs into the bulk and
+nothing says so until the next word is defined.
+
+Nothing has to be in the lower half for being text: the dictionary is
+searched a cell at a time (`>key`, `samename?`), and a name that is
+above where the address of a byte reaches is brought down a cell at a
+time to be shown (`hname`). What is there is there because the words
+that read it take the address of a byte (`c@`, `count`, `type`,
+`draw-text`), and because there is no room for it above: on the machine
+of 64K cells the 21,824 cells above the display are all the memory there
+is for windows, the picture, the names and the canvas. But what is read
+only a cell at a time need not be below, and the lower half is where
+code has to be. So such data is between `high` and `unhigh`, and on that
+machine is laid down from where the display ends (`halloc` starts after
+it); on any other it is bulk. The table of instructions as words is
+there. The fonts are there too, and not as they are written: a font is
+written as a strike and drawn from what it is opened out into, and a
+machine that opens it out when it is first used has both from then on,
+the strike below and the rest above. On the machine of 64K cells
+`cross.fs` opens each font out as it lays it down (`font[`, `]font`), and
+the strike is not in the image: 3.3KB less below, and no more above than
+there was. That, and the table, left little enough bulk to go in the
+page the variables have, and the page it had is the headers', and theirs
+is a code page: two for definitions made at run time, where there was
+one. What it costs: data made at run time has 2.4KB where it had 5.4KB;
+the table is 690 cells above the display, where the names tables and a
+scroll together now leave 330 cells; and a program that never draws text
+has the fonts' 3,800 cells opened out all the same.
 
 In `nuc.fs`, `compile,` emits a one-instruction call for a kernel or
 same-page target and `literal xt` + `call execute` for another page.
@@ -362,7 +393,7 @@ if a definition runs off the end of its page. Execution tokens are stored in
 `forth/system.fs` (included at the end of `nuc.fs`) is cross-compiled into
 code page 1 (`0x2000`) and code pages 8 to 11 (`0x10000` up; page 10 is
 HexaPaint and `desk.fs`, and page 11 the nucleus's peephole, `join.fs`).
-Where memory is 64K cells it is page 1 and pages 5 and 6, the same files
+Where memory is 64K cells it is page 1 and pages 4 and 5, the same files
 packed into fewer pages, and HexaPaint in the upper half of the kernel's
 page, instructions `0x800-0xfff`, which the kernel leaves empty:
 `system.fs` says where each page starts on each. The kernel
@@ -1212,11 +1243,13 @@ of 512 by 342 is 21KB, and the desktop runs in that. What it took:
 
 Of the ALU instructions its image uses, the table of instructions as
 words lacks three, which are shown as numbers. With the desktop up,
-the picture loaded and every window drawn, 14,398 of the 21,824 cells
+the picture loaded and every window drawn, 15,088 of the 21,824 cells
 above the display are in use (`0 halloc .` in the Forth window says where
-the next would be), and the names are 5,632 more for as long as the Words
-window is in front, is being drawn, or `see` runs, which leaves 1,794:
-enough for a scroll,
+the next would be): 4,490 that the image has there, the two fonts opened
+out and the table of instructions as words, the picture's bitmap of
+4,096, thirteen regions of 258, and the rest. The names are 5,632 more
+for as long as the Words window is in front, is being drawn, or `see`
+runs, which leaves 1,104: enough for a scroll,
 which wants 774 for as long as it takes, and not for a second picture.
 HexaPaint's canvas there is 2,280 cells, which would not leave room for
 the names: it is not asked for until it is drawn in, and then it goes in

@@ -48,8 +48,12 @@ def main():
              # byte cannot say the upper half of memory, which is where halloc's memory is.
              f": cl 0 {bits // 8} 0 do rnd i 8 * lshift or loop ;",
              f": fill {bits // 8 - 1} + {(bits // 8).bit_length() - 1} rshift over + swap do cl i ! loop ;",
-             ": d rot . hex over 1 + @ * swap @ swap over + swap do i @ . loop decimal ;"]   # ( n bm h )
+             ": d rot . hex over 1 + @ * swap @ swap over + swap do i @ . loop decimal ;",    # ( n bm h )
+             # What an image and its dither took is given back when its bitmap has been
+             # printed, so that the images together want no more memory than the biggest.
+             "himem @ constant hm"]
     want = []
+    done = "hm himem !"
 
     def make(n, w, h, spp, part=None, half=False):
         """Make image n in the VM; the cells its bitmap should be, or those of
@@ -86,6 +90,7 @@ def main():
         cells = make(n, w, h, spp)
         lines += [f"b{n} i{n} atkinson", f"{n} b{n} {h} d"]
         want.append((lines[-1], (w, h, spp), cells))
+        lines.append(done)
     # Two at once: a row of one and then a row of the other, to the end of
     # both.  Each has its own image and its own dither.
     n = len(shapes)
@@ -96,6 +101,7 @@ def main():
                   f"{n} b{n} {h} d", f"{n + 1} b{n + 1} {h} d"]
         want.append((lines[-2], (wa, h, spa), ca))
         want.append((lines[-1], (wb, h, spb), cb))
+        lines.append(done)
         n += 2
     # A bitmap of a part of an image: every row is dithered as far as the last
     # that is kept, and the rows and the cells of the part are what is kept.
@@ -108,6 +114,7 @@ def main():
                   f": part{n} {py + ph} 0 do d{n} dither-row loop ; part{n}",
                   f"{n} b{n} {ph} d"]
         want.append((lines[-1], (pw, ph, spp), cells))
+        lines.append(done)
         n += 1
     # A bitmap of an image at half its size, all of it or a part: two rows of
     # the image are read for each row that is dithered.  Widths of three
@@ -124,6 +131,7 @@ def main():
                   f": half{n} {py + ph} 0 do d{n} dither-row loop ; half{n}",
                   f"{n} b{n} {ph} d"]
         want.append((lines[-1], (pw, ph, spp), cells))
+        lines.append(done)
         n += 1
     typed = "".join(line + "\n" for line in lines) + "8000 execute\n"
     out = subprocess.run([vm, image], input=typed, capture_output=True, text=True, timeout=600).stdout

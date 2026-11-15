@@ -55,7 +55,9 @@ def strike(name, chars):
     for width, _ in chars:
         starts.append(starts[-1] + width)
     stride = (starts[-1] + 63) // 64
-    lines = [f"header {name} create {name}",
+    # font[ ... ]font: its record and table, and then its strike, which cross.fs may
+    # open out as it lays the font down and not put in the image at all
+    lines = [f"header {name} create {name}", "font[",
              f"#{HEIGHT} , #{FIRST} , #{COUNT} , #{stride} px-cells, #0 ,"]
     lines += [" ".join(f"#{s} ," for s in starts[i:i + 12]) for i in range(0, len(starts), 12)]
     for y in range(HEIGHT):
@@ -63,7 +65,7 @@ def strike(name, chars):
         row += [0] * (64 * stride - len(row))
         lines.append(" ".join(
             f"${int(''.join(map(str, row[i:i + 64])), 2):x} px," for i in range(0, len(row), 64)))
-    return lines
+    return lines + ["]font"]
 
 
 def keymap():

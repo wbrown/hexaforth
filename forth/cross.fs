@@ -419,37 +419,53 @@ cell-bits #64 = [if] -1 [else] 1 cell-bits lshift 1- [then] constant cell-mask
 \ has, and the data, which starts at byte $4000 (var-base):
 \
 \                             headers          code pages past page 1
-\   memory of 64K cells       bytes $8000      3, instructions $5000-$7fff
+\   memory of 64K cells       bytes $6000      4, instructions $4000-$7fff
 \   more                      bytes $a000      8, instructions $8000-$ffff
 \
 \ The data ends where the headers start, and the headers where that code
 \ starts.  An execution token is 16 bits in a dictionary header, less the
 \ immediate flag when a cell is 16 bits, so with such a cell code cannot be
-\ at instruction $8000 or above; nor can it be, since that is cell $8000,
-\ where the bytes that an address can say end.  What the system does not
-\ use of those pages is for code compiled at run time (code-base,
-\ code-size, in instructions).
-addr-bits #16 > [if] $a000 [else] $8000 [then] constant hdr-base
+\ at instruction $8000 or above.  What the system does not use of those
+\ pages is for code compiled at run time (code-base, code-size, in
+\ instructions).
+addr-bits #16 > 0= constant small           \ a machine whose memory is 64K cells
+small [if] $6000 [else] $a000 [then] constant hdr-base
 hdr-base thp !
-addr-bits #16 > [if] $8000 [else] $5000 [then] constant code-base
-addr-bits #16 > [if] $8000 [else] $3000 [then] constant code-size
+small [if] $4000 [else] $8000 [then] constant code-base
+small [if] $4000 [else] $8000 [then] constant code-size
 code-base 2* page-min !
 
 \ One instruction fetches or stores a cell in the 4,096 from var-base, and
-\ the data is there so that a variable is such a cell.  Where a cell is 16
-\ bits those are 8KB, and the data is more: a font, a table, a buffer of
-\ text would push the variables that come after them out.  So what is
-\ bulk and not variables says so (`bulk`, and `unbulk` after it), and on
-\ such a machine it is laid down past those cells, up to where the headers
-\ start.  The data made at run time carries on after the variables, and
-\ must stop where the bulk starts.  On a machine whose 4,096 cells reach
-\ the headers there is nothing to do and the two words do nothing.
-$4000 4096 cell-bytes * + constant bulk-base
+\ the data is there so that a variable is such a cell.  Where a cell is
+\ less than 64 bits those are fewer bytes than the data is: a font, a
+\ table, a buffer of text would push the variables that come after them
+\ out.  So what is bulk and not variables says so (`bulk`, and `unbulk`
+\ after it), and is laid down in a place of its own after them: past the
+\ 4,096 cells, or on the small machine, where they are all the data there
+\ is room for, in the last of them, from byte $5400.  The data made at run
+\ time carries on after the variables, and must stop where the bulk
+\ starts.  On a machine whose 4,096 cells reach the headers there is
+\ nothing to do and the two words do nothing.
+small [if] $5400 [else] $4000 4096 cell-bytes * + [then] constant bulk-base
 bulk-base hdr-base < constant bulky
 variable tbp    bulk-base tbp !
 variable bsave
 variable in-bulk    false in-bulk !
 bulky [if] bulk-base [else] hdr-base [then] constant data-limit
+
+\ The small machine has more above its display than below it, and what is
+\ only ever reached a cell at a time need not be below: a table of cells,
+\ a bitmap.  Such data says so (`high`, and `unhigh` after it) and on that
+\ machine is laid down from where the display ends; what is given out at
+\ run time (halloc) starts after it.  On any other machine it is bulk.
+: display-end ( -- cell ) \ where the last bank's last row ends: an even cell
+    disp-bank-step disp-banks 1- *
+    disp-h disp-banks + 1- disp-banks / disp-stride * +
+    disp-base +  1+ -2 and
+;
+small disp-w 0<> and constant lofty
+variable thi    display-end cell-bytes * thi !
+variable hsave
 
 : tcalign   tdp @ cell-bytes 1- + cell-bytes negate and tdp ! ;
 
@@ -506,6 +522,14 @@ variable sizes      0 sizes !
 :: unbulk ( -- )
     in-bulk @ 0= abort" unbulk with no bulk"  false in-bulk !
     bulky if tdp @ tbp !  bsave @ tdp ! then
+;
+:: high ( -- ) \ what is laid down from here is reached only a cell at a time
+    in-bulk @ abort" high within bulk"  true in-bulk !
+    lofty if tdp @ hsave !  thi @ tdp ! else bulky if tdp @ bsave !  tbp @ tdp ! then then
+;
+:: unhigh ( -- )
+    in-bulk @ 0= abort" unhigh with no high"  false in-bulk !
+    lofty if tdp @ thi !  hsave @ tdp ! else bulky if tdp @ tbp !  bsave @ tdp ! then then
 ;
 :: included     included ;
 :: marker       marker ;
@@ -1071,9 +1095,73 @@ variable in-depth
     there tcell!  cell-bytes tdp +!
 ;
 
+\ A font is written as a strike: its glyphs side by side in one bitmap, and
+\ a table of where each starts.  Drawing does not read that.  It reads the
+\ font opened out: four cells for each glyph (where its rows are, how wide
+\ it is, the first row with any black and the row after the last) and then
+\ a cell for each row of each glyph, with the glyph at its left.  The
+\ machine opens a font out the first time it is used (open-font, in
+\ display.fs), and has both from then on.  The small machine has not the
+\ room for both: so here the font is opened out as it is laid down, above
+\ the display, and the strike is not in the image at all.  The font's
+\ record says where it is opened out, and the machine finds it so.
+\
+\ In the source a font's record and table are between font[ and the strike,
+\ and ]font is after the strike.
+: tcell@ ( a -- x ) 0  cell-bytes 0 do over i + tc@ i 8 * lshift or loop  nip ;
+create fstrike 512 cells allot              \ the strike: runs of 64 pixels, a row after a row
+variable fstrike#
+variable font-rec                           \ where the font's record is
+variable in-font    false in-font !
+variable fh         variable fn             \ its height, and how many glyphs
+variable fruns                              \ runs of 64 pixels in a row of the strike
+variable fkc                                \ the cell it is opened out from
+
+: fpixel ( x y -- bit )
+    fruns @ * over 6 rshift + cells fstrike + @
+    swap 63 and 63 swap - rshift 1 and
+;
+: frow ( x0 w r -- pixels ) \ a row of a glyph, at the left of a cell as the display has it
+    { x0 w r }
+    0  w 0 ?do
+        x0 i + r fpixel
+        disp-left-low if i else cell-bits 1- i - then lshift or
+    loop
+;
+: fcell! ( x cell -- ) byte-shift lshift tcell! ;
+: fglyph ( g -- )
+    { g }
+    font-rec @ 5 g + cell-bytes * + tcell@
+    font-rec @ 6 g + cell-bytes * + tcell@ over -
+    fkc @ fn @ 4 * + g fh @ * +
+    0 0 { x0 w rows first last }
+    fh @ 0 ?do
+        x0 w i frow
+        dup if  last 0= if i to first then  i 1+ to last  then
+        rows i + fcell!
+    loop
+    rows   fkc @ g 4 * +      fcell!
+    w      fkc @ g 4 * + 1+   fcell!
+    first  fkc @ g 4 * + 2 +  fcell!
+    last   fkc @ g 4 * + 3 +  fcell!
+;
+:: font[ ( -- ) there font-rec !  0 fstrike# !  lofty in-font ! ;
+:: ]font ( -- )
+    in-font @ 0= if exit then
+    false in-font !
+    font-rec @ tcell@ fh !
+    font-rec @ 2 cell-bytes * + tcell@ fn !
+    fstrike# @ fh @ / fruns !
+    thi @ byte-shift rshift fkc !
+    fkc @ font-rec @ 4 cell-bytes * + tcell!        \ the record says where it is opened out
+    fn @ 0 ?do i fglyph loop
+    fn @ 4 fh @ + * cell-bytes * thi +!
+;
+
 \ 64 pixels of a bitmap, written with the leftmost highest, as the cells
 \ the display would hold them in.
 :: px, ( pixels -- )
+    in-font @ if fstrike fstrike# @ cells + !  1 fstrike# +!  exit then
     tcalign
     8 cell-bytes / 0 do                             \ a cell at a time, from the left
         cell-bytes 0 do
@@ -1630,6 +1718,7 @@ s" (all)" tcp @  tdp @ $4000 -  thp @ hdr-base - +  tbp @ bulk-base - +  hdr-byt
 in-bulk @ [if] cr .( bulk with no unbulk) abort [then]
 tdp @ data-limit > [if] cr .( the data has run into what is after it) abort [then]
 tbp @ hdr-base >  bulky and [if] cr .( the bulk has run into the dictionary headers) abort [then]
+thi @ 131072 >  lofty and [if] cr .( what is laid down above the display has run off the end of memory) abort [then]
 thp @ code-base 2* > [if] cr .( the dictionary headers have run into the code) abort [then]
 tcp @ code-base code-size + 2* > [if] cr .( the code has run past where code can be) abort [then]
 sizes @ close-file throw

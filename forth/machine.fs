@@ -25,14 +25,11 @@ header reg64! : reg64! ( x pa -- ) h# c0 io!  h# c8 io! ;
 \ bytes that an address can say: so nothing up here is reached by the
 \ address of a byte unless it is known to be low, and nothing up here is
 \ counted in bytes.
-meta
-: display-end ( -- cell ) \ where the last bank's last row ends
-    disp-bank-step disp-banks 1- *
-    disp-h disp-banks + 1- disp-banks / disp-stride * +
-    disp-base +  1+ -2 and
-;
-target
-create himem  meta display-end target ,     \ the next cell to give out
+\
+\ On the machine of 64K cells the image itself has data up there, after
+\ the display: the fonts opened out, and tables.  What is given out starts
+\ after that, and system.fs says where when it has all been laid down.
+header himem create himem  meta display-end target ,     \ the next cell to give out
 
 header halloc
 : halloc ( u -- a ) \ room for u bytes, in whole cells from an even cell; a is the address of a cell

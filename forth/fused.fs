@@ -7,9 +7,9 @@
 \ programmer would write: one standard word, or two, before the
 \ machine's own name for the instruction.  Those the image has most of
 \ are first, since the table is searched from the start.  A zero ends
-\ the table.  It is a table and not variables: bulk.
+\ the table.  It is a table of cells, reached a cell at a time: high.
 
-bulk
+high
 header fused create fused
 $6020 , $1 , hdr, swap
 $643c , $1 , hdr, +
@@ -175,10 +175,12 @@ $6fe3 , $4 , hdr, r> hdr, @ hdr, over hdr, !
 $6fec , $3 , hdr, @r hdr, swap hdr, !
 $6ce7 , $2 , hdr, r> hdr, @
 0 ,
+unhigh
 
 \ The names of an instruction's fields, as vm_opcodes.h has them: where
 \ the ALU's input is from, the operation, and where the result goes.
-\ Each is counted strings laid end to end.
+\ Each is counted strings laid end to end: text, so bulk.
+bulk
 create f-in  ," N->IN" ," T->IN" ," [T]->IN" ," R->IN"
 create f-op  ," IN->" ," T<>N,IN->" ," T->N,IN->" ," IN+N" ," IN&N" ," IN|N" ," IN^N" ," IN*N" ," ~IN" ," IN==N" ," N<IN" ," Nu<IN" ," IN>>T" ," IN<<T" ," [IN]" ," io[IN]"
 create f-out  ," ->T" ," ->R" ," ->io[T]" ," ->[T]"

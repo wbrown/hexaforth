@@ -10,8 +10,8 @@
 \ 8,192 bytes, as build/nuc.sizes gives them.  Where memory is more than
 \ 64K cells there are eight such pages, from page 8, and this takes three
 \ and the nucleus's peephole a fourth.  Where it is 64K cells there are
-\ three, from page 5, of which this and the peephole are packed into two,
-\ so that definitions made at run time have the third:
+\ four, from page 4, of which this and the peephole are packed into two,
+\ so that definitions made at run time have the other two:
 \
 \                   more than 64K cells             64K cells
 \   page 1          machine blocks font display     and region
@@ -107,6 +107,11 @@ include desk.fs         \ the desktop itself
 meta 3 big-page target
 
 include join.fs         \ instructions joined as they are compiled, and the rules
+
+\ What the image has above its display is all laid down: what is given out
+\ at run time starts after it, at an even cell.
+
+meta lofty [if]  thi @ byte-shift rshift 1+ -2 and  t' himem tvar!  [then] target
 
 \ Every word is where it will be: the tables of names for the decompiler,
 \ which go to a file for the disk (build/nuc.tables).

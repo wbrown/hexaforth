@@ -129,9 +129,10 @@ def session(vm, image, bits, files, script):
         for blk, cell, cells in f.patches(cellb):
             table.append((blk, cell, len(cells), len(data)))
             data += cells
-    lines.append("create pd hex")
+    # The headers' bytes are a table of cells, and go where there is room for one: above the display.
+    lines += [f"{len(data) * cellb} halloc constant pd  variable np  pd np !", ": l, np @ ! 1 np +! ;", "hex"]
     for i in range(0, len(data), 6):
-        lines.append(" ".join(f"{c:x} ," for c in data[i:i + 6]))
+        lines.append(" ".join(f"{c:x} l," for c in data[i:i + 6]))
     lines.append("decimal create pt")
     for blk, cell, n, src in table:
         lines.append(f"{blk} , {cell} , {n} , pd {src} + ,")
