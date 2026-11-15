@@ -43,8 +43,8 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
 
 
     // The image ends with the address of the newest dictionary header.  A
-    // header is cells: link, xt (top bit: immediate), then the name as a
-    // count byte and characters, padded to whole cells.
+    // header is cells: link, xt (top bit: immediate), then the name, five
+    // bits a character (header_name in vm.h).
     const uint8_t *bytes = (const uint8_t *)ctx->memory;
     const unsigned unit = CELL_BYTES;                    // bytes to an address
     uint32_t head = ctx->memory[last_addr] * unit;
@@ -58,9 +58,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
         memcpy(&xt, bytes + head + CELL_BYTES, CELL_BYTES);
         xt &= ~(1ull << (CELL_BITS - 1));
         char word[256];
-        uint8_t len = bytes[head + 2 * CELL_BYTES];
-        memcpy(word, bytes + head + 2 * CELL_BYTES + 1, len);
-        word[len] = '\0';
+        header_name(bytes + head + 2 * CELL_BYTES, word);
         if (xt < 65536) asprintf(&ctx->meta[xt], "%s", word);
         WORDCT++;
         dprintf("  0x%0.4x @ %s => 0x%0.4x\n", head, word, (unsigned)xt);

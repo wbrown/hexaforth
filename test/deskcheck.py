@@ -570,7 +570,14 @@ def run(m, d, out, scale_note=None):
         print(f"note the next cell to be given out is {out_}, and with the tables of names in memory {in_}: "
               f"they are {in_ - out_} cells")
     except ValueError:
+        out_ = in_ = None
         print(f"note where memory has got to was not read: {text[13:16]!r}")
+    # see scrolled the window while it had the names in, and gave them back
+    # after: if it had not, they would be in still, and loading them here
+    # would have taken no memory.
+    if d.names_loaded:
+        check("see gives the names' memory back, though the window scrolled while it had them",
+              out_ is not None and in_ > out_, f"{out_} and {in_}")
 
     # The picture was read and dithered by a task of its own, a row at a
     # turn, which took itself out of the ring when the last row was made.

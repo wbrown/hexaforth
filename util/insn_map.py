@@ -501,6 +501,38 @@ def write_peephole(root, path, words, classes, canonical, check):
     return 0
 
 
+# A name in a header or a label is five bits a character, as many to a cell
+# as a cell holds, the first the lowest, and the top bit of its last cell is
+# set.  The codes are cross.fs's: nothing, the letters, three more, and two
+# that say the next code is one of these, of which the first is 1.
+NAME_DIRECT = "-!?"
+NAME_PAGE1 = " 0123456789><@'(),.+*/=\"#:;[]$%&"
+NAME_PAGE2 = " \\^`{|}~_"
+
+
+def name_at(raw, at, size=8):
+    """The name whose cells start at a byte of an image or of its names."""
+    codes = []
+    while True:
+        cell = int.from_bytes(raw[at:at + size], "little")
+        at += size
+        codes += [cell >> 5 * i & 31 for i in range(size * 8 // 5)]
+        if cell >> size * 8 - 1 or at >= len(raw):
+            break
+    out, rest = [], None
+    for c in codes:
+        if rest is not None:
+            out.append(rest[c] if 0 < c < len(rest) else "?")
+            rest = None
+        elif c == 30:
+            rest = NAME_PAGE1
+        elif c == 31:
+            rest = NAME_PAGE2
+        elif c:
+            out.append(chr(96 + c) if c < 27 else NAME_DIRECT[c - 27])
+    return "".join(out)
+
+
 def dictionary_names(path):
     """The names in an image's dictionary."""
     raw = b"".join(struct.pack("<I", int(l, 16)) for l in open(path) if l.strip())
@@ -508,7 +540,7 @@ def dictionary_names(path):
     names = set()
     link = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
     while link:
-        names.add(raw[link + 17:link + 17 + raw[link + 16]].decode("latin-1"))
+        names.add(name_at(raw, link + 16))
         link = 8 * struct.unpack_from("<Q", raw, link)[0]
     return names
 
@@ -842,9 +874,9 @@ def load_image(path):
     while link:
         xt = struct.unpack_from("<Q", raw, link + 8)[0] & 0xFFFF
         entries.add(xt)
-        if raw[link + 16:link + 24] == b"\x07execute":
+        if name_at(raw, link + 16) == "execute":
             EXECUTE = xt
-        if raw[link + 16:link + 27] == b"\x0ajoin-rules":
+        if name_at(raw, link + 16) == "join-rules":
             # The rules of the nucleus's peephole are instructions laid down
             # after its code, and are not code.  The word pushes the address
             # of two cells: where they are and how many, four instructions
@@ -885,8 +917,7 @@ def labels_of(image):
     at += 1 + 2 * cells[at]                     # and the table by number
     out, n = [], cells[at]
     while n:
-        name = 8 * (at + n + 2)
-        out.append((cells[at + n + 1], data[name + 1:name + 1 + data[name]].decode("latin-1")))
+        out.append((cells[at + n + 1], name_at(data, 8 * (at + n + 2))))
         n = cells[at + n]
     return out
 
@@ -898,7 +929,7 @@ def image_stamp(image):
     cells = struct.unpack(f"<{len(raw) // 2}H", raw)
     link = 8 * cells[max(i for i in range(0x2000, 0x8000) if cells[i])]
     while link:
-        if raw[link + 16:link + 23] == b"\x06tstamp":
+        if name_at(raw, link + 16) == "tstamp":
             xt = struct.unpack_from("<Q", raw, link + 8)[0] & 0xFFFF
             where = sum((w & 0xFFF) << 12 * (w >> 12 & 3) for w in cells[xt:xt + 2] if w & 0x8000)
             return struct.unpack_from("<Q", raw, 8 * where)[0]

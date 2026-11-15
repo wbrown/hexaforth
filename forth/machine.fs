@@ -31,12 +31,19 @@ header reg64! : reg64! ( x pa -- ) h# c0 io!  h# c8 io! ;
 \ after that, and system.fs says where when it has all been laid down.
 header himem create himem  meta display-end target ,     \ the next cell to give out
 
+\ himem is always an even cell, so what is given is the cell it says, and
+\ whoever gives its memory back puts himem where it was to the cell: the
+\ tables of names are given back only if himem is where they ended, and a
+\ scroll takes and gives back memory while they are in.  (himem was once
+\ left where an allocation ended and made even by the next: a scroll after
+\ names of an odd number of cells then left it a cell on, and the names
+\ were never given back.)
 header halloc
 : halloc ( u -- a ) \ room for u bytes, in whole cells from an even cell; a is the address of a cell
     CELLB 1- + c>                                   ( cells )
-    himem @ 1+ d# -2 and                            ( cells a )
+    himem @                                         ( cells a )
     2dup MEM-END swap - u> d# 8 -throw              \ there are not that many left
-    tuck + himem !
+    tuck + 1+ d# -2 and himem !
 ;
 
 \ Memory that has been given back: one run of it, the biggest there has
@@ -59,7 +66,7 @@ header hfree
 
 header hgive
 : hgive ( a cells -- ) \ memory that is done with: if it was the last given out it is not given out, or else it is nobody's
-    2dup + himem @ = if drop himem ! exit then
+    2dup + 1+ d# -2 and himem @ = if drop himem ! exit then
     hfree
 ;
 

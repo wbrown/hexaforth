@@ -251,22 +251,10 @@ create sgap 0 ,
     sb-begin [char] [ emit h4 [char] ] emit sb-end  sb sbn @ d# -1 tok
     d# 0 smach !
 ;
-\ A name is text, and text is reached by the address of a byte.  A word's
-\ header is where such an address can say.  A label is in the memory the
-\ names were read into, which with cells of 16 bits is above where one
-\ can: there its name is brought down, a cell at a time, to be shown.
-W32+? [if]
-: hname ( hdr -- addr u ) CELL2 + >c count ;
-[else]
-create nmbuf #32 allot
-: hname ( hdr -- addr u )
-    CELL2 +  dup 0< if                              \ above the half of memory a byte's address reaches
-        nmbuf  over @ h# ff and CELL2 + d# 1 rshift  cells-move
-        nmbuf
-    then
-    >c count
-;
-[then]
+\ A name is packed in its header, or in its label, and is text for as long
+\ as it is being shown (name>): the text of one name at a time.  A label
+\ is in the memory the names were read into, wherever that is.
+: hname ( hdr -- addr u ) CELL2 + name> ;
 
 : sname ( hdr -- ) \ a word, and a new line after one that stores
     dup hname rot hxt
@@ -886,8 +874,8 @@ header words-draw : words-draw ( win -- )
         dup 0<> wi @ d# 16 < and
     while
         wi @ wtop @ + wsel @ = inverse !
-        dup CELL2 + ctext d# 13 min
-        d# 2  wi @ d# 4 lshift  draw-chars
+        dup hname d# 13 min
+        d# 2  wi @ d# 4 lshift  draw-text
         d# 0 inverse !
         @
         d# 1 wi +!

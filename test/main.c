@@ -101,7 +101,8 @@ typedef struct dict_entry {
 
 // Parse the dictionary of a test image, where the headers are laid end to
 // end from byte 0x8000.  A header is cells: link, xt (top bit: immediate),
-// then the name as a count byte and characters, padded to whole cells.
+// then the name, five bits a character (header_name in vm.h).  Past the last
+// header there is nothing: a cell of no codes that is not marked as the last.
 static int parse_dictionary(uint16_t *memory, dict_entry *entries,
                             int max_entries) {
   const uint8_t *bytes = (const uint8_t *)memory;
@@ -112,16 +113,20 @@ static int parse_dictionary(uint16_t *memory, dict_entry *entries,
     uint64_t link = 0, xt = 0;
     memcpy(&link, bytes + at, CELL_BYTES);
     memcpy(&xt, bytes + at + CELL_BYTES, CELL_BYTES);
-    uint8_t name_len = bytes[at + 2 * CELL_BYTES];
-    if (name_len == 0 || name_len > 63)
+    uint64_t first = 0;
+    memcpy(&first, bytes + at + 2 * CELL_BYTES, CELL_BYTES);
+    if (first == 0)
       break;
-    memcpy(entries[count].name, bytes + at + 2 * CELL_BYTES + 1, name_len);
-    entries[count].name[name_len] = '\0';
+    char name[256];
+    int name_bytes = header_name(bytes + at + 2 * CELL_BYTES, name);
+    if (strlen(name) > 63)
+      break;
+    strcpy(entries[count].name, name);
     entries[count].dict_addr = at / 2;
     entries[count].code_addr = (uint16_t)(xt & ~(1ull << (CELL_BITS - 1)));
     entries[count].link = (uint16_t)(link * CELL_BYTES / 2);
     count++;
-    at += 2 * CELL_BYTES + (name_len / CELL_BYTES + 1) * CELL_BYTES;
+    at += 2 * CELL_BYTES + name_bytes;
   }
 
   return count;

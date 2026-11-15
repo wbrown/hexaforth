@@ -93,7 +93,7 @@ def main():
                 value += (code[k] & 0xFFF) << 12 * (code[k] >> 12 & 3)
                 k += 1
             if code[k] == 0x7403:
-                name = raw[link + 17:link + 17 + raw[link + 16]].decode("latin-1")
+                name = im.name_at(raw, link + 16)
                 marks[name] = value                 # ...-state and ...-end mark a run of variables,
                 var_name.setdefault(value, name)    # and are at the same place as one of them
         link = 8 * struct.unpack_from("<Q", raw, link)[0]

@@ -13,6 +13,8 @@ import sys
 BITS = int(sys.argv[3]) if len(sys.argv) > 3 else 64
 VAR_BASE = 0x4000 // (BITS // 8)        # as vm_constants.h
 
+EVERY = "!\"#$%&'()*+,-./0123456789:;<=>?@[\\]^_`{|}~"     # every character of a name that is not a letter
+
 CHECKS = [
     # (what is typed, what must follow it on the line)
     ("1 2 + .", "3  ok"),
@@ -71,6 +73,17 @@ CHECKS = [
     ("create n 0 ,", " ok"),
     (":noname 1 n +! ; 128 128 rec spawn pause pause pause n @ .", "3  ok"),
     (": lp 3 0 do i . pause loop ; lp n @ .", "0 1 2 6  ok"),
+    # A name is packed five bits a character.  A capital is its letter; a
+    # name that is the start of another is not that other, whichever cell
+    # of it they part in; every character a name can have is one, and comes
+    # back as it was when the name is read out of the header (name>).
+    (": a-b!? 7 ; a-b!? . A-B!? .", "7 7  ok"),
+    (": abc 1 ; : abcd 2 ; : ab 3 ; abc . abcd . ab .", "1 2 3  ok"),
+    (": n12 1 ; : n123 2 ; : n1234 3 ; : n12345 4 ; : n123456 5 ; n12 . n123 . n1234 . n12345 . n123456 .",
+     "1 2 3 4 5  ok"),
+    (": " + EVERY + " 5 ; " + EVERY + " .", "5  ok"),
+    ("forth @ 2 + name> type", EVERY + " ok"),
+    (": abcdefghijklmnopqrstuvwxyz 6 ; forth @ 2 + name> type", "abcdefghijklmnopqrstuvwxyz ok"),
 ]
 
 

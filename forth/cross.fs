@@ -853,20 +853,86 @@ variable link 0 link !
 \
 \     link    address of the previous header, or 0
 \     xt      word address of the code; the top bit is set if immediate
-\     name    a count byte, then the name in lower case, padded with
-\             zeros to a whole number of cells
+\     name    its characters, five bits each, as many to a cell as a
+\             cell holds; the top bit of its last cell is set
 \
 \ Every field is a cell at a cell-aligned address, so nothing in the
 \ dictionary is fetched unaligned, and a name is compared a cell at a time.
+\
+\ A name is in lower case, so a character is five bits: nothing, the 26
+\ letters, and - ! ? which are the commonest of the rest; then two codes
+\ that say the next code is one of 31 others, or one of 8 more.  Those
+\ are every character that can be typed in a name.  A cell is 3, 6 or 12
+\ codes, the first the lowest, with a bit or more over: the top one says
+\ the name ends in this cell, so nothing counts its characters, and a
+\ name that is the start of another is not the same cells.
+\
+\ No code of a name is nothing: which of the others a character is, is
+\ counted from one.  So what is left of a cell when the codes of the name
+\ have been taken from it is nothing, and whoever reads a name stops
+\ there and does not look at the cell's padding.
 
 : tcell, ( x -- ) there tcell!  cell-bytes tdp +! ;
 
-: tname, ( c-addr u -- )
-    dup tc,
+create n-direct  char - c, char ! c, char ? c,              \ codes 27 to 29
+create n-page1                                              \ what follows code 30: these, the first being 1
+    char 0 c, char 1 c, char 2 c, char 3 c, char 4 c, char 5 c, char 6 c, char 7 c,
+    char 8 c, char 9 c, char > c, char < c, char @ c, char ' c, char ( c, char ) c,
+    char , c, char . c, char + c, char * c, char / c, char = c, char " c, char # c,
+    char : c, char ; c, char [ c, char ] c, char $ c, char % c, char & c,
+create n-page2                                              \ and what follows code 31
+    char \ c, char ^ c, char ` c, char { c, char | c, char } c, char ~ c, char _ c,
+3 constant n-directs   31 constant n-page1s   8 constant n-page2s
+
+cell-bits 5 / constant name-per             \ codes to a cell
+name-per 5 * constant name-bits             \ and the bits they are
+
+\ What a character is in a name: its code if it has one, or 32 and where it
+\ is among the first of the rest, or 64 and where among the others.  What
+\ cannot be in a name is ?.
+: n-code ( c -- v )
+    dup [char] A [char] Z 1+ within if 32 + then
+    dup [char] a [char] z 1+ within if [char] a - 1+ exit then
+    n-directs 0 do dup n-direct i + c@ = if drop i 27 + unloop exit then loop
+    n-page1s  0 do dup n-page1  i + c@ = if drop i 33 + unloop exit then loop
+    n-page2s  0 do dup n-page2  i + c@ = if drop i 65 + unloop exit then loop
+    drop 29
+;
+
+create nk 128 cells allot                   \ a name, packed: its cells,
+variable nk#                                \ how many,
+variable nksh                               \ and how far along the cell in hand the next code goes
+
+: nk-code ( code -- )
+    nksh @ lshift  nk nk# @ cells + +!
+    5 nksh +!
+    nksh @ name-bits = if  0 nksh !  1 nk# +!  0 nk nk# @ cells + !  then
+;
+
+: name-pack ( c-addr u -- ) \ into nk
+    63 min
+    0 nk# !  0 nksh !  0 nk !
     bounds ?do
-        i c@ dup [char] A [char] Z 1+ within if 32 + then tc,
+        i c@ n-code
+        dup 31 > if  dup 5 rshift 29 + nk-code  31 and  then
+        nk-code
     loop
-    tcalign
+    nksh @ 0=  nk# @ 0<> and if -1 nk# +! then     \ the last code filled its cell: that one is the last
+    1 cell-bits 1- lshift  nk nk# @ cells + +!
+    1 nk# +!
+;
+
+: tname, ( c-addr u -- ) name-pack  nk# @ 0 ?do nk i cells + @ tcell, loop ;
+
+\ The two tables the machine has of this, a character each: what each of
+\ the 128 characters is in a name (n-code), and what each code is, the
+\ plain ones and then the two lots of the rest.
+: codes-of-chars, ( -- ) 128 0 do i 33 < i 127 = or if 29 else i n-code then tc, loop ;
+: chars-of-codes, ( -- )
+    0 tc,  [char] z 1+ [char] a do i tc, loop
+    n-directs 0 do n-direct i + c@ tc, loop  0 tc, 0 tc,
+    0 tc,  n-page1s 0 do n-page1 i + c@ tc, loop
+    0 tc,  n-page2s 0 do n-page2 i + c@ tc, loop  31 n-page2s - 0 do 0 tc, loop
 ;
 
 \ Labels.  A definition with no header still has a name in the source, and
@@ -926,13 +992,7 @@ variable lp  cell-bytes lp !                \ where the next goes, in bytes
 
 : lc,    ( c -- ) lflash lp @ + c!  1 lp +! ;
 : lcell, ( x -- ) cell-bytes 0 do dup $ff and lc, 8 rshift loop drop ;
-: lname, ( c-addr u -- )
-    dup lc,
-    bounds ?do
-        i c@ dup [char] A [char] Z 1+ within if 32 + then lc,
-    loop
-    lp @ cell-bytes 1- + cell-bytes negate and lp !
-;
+: lname, ( c-addr u -- ) name-pack  nk# @ 0 ?do nk i cells + @ lcell, loop ;
 
 : (label) ( x "name" -- ) \ a label for the name that follows
     lp @ byte-shift rshift  llink @ lcell,  llink !
@@ -1494,6 +1554,11 @@ warnings on
 :: (c>)       byte-shift literal s" rshift" evaluate ;
 :: TOPBIT     cell-bits 1- literal ;            \ index of the sign bit
 :: HALFBITS   cell-bits 2/ literal ;
+:: NAME-PER   name-per literal ;                \ codes of a name in a cell,
+:: NAME-BITS  name-bits literal ;               \ and the bits they are,
+:: NAME-SPARE cell-bits name-bits - literal ;   \ and the bits of a cell that are not theirs
+:: codes-of-chars, codes-of-chars, ;            \ the two tables of a name's codes
+:: chars-of-codes, chars-of-codes, ;
 :: TOP16      cell-bits #16 - literal ;         \ shift that puts 16 bits at the top
 \ An instruction is a cell when cells are 16 bits, and otherwise a field.
 :: (i@)  cell-bits #16 = if s" @" else s" 2* uw@" then evaluate ;

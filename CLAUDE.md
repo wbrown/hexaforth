@@ -297,8 +297,47 @@ Code is addressed by instruction: `cp`, a branch origin and an execution
 token are instruction numbers, and `i@` and `i!` fetch and store one.
 
 Dictionary headers are whole cells: a link cell, an xt cell (top bit set for
-an immediate word), then the name as a count byte and lower-case characters
-padded with zeros to a cell boundary, so lookup compares a cell at a time.
+an immediate word), then the name, so lookup compares a cell at a time. A
+name is five bits a character, as many to a cell as a cell holds (3, 6 or
+12), the first the lowest, and the top bit of its last cell is set: so
+nothing counts its characters, and a name that is the start of another is
+not the same cells. The dictionary does not tell a capital from its letter
+and never kept one, so a character is a code of five bits: nothing, the
+26 letters, `-` `!` `?`, and two codes that say the next code is one of 31
+others (the digits and most marks) or one of the last eight, counted from
+one, so that no code of a name is nothing and what is left of a cell after
+its last is the padding. That is every
+character that can be typed in a name; `cross.fs` says which is which
+(`n-code`), and lays down the machine's two tables of it. The kernel packs
+a name to look it up or to make a header of it (`>key`, with `kcode`, what
+each character is) and never reads one back. Whoever shows a name has its
+characters put in a buffer (`name> ( a -- c-addr u )`, with `kchar`, what
+each code is; it and `words` are on page 1, not in the ROM): the text of
+one name at a time, from cells that may be anywhere in memory. The tools
+read a name with `name_at` in `insn_map.py`, and the C that reads an image
+(`main.c`, `test/main.c`, `util/disasm_hex.c`) with `header_name` in
+`vm.h`; those two and `cross.fs` are the three places the codes are said.
+Labels are laid out the same, so `see` searches them with `sfind`.
+
+What that cost and what it saved, counted. A name was a count and its
+characters, eight bits each. The headers were 4,104 bytes with cells of
+16 bits, 5,924 with 32 and 10,092 with 64, and are 3,182, 5,020 and
+9,300. A lookup is what it was: between 1,300 instructions for a word
+made lately and 4,600 for one of twelve characters that is not there,
+ten for each header passed, since what is compared with each is still
+one cell. The same seven names looked up before and after are within 2%
+either way with cells of 64 bits; with 16, where a cell is three codes,
+a name of twelve letters that is not found is 4% more and one of five
+digits 3.6% (a digit is two codes). Packing the key is 133 instructions a
+call in the profile where it was 419. Showing a name is where it costs:
+`name>` is 202 instructions a name, so painting the Words window, which
+shows 81, is 106,900 instructions where it was 91,500, a sixth more, and
+0.6% of the desktop's work. It was first written to go through every
+code of a cell, the padding too, and to store each character with `c!`:
+that was 708 a name and the window 147,900. `words` and `see` in the
+Forth window are no different to use: a character there is thousands of
+instructions to show. The kernel is 52 to 60 bytes longer for the packer,
+and still fits its ROM.
 
 To check, build the reference VM with `-DSTRICT` or the small kernel with
 `make -C baremetal STRICT=1`; either stops at a fetch or store outside
@@ -320,9 +359,10 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,978 bytes
-with 64-bit cells, 3,998 with 32 and 3,942 with 16, against the 4,096 the
-kernel ROM holds.
+task that runs past its part of a stack. The kernel's code is 4,030 bytes
+with 64-bit cells, 4,058 with 32 and 4,002 with 16, against the 4,096 the
+kernel ROM holds: 38 bytes to spare with cells of 32 bits. What need not
+be in the ROM is on page 1 (`words`, `name>`).
 
 On the desktop the Forth window's interpreter is a task with the upper half
 of each stack (`repl` in `term.fs`), and the event loop pauses each time
@@ -417,9 +457,9 @@ a buffer bigger than that, made at the prompt, runs into the bulk and
 nothing says so until the next word is defined.
 
 Nothing has to be in the lower half for being text: the dictionary is
-searched a cell at a time (`>key`, `samename?`), and a name that is
-above where the address of a byte reaches is brought down a cell at a
-time to be shown (`hname`). What is there is there because the words
+searched a cell at a time (`>key`, `samename?`), and a name is read a
+cell at a time, wherever it is, to be shown (`name>`). What is there is
+there because the words
 that read it take the address of a byte (`c@`, `count`, `type`,
 `draw-text`), and because there is no room for it above: on the machine
 of 64K cells the 21,824 cells above the display are all the memory there
@@ -489,7 +529,11 @@ Page 1 is what the rest is built on:
   starts make it whole again: `hgive ( a cells -- )` is for memory that
   is done with, wherever it was had from. If it was the last given out,
   `himem` comes back down, and if not it is the run's. A scroll's three
-  regions and HexaPaint's canvas are had and given back so
+  regions and HexaPaint's canvas are had and given back so. `himem` is
+  always an even cell, so what gives memory back puts it where it was to
+  the cell: the names are given back only if `himem` is where they
+  ended, and when it was left where an allocation ended, a scroll after
+  names of an odd number of cells left it a cell on and they stayed
 - `blocks.fs`: block device interface (`'blk-read`, `'blk-write`), `block`
   `update` `flush` `load`. There is one block buffer; `block` gives the
   address of its first byte and `cblock` the cell it starts at, for
@@ -812,8 +856,9 @@ Pages 8 and 9 are the drivers and the desktop:
   is too small for.
   The tables and the labels are not in the image: they are
   the file `build/nuc.tables`, which `mkdisk.py` puts on the disk
-  from block 1024: 37.8KB with cells of 64 bits, 20.4KB with 32 and
-  12.4KB with 16, two thirds of it the labels.
+  from block 1024: 37.2KB with cells of 64 bits, 18.8KB with 32 and
+  10.7KB with 16, more than half of it the labels (it was 37.8, 20.4 and
+  12.4 with a label's name eight bits a character).
   `names-load` reads it into memory from `halloc`, whole blocks to where
   they are wanted and what is less than a block through the block
   buffer, so that it has the memory it is long and not a block's worth
@@ -1268,7 +1313,7 @@ nucleus and the reference VM for a size, into `build/`. The default
 `test/sizes.sh` builds the machine with cells of 64 bits, of 32 and of 16,
 each with a display and each `STRICT`, and runs on each the tests that
 type at the reference VM's prompt: the nucleus, the desktop
-(`test/desktop_test.py`, above: 45 checks, the Mandrill, the menu and
+(`test/desktop_test.py`, above: 46 checks, the Mandrill, the menu and
 HexaPaint among them; what is drawn in HexaPaint is drawn too in a model
 of its canvas in `test/deskcheck.py`, and every pixel compared), the
 drawing words against their model, regions a cell at a time, the dither
@@ -1329,9 +1374,9 @@ of 512 by 342 is 21KB, and the desktop runs in that. What it took:
   numbers that were the big machine's (`code?`, `xt?`)
 - the tables of names are read a block at a time into cells, with no
   count of bytes on the disk and no address of a byte in memory; and a
-  label's name, which is text in that memory, above where the address of
-  a byte reaches, is brought down a cell at a time to be shown (`hname`
-  in `see.fs`)
+  label's name, which is in that memory, above where the address of a
+  byte reaches, is read a cell at a time to be shown, as any name is
+  (`name>`)
 
 Of the ALU instructions its image uses, the table of instructions as
 words lacks three, which are shown as numbers. With the desktop up,
@@ -1343,19 +1388,20 @@ out and the table of instructions as words, the picture's bitmap of
 4,096, fourteen regions of 258, and the rest; 2,350 of them are the run
 that the picture was read and dithered in, which the viewer gives back
 when the picture is made (`hfree`). That leaves 6,478. The names are
-6,180 of those for as long as the Words window is in front, is being
-drawn, or `see` runs, which leaves 298: so a scroll, which wants 774 for
+5,326 of those for as long as the Words window is in front, is being
+drawn, or `see` runs, which leaves 1,152; a scroll, which wants 774 for
 as long as it takes, has them from the run that was given back
-(`hreuse`, `hgive`), and `see` of a word longer than the window is one
-of the desktop's checks at every size. The names were 5,376 cells when
+(`hreuse`, `hgive`), and `see` of a word longer than the window, and
+that the names are given back after it, are two of the desktop's checks
+at every size. The names were 5,376 cells when
 this was first written, and whole blocks of memory were taken for them,
 which was 5,632; HexaPaint's labels made that 6,144, which left less
 than a scroll wants and nothing looked; and the day they were 30 cells
 more than twelve blocks they wanted a thirteenth and did not load. They
-now have the memory they are long. A label is five or six cells there,
-so there is room for some fifty more words with no header before the
-names do not fit again; what there is to have then is a label's link,
-a cell each of 717, which only a search by name follows.
+now have the memory they are long, and were 6,180 cells of it until a
+name was five bits a character. A label is about four cells there, one
+of them its link, which only a search by name follows: some 720 cells to
+be had, if the names do not fit again.
 HexaPaint's canvas there is 2,280 cells, and is in memory only while
 HexaPaint is in front, in that same run (`hreuse`): the names are not in
 memory then but for as long as the Words window is drawn behind it,

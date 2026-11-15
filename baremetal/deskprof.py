@@ -48,8 +48,7 @@ def chain(raw, link):
     out = []
     while link:
         xt = struct.unpack_from("<Q", raw, link + 8)[0]
-        n = raw[link + 16]
-        out.append((xt & 0xFFFF, raw[link + 17:link + 17 + n].decode("latin-1"), xt >> 63))
+        out.append((xt & 0xFFFF, insn_map.name_at(raw, link + 16), xt >> 63))
         link = 8 * struct.unpack_from("<Q", raw, link)[0]
     return out
 

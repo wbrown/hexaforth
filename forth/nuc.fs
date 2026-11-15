@@ -210,18 +210,6 @@ header state :noname state ;
 header forth :noname forth ;
 header labels :noname labels ;
 
-header words : words
-    forth @
-    begin
-        dup
-    while
-        dup CELL2 + >c count type
-        space
-        @
-    repeat
-    drop
-;
-
 header negate   :noname     negate   ;
 header -        : -         negate + ; 
 header abs      : abs       dup 0< if negate then ; 
@@ -519,11 +507,12 @@ header calign
 ;
 
 \ A dictionary header is cells: a link, an xt whose top bit marks an
-\ immediate word, then the name as a count byte and lower-case characters,
-\ zero padded to whole cells.  To look a name up it is packed the same way
+\ immediate word, then the name, five bits a character and as many to a
+\ cell as a cell holds, with the top bit of its last cell set (cross.fs
+\ says what the codes are).  To look a name up it is packed the same way
 \ into skey, and then compared with each header a cell at a time; the first
-\ cell holds the length and the first characters, which settles nearly
-\ every entry with one aligned fetch.
+\ cell holds the first characters and whether they are all of it, which
+\ settles nearly every entry with one aligned fetch.
 
 \ Cells from one place to another.  There is no count kept: the place the
 \ cells come from goes up to where they end, and where each goes is that
@@ -554,24 +543,40 @@ header cells-fill
     2drop rdrop
 ;
 
-create skey #264 allot
-create skn 0 ,              \ cells in the key
+create skey #96 allot       \ room for 63 characters that are two codes each, and a cell
+create skn 0 ,              \ the cell of the key the next code goes in, and then how many cells it is
+create ksh 0 ,              \ how far along that cell the code goes
+create kcode codes-of-chars,    \ what each of the 128 characters is in a name: its code, or 32 or 64
+                                \ and where it is among the rest; a character each, and the same
+                                \ for a capital as for its letter
+
+: code, ( code -- ) \ the next code of the key
+    ksh @ lshift  skey skn @ + or!
+    ksh @ d# 5 +
+    dup NAME-BITS = if                      \ the cell is full: on to the next, which is empty
+        drop  d# 1 skn +!  d# 0 skey skn @ + !  d# 0
+    then
+    ksh !
+;
 
 : >key ( c-addr u -- n ) \ pack a name into skey; n is its size in cells
-    d# 255 min
-    dup BYTESHIFT rshift 1+ skn !
-    d# 0 skey skn @ cells-fill
-    dup skey >c c!
-    skey >c 1+ swap                         ( src dst u )
-    >r over - r> swap >r bounds             ( end src ) ( R: from src to dst )
+    d# 63 min
+    d# 0 skn !  d# 0 ksh !  d# 0 skey !
+    bounds
     begin
         2dupxor
     while
-        dup c@ lower  over r@ + c!
+        dup c@ h# 7f and kcode >c + c@      ( end a what )
+        dup d# 31 > if                      \ one of the rest: which lot of them, and then which
+            dup d# 5 rshift d# 29 + code,  d# 31 and
+        then
+        code,
         1+
     repeat
-    2drop rdrop
-    skn @
+    2drop
+    ksh @ 0=  skn @ 0<> and  skn +!         \ the last code filled its cell: that cell is the last
+    d# 1 TOPBIT lshift  skey skn @ + or!
+    skn @ 1+ dup skn !
 ;
 
 : samename? ( wp -- f ) \ do the name cells after the first match the key?
@@ -1602,6 +1607,73 @@ header quit
 meta
     $2000 org
 target
+
+\ A name as text.  The kernel packs a name to look it up and never has to
+\ read one back, so this is here and not in its ROM: whoever shows a name
+\ (words, the decompiler) has its characters put in a buffer, and that is
+\ the text until the next name is asked for.  The name's cells may be
+\ anywhere in memory: they are fetched as cells.
+\
+\ The characters are packed into the buffer's cells as the codes were into
+\ the key's: each is put in its place in the cell with or!, which is a
+\ cell that was made empty when the one before it filled.  A cell of the
+\ name is gone through for as long as there is anything left of it: no
+\ code is nothing, so what is left after its last is the padding.  Nine
+\ characters in ten are letters, and a letter is its code and 96.
+create nbuf #64 allot           \ the characters, packed into cells as text is
+create nto 0 ,                  \ the cell of it the next goes in,
+create nsh 0 ,                  \ and how far along that cell
+create kpg 0 ,                  \ which lot of the rest the next code is one of: 32 or 64, or nothing
+create kchar chars-of-codes,    \ what each code is: the plain ones, and then the two lots of the rest
+
+: char, ( c -- ) \ the next character of the text
+    nsh @ lshift  nto @ or!
+    nsh @ d# 8 +
+    dup CELLBITS = if                       \ the cell is full: on to the next, which is empty
+        drop  d# 1 nto +!  d# 0 nto @ !  d# 0
+    then
+    nsh !
+;
+
+: code> ( code -- ) \ a code that is not simply a letter: a character, or which lot the next one is of
+    kpg @ ?dup if  +  d# 0 kpg !  kchar >c + c@ char,  exit then
+    dup d# 29 > if  d# 29 - d# 5 lshift kpg !  exit then
+    kchar >c + c@ char,
+;
+
+header name>
+: name> ( a -- c-addr u ) \ the name whose cells start at a
+    d# 0 kpg !  d# 0 nsh !  nbuf nto !  d# 0 nbuf !
+    begin
+        dup @ dup >r                                ( a cell ) ( R: the cell )
+        NAME-SPARE lshift NAME-SPARE rshift         \ its codes, and not the bits over
+        begin
+            dup
+        while
+            dup d# 31 and
+            dup d# 27 <  kpg @ 0= and if d# 96 + char, else code> then
+            d# 5 rshift
+        repeat
+        drop
+        r> 0< 0=                                    \ the top bit says this was its last cell
+    while
+        1+
+    repeat
+    drop
+    nbuf >c  nto @ nbuf - >c  nsh @ d# 3 rshift +
+;
+
+header words : words
+    forth @
+    begin
+        dup
+    while
+        dup CELL2 + name> type
+        space
+        @
+    repeat
+    drop
+;
 
 \ The nucleus's peephole (join.fs) is in every size of machine.  A machine
 \ with a display, whatever its cell, has all of system.fs, the desktop,
