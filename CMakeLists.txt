@@ -14,15 +14,22 @@ endif()
 # cross.fs writes its output to build/, which is not checked in
 set(MAKE_BUILD_DIR ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/build)
 
+# An image is made from every Forth file: nuc.fs includes system.fs and
+# through it the rest, and cross.fs includes its tables.  So an image is
+# out of date when any of them changes, and a file that is added is found
+# the next time anything is built.  test_cases.fs is made here, and only
+# its own image needs it.
+file(GLOB FORTH_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/forth/*.fs)
+list(FILTER FORTH_SOURCES EXCLUDE REGEX "/test_cases\\.fs$")
+
 # hexaforth nucleus image from swapforth
 add_custom_command(
         COMMAND           ${MAKE_BUILD_DIR}
         COMMAND           gforth cross.fs basewords.fs nuc.fs
         OUTPUT            ${CMAKE_SOURCE_DIR}/build/nuc.hex
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
-        DEPENDS           forth/cross.fs
-                          forth/basewords.fs
-                          forth/nuc.fs
+        DEPENDS           forth/basewords.fs
+                          ${FORTH_SOURCES}
                           basewords-fs-gen)
 
 # basewords.fs opcode description for forth environment
@@ -65,8 +72,8 @@ add_custom_command(
         OUTPUT            ${CMAKE_SOURCE_DIR}/build/test_cases.hex
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
         DEPENDS           forth/test_cases.fs
-                          forth/cross.fs
-                          forth/basewords.fs)
+                          forth/basewords.fs
+                          ${FORTH_SOURCES})
 
 # kick off our entire forth environment
 add_custom_target(forth-env
