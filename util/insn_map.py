@@ -1045,11 +1045,19 @@ def compare_images(plain_path, opt_path):
         return w >> 13, flat_target(at, w)
     moved = {a[1]: b[1] for a, b in zip(plain, opt)}
 
-    def translations(run):
+    def translations(run, other):
         """The run with its code-address literals rewritten for the other
         image, every way that can be done.  A number that is the address of
         code in one image may just as well be an ordinary constant or the
-        address of data, so each such literal is tried both ways."""
+        address of data, so each such literal is tried both ways.
+
+        The first way tried is the one the other image's run suggests: a
+        literal is rewritten if what it would be rewritten to is in that
+        run.  A run that stores to a dozen variables whose addresses happen
+        to be numbers that are also code addresses, and then pushes one
+        execution token, is more ways than can all be tried, and this is
+        the one that is right.  It is only where to look first: what makes
+        a run the same is still that it does the same."""
         parts, i = [], 0                        # (as written, rewritten or None)
         while i < len(run):
             w = run[i]
@@ -1070,7 +1078,13 @@ def compare_images(plain_path, opt_path):
             else:
                 parts.append(([w], None))
             i += 1
-        open_ = [n for n, (_, alt) in enumerate(parts) if alt and alt != parts[n][0]][:12]
+        open_ = [n for n, (_, alt) in enumerate(parts) if alt and alt != parts[n][0]]
+
+        def within(words):
+            return any(other[i:i + len(words)] == words for i in range(len(other) - len(words) + 1))
+        there = {n: within(parts[n][1]) for n in open_}
+        yield [w for n, (same, alt) in enumerate(parts) for w in (alt if there.get(n) else same)]
+        open_ = open_[:12]
         for choice in itertools.product((True, False), repeat=len(open_)):
             pick = dict(zip(open_, choice))
             yield [w for n, (same, alt) in enumerate(parts) for w in (alt if pick.get(n) else same)]
@@ -1089,7 +1103,7 @@ def compare_images(plain_path, opt_path):
                       and nxt[1] == at_b + len(b))
             want = effect(b, br)
             same = want is not None and (
-                want == effect(a, br) or any(want == effect(t, br) for t in translations(a)))
+                want == effect(a, br) or any(want == effect(t, br) for t in translations(a, b)))
         if not same:
             bad += 1
             text = lambda x: " ".join(f"{w:04x}" for w in x) if isinstance(x, list) else \

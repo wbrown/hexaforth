@@ -310,10 +310,12 @@ its last is the padding. That is every
 character that can be typed in a name; `cross.fs` says which is which
 (`n-code`), and lays down the machine's two tables of it. The kernel packs
 a name to look it up or to make a header of it (`>key`, with `kcode`, what
-each character is) and never reads one back. Whoever shows a name has its
+each character is). Whoever shows a name has its
 characters put in a buffer (`name> ( a -- c-addr u )`, with `kchar`, what
-each code is; it and `words` are on page 1, not in the ROM): the text of
-one name at a time, from cells that may be anywhere in memory. The tools
+each code is): the text of
+one name at a time, from cells that may be anywhere in memory. Both are
+the kernel's, as `words` is, and both pack with one word (`pack,`: codes
+of five bits into the key, characters of eight into the text). The tools
 read a name with `name_at` in `insn_map.py`, and the C that reads an image
 (`main.c`, `test/main.c`, `util/disasm_hex.c`) with `header_name` in
 `vm.h`; those two and `cross.fs` are the three places the codes are said.
@@ -328,16 +330,41 @@ ten for each header passed, since what is compared with each is still
 one cell. The same seven names looked up before and after are within 2%
 either way with cells of 64 bits; with 16, where a cell is three codes,
 a name of twelve letters that is not found is 4% more and one of five
-digits 3.6% (a digit is two codes). Packing the key is 133 instructions a
+digits 3.6% (a digit is two codes). Packing the key is 144 instructions a
 call in the profile where it was 419. Showing a name is where it costs:
-`name>` is 202 instructions a name, so painting the Words window, which
-shows 81, is 106,900 instructions where it was 91,500, a sixth more, and
+`name>` is 219 instructions a name, so painting the Words window, which
+shows 81, is 108,400 instructions where it was 91,500, a little under a
+fifth more, and
 0.6% of the desktop's work. It was first written to go through every
 code of a cell, the padding too, and to store each character with `c!`:
 that was 708 a name and the window 147,900. `words` and `see` in the
 Forth window are no different to use: a character there is thousands of
-instructions to show. The kernel is 52 to 60 bytes longer for the packer,
-and still fits its ROM.
+instructions to show.
+
+Packing and reading names made the kernel longer than its ROM, and for a
+commit `words` and `name>` were on page 1 for that. They are core words
+and are back in it: the room was found in the kernel, which was looked
+through for what was written twice and what nothing used (the sizes of
+its words are instructions from each one's start to the next's):
+
+- `cmove` had a way of moving whole cells first, for the Forth window's
+  text, which is moved with `cells-move` now; nothing else called it
+- `lower` and `digit?` worked out what a character is as a digit; the
+  table that says what it is in a name says that too (`kcode@`)
+- `parse-name` and `parse` ended with the same twelve instructions
+  (`parsed`), and started with the same four (`unparsed`)
+- the codes of a key and the characters of a name were packed by two
+  words that were one (`pack,`, `pack>`)
+- `hex1` and `.` each made a digit a character (`.digit`)
+- `create` was `constant` written again with the data's address
+- `throw` said `error:` a character at a time
+- `2/`, `d<` and `du<`, the flag `sfind` gives, the fields `spawn`
+  empties, `;` making a call a jump, and `evaluate` and `refill` both
+  setting `>in` after the source, were each a few instructions too many
+
+`c@` could have been `h# ff field@`, 16 bytes less, and was tried so: a
+lookup was then up to 6% more, since every character read is read with
+it, and it is as it was.
 
 To check, build the reference VM with `-DSTRICT` or the small kernel with
 `make -C baremetal STRICT=1`; either stops at a fetch or store outside
@@ -359,10 +386,11 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 4,030 bytes
-with 64-bit cells, 4,058 with 32 and 4,002 with 16, against the 4,096 the
-kernel ROM holds: 38 bytes to spare with cells of 32 bits. What need not
-be in the ROM is on page 1 (`words`, `name>`).
+task that runs past its part of a stack. The kernel's code is 4,014 bytes
+with 64-bit cells, 4,050 with 32 and 3,990 with 16, against the 4,096 the
+kernel ROM holds: 46 bytes to spare with cells of 32 bits. When it does
+not fit, look in it for what is written twice before moving a word out
+of it (Addresses, above, says what was found the last time).
 
 On the desktop the Forth window's interpreter is a task with the upper half
 of each stack (`repl` in `term.fs`), and the event loop pauses each time
@@ -856,7 +884,7 @@ Pages 8 and 9 are the drivers and the desktop:
   is too small for.
   The tables and the labels are not in the image: they are
   the file `build/nuc.tables`, which `mkdisk.py` puts on the disk
-  from block 1024: 37.2KB with cells of 64 bits, 18.8KB with 32 and
+  from block 1024: 37.3KB with cells of 64 bits, 18.9KB with 32 and
   10.7KB with 16, more than half of it the labels (it was 37.8, 20.4 and
   12.4 with a label's name eight bits a character).
   `names-load` reads it into memory from `halloc`, whole blocks to where
@@ -1388,8 +1416,8 @@ out and the table of instructions as words, the picture's bitmap of
 4,096, fourteen regions of 258, and the rest; 2,350 of them are the run
 that the picture was read and dithered in, which the viewer gives back
 when the picture is made (`hfree`). That leaves 6,478. The names are
-5,326 of those for as long as the Words window is in front, is being
-drawn, or `see` runs, which leaves 1,152; a scroll, which wants 774 for
+5,356 of those for as long as the Words window is in front, is being
+drawn, or `see` runs, which leaves 1,122; a scroll, which wants 774 for
 as long as it takes, has them from the run that was given back
 (`hreuse`, `hgive`), and `see` of a word longer than the window, and
 that the names are given back after it, are two of the desktop's checks

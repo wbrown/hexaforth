@@ -91,13 +91,9 @@ header bl
 : hex2 dup d# 4 rshift DOUBLE
 header hex1 : hex1
     h# f and
-    dup d# 10 < if
-        [char] 0
-    else
-        d# 55
-    then
-    +
-    emit
+;fallthru
+: .digit ( u -- ) \ a digit, sent out as its character: the letters are seven on from the figures
+    dup d# 9 > d# 7 and +  [char] 0 + emit
 ;
 
 header .x       : .x hex8 space ;
@@ -152,6 +148,8 @@ header field! : field! ( x c-addr mask -- )
     r> !
 ;
 
+\ c@ is field@ with its mask written in, and not a call of it: every
+\ character that is read is read with this.
 header c@
 : c@ ( c-addr -- c )
     dup (c>) @
@@ -189,6 +187,8 @@ header type
 
 create "cold"
     'c' c, 'o' c, 'l' c, 'd' c,
+create "error:"
+    'e' c, 'r' c, 'r' c, 'o' c, 'r' c, ':' c,
 
 create forth    0 ,
 create labels   0 ,         \ names of definitions that have no header, while they are read in (see.fs)
@@ -214,7 +214,7 @@ header negate   :noname     negate   ;
 header -        : -         negate + ; 
 header abs      : abs       dup 0< if negate then ; 
 header 2*       :noname     2*       ;
-header 2/       : 2/        dup 0< if invert d# 1 rshift invert else d# 1 rshift then ; 
+header 2/       : 2/        dup 0< TOPBIT lshift  swap d# 1 rshift  or ;    \ the sign stays where it is
 \ The data pointer counts bytes, so that bytes can be laid down one at a
 \ time.  here is the address of the cell it is in, which is the next free
 \ cell once the pointer has been aligned.
@@ -310,27 +310,20 @@ header d=
     and
 ; 
 
+\ The high cells say, unless they are the same: then the low ones do.
 header d<
-: d<            \ ( al ah bl bh -- flag ) 
-    rot         \ al bl bh ah 
-    2dup = 
-    if 
-        2drop u< 
-    else 
-        > nip nip
-    then 
-; 
+: d<            \ ( al ah bl bh -- flag )
+    rot         \ al bl bh ah
+    2dupxor if > nip nip exit then
+    2drop u<
+;
 
 header du<
-: du<           \ ( al ah bl bh -- flag ) 
-    rot         \ al bl bh ah 
-    2dup = 
-    if 
-        2drop u< 
-    else 
-        u> nip nip
-    then 
-; 
+: du<           \ ( al ah bl bh -- flag )
+    rot         \ al bl bh ah
+    2dupxor if u> nip nip exit then
+    2drop u<
+;
 
 header d-
 : d-
@@ -488,12 +481,6 @@ header accept
 : 3rd   >r over r> swap ;
 header 3dup : 3dup  3rd 3rd 3rd ;
 
-: lower ( c1 -- c2 ) \ c2 is the lower-case of c1
-    h# 40 over <
-    over h# 5b < and
-    h# 20 and +
-;
-
 header caligned
 : caligned
     1+ d# -2 and
@@ -543,52 +530,66 @@ header cells-fill
     2drop rdrop
 ;
 
+\ Fields are packed into cells in two places, and it is one thing: codes
+\ of five bits into the key when a name is looked up, and characters of
+\ eight into text when a name is shown.  A field goes into the cell in
+\ hand where the last one ended, with or!; when the cell is full the next
+\ is in hand, and is made empty.
+create pto 0 ,              \ the cell in hand,
+create psh 0 ,              \ how far along it the next field goes,
+create pw 0 ,               \ how many bits a field is,
+create pfull 0 ,            \ and how many bits of a cell fields have
+
+: pack> ( a width full -- ) \ to pack fields from the cell at a
+    pfull !  pw !
+    d# 0 over !  pto !  d# 0 psh !
+;
+
+: pack, ( x -- ) \ the next field
+    psh @ lshift  pto @ or!
+    psh @ pw @ +
+    dup pfull @ = if                        \ the cell is full: on to the next, which is empty
+        drop  d# 1 pto +!  d# 0 pto @ !  d# 0
+    then
+    psh !
+;
+
 create skey #96 allot       \ room for 63 characters that are two codes each, and a cell
-create skn 0 ,              \ the cell of the key the next code goes in, and then how many cells it is
-create ksh 0 ,              \ how far along that cell the code goes
 create kcode codes-of-chars,    \ what each of the 128 characters is in a name: its code, or 32 or 64
                                 \ and where it is among the rest; a character each, and the same
                                 \ for a capital as for its letter
 
-: code, ( code -- ) \ the next code of the key
-    ksh @ lshift  skey skn @ + or!
-    ksh @ d# 5 +
-    dup NAME-BITS = if                      \ the cell is full: on to the next, which is empty
-        drop  d# 1 skn +!  d# 0 skey skn @ + !  d# 0
-    then
-    ksh !
-;
+: kcode@ ( c -- what ) h# 7f and kcode >c + c@ ;
 
 : >key ( c-addr u -- n ) \ pack a name into skey; n is its size in cells
     d# 63 min
-    d# 0 skn !  d# 0 ksh !  d# 0 skey !
+    skey d# 5 NAME-BITS pack>
     bounds
     begin
         2dupxor
     while
-        dup c@ h# 7f and kcode >c + c@      ( end a what )
+        dup c@ kcode@                       ( end a what )
         dup d# 31 > if                      \ one of the rest: which lot of them, and then which
-            dup d# 5 rshift d# 29 + code,  d# 31 and
+            dup d# 5 rshift d# 29 + pack,  d# 31 and
         then
-        code,
+        pack,
         1+
     repeat
     2drop
-    ksh @ 0=  skn @ 0<> and  skn +!         \ the last code filled its cell: that cell is the last
-    d# 1 TOPBIT lshift  skey skn @ + or!
-    skn @ 1+ dup skn !
+    psh @ 0=  pto @ skey <> and  pto +!     \ the last code filled its cell: that cell is the last
+    d# 1 TOPBIT lshift  pto @ or!
+    pto @ skey - 1+
 ;
 
-: samename? ( wp -- f ) \ do the name cells after the first match the key?
-    CELL2 + cell+ skey cell+ skn @ 1-       ( name key n )
-    >r over - r> swap >r bounds             ( end name ) ( R: from name to key )
+: samename? ( wp -- f ) \ are the name's cells the key's, as far as the key's last?
+    CELL2 + skey                            ( name key )
     begin
-        2dupxor
+        over @ over @ =
     while
-        dup @  over r@ + @  <> if rdrop 2drop false exit then
-        1+
+        dup @ 0< if 2drop true exit then    \ that was the last: its top bit is set
+        1+ swap 1+ swap
     repeat
-    2drop rdrop true
+    2drop false
 ;
 
 header sfind
@@ -603,8 +604,8 @@ header sfind
             dup samename? if
                 rdrop nip nip
                 cell+ @
-                dup d# 1 lshift d# 1 rshift         \ the xt, less the flag
-                swap 0< if d# 1 else d# -1 then
+                dup 2* u2/                          \ the xt, less the flag
+                swap 0< 2* 1+ negate                \ which is 1 if it was set, and -1 if not
                 exit
             then
         then
@@ -613,11 +614,74 @@ header sfind
     rdrop
 ;
 
+\ A name as text.  Whoever shows a name (words, the decompiler) has its
+\ characters put in a buffer, and that is the text until the next name is
+\ asked for.  The name's cells may be anywhere in memory: they are fetched
+\ as cells.
+\
+\ The characters are packed into the buffer's cells as the codes were into
+\ the key's (pack,).  A cell of the name is gone through for as long as
+\ there is anything left of it: no code is nothing, so what is left after
+\ its last is the padding.  Nine characters in ten are letters, and a
+\ letter is its code and 96.
+create nbuf #64 allot           \ the characters, packed into cells as text is
+create kpg 0 ,                  \ which lot of the rest the next code is one of: 32 or 64, or nothing
+create kchar chars-of-codes,    \ what each code is: the plain ones, and then the two lots of the rest
+
+: code> ( code -- ) \ a code that is not simply a letter: a character, or which lot the next one is of
+    kpg @ ?dup 0= if
+        dup d# 29 > if  d# 29 - d# 5 lshift kpg !  exit then
+        d# 0                                \ a plain one: it is not one of a lot
+    then
+    +  d# 0 kpg !
+    kchar >c + c@ pack,
+;
+
+header name>
+: name> ( a -- c-addr u ) \ the name whose cells start at a
+    d# 0 kpg !  nbuf d# 8 CELLBITS pack>
+    begin
+        dup @ dup >r                                ( a cell ) ( R: the cell )
+        NAME-SPARE lshift NAME-SPARE rshift         \ its codes, and not the bits over
+        begin
+            dup
+        while
+            dup d# 31 and
+            dup d# 27 <  kpg @ 0= and if d# 96 + pack, else code> then
+            d# 5 rshift
+        repeat
+        drop
+        r> 0< 0=                                    \ the top bit says this was its last cell
+    while
+        1+
+    repeat
+    drop
+    nbuf >c  pto @ nbuf - >c  psh @ d# 3 rshift +
+;
+
+header words : words
+    forth @
+    begin
+        dup
+    while
+        dup CELL2 + name> type
+        space
+        @
+    repeat
+    drop
+;
+
+\ What a character is as a digit, and whether it is one in this base.  The
+\ table that says what a character is in a name says it: a letter, capital
+\ or not, is its place in the alphabet, and the figures are 33 to 42.
 : digit? ( c -- u f )
-   lower
-   dup h# 39 > h# 100 and +
-   dup h# 160 > h# 127 and - h# 30 -
-   dup base @ u<
+    kcode@
+    dup d# 27 < if
+        d# 9 +                              \ a is ten
+    else
+        d# 33 -  dup d# 9 u> or             \ a figure, or what no base has
+    then
+    dup base @ u<
 ;
 
 : ud* ( ud1 u -- ud2 ) \ ud2 is the product of ud1 and u
@@ -649,22 +713,13 @@ header fill
   begin
     2dupxor 
   while
-    r@ over c! 1+ 
+    r@ over c! 1+
   repeat
-  r> drop 2drop
-; 
+  rdrop 2drop
+;
 
 header cmove
-: cmove ( addr1 addr2 u -- )
-    >r
-    r@ ALIGN-MASK and if                    \ a cell or more,
-        2dup or OFFSET-MASK and 0= if       \ and both at the start of a cell: whole cells first
-            over (c>) over (c>) r@ (c>) cells-move
-            r@ ALIGN-MASK and  tuck + >r + r>       \ on past them,
-            r> OFFSET-MASK and >r                   \ and the bytes of the last cell are left
-        then
-    then
-    r>
+: cmove ( addr1 addr2 u -- ) \ a character at a time; what is whole cells is moved with cells-move
     bounds rot >r
     begin
         2dupxor
@@ -699,8 +754,9 @@ header source
     sourceC 2@
 ;
 
-: source! ( addr u -- ) \ set the source
+: source! ( addr u -- ) \ set the source, to be read from its start
     sourceC 2!
+    d# 0 >in !
 ;
 
 header source-id
@@ -727,15 +783,24 @@ header isnotspace?
     WHILE
         d# 1 /string
     REPEAT
-    r> drop ;
+    rdrop ;
+
+\ What both ways of parsing end with: >in is put past what was parsed and
+\ the character that ended it, and what was parsed is where it started
+\ and how long it is.
+: parsed ( start end rest -- c-addr u )
+    2dup d# 1 min + source drop - >in !
+    drop over -
+;
+
+: unparsed ( -- c-addr u ) source >in @ /string ;       \ the rest of the source
 
 header parse-name
 : parse-name ( "name" -- c-addr u )
-    source >in @ /string
-    ['] isspace? xt-skip over >r
-    ['] isnotspace? xt-skip ( end-word restlen r: start-word )
-    2dup d# 1 min + source drop - >in !
-    drop r> tuck -
+    unparsed
+    ['] isspace? xt-skip  over -rot
+    ['] isnotspace? xt-skip
+    parsed
 ;
 
 header isnotdelim
@@ -746,11 +811,9 @@ header isnotdelim
 header parse
 : parse ( "ccc<char" -- c-addr u )
     delim !
-    source >in @ /string
-    over >r
+    unparsed  over -rot
     ['] isnotdelim xt-skip
-    2dup d# 1 min + source drop - >in !
-    drop r> tuck -
+    parsed
 ;
 
 
@@ -781,7 +844,7 @@ header c,
 : (.) ( u -- )
     base @ u/mod
     ?dup if (.) then
-    dup d# 10 < if [char] 0 else d# 55 then + emit
+    .digit
 ;
 
 header .
@@ -809,12 +872,7 @@ header throw
             drop r>
             exit
         then
-        [char] e emit
-        [char] r emit
-        [char] r emit
-        [char] o emit
-        [char] r emit
-        [char] : emit
+        "error:" >c d# 6 type
         space
         .
         d# 0 state !
@@ -903,13 +961,8 @@ header s,
     here lastword !
     forth @ t,                              \ link
     cp @ dup thisxt ! t,                    \ xt, on any page
-    parse-name >key skey swap bounds        \ name
-    begin
-        2dupxor
-    while
-        dup @ t, 1+
-    repeat
-    2drop
+    parse-name >key >r                      \ name: the cells of the key
+    skey here r@ cells-move  r> (>c) tallot
     hswap
     sync
 ;
@@ -1037,19 +1090,14 @@ header does>
 
 header-imm exit
 : texit
-    cp @ thisxt @ <> if
-        prev i@ jumpable if
-            prev
-            i@
-            h# 4000 xor
-            prev i!
-            \ cp @ syncpt @ <> if
-                inline: exit
-            \ then
-            exit
+    cp @ thisxt @ <> if                     \ a call just before it is made a jump,
+        prev dup i@ dup jumpable if
+            h# 4000 xor swap i!
+        else
+            2drop
         then
     then
-    inline: exit
+    inline: exit                            \ and there is an exit all the same: a branch may land on it
 ;
 
 header-imm ;
@@ -1385,25 +1433,26 @@ header-imm swapr> :noname   inline: swapr> ;
 
 \ A created word is the literal address of its data field, then exit.
 
-header create
-: tcreate
-    mkheader attach
-    align
-    here tliteral
-    cp @ doesexit !
-    h# 7403 code,           \ exit
-;
-
-header variable
-: variable
-    tcreate d# 0 t,
-;
+\ A constant is a number and an exit, and a created word is the constant
+\ that its data's address is.  Where the exit is is kept for does>, which
+\ makes a jump of a created word's.
 
 header constant
 : tconstant ( x "name" -- )
     mkheader attach
     tliteral
-    h# 7403 code,
+    cp @ doesexit !
+    h# 7403 code,           \ exit
+;
+
+header create
+: tcreate
+    align here tconstant
+;
+
+header variable
+: variable
+    tcreate d# 0 t,
 ;
 
 
@@ -1541,9 +1590,9 @@ header spawn
     r@ CELL2 + !
     dup r@ CELL + !  r@ c# 4 + !
     r@ c# 3 + !
-    d# 0 r@ c# 5 + !  d# 10 r@ c# 6 + !
-    'emit @ r@ c# 7 + !
-    d# 0 r@ c# 8 + !  d# 0 r@ c# 12 + !
+    d# 0 r@ c# 5 + d# 8 cells-fill          \ nothing in the rest of it, but for
+    d# 10 r@ c# 6 + !                       \ its base
+    'emit @ r@ c# 7 + !                     \ and where its output goes
     up @ @ r@ !  r> up @ !          \ next after this one
 ;
 
@@ -1564,18 +1613,17 @@ header refill
     if
         tib >c dup d# 128 accept
         source!
-        d# 0 >in !
     then
 ;
 
 header evaluate
 : tevaluate
-    source >r >r >in @ >r
+    >in @ >r  source >r >r                  \ what was being read, and how far it had been
     source-id >r d# -1 sourceid !
-    source! d# 0 >in !
+    source!
     interpret
     r> sourceid !
-    r> >in ! r> r> source!
+    r> r> source!  r> >in !
 ;
 
 header quit
@@ -1607,73 +1655,6 @@ header quit
 meta
     $2000 org
 target
-
-\ A name as text.  The kernel packs a name to look it up and never has to
-\ read one back, so this is here and not in its ROM: whoever shows a name
-\ (words, the decompiler) has its characters put in a buffer, and that is
-\ the text until the next name is asked for.  The name's cells may be
-\ anywhere in memory: they are fetched as cells.
-\
-\ The characters are packed into the buffer's cells as the codes were into
-\ the key's: each is put in its place in the cell with or!, which is a
-\ cell that was made empty when the one before it filled.  A cell of the
-\ name is gone through for as long as there is anything left of it: no
-\ code is nothing, so what is left after its last is the padding.  Nine
-\ characters in ten are letters, and a letter is its code and 96.
-create nbuf #64 allot           \ the characters, packed into cells as text is
-create nto 0 ,                  \ the cell of it the next goes in,
-create nsh 0 ,                  \ and how far along that cell
-create kpg 0 ,                  \ which lot of the rest the next code is one of: 32 or 64, or nothing
-create kchar chars-of-codes,    \ what each code is: the plain ones, and then the two lots of the rest
-
-: char, ( c -- ) \ the next character of the text
-    nsh @ lshift  nto @ or!
-    nsh @ d# 8 +
-    dup CELLBITS = if                       \ the cell is full: on to the next, which is empty
-        drop  d# 1 nto +!  d# 0 nto @ !  d# 0
-    then
-    nsh !
-;
-
-: code> ( code -- ) \ a code that is not simply a letter: a character, or which lot the next one is of
-    kpg @ ?dup if  +  d# 0 kpg !  kchar >c + c@ char,  exit then
-    dup d# 29 > if  d# 29 - d# 5 lshift kpg !  exit then
-    kchar >c + c@ char,
-;
-
-header name>
-: name> ( a -- c-addr u ) \ the name whose cells start at a
-    d# 0 kpg !  d# 0 nsh !  nbuf nto !  d# 0 nbuf !
-    begin
-        dup @ dup >r                                ( a cell ) ( R: the cell )
-        NAME-SPARE lshift NAME-SPARE rshift         \ its codes, and not the bits over
-        begin
-            dup
-        while
-            dup d# 31 and
-            dup d# 27 <  kpg @ 0= and if d# 96 + char, else code> then
-            d# 5 rshift
-        repeat
-        drop
-        r> 0< 0=                                    \ the top bit says this was its last cell
-    while
-        1+
-    repeat
-    drop
-    nbuf >c  nto @ nbuf - >c  nsh @ d# 3 rshift +
-;
-
-header words : words
-    forth @
-    begin
-        dup
-    while
-        dup CELL2 + name> type
-        space
-        @
-    repeat
-    drop
-;
 
 \ The nucleus's peephole (join.fs) is in every size of machine.  A machine
 \ with a display, whatever its cell, has all of system.fs, the desktop,
