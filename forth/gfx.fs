@@ -10,18 +10,22 @@ header fill-rect : fill-rect ( on? x y w h -- )
     >r >r >r >r solid r> r> r> r> pat-rect
 ;
 
-create gx 0 ,
-create gy 0 ,
-create gw 0 ,
-create gh 0 ,
+\ An outline is two pairs of edges, and each pair is a word that has the
+\ corner on the data stack and the size on the return stack.
+: frame-h ( x y w h -- ) \ the top and the bottom
+    >r >r 2dup r@ pat-hline                         ( x y ) ( R: h w )
+    r> swap r> + 1- swap pat-hline
+;
+
+: frame-v ( x y w h -- ) \ the left and the right
+    swap >r >r 2dup d# 1 r@ pat-rect                ( x y ) ( R: w h )
+    r> r> >r rot r> + 1- -rot                       ( x' y h )
+    d# 1 swap pat-rect
+;
 
 header frame-rect : frame-rect ( on? x y w h -- ) \ a one-pixel outline
-    gh ! gw ! gy ! gx !
-    solid
-    gx @ gy @ gw @ pat-hline
-    gx @ gy @ gh @ + 1- gw @ pat-hline
-    gx @ gy @ d# 1 gh @ pat-rect
-    gx @ gw @ + 1- gy @ d# 1 gh @ pat-rect
+    >r >r >r >r solid r> r> r> r>
+    2over 2over frame-h frame-v
 ;
 
 \ Text built with the ordinary output words: sb-begin sends emit to a
