@@ -7,7 +7,7 @@
 \ the one instruction they are together.  join-rules, in the kernel,
 \ is told where they are and how many.  They are all on one page.
 
-meta $540 table-room  tcp @ 2/ t' join-rules tvar! target
+meta $554 table-room  tcp @ 2/ t' join-rules tvar! target
 $0000 i, $6000 i, $600c i, $600c i,   \ drop dup , drop
 $0000 i, $6000 i, $6020 i, $6000 i,   \ drop dup , swap
 $0000 i, $6000 i, $642c i, $600c i,   \ drop dup , nip
@@ -72,6 +72,7 @@ $0000 i, $60c0 i, $650d i, $61cd i,   \ over swap rshift , >r
 $0000 i, $60cc i, $600c i, $6d08 i,   \ rshift , drop
 $0000 i, $60cc i, $650d i, $61c9 i,   \ rshift , >r
 $0000 i, $60dc i, $600c i, $6d08 i,   \ lshift , drop
+$0000 i, $60dc i, $642c i, $60d8 i,   \ lshift , nip
 $0000 i, $60dc i, $650d i, $61d9 i,   \ lshift , >r
 $0000 i, $60e4 i, $6403 i, $60e7 i,   \ over@ , rdrop
 $0000 i, $60e4 i, $6718 i, $63ec i,   \ over@ , swap !
@@ -186,6 +187,7 @@ $0000 i, $6460 i, $642c i, $646c i,   \ over xor , nip
 $0000 i, $6460 i, $6d08 i, $6d08 i,   \ over xor , 2drop
 $0000 i, $6464 i, $650d i, $6561 i,   \ 2dup xor , >r
 $0000 i, $646c i, $600c i, $6d08 i,   \ xor , drop
+$0000 i, $646c i, $650d i, $6569 i,   \ xor , >r
 $0000 i, $6470 i, $600c i, $600c i,   \ over * , drop
 $0000 i, $6470 i, $642c i, $647c i,   \ over * , nip
 $0000 i, $6470 i, $6d08 i, $6d08 i,   \ over * , 2drop
@@ -241,6 +243,8 @@ $0000 i, $654d i, $6403 i, $600c i,   \ over and >r , rdrop
 $0000 i, $654d i, $6c07 i, $6440 i,   \ over and >r , r>
 $0000 i, $6559 i, $6403 i, $6d08 i,   \ or >r , rdrop
 $0000 i, $6559 i, $6c07 i, $645c i,   \ or >r , r>
+$0000 i, $6569 i, $6403 i, $6d08 i,   \ xor >r , rdrop
+$0000 i, $6569 i, $6c07 i, $646c i,   \ xor >r , r>
 $0000 i, $6579 i, $6403 i, $6d08 i,   \ * >r , rdrop
 $0000 i, $6579 i, $6c07 i, $647c i,   \ * >r , r>
 $0000 i, $658d i, $6403 i, $600c i,   \ invert >r , rdrop
@@ -271,6 +275,7 @@ $0000 i, $6800 i, $6718 i, $6b18 i,   \ @ , swap !
 $0000 i, $6800 i, $6800 i, $68e0 i,   \ @ , @
 $0000 i, $6804 i, $642c i, $6800 i,   \ dup@ , nip
 $0000 i, $683c i, $642c i, $6838 i,   \ @ + , nip
+$0000 i, $687c i, $642c i, $6878 i,   \ @ * , nip
 $0000 i, $6880 i, $6480 i, $6800 i,   \ @ invert , invert
 $0000 i, $6c00 i, $600c i, $600c i,   \ r@ nip , drop
 $0000 i, $6c00 i, $6403 i, $6c03 i,   \ r@ nip , rdrop
@@ -344,4 +349,4 @@ $6c07 i, $6020 i, $60cc i, $6cc3 i,   \ r> , swap , rshift
 $6c07 i, $6020 i, $60dc i, $6cd3 i,   \ r> , swap , lshift
 $6c17 i, $643c i, $6718 i, $6f3b i,   \ swapr> , + , swap !
 $6ce7 i, $6004 i, $6308 i, $6fe3 i,   \ r> @ , over , !
-meta $150 t' join-rules 1+ tvar! target
+meta $155 t' join-rules 1+ tvar! target

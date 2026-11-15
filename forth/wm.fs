@@ -421,9 +421,25 @@ header 'front create 'front 0 ,     \ ( -- )
 
 \ ---- the mouse button: the menu, or front a window, drag its title, or click in it
 
+\ A window is told of the button going down in it (its click routine).  One
+\ that wants to follow the pointer after that, to draw with it, stores a
+\ word in 'track then: it is run with where the pointer is, in the window
+\ as a click is, each time the pointer has moved while the button is down,
+\ and once more when the button goes up, when `held` is no longer true.
+header held create held 0 ,         \ true while the button is down
+header 'track create 'track 0 ,     \ ( x y win -- )
+
 create dragging 0 ,
 create dx0 0 ,
 create dy0 0 ,
+
+: track ( -- ) \ the pointer has moved with the button down, or the button has gone up
+    'track @ ?dup if
+        >r  top cw !
+        mx @ cw.x - 1-  my @ cw.y - d# 19 -  top
+        r> execute
+    then
+;
 
 : press ( -- )
     menu-open @ if                                  \ a line of it, or away with it
@@ -431,6 +447,7 @@ create dy0 0 ,
         exit
     then
     on-title? if menu-down exit then
+    true held !  d# 0 'track !
     win-at dup 0< if drop exit then
     dup 1+ nwin @ <> if
         redraw-top raise redraw-top                 \ the one that was in front, and the one that is
@@ -462,6 +479,7 @@ create dy0 0 ,
         then
         exit
     then
+    d# 0 held !  track  d# 0 'track !               \ whoever was following the pointer is told it is over
     dragging @ if
         d# 0 dragging !
         redraw-top                                  \ where it was
@@ -516,6 +534,10 @@ header on-event : on-event ( type code value -- )
         menu-track
         exit
     then
+    \ A device says where the pointer is an axis at a time, and then that it
+    \ has said all there is to say (an event of type 0): only then is the
+    \ pointer somewhere it has been, and whoever follows it is told.
+    dup 0= if drop 2drop  held @ if track then  exit then
     d# 1 <> if 2drop exit then                      \ otherwise keys only
     over h# 110 = if nip if press else release then exit then
     over shift-key? if nip 0<> shift ! exit then

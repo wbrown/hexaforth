@@ -17,8 +17,10 @@
 \   page 1          machine blocks font display     and region
 \   the next        region (virtio) tiff atkinson   tiff atkinson keymap gfx wm
 \                     keymap gfx wm                   term edit view calc
-\   the next        term edit view calc see desk    see desk join
+\   the next        term edit view calc see         see desk join
+\   the next        paint desk
 \   the next        join
+\   the kernel's                                    paint, in its upper half
 \
 \ Storage is reached through a small interface, so a driver can be swapped
 \ without touching the code that uses it:
@@ -33,6 +35,14 @@ meta
 : sys-page ( n -- ) code-base $1000 / + code-page ; \ the nth page after the data and the headers
 : big-page ( n -- ) addr-bits #16 > if sys-page else drop then ;
 : small-page ( n -- ) addr-bits #16 > if drop else sys-page then ;
+variable low-back       \ where code was going, while it goes to the upper half of the kernel's page
+: low-page ( -- ) addr-bits #16 > 0= if tcp @ low-back !  $1000 org then ;
+: low-page-end ( -- )
+    addr-bits #16 > 0= if
+        tcp @ $2000 > abort" the upper half of the kernel's page is full"
+        low-back @ org
+    then
+;
 target
 
 \ Page 1: what everything else is built on.
@@ -78,11 +88,23 @@ meta 1 small-page target
 
 include fused.fs        \ fused instructions as words, for the decompiler
 include see.fs          \ decompiler and the dictionary browser
+
+\ HexaPaint.  Where there are pages to spare it has one, with the desktop.
+\ Where there are not, it is in the upper half of the kernel's page, which
+\ the kernel, a ROM of 4KB, leaves empty: 4KB of code that any page calls
+\ with one instruction.
+
+meta 2 big-page  low-page target
+
+include paint.fs        \ a window to draw in
+
+meta low-page-end target
+
 include desk.fs         \ the desktop itself
 
 \ The nucleus's peephole, which the kernel reaches through a vector.
 
-meta 2 big-page target
+meta 3 big-page target
 
 include join.fs         \ instructions joined as they are compiled, and the rules
 

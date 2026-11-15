@@ -72,8 +72,9 @@ class Machine:
         lines = [": k2 key 8 lshift key or ;",
                  f": scr 91 emit hex {base} {stride * H} over + swap do i @ . loop decimal 93 emit ;",
                  ": ek 1 key key 48 - on-event ;",
-                 ": em 3 0 k2 on-event 3 1 k2 on-event ;",
-                 ": eb 1 272 key 48 - on-event ;",
+                 # A device says each thing and then that it has said all there is (type 0).
+                 ": em 3 0 k2 on-event 3 1 k2 on-event 0 0 0 on-event ;",
+                 ": eb 1 272 key 48 - on-event 0 0 0 on-event ;",
                  ": t1 dup 107 = if ek then dup 109 = if em then ;",
                  ": t2 dup 98 = if eb then dup 115 = if scr then ;",
                  ": tp key t1 t2 drop ;",
@@ -136,6 +137,9 @@ class Machine:
     def move(self, x, y):
         vx, vy = x * 0x8000 // self.W + 1, y * 0x8000 // self.H + 1
         self.send(b"m" + bytes([vx >> 8, vx & 255, vy >> 8, vy & 255]))
+
+    def button(self, down):
+        self.send(b"b1" if down else b"b0")
 
     def click(self, x, y):
         self.move(x, y)

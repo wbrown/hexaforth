@@ -42,6 +42,26 @@ header halloc
     tuck + himem !
 ;
 
+\ Memory that has been given back: one run of it, the biggest there has
+\ been.  Whoever is done for good with memory that others were given
+\ memory after says so (hfree), and whoever does not mind where its memory
+\ is asks for that first (hreuse).  What halloc gives is always new: those
+\ that take memory and put himem back to give it up rely on that.
+create hole 0 , 0 ,     \ where it starts, and how many cells of it are left
+
+header hfree
+: hfree ( a cells -- ) \ that many cells from a, which is an even cell, are nobody's
+    dup hole CELL + @ u> if hole CELL + !  hole ! else 2drop then
+;
+
+header hreuse
+: hreuse ( u -- a ) \ room for u bytes: of what was given back, if that is enough, or new
+    dup CELLB 1- + c>  1+ d# -2 and                 ( u cells )
+    dup hole CELL + @ u> if drop halloc exit then
+    nip  hole @ swap                                ( a cells )
+    dup hole +!  negate hole CELL + +!
+;
+
 \ 32-bit fields in ordinary memory, as parts of the cells they are in.  Like
 \ c@ and uw@, these and the big-endian words take the address of a byte.
 

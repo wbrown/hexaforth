@@ -4,6 +4,7 @@ create t-repl ," Forth"
 create t-edit ," Editor"
 create t-view ," Mandrill"
 create t-calc ," Calculator"
+create t-paint ," HexaPaint"
 create t-up   ," desktop"
 
 \ The windows are opened by one word and the machine's devices brought up
@@ -13,7 +14,8 @@ create t-up   ," desktop"
 
 \ Where each window goes: its left, top, width and height, for the
 \ picture, the editor, the Words window, the calculator and the Forth
-\ window, which are opened in that order, the last in front.  There are
+\ window, which are opened in that order, the last in front, and for
+\ HexaPaint, which is opened before them all and so is at the back.  There are
 \ two arrangements.  One is for a screen of 768 by 576.  The other is for
 \ a smaller one, down to 512 by 342, where a window is as big as it was
 \ but for the picture's, which shows 256 by 256 of it: they lie over each
@@ -27,6 +29,7 @@ create big-desk
     #140 , #296 , #482 , #276 ,
     #626 , #300 , #138 , #238 ,
     #12 , #32 , #406 , #280 ,
+    #180 , #140 , #431 , #297 ,
 
 create small-desk
     #246 , #22 , #258 , #276 ,
@@ -34,6 +37,7 @@ create small-desk
     #4 , #60 , #482 , #276 ,
     #366 , #96 , #138 , #238 ,
     #6 , #26 , #406 , #280 ,
+    #110 , #30 , #287 , #193 ,
 
 : place ( i -- x y w h ) \ where window i goes, on this screen
     d# 2 lshift  fb-h @ d# 576 < if small-desk else big-desk then  +
@@ -43,6 +47,8 @@ create small-desk
 header windows
 : windows ( -- ) \ open them, and run until ^Q
     d# 0 nwin !
+    d# 5 place t-paint                              \ at the back: it is as big as its canvas, and has no canvas
+    ['] paint-draw ['] ignore-key ['] paint-click window drop      \ until it is drawn in
     'blk-read @ if
         d# 16  d# 0 place 2swap 2drop  swap d# 2 - swap d# 20 -     \ the picture, and what its window shows
         ['] view-load catch if 2drop drop d# 0 then >r      ( R: the viewer, or 0 if there is no picture )

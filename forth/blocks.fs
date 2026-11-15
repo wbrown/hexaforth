@@ -35,9 +35,14 @@ header flush
     then
 ;
 
+header blk-need
+: blk-need ( -- ) \ see that there is a buffer: for whoever must have it made before memory of its own
+    blk-buf @ 0= if blk-room blk-buf ! then
+;
+
 header cblock
 : cblock ( blk# -- a ) \ the cell that a buffer holding the block starts at
-    blk-buf @ 0= if blk-room blk-buf ! then
+    blk-need
     dup blk-cur @ = if drop blk-buf @ exit then
     flush
     d# -1 blk-cur !

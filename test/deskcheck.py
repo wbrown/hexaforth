@@ -97,7 +97,116 @@ def shows(shot, text, x, y, font="sans", inverse=False):
     return True
 
 
-TITLES = {"viewer": "Mandrill", "editor": "Editor", "words": "Words", "calc": "Calculator", "forth": "Forth"}
+TITLES = {"viewer": "Mandrill", "editor": "Editor", "words": "Words", "calc": "Calculator", "forth": "Forth",
+          "paint": "HexaPaint"}
+
+
+class Canvas:
+    """HexaPaint's canvas, drawn in as paint.fs draws in it: pixels of 1 for black."""
+
+    PATTERNS = [[0x00] * 8, [0xFF] * 8, [0x77, 0xDD] * 4, [0xAA, 0x55] * 4, [0x88, 0x22] * 4,
+                [0xFF, 0x80, 0x80, 0x80, 0xFF, 0x08, 0x08, 0x08], [0x88, 0x44, 0x22, 0x11] * 2,
+                [0x00, 0x22, 0x00, 0x88] * 2]
+    WHITE, BLACK = PATTERNS[0], PATTERNS[1]
+
+    def __init__(self, w, h):
+        self.w, self.h = w, h
+        self.px = [[0] * w for _ in range(h)]
+        self.fill, self.pen = self.BLACK, 1
+
+    def span(self, x0, x1, y):
+        """The pixels of row y from x0 up to x1, in the pattern."""
+        if 0 <= y < self.h:
+            for x in range(max(x0, 0), min(x1, self.w)):
+                self.px[y][x] = self.fill[y & 7] >> (7 - (x & 7)) & 1
+
+    def dot(self, x, y):
+        for row in range(y, y + self.pen):
+            self.span(x, x + self.pen, row)
+
+    def line(self, x0, y0, x1, y1):
+        dx, sx = abs(x1 - x0), (-1 if x1 < x0 else 1)
+        dy, sy = -abs(y1 - y0), (-1 if y1 < y0 else 1)
+        err, x, y = dx + dy, x0, y0
+        while True:
+            self.dot(x, y)
+            if (x, y) == (x1, y1):
+                return
+            e2 = 2 * err
+            if e2 >= dy:
+                err += dy
+                x += sx
+            if e2 <= dx:
+                err += dx
+                y += sy
+
+    def box(self, a, b):
+        return min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1])
+
+    def rect_frame(self, a, b):
+        x0, y0, x1, y1 = self.box(a, b)
+        self.span(x0, x1 + 1, y0)
+        self.span(x0, x1 + 1, y1)
+        for y in range(y0 + 1, y1):
+            self.span(x0, x0 + 1, y)
+            self.span(x1, x1 + 1, y)
+
+    def rect_fill(self, a, b):
+        x0, y0, x1, y1 = self.box(a, b)
+        for y in range(y0, y1 + 1):
+            self.span(x0, x1 + 1, y)
+
+    def oval(self, a, b):
+        """Half its width and height, its middle, and how far it reaches at each row from the middle."""
+        x0, y0, x1, y1 = self.box(a, b)
+        ha, hb = (x1 - x0) >> 1, (y1 - y0) >> 1
+        reach, s = [], hb
+        for dy in range(hb + 1):
+            if hb == 0:
+                reach.append(ha)
+                continue
+            while s * s > hb * hb - dy * dy:
+                s -= 1
+            reach.append(ha * s // hb)
+        return x0 + ha, y0 + hb, hb, reach
+
+    def oval_fill(self, a, b):
+        cx, cy, hb, reach = self.oval(a, b)
+        for dy in range(hb + 1):
+            for y in (cy - dy, cy + dy):
+                self.span(cx - reach[dy], cx + reach[dy] + 1, y)
+
+    def oval_frame(self, a, b):
+        cx, cy, hb, reach = self.oval(a, b)
+        for dy in range(hb + 1):
+            out = reach[dy]
+            inn = min(out, reach[dy + 1] + 1) if dy < hb else 0
+            for y in (cy - dy, cy + dy):
+                self.span(cx - out, cx - inn + 1, y)
+                self.span(cx + inn, cx + out + 1, y)
+
+    def outline(self, tool, a, b):
+        self.fill, self.pen = self.BLACK, 1
+        if tool == 3:
+            self.line(*a, *b)
+        elif tool < 6:
+            self.rect_frame(a, b)
+        else:
+            self.oval_frame(a, b)
+
+    def draw(self, tool, pattern, a, b):
+        """What a tool does, pulled from a to b with a pattern in hand."""
+        if tool < 3:                                # pencil, brush, eraser: a line of dots
+            self.fill, self.pen = [(self.BLACK, 1), (self.PATTERNS[pattern], 4), (self.WHITE, 12)][tool]
+            self.dot(*a)
+            self.line(*a, *b)
+            return
+        self.fill = self.PATTERNS[pattern]
+        if tool == 5:
+            self.rect_fill(a, b)
+        if tool == 7:
+            self.oval_fill(a, b)
+        self.outline(tool, a, b)
 
 
 class Desk:
@@ -154,6 +263,14 @@ def run(m, d, out, scale_note=None):
     def raise_(name):                               # click its title: it comes to the front
         m.click(*d.title(name))
         d.front(name)
+
+    def cycle_to(name):                             # ^W, which brings the one at the back, until it is this one
+        for _ in d.order:
+            if d.order[-1] == name:
+                return
+            m.key("w", "ctrl")
+            d.cycle()
+        raise AssertionError(f"^W did not bring {name} to the front: {d.order}")
 
     def forth_text(shot, cols=50):
         fx, fy = d.content("forth")
@@ -243,9 +360,7 @@ def run(m, d, out, scale_note=None):
     # that is the Words window.  The definition is 112 further in than
     # the list.  sq, defined in the Forth window above, is the newest
     # word and so the first listed.
-    m.key("w", "ctrl")
-    d.cycle()
-    assert d.order[-1] == "words", d.order
+    cycle_to("words")
     wx, wy = d.content("words")
     lx, sx = wx + 2, wx + 112                       # the list, and the definition
 
@@ -340,9 +455,7 @@ def run(m, d, out, scale_note=None):
           source_of(again, 45) == source, repr(source_of(again, 45)[:3]))
 
     # ^W again: the Forth window.
-    m.key("w", "ctrl")
-    d.cycle()
-    assert d.order[-1] == "forth", d.order
+    cycle_to("forth")
     m.type("depth . 7 8\r")
     m.type("+ . depth .\r")
     shot = m.screenshot(f"{out}/11-cycled.png")
@@ -483,17 +596,114 @@ def run(m, d, out, scale_note=None):
     m.move(*away)
     shot = m.screenshot(f"{out}/15-key.png")
     check("and so does a key", lines(shot) == [] and shows(shot, "hexaforth", 8, 2), repr(lines(shot)))
+
+    # HexaPaint.  It is at the back, and is brought to the front from the
+    # menu.  What is drawn in it with the pointer is drawn here too, in a
+    # model of its canvas (Canvas, above), and every pixel of the canvas on
+    # the screen is compared with that.
+    canvas = Canvas(384, 256) if H >= 576 else Canvas(240, 152)
+    m.click(20, 8)
+    m.click(32, 20 + 16 * list(reversed(d.order)).index("paint") + 8)
+    d.front("paint")
+    m.move(*away)
+    px0, py0 = d.content("paint")
+    hand = {"pattern": 1}                           # black, until one is picked
+
+    def at(p):                                      # a place of the canvas, on the screen
+        return px0 + 45 + p[0], py0 + p[1]
+
+    def tool(n):                                    # click its picture: two to a row, 22 pixels each
+        m.click(px0 + (n & 1) * 22 + 11, py0 + (n >> 1) * 22 + 11)
+        hand["tool"] = n
+
+    def pattern(n):                                 # click it, in the row under the canvas
+        m.click(px0 + 83 + 18 * n + 8, py0 + canvas.h + 3 + 8)
+        hand["pattern"] = n
+
+    def pull(a, b):                                 # the button down at a, the pointer to b, the button up
+        m.drag(*at(a), *at(b))
+        canvas.draw(hand["tool"], hand["pattern"], a, b)
+
+    def wrong(shot, model, but=None):
+        """Pixels of the canvas on the screen that are not the model's, but for a box round a place."""
+        px = shot.load()
+        return sum(1 for y in range(model.h) for x in range(model.w)
+                   if bool(px[at((x, y))]) == bool(model.px[y][x])
+                   and not (but and but[0] - 1 <= x < but[0] + 9 and but[1] - 1 <= y < but[1] + 13))
+
+    shot = m.screenshot(f"{out}/16-paint.png")
+    check("HexaPaint comes to the front from the menu, with nothing drawn",
+          in_front(shot, "paint") and wrong(shot, canvas) == 0, f"{wrong(shot, canvas)} pixels of the canvas")
+    hand["tool"] = 0                                # the pencil is in hand to start with
+    pull((10, 10), (60, 40))
+    m.move(*away)
+    shot = m.screenshot(f"{out}/16-pencil.png")
+    check("the pencil draws where the pointer is pulled", wrong(shot, canvas) == 0,
+          f"{wrong(shot, canvas)} pixels differ")
+    tool(1), pattern(3), pull((20, 60), (100, 70))          # the brush, in gray
+    tool(5), pattern(5), pull((120, 20), (200, 90))         # a rectangle filled with bricks
+    tool(6), pull((30, 80), (110, 140))                     # an oval
+    tool(7), pattern(4), pull((130, 100), (220, 145))       # an oval filled with light gray
+    tool(3), pull((5, 145), (230, 5))                       # a line
+    tool(2), pull((60, 30), (150, 120))                     # the eraser
+    tool(4), pull((200, 60), (150, 10))                     # a rectangle, pulled up and to the left
+    m.move(*away)
+    shot = m.screenshot(f"{out}/16-drawn.png")
+    check("the brush, the shapes, the line and the eraser draw as the model of them does",
+          wrong(shot, canvas) == 0, f"{wrong(shot, canvas)} pixels differ")
+    # A shape is shown while it is pulled out, and is not in the canvas until
+    # the button goes up.  The pointer is on its corner, so that is left out.
+    tool(6)
+    a, b = (40, 20), (100, 50)
+    m.move(*at(a))
+    m.button(True)
+    m.move(*at(b))
+    shot = m.screenshot(f"{out}/16-pulling.png")
+    shown = Canvas(canvas.w, canvas.h)
+    shown.px = [row[:] for row in canvas.px]
+    shown.outline(6, a, b)
+    check("a shape is shown as it is pulled out", wrong(shot, shown, but=b) == 0,
+          f"{wrong(shot, shown, but=b)} pixels differ")
+    m.button(False)
+    canvas.draw(6, hand["pattern"], a, b)
+    m.move(*away)
+    shot = m.screenshot(f"{out}/16-let-go.png")
+    check("and is drawn when the button goes up", wrong(shot, canvas) == 0, f"{wrong(shot, canvas)} pixels differ")
+    # The drawing is the canvas, not the screen: another window over it, and it is as it was.
+    raise_("forth")
+    m.click(20, 8)
+    m.click(32, 20 + 16 * list(reversed(d.order)).index("paint") + 8)
+    d.front("paint")
+    m.move(*away)
+    shot = m.screenshot(f"{out}/16-again.png")
+    check("what was drawn is there when the window has been under another",
+          in_front(shot, "paint") and wrong(shot, canvas) == 0, f"{wrong(shot, canvas)} pixels differ")
+    # The canvas is memory, and so are the tables of names while the Words
+    # window is drawn.  The machine with cells of 16 bits has room for both
+    # only because the canvas is where the picture was read and dithered:
+    # the Words window, brought to the front, still has its names.
+    m.click(20, 8)
+    m.click(32, 20 + 16 * list(reversed(d.order)).index("words") + 8)
+    d.front("words")
+    m.move(*away)
+    shot = m.screenshot(f"{out}/17-names.png")
+    source = read_text(shot, d.content("words")[0] + 112, d.content("words")[1], 45, 16)
+    if d.names_loaded:
+        check("there is room for the canvas and the tables of names", source[1].endswith(" img !"),
+              repr(source[:2]))
     return failures
 
 
 def standard(W=768, H=576, newest=("cold", "desktop", " catch drop"), names_loaded=True):
     """The desktop as desk.fs lays it out: on a screen of 768 by 576, or on a smaller one."""
     if H < 576:
-        windows = [("viewer", (246, 22, 258, 276)), ("editor", (-3, 40, 518, 300)),
+        windows = [("paint", (110, 30, 287, 193)),
+                   ("viewer", (246, 22, 258, 276)), ("editor", (-3, 40, 518, 300)),
                    ("words", (4, 60, 482, 276)), ("calc", (366, 96, 138, 238)),
                    ("forth", (6, 26, 406, 280))]
     else:
-        windows = [("viewer", (250, 40, 514, 532)), ("editor", (30, 270, 518, 300)),
+        windows = [("paint", (180, 140, 431, 297)),
+                   ("viewer", (250, 40, 514, 532)), ("editor", (30, 270, 518, 300)),
                    ("words", (140, 296, 482, 276)), ("calc", (626, 300, 138, 238)),
                    ("forth", (12, 32, 406, 280))]
     return Desk(W, H, windows, newest, names_loaded)

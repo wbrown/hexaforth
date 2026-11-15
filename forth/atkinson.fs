@@ -300,7 +300,6 @@ INK-BLACK? [if] [else] invert [then]
     swap dup aimg ! image!                          ( bitmap w )
     swap abm !
     PXMASK + PXSHIFT rshift abm @ CELL + !
-    abm @ CELL + @ akh @ * >c halloc abm @ !
     tw @  ahalf @ if d# 1 rshift then  aw !
     aw @ PXMASK + PXSHIFT rshift afull !
     aw @ LANES 1- + LANESHIFT rshift an !
@@ -308,6 +307,7 @@ INK-BLACK? [if] [else] invert [then]
     d# 512 LANE1 * anew acur !                      \ the rows that are not there gave the first row four
     d# 128 LANE1 * anew dup apreset anxt !          \ times nothing, and the second once
     d# 0 anew dup apreset anx2 !
+    abm @ CELL + @ akh @ * >c halloc abm @ !        \ the bitmap last: it is what is kept when the rest is done with
     pixels
     d# 0 ay !
     dth @

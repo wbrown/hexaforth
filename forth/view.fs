@@ -74,7 +74,12 @@ create vparts 3 ,       \ the parts of the stacks that no task has: a bit each
 : view-row ( -- ) \ what a viewer's task does on each of its turns
     up @ c# 12 - vw !                               \ its viewer is what its own record is part of
     bmh @ vy0 @ vkh @ + < 0= if                     \ the last row that is kept is made
-        view-shown  vpart @ vparts or!  retire  exit
+        view-shown  vpart @ vparts or!
+        vimg @ ?dup if                              \ what it was read and dithered in is done with: all
+            bm @ over - hfree                       \ from the image's record up to the bitmap
+            d# 0 vimg !  d# 0 vdth !
+        then
+        retire  exit
     then
     vdth @ dither-row
     d# 1 bmh +!
@@ -87,9 +92,10 @@ create vparts 3 ,       \ the parts of the stacks that no task has: a bit each
 header view-load
 : view-load ( blk# w h -- viewer ) \ start on the TIFF that starts at a block, to be shown w by h
     vparts @ 0= d# 8 -throw                         \ no part of the stacks is left for its task
+    blk-need                                        \ the block buffer is not to be among what is given back
+    VIEW-CELLS >c halloc  dup vw !                  \ its record first, and its bitmap last (dither-half):
+    d# 0 swap VIEW-CELLS cells-fill                 \ what is between them is given back when it is made
     rot tiff-open                                   ( w h img )
-    VIEW-CELLS >c halloc  dup vw !
-    d# 0 swap VIEW-CELLS cells-fill
     dup vimg ! image!                               ( w h )
     over tw @ <  over th @ <  or vhalf !            \ more than the window shows: at half its size
     pic-h min dup vkh !  pic-h swap - d# 1 rshift vy0 !     \ the rows in the middle of that,
