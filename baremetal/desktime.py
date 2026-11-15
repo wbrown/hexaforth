@@ -8,9 +8,11 @@ when the console says the desktop is up, when the Forth window has its
 prompt on the screen, and when the first row of the picture, half its rows
 and all of them have been made.  The times are in seconds from when the
 machine was started.  On a kernel held to a speed (make demo-time MIPS=1)
-they are what a machine of that speed is like to wait for, and they are
-what to measure before and after a change to how the picture is read,
-dithered or shown.  It gives up after SECONDS, 600 if none is given.
+they are what a machine of that speed is like to wait for, and with the
+disk held to one as well (DISK=40, which guitest.py takes from the
+environment) one with a floppy.  They are what to measure before and
+after a change to how the picture is read, dithered or shown.  It gives
+up after SECONDS, 600 if none is given.
 
 The screen is looked at for the prompt.  How many rows of the picture are
 made is read out of the machine's memory: `vw` in view.fs is the viewer in

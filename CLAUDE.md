@@ -721,6 +721,20 @@ memory, where `vw` in `view.fs` is the viewer in hand and the third cell
 of a viewer's record is the rows that are made (`bmh`), so the script
 changes if they do, and says so if the image has no `vw`.
 
+`make demo DISK=40` (and `make demo-time DISK=40`) holds the disk to that
+many thousand bytes a second, read and written, as a floppy did: about 40
+for an 8-inch one at double density, 23 for a 5 1/4-inch one, and half of
+each at single density. It is QEMU that holds the drive to it
+(`throttling.bps-read` and `-write` on the drive), so nothing is built
+differently and nothing in the Forth knows. It is the rate and no more: no
+head moves, nothing spins up and nothing has to come round, so a real
+drive was somewhat slower. The block driver waits for a block without
+pausing, so the desktop stops for the 25 ms a block takes at that rate, as
+a machine that moved each byte itself did. With `MIPS=1` the picture
+wants 41 thousand bytes a second, so an 8-inch disk just keeps up (the
+picture is finished at 20.0 seconds, 19.7 with no limit) and a 5 1/4-inch
+one is what is waited for (34.2). The tests and the profile never take it.
+
 `test/prompt_test.py VM IMAGE.hex [CELL_BITS]` types Forth at the nucleus's
 prompt on the reference VM and checks what comes back: definitions, wide
 numbers, that the nucleus's compiler uses the variable instructions and

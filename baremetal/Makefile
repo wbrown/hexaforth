@@ -14,6 +14,8 @@
 #   make demo-profile  drive it, and say where the instructions went
 #   make demo-time MIPS=1   say when the desktop is ready and when its
 #                   picture is made, on a machine of that speed
+#   make demo DISK=40   with a disk that gives 40 thousand bytes a second,
+#                   as an 8-inch floppy did (demo-time too)
 
 # KERNEL picks the native kernel: hexaforth (small) or hexaforth-fast.
 KERNEL ?= hexaforth
@@ -142,8 +144,18 @@ $(B)/baboon.png:
 $(B)/disk.img: $(B)/baboon.png mkdisk.py block1.fs ../build/nuc.tables
 	python3 mkdisk.py $(B)/baboon.png $@ block1.fs ../build/nuc.tables
 
+# DISK=n: the disk gives and takes n thousand bytes a second and no more,
+# as a floppy did: about 40 for an 8-inch one at double density, 23 for a
+# 5 1/4-inch one, half of each at single density.  n may have a fraction.
+# It is QEMU that holds the drive to it, so nothing is built differently.
+# It is the rate and no more: no head moves and nothing has to come round.
+# demo and demo-time take it; the tests and the profile never do.
+DISK ?=
+SLOW := $(if $(DISK),$(shell awk 'BEGIN { n = int($(DISK) * 1024); \
+            printf ",throttling.bps-read=%d,throttling.bps-write=%d", n, n }'))
+
 DEVICES := -device ramfb -global virtio-mmio.force-legacy=false \
-           -drive file=$(B)/disk.img,if=none,format=raw,id=hd0 -device virtio-blk-device,drive=hd0 \
+           -drive file=$(B)/disk.img,if=none,format=raw,id=hd0$(SLOW) -device virtio-blk-device,drive=hd0 \
            -device virtio-keyboard-device -device virtio-tablet-device
 
 # Boot into the desktop.  Needs a QEMU with a graphical display; the serial
@@ -157,17 +169,18 @@ demo: $(B)/$(KERNEL)-display$(M)$(X).elf $(B)/disk.img
 # well that every pixel came out as a whole block.
 demo-test: $(B)/$(KERNEL)-display$(X).elf $(B)/disk.img
 	cp $(B)/disk.img $(B)/gui.img
-	SCALE=$(SCALE) python3 guitest.py $< $(B)/gui.img $(B)/disk.tiff $(B)/gui
+	DISK= SCALE=$(SCALE) python3 guitest.py $< $(B)/gui.img $(B)/disk.tiff $(B)/gui
 
 # Drive the desktop as demo-test does, and say where the instructions went.
 demo-profile: $(B)/hexaforth-profile.elf $(B)/disk.img
 	cp $(B)/disk.img $(B)/gui.img
-	python3 deskprof.py $< $(B)/gui.img $(HEX) ../build/nuc.sizes
+	DISK= python3 deskprof.py $< $(B)/gui.img $(HEX) ../build/nuc.sizes
 
 # Boot the desktop, leave it alone, and say when it is ready and when the
-# picture is made: at full speed, or with MIPS on a machine of that speed.
+# picture is made: at full speed, or with MIPS on a machine of that speed,
+# and with DISK from a disk of that speed.
 demo-time: $(B)/$(KERNEL)-display$(M).elf $(B)/disk.img
 	cp $(B)/disk.img $(B)/gui.img
-	python3 desktime.py $< $(B)/gui.img $(B)/disk.tiff $(HEX)
+	DISK=$(DISK) python3 desktime.py $< $(B)/gui.img $(B)/disk.tiff $(HEX)
 
 .PHONY: all size run test demo demo-test demo-profile demo-time clean

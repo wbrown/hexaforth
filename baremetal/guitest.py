@@ -22,6 +22,7 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 W, H = 768, 576
 SCALE = int(os.environ.get("SCALE", "1"))   # the bridge draws each pixel this many across and down
+DISK = float(os.environ.get("DISK") or 0)   # thousand bytes a second the disk gives and takes: 0, all it can
 QCODE = {" ": "spc", "\r": "ret", ".": "dot", ",": "comma", "/": "slash", "-": "minus",
          "=": "equal", ";": "semicolon", "'": "apostrophe", "[": "bracket_left",
          "]": "bracket_right", "\\": "backslash", "`": "grave_accent"}
@@ -41,13 +42,15 @@ class Machine:
         self.shots = self.inexact = 0       # screens taken, and those not in whole blocks
         self.tmp = tempfile.mkdtemp()
         sock = f"{self.tmp}/qmp"
+        rate = int(DISK * 1024)                     # QEMU holds the drive to it, as the Makefile's DISK does
+        slow = f",throttling.bps-read={rate},throttling.bps-write={rate}" if rate else ""
         self.qemu = subprocess.Popen(
             ["qemu-system-aarch64", "-M", "virt", "-cpu", "cortex-a53", "-m", "256",
              "-display", "none", "-serial", "stdio", "-nic", "none",
              "-qmp", f"unix:{sock},server,nowait",
              "-device", "ramfb",
              "-global", "virtio-mmio.force-legacy=false",
-             "-drive", f"file={disk},if=none,format=raw,id=hd0",
+             "-drive", f"file={disk},if=none,format=raw,id=hd0{slow}",
              "-device", "virtio-blk-device,drive=hd0",
              "-device", "virtio-keyboard-device",
              "-device", "virtio-tablet-device",
