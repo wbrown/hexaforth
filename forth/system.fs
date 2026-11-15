@@ -87,9 +87,6 @@ meta 2 big-page target
 include join.fs         \ instructions joined as they are compiled, and the rules
 
 \ Every word is where it will be: the tables of names for the decompiler,
-\ which go to a file for the disk (build/nuc.tables).  An entry of them is
-\ two halves of a cell, which with cells of 16 bits is too little.
+\ which go to a file for the disk (build/nuc.tables).
 
-W32+? [if]
 meta t' forth0 t' tstamp name-tables target
-[then]

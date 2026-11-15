@@ -881,8 +881,8 @@ def labels_of(image):
                          f"image's is {'not there' if stamp is None else format(stamp, 'x')}.  "
                          f"Build the image again, or copy its .tables with it.")
     at = 2                                      # past the stamp and the size,
-    at += 1 + cells[at]                         # the table by execution token,
-    at += 1 + cells[at]                         # and the table by number
+    at += 1 + 2 * cells[at]                     # the table by execution token: its keys, and its names,
+    at += 1 + 2 * cells[at]                     # and the table by number
     out, n = [], cells[at]
     while n:
         name = 8 * (at + n + 2)

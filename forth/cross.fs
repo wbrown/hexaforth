@@ -841,7 +841,7 @@ variable link 0 link !
 variable llink      0 llink !
 variable named      false named !
 variable named-cp
-cell-bits 32 >= constant labelling          \ a table's entry is two halves of a cell: see name-tables
+true constant labelling                     \ every machine has them: see name-tables
 
 \ Where each header is, by name, so that data can refer to a word by its
 \ header (`hdr,`): the name is then in one place, and nothing has to look
@@ -1103,54 +1103,59 @@ variable in-depth
 \ every word is where it will be: the words and the labels by execution
 \ token, and those that are a number (a word whose code only pushes one,
 \ which a variable or anything made with create is, and a label for data)
-\ by the number.  An entry is a cell: the key in its upper half, and in
-\ the lower the address of the header, with the top bit of that half set
-\ for a label.  They are in order, so that one is found by halving.  The
-\ names are looked for as a search would find them, the dictionary before
-\ the labels and the newest first, and the first with a key is kept.  A
-\ key that half a cell does not hold has no entry.  With cells of 32 bits
-\ a half is 16: an execution token, and the address of any cell of data.
+\ by the number.  A table is how many entries it has, then their keys, in
+\ order so that one is found by halving, and then, in the same order,
+\ where the name of each is: the address of the header, or for a label
+\ how far it is into the labels, with the top bit of the cell set.  A key
+\ and a name are a cell each, so the tables are the same for a cell of
+\ any size.  The names are looked for as a search would find them, the
+\ dictionary before the labels and the newest first, and the first with a
+\ key is kept.
 \
 \ The tables are not part of the image.  They go to a file, which is put
 \ on the disk, and the decompiler reads them in when it has work to do.
 
-cell-bits 2/ constant half
-create nt 8192 cells allot
+create ntk 8192 cells allot                 \ the keys,
+create ntn 8192 cells allot                 \ and where each one's name is
 variable nt#  0 nt# !
 
 : nt-add ( hdr label? key -- )
-    dup half rshift if drop 2drop exit then
+    dup cell-mask and over <> if drop 2drop exit then   \ a number a cell does not hold is nobody's key
     nt# @ 0 ?do
-        dup nt i cells + @ half rshift = if drop 2drop unloop exit then
+        dup ntk i cells + @ = if drop 2drop unloop exit then
     loop
-    half lshift  swap if 1 half 1- lshift or then  or
-    nt nt# @ cells + !  1 nt# +!
+    ntk nt# @ cells + !
+    if 1 cell-bits 1- lshift or then
+    ntn nt# @ cells + !  1 nt# +!
 ;
 : nt-sort ( -- )
     nt# @ 2 < if exit then
     nt# @ 1 do
-        nt i cells + @  i                           ( x j )
+        ntk i cells + @  ntn i cells + @  i         ( k n j )
         begin
-            dup 0> if 2dup 1- cells nt + @ u< else false then
+            dup 0> if 2 pick over 1- cells ntk + @ u< else false then
         while
-            dup 1- cells nt + @  over cells nt + !  1-
+            dup 1- cells ntk + @  over cells ntk + !
+            dup 1- cells ntn + @  over cells ntn + !
+            1-
         repeat
-        cells nt + !
+        tuck cells ntn + !  cells ntk + !
     loop
 ;
 create ntf 8192 cells allot                 \ the file: its cells
 variable ntf#  0 ntf# !
 : ntf, ( x -- ) ntf ntf# @ cells + !  1 ntf# +! ;
-: nt-lay ( -- ) \ a table into the file: how many, then the entries
+: nt-lay ( -- ) \ a table into the file: how many, the keys, and where their names are
     nt-sort
     nt# @ ntf,
-    nt# @ 0 ?do nt i cells + @ ntf, loop
+    nt# @ 0 ?do ntk i cells + @ ntf, loop
+    nt# @ 0 ?do ntn i cells + @ ntf, loop
     0 nt# !
 ;
 
 : hdr-link ( a -- a' ) byte-shift lshift tflash + @ cell-mask and ;
 : hdr-val  ( a -- x )  byte-shift lshift cell-bytes + tflash + @ cell-mask and ;
-: hdr-xt   ( a -- xt ) hdr-val $ffff and ;
+: hdr-xt   ( a -- xt ) hdr-val  1 cell-bits 1- lshift invert and  $ffff and ;   \ less the immediate flag
 : lbl-link ( n -- n' ) byte-shift lshift lflash + @ cell-mask and ;    \ a label, by its place
 : lbl-val  ( n -- x )  1+ byte-shift lshift lflash + @ cell-mask and ;
 : lbl-data? ( x -- f ) 1 cell-bits 1- lshift and 0<> ;                 \ is its value an address of data?
@@ -1419,6 +1424,9 @@ warnings on
 :: VARS       var-base literal ;                \ the first cell one instruction can fetch
 :: HDR-BASE   hdr-base literal ;                \ where headers start
 :: DATA-LIMIT data-limit literal ;              \ where data must stop: there, or where the bulk starts
+\ The cell after the last of memory.  Where memory is as many cells as a
+\ cell can count that is nothing, and is still right to take from.
+:: MEM-END    1 addr-bits lshift cell-mask and literal ;
 :: CODE-BASE  code-base literal ;
 :: CODE-SIZE  code-size literal ;
 :: DISPLAY? disp-w 0<> ;                \ has the machine a display?
@@ -1555,7 +1563,6 @@ create ntb 8 allot                          \ a cell of the file, as its bytes
     ntb cell-bytes rot write-file throw
 ;
 : name-tables ( forth0 stamp -- )
-    labelling 0= abort" name-tables is for cells of 32 bits or more"
     link @  tcp @ 16 lshift xor  lp @ 7 lshift xor  cell-mask and   ( forth0 stamp x )
     dup rot tvar!                                       ( forth0 x )
     link @ rot tvar!                                    ( x )

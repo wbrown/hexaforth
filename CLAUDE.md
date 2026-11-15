@@ -383,7 +383,9 @@ instructions, the bigger build did not finish, and the image left in
 Page 1 is what the rest is built on:
 
 - `machine.fs`: exact-width device register access through IO ports
-  `0xc0`-`0xc8`, `halloc` for memory above the dictionary, byte-order helpers
+  `0xc0`-`0xc8`, `halloc` for memory above the dictionary, byte-order
+  helpers. `halloc` throws -8 if it is asked for more than is left up to
+  the end of memory
 - `blocks.fs`: block device interface (`'blk-read`, `'blk-write`), `block`
   `update` `flush` `load`, and `disk-read` for byte ranges. There is one
   block buffer; `block` gives the address of its first byte and `cblock`
@@ -609,18 +611,20 @@ Pages 8 and 9 are the drivers and the desktop:
 - when all of that is compiled, `name-tables` in `cross.fs` makes two
   tables of the names for the decompiler, the dictionary's words and the
   labels: by execution token, and those that are a number (a word that
-  only pushes one, a label for data) by the number. An entry is a cell,
-  the key in the upper half and in the lower where the name is (a
-  header's address, or for a label how far it is into the labels, with a
-  bit to say so), and they are in order, so `tfind` in `see.fs` finds one
-  by halving. The cells are the machine's: with cells of 32 bits a half is
-  16, which holds an execution token or the address of a cell of data,
-  and a number that half a cell does not hold has no entry. A machine
-  with cells of 16 bits has no tables.
+  only pushes one, a label for data) by the number. A table is how many
+  entries it has, then their keys in order, so `tfind` in `see.fs` finds
+  one by halving, and then in the same order where the name of each is (a
+  header's address, or for a label how far it is into the labels, with
+  the top bit to say so). A key and a name are a cell each, and the cells
+  are the machine's, so the tables are the same for a cell of any size:
+  an entry was once the two halves of one cell, which a cell of 16 bits
+  is too small for.
   The tables and the labels are not in the image: they are
-  the file `build/nuc.tables` (22KB), which `mkdisk.py` puts on the disk
-  from block 1024.
-  `names-load` reads them into memory from `halloc` and `names-unload`
+  the file `build/nuc.tables`, which `mkdisk.py` puts on the disk
+  from block 1024: 32KB with cells of 64 bits, 17KB with 32 and 10.5KB
+  with 16, two thirds of it the labels.
+  `names-load` reads it into memory from `halloc`, whole blocks to where
+  they are wanted, and `names-unload`
   gives the memory back, if nothing has taken more since. The Words
   window has them in while it is the window in front (`'front` in `wm.fs`
   is run when the front window changes; windows do not close) and
@@ -634,7 +638,7 @@ Pages 8 and 9 are the drivers and the desktop:
   Without them, or with no disk (the reference VM has none), the
   decompiler searches the dictionary a word at a time and has no labels
 
-With cells of 64 bits or 32 `cross.fs` also keeps the name of every
+`cross.fs` also keeps the name of every
 definition that has no header: a label, laid out as a header is, in the
 machine's cells. A label for code holds
 its execution token, and one for `create`d data holds the data's address
@@ -1091,8 +1095,8 @@ the desktop is the same files with cells of 64 bits, 32 and 16, but for
 the drivers of QEMU's devices (`virtio*.fs`) and what brings them up
 (`desktop`, `cold`), which are for the machine the AArch64 kernels are,
 and those are written for 64 bits. With cells of 32 bits its bytes are
-laid out as the big machine's are, code pages from page 8, and it has the
-tables of names. What had to change for it: a table of bytes
+laid out as the big machine's are, code pages from page 8. What had to
+change for it: a table of bytes
 (`keymap.fs`) was laid down as cells of 64 bits and is now laid down as
 bytes (`b8,`); the decompiler kept where it drew each instruction in a
 cell of more than 32 bits, and a place is now 16 bits and the instruction
@@ -1122,14 +1126,21 @@ of 512 by 342 is 21KB, and the desktop runs in that. What it took:
 - the windows are laid out for the smaller screen (`place` in `desk.fs`)
 - the decompiler is told where code and data are by the layout, not by
   numbers that were the big machine's (`code?`, `xt?`)
+- the tables of names are read a block at a time into cells, with no
+  count of bytes on the disk and no address of a byte in memory; and a
+  label's name, which is text in that memory, above where the address of
+  a byte reaches, is brought down a cell at a time to be shown (`hname`
+  in `see.fs`)
 
-It has no tables of names, since half of such a cell does not hold an
-execution token, so a word with no header is shown as a number there.
 Of the 159 ALU instructions its image uses, the table of instructions as
-words lacks three, which are shown as numbers too. With the desktop up,
+words lacks three, which are shown as numbers. With the desktop up,
 the picture loaded and every window drawn, 14,618 of the 21,824 cells
 above the display are in use (`0 halloc .` in the Forth window says where
-the next would be). A shift count is taken modulo 64, so a shift by
+the next would be), and the names are 5,632 more for as long as the Words
+window is in front, is being drawn, or `see` runs, which leaves 1,574:
+enough for a scroll,
+which wants 774 for as long as it takes, and not for a second picture. A
+shift count is taken modulo 64, so a shift by
 16 to 63 gives zero where cells are 16 or 32 bits, which `w!` and the
 dictionary search rely on, but a shift by 64 shifts by nothing.
 

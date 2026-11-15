@@ -92,19 +92,24 @@ create k-store  ," !"
 \ are two tables of the names as they were when the image was built, the
 \ dictionary's words and the labels: by execution token, and those that
 \ are a number (a word that only pushes one, a label for data) by the
-\ number.  A table is how many, then a cell for each in order: the key in
-\ the upper half, and in the lower where the name is, with the top bit of
-\ that half set for a label.  A key that half a cell does not hold is not
-\ in a table.  For a word that is the address of its
+\ number.  A table is how many, then the keys in order, a cell each, and
+\ then in the same order where the name of each is, a cell each, with the
+\ top bit set for a label.  For a word that is the address of its
 \ header.  For a label it is how many cells it is from the start of the
 \ labels, since they are wherever memory was found for them; and a label
 \ is laid out as a header is, the one before it, its value, and its name.
+\ A key and a name are a cell each so that the tables are the same
+\ whatever a cell is.
 \
 \ The file is on the disk from block 1024: a stamp that must be the
 \ image's, how many cells follow, the two tables, and the labels.  It is
-\ read into memory when there is decompiling to do (names-load) and the
-\ memory is given back after (names-unload), if nothing has taken more
-\ since.  While it is in, only the words made since the build are searched
+\ read into memory, whole blocks to where they are wanted, when there is
+\ decompiling to do (names-load), and the memory is given back after
+\ (names-unload), if nothing has taken more since: so it is in memory
+\ only while the Words window is in front or being drawn, or `see` is
+\ running, which on
+\ the machine with cells of 16 bits is 5,000 of its cells.
+\ While it is in, only the words made since the build are searched
 \ for one at a time, back to forth0, which was the newest then.  While it
 \ is not, or with no disk, the whole dictionary is searched, and what has
 \ no header is shown as a number.
@@ -115,25 +120,35 @@ create dtab 0 ,
 create lbase 0 ,        \ and where the labels start
 create nm-mark 0 ,      \ where memory was before they were read in,
 create nm-end 0 ,       \ and after
-create nm-head 0 , 0 ,  \ the first two cells of the file
-create nm-lo 0 ,        \ where the part of a table still to look in starts,
-create nm-n 0 ,         \ and how many entries it is
+create nm-all 0 ,       \ how many entries the table being looked in has,
+create nm-lo 0 ,        \ where the part of its keys still to look in starts,
+create nm-n 0 ,         \ and how many keys that is
 
-\ An entry of the tables is two halves of a cell, and the cells are the
-\ machine's.  A machine with cells of 16 bits is built with none: half of
-\ such a cell does not hold an execution token.
-W32+? [if]
-$100000 constant NAMES-AT   \ where on the disk, in bytes: block 1024
+$400 constant NAMES-BLK     \ the block of the disk the file starts at
 
+\ Nothing here is a count of bytes on the disk or the address of a byte in
+\ memory, which a cell of 16 bits could not hold for a file so far along
+\ a disk or for memory above the display.
 : (names-load) ( -- )
-    nm-head >c CELLB 2* NAMES-AT disk-read
-    nm-head @ tstamp @ <> if exit then
+    NAMES-BLK cblock                                ( b )
+    dup @ tstamp @ <> if drop exit then
+    1+ @ CELL2 +                                    ( cells )
+    BLKCELLS 1- + BLKSHIFT rshift                   ( blocks )
     himem @ nm-mark !
-    nm-head CELL + @ >c halloc                      ( a )
+    dup d# 10 lshift halloc                         ( blocks a )
     himem @ nm-end !
-    dup >c  nm-head CELL + @ >c  NAMES-AT CELLB 2* +  disk-read
-    dup dup @ + 1+ dtab !
-    dtab @ dup @ + 1+ lbase !
+    tuck swap BLKCELLS * over + swap                ( a end p )
+    NAMES-BLK >r
+    begin
+        2dupxor
+    while
+        dup r@ blk-read
+        r> 1+ >r  BLKCELLS +
+    repeat
+    2drop rdrop
+    CELL2 +                                         ( the first table )
+    dup dup @ 2* + 1+ dtab !
+    dtab @ dup @ 2* + 1+ lbase !
     \ The labels: each holds how far the one before it is from the start,
     \ and the first cell how far the newest is.  Make addresses of them.
     lbase @ @ ?dup if
@@ -147,9 +162,6 @@ $100000 constant NAMES-AT   \ where on the disk, in bytes: block 1024
     then
     xtab !
 ;
-[else]
-: (names-load) ( -- ) ;
-[then]
 
 header names-load
 : names-load ( -- )
@@ -167,21 +179,21 @@ header names-unload
     d# 0 xtab !  d# 0 dtab !  d# 0 labels !
 ;
 
-: tfind ( key table -- entry|0 ) \ by halving; what is given is the lower half
-    dup @ nm-n !  1+ nm-lo !
+: tfind ( key table -- name|0 ) \ by halving; what is given is where the key's name is
+    dup @ dup nm-all ! nm-n !  1+ nm-lo !
     begin
         nm-n @
     while
         nm-n @ d# 1 rshift                          ( key half )
-        2dup nm-lo @ + @                            ( key half key entry )
-        dup>r HALFBITS rshift
-        2dup = if 2drop 2drop r> HALFBITS lshift HALFBITS rshift exit then
+        2dup nm-lo @ + @                            ( key half key k )
+        2dup = if                                   \ its name is as far along the names
+            2drop  nm-lo @ + nm-all @ + @  nip exit
+        then
         u> if                                       \ it is after the middle one,
             dup 1+ nm-lo +!  invert nm-n +!
         else                                        \ or before it
             nm-n !
         then
-        rdrop
     repeat
     drop d# 0
 ;
@@ -189,9 +201,9 @@ header names-unload
 : tstop ( -- hdr|0 ) \ how far back the dictionary is searched a word at a time
     xtab @ if forth0 @ else d# 0 then
 ;
-: label? ( entry -- f ) HALFBITS 1- rshift 0<> ;
-: >hdr   ( entry -- hdr ) \ where the name is
-    dup HALFBITS 1+ lshift HALFBITS 1+ rshift  swap label? if lbase @ + then
+: label? ( name -- f ) 0< ;
+: >hdr   ( name -- hdr ) \ where the name is
+    dup d# 1 lshift d# 1 rshift  swap label? if lbase @ + then
 ;
 
 : xt>hdr ( xt -- hdr|0 ) \ the word that starts at xt: in the dictionary, or a label
@@ -231,8 +243,25 @@ create sgap 0 ,
     sb-begin [char] [ emit h4 [char] ] emit sb-end  sb sbn @ d# -1 tok
     d# 0 smach !
 ;
+\ A name is text, and text is reached by the address of a byte.  A word's
+\ header is where such an address can say.  A label is in the memory the
+\ names were read into, which with cells of 16 bits is above where one
+\ can: there its name is brought down, a cell at a time, to be shown.
+W32+? [if]
+: hname ( hdr -- addr u ) CELL2 + >c count ;
+[else]
+create nmbuf #32 allot
+: hname ( hdr -- addr u )
+    CELL2 +  dup 0< if                              \ above the half of memory a byte's address reaches
+        nmbuf  over @ h# ff and CELL2 + d# 1 rshift  cells-move
+        nmbuf
+    then
+    >c count
+;
+[then]
+
 : sname ( hdr -- ) \ a word, and a new line after one that stores
-    dup CELL2 + >c count rot hxt
+    dup hname rot hxt
     >r 2dup + 1- c@ r> swap >r
     tok
     r> [char] ! = if snl then
@@ -303,7 +332,7 @@ target
     dup VARS - DATA-CELLS u< if                 \ in data space
         dup lit>hdr ?dup if nip sname exit then
         dup data>lbl ?dup if
-            nip true sital !  CELL2 + >c count d# -1 tok  d# 0 sital !  exit
+            nip true sital !  hname d# -1 tok  d# 0 sital !  exit
         then
     then
     dup xt? if

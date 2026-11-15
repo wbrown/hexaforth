@@ -224,12 +224,19 @@ def main():
     # One that is bigger than a small machine: in a session of its own, since nothing gives memory back.
     w, h = 512, 342
     big = File(0, w, h, 3, 64, along(1024 + (0 if seed % 2 else 3), strips(w, h, 3, 64), 0))
-    script = [f"create b0 0 , 0 ,  {big.base} tiff-open constant i0", "b0 i0 atkinson", f"0 b0 {h} d"]
-    failed += check(session(vm, image, bits, [big], script), bits,
-                    [(script[-1], big, f"an image of {w * h * 3} bytes")])
-    count += 1
-    print(f"the TIFF reader, cells of {bits} bits, seed {seed}: {count} files, {failed} not as "
-          f"the dither of the same bytes here")
+    # And then more memory is asked for than the machine has left, which is refused.
+    more = {16: 50000, 32: 600000, 64: 40000000}[bits]
+    script = [f"create b0 0 , 0 ,  {big.base} tiff-open constant i0", "b0 i0 atkinson", f"0 b0 {h} d",
+              f": more {more} halloc ; ' more catch ."]
+    out = session(vm, image, bits, [big], script)
+    failed += check(out, bits, [(script[-2], big, f"an image of {w * h * 3} bytes")])
+    if script[-1] + " -8  ok" not in out:
+        failed += 1
+        print(f"FAIL asking for {more} bytes that are not there: "
+              f"{out[out.find(script[-1]):].splitlines()[0][:120] if script[-1] in out else '(not echoed)'}")
+    count += 2
+    print(f"the TIFF reader, cells of {bits} bits, seed {seed}: {count} checks, {failed} failed: files "
+          f"dithered as the same bytes are here, and memory that is not there refused")
     return 1 if failed else 0
 
 

@@ -38,6 +38,7 @@ header halloc
 : halloc ( u -- a ) \ room for u bytes, in whole cells from an even cell; a is the address of a cell
     CELLB 1- + c>                                   ( cells )
     himem @ 1+ d# -2 and                            ( cells a )
+    2dup MEM-END swap - u> d# 8 -throw              \ there are not that many left
     tuck + himem !
 ;
 

@@ -49,6 +49,7 @@ header 'grays : 'grays ( -- a ) img @ c# 20 + ;     \ ( lanes -- )  a row's gray
 
 meta
 :: BLKCELLS  #1024 cell-bytes / literal ;           \ cells in a block
+:: BLKSHIFT  #10 byte-shift - literal ;             \ from a count of cells to a count of blocks
 :: BITSHIFT  byte-shift 3 + literal ;               \ from a count of bits to a count of cells
 target
 
