@@ -23,7 +23,7 @@
 
 create img 0 ,          \ the image in hand: its record
 
-$15 constant IMG-CELLS
+$16 constant IMG-CELLS
 
 header tw : tw     ( -- a ) img @ ;                 \ width, height
 header th : th     ( -- a ) img @ 1+ ;
@@ -46,6 +46,7 @@ header th : th     ( -- a ) img @ 1+ ;
 : tbp       ( -- a ) img @ c# 18 + ;                \ and the next cell
 header 'pixel : 'pixel ( -- a ) img @ c# 19 + ;     \ ( -- g )  the next pixel's gray
 header 'grays : 'grays ( -- a ) img @ c# 20 + ;     \ ( lanes -- )  a row's grays, or 0: see below
+header 'pairs : 'pairs ( -- a ) img @ c# 21 + ;     \ ( lanes -- )  the same, two pixels to a lane, or 0
 
 meta
 :: BLKCELLS  #1024 cell-bytes / literal ;           \ cells in a block
@@ -194,7 +195,7 @@ header tiff-open
     raw @ wend !  win-block
     dup BYTESHIFT rshift raw @ + tbp !  d# 0 tbn !  d# 0 tbuf !
     CELLB 1- and d# 3 lshift ?dup if                \ it does not start where a cell does:
-        take drop  d# 0 'grays !                    \ then its rows are not cells
+        take drop  d# 0 'grays !  d# 0 'pairs !     \ then its rows are not cells
     then
     trps @ tsleft !
 ;
@@ -308,11 +309,36 @@ W64? [if]
     r> tbp !
 ;
 
+\ For a picture at half its size a lane is two pixels of a row, and their
+\ grays are added.  Four pixels' grays in four lanes are folded: the cell
+\ is added to itself a lane down, which leaves the first two added in the
+\ lowest lane and the next two in the third, and those are brought next
+\ to each other.  So eight pixels, three cells, are four lanes of sums,
+\ which is one cell.
+: fold ( y -- z ) \ four grays in four lanes: each two added, in the lower two lanes
+    dup d# 16 rshift +  h# ffff0000ffff and
+    dup d# 16 rshift or  h# ffffffff and
+;
+
+: gray-pairs ( lanes -- ) \ the next row's grays, each two pixels' added into a lane
+    tbp @ >r                                        ( a ) ( R: the three cells )
+    tw @ d# 3 rshift over + swap                    ( end a )
+    begin
+        2dupxor
+    while
+        r@ quad-a fold  r@ quad-b fold d# 32 lshift or  over +!
+        1+  r> c# 3 + >r
+    repeat
+    2drop
+    r> tbp !
+;
+
 [then]
 
 \ 'grays ( lanes -- ) adds a row's grays to a row of lanes, or is 0 if the
 \ image is one whose pixels have to be asked for one at a time: one whose
-\ rows are not whole cells, or are not where cells start.
+\ rows are not whole cells, or are not where cells start.  'pairs is the
+\ same for a row of half as many lanes.
 
 header image! : image! ( img -- ) img ! ;           \ take an image in hand
 
@@ -323,8 +349,10 @@ header pixels
     tstrips @ if d# 0 else th @ then tsleft !       \ a file starts at its first strip
     tspp @ d# 3 = if ['] rgb else tspp @ d# 1 = if ['] gray1 else ['] grayn then then
     'pixel !
-    d# 0 'grays !
+    d# 0 'grays !  d# 0 'pairs !
 W64? [if]
-    tspp @ d# 3 =  tw @ d# 7 and 0=  and if ['] gray-lanes 'grays ! then
+    tspp @ d# 3 =  tw @ d# 7 and 0=  and if
+        ['] gray-lanes 'grays !  ['] gray-pairs 'pairs !
+    then
 [then]
 ;

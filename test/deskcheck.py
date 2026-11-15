@@ -14,7 +14,8 @@ A machine has:
     type(text)  key(name, *modifiers)  move(x, y)  click(x, y)  drag(x0, y0, x1, y1)
     screenshot(path)        the screen, as an image: a pixel is true if white
     block(n)                the bytes of a block of the disk, as it now is
-    picture()               the picture on the disk, dithered: rows of 0 and 1
+    picture()               the picture on the disk: its grays, a row after a row,
+                            and its width and height
 """
 import re
 
@@ -198,12 +199,19 @@ def run(m, d, out, scale_note=None):
     raise_("viewer")
     m.move(*away)
     shot = m.screenshot(f"{out}/6-viewer.png")
-    want = m.picture()
-    ph, pw = len(want), len(want[0])
-    # A window smaller than the picture shows the middle of it: the rows in
-    # the middle, and across from the middle or the start of the cell of the
-    # display that is in.
+    # A window smaller than its picture shows it at half its size, each
+    # pixel the gray of four, to the nearest.  If that is still more than
+    # the window shows, it shows the middle: the rows in the middle, and
+    # across from the middle or the start of the cell of the display that
+    # is in.
+    gray, pw, ph = m.picture()
     _, _, vw, vh = d.rect["viewer"]
+    if pw > vw - 2 or ph > vh - 20:
+        gray = [(gray[2 * y * pw + 2 * x] + gray[2 * y * pw + 2 * x + 1]
+                 + gray[(2 * y + 1) * pw + 2 * x] + gray[(2 * y + 1) * pw + 2 * x + 1] + 2) >> 2
+                for y in range(ph // 2) for x in range(pw // 2)]
+        pw, ph = pw // 2, ph // 2
+    want = atkinson(gray, pw, ph)
     kw, kh = min(vw - 2, pw), min(vh - 20, ph)
     ox, oy = (pw - kw) // 2 // m.cell_pixels * m.cell_pixels, (ph - kh) // 2
 
@@ -217,7 +225,7 @@ def run(m, d, out, scale_note=None):
 
     bad = picture_wrong(shot, 0, 0, W, H)
     check("viewer matches the reference dither", bad == 0,
-          f"{bad} pixels differ, of the {kw} by {kh} of the picture from {ox}, {oy}")
+          f"{bad} pixels differ, of the {kw} by {kh} from {ox}, {oy} of the picture as {pw} by {ph}")
 
     # Drag the viewer by its title bar: 40 right, 42 down.
     tx, ty = d.title("viewer", 40, 42)
@@ -263,10 +271,10 @@ def run(m, d, out, scale_note=None):
     source = source_of(shot)
     check("Down moves to the next word", source[0] == ": " + second and source[1].endswith(ending)
           and source[2] == ";", repr(source[:3]))
-    # Three words of the dither, which are next to each other in the list:
-    # dither-row has fused instructions in it, dither-start a variable that
-    # has no header, and dither-part a plain word that is one instruction.
-    wanted = ("dither-row", "dither-start", "dither-part")
+    # Two words of the dither, which are next to each other in the list:
+    # dither-row has fused instructions in it, and dither-start a variable
+    # that has no header and a plain word that is one instruction.
+    wanted = ("dither-row", "dither-start")
     for _ in range(16):                             # page down to them
         names = read_text(m.screenshot(f"{out}/10-list.png", settle=1.0), lx, wy, 13, 16)
         if all(name in names for name in wanted):
@@ -311,22 +319,18 @@ def run(m, d, out, scale_note=None):
     else:
         check("a headerless variable is shown as its number, with no names on the disk",
               source[0] == ": dither-start" and re.search(r" \d+ !$", source[1]) is not None, repr(source[:2]))
-    # A word that is an instruction by itself says so too: rshift, in dither-part.
-    listed("dither-part")
-    shot = m.screenshot(f"{out}/10-plain.png")
-    source = source_of(shot, 45)
+    # A word that is an instruction by itself says so too: the dup that line starts with.
     told = ""
-    rows = [i for i, line in enumerate(source[:13]) if "rshift" in line]
-    if rows:
-        r = rows[0]
-        c = source[r].index("rshift")
+    plain = r"[0-9A-F]{4} T->IN IN-> ->T d\+1"
+    if "dup" in source[1]:
+        r, c = 1, source[1].index("dup")
         m.move(sx + c * 8 + 4, wy + r * 16 + 1)
         hover = m.screenshot(f"{out}/10-hover-word.png")
         for x in range(sx + 1 + c * 8, sx - 3, -1):
             told = read_text(hover, x, wy + (r + 1) * 16 + 1, min(40, (W - x) // 8), 1)[0]
-            if told.startswith("60CC "):
+            if re.match(plain, told):
                 break
-    check("and on a word that is one instruction", told.startswith("60CC N->IN IN>>T ->T d-1"), repr(told))
+    check("and on a word that is one instruction", re.match(plain, told) is not None, repr(told))
     m.move(*away)
     again = m.screenshot(f"{out}/10-hover-off.png")
     check("and the box goes when the pointer does",

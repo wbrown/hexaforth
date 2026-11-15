@@ -9,9 +9,9 @@ is printed and compared with the dither done here the plain way, every
 pixel.  They are of one sample and of three, and of widths that are and
 are not whole cells of lanes, of pixels and of the image's own bytes, so
 that both ways the grays are had and every end of a row are tried.  Two
-are dithered a row of each in turn, and three have a bitmap made of a
-part of them (dither-part).  The machine may have cells of 64 bits, 32 or
-16.
+are dithered a row of each in turn, three have a bitmap made of a part of
+them (dither-part), and four one at half their size (dither-half).  The
+machine may have cells of 64 bits, 32 or 16.
 """
 import random
 import subprocess
@@ -51,9 +51,11 @@ def main():
              ": d rot . hex over 1 + @ * swap @ swap over + swap do i @ . loop decimal ;"]   # ( n bm h )
     want = []
 
-    def make(n, w, h, spp, part=None):
+    def make(n, w, h, spp, part=None, half=False):
         """Make image n in the VM; the cells its bitmap should be, or those of
-        a bitmap of a part of it: (x, y, w, h), x being where a cell starts."""
+        a bitmap of a part of it: (x, y, w, h), x being where a cell starts.
+        At half size a pixel is the gray of four, to the nearest, and the
+        part is of that."""
         start = rng.randrange(1, 65536)
         x, data = start, []
         for _ in range(w * h * spp):
@@ -61,13 +63,19 @@ def main():
             data.append(x >> 8)
         gray = data if spp == 1 else [(77 * data[i] + 150 * data[i + 1] + 29 * data[i + 2]) >> 8
                                       for i in range(0, len(data), 3)]
-        px, py, pw, ph = part or (0, 0, w, h)
+        gw, gh = w, h
+        if half:
+            gw, gh = w // 2, h // 2
+            gray = [(gray[2 * y * w + 2 * x] + gray[2 * y * w + 2 * x + 1]
+                     + gray[(2 * y + 1) * w + 2 * x] + gray[(2 * y + 1) * w + 2 * x + 1] + 2) >> 2
+                    for y in range(gh) for x in range(gw)]
+        px, py, pw, ph = part or (0, 0, gw, gh)
         stride = (pw + bits - 1) // bits
         cells = []
-        for row in reference(gray, w, h)[py:py + ph]:
+        for row in reference(gray, gw, gh)[py:py + ph]:
             for c in range(stride):                 # whole cells of the row, as far as the image goes
                 cells.append(sum(1 << b for b in range(bits)
-                                 if px + c * bits + b < w and not row[px + c * bits + b]))
+                                 if px + c * bits + b < gw and not row[px + c * bits + b]))
         lines.extend([f"{w * h * spp} halloc constant r{n}",
                       f"{start} sd !  r{n} {w * h * spp} fill",
                       f"create b{n} 0 , 0 ,",
@@ -98,6 +106,22 @@ def main():
         px, py, pw, ph = part
         lines += [f"b{n} i{n} {px} {py} {pw} {ph} dither-part constant d{n}",
                   f": part{n} {py + ph} 0 do d{n} dither-row loop ; part{n}",
+                  f"{n} b{n} {ph} d"]
+        want.append((lines[-1], (pw, ph, spp), cells))
+        n += 1
+    # A bitmap of an image at half its size, all of it or a part: two rows of
+    # the image are read for each row that is dithered.  Widths of three
+    # samples that are a multiple of eight are those whose grays the machine
+    # with cells of 64 bits has a cell at a time; an odd width has a pixel
+    # over in every row, and an odd height a row over.
+    for (w, h, spp), part in (((4 * bits, 10, 3), (0, 0, 2 * bits, 5)),
+                              ((4 * bits + 6, 9, 3), (bits, 1, bits + 3, 3)),
+                              ((2 * bits + 5, 8, 1), (0, 0, bits + 2, 4)),
+                              ((8 * bits, 6, 3), (2 * bits, 1, bits, 2))):
+        cells = make(n, w, h, spp, part, half=True)
+        px, py, pw, ph = part
+        lines += [f"b{n} i{n} {px} {py} {pw} {ph} dither-half constant d{n}",
+                  f": half{n} {py + ph} 0 do d{n} dither-row loop ; half{n}",
                   f"{n} b{n} {ph} d"]
         want.append((lines[-1], (pw, ph, spp), cells))
         n += 1

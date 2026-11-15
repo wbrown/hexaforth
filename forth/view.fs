@@ -26,16 +26,19 @@
 \ cell 64 and from cell 96: so two pictures may be loading at once, and a
 \ third must wait for one of them.
 \
-\ A window may be smaller than its picture, and then what is kept is the
-\ bitmap of what the window shows, which is the middle of the picture:
-\ the Mandrill is 32KB as a bitmap, and a machine with cells of 16 bits
-\ has not that to spare, but has the 8KB that a window of 256 by 256
-\ wants.  The rows above that part are dithered and not kept, since what
-\ a pixel is depends on those above it, and the rows below are not read.
+\ A window may be smaller than its picture.  Then the picture is shown at
+\ half its size, each pixel the gray of four of the image's (dither-half):
+\ the Mandrill is 512 by 512 and 32KB as a bitmap, which a machine with
+\ cells of 16 bits has not to spare, and its screen is 512 by 342; at
+\ half, the whole of it is the 256 by 256 that its window shows, and 8KB.
+\ If half is still more than the window shows, what is kept is the bitmap
+\ of what it does show, the middle: the rows above that part are dithered
+\ and not kept, since what a pixel is depends on those above it, and the
+\ rows below are not read.
 
 create vw 0 ,           \ the viewer in hand: its record
 
-$18 constant VIEW-CELLS
+$19 constant VIEW-CELLS
 
 : bm     ( -- a ) vw @ ;                \ the bitmap, and the cells in a row of it: two cells
 : bmh    ( -- a ) vw @ CELL2 + ;        \ rows of the picture that are dithered,
@@ -47,7 +50,8 @@ $18 constant VIEW-CELLS
 : vy0    ( -- a ) vw @ c# 8 + ;         \ the row of the picture that the bitmap's first is,
 : vkw    ( -- a ) vw @ c# 9 + ;         \ and the bitmap's width and height in pixels
 : vkh    ( -- a ) vw @ c# 10 + ;
-: vtask  ( -- a ) vw @ c# 11 + ;        \ its task: thirteen cells
+: vhalf  ( -- a ) vw @ c# 11 + ;        \ true if the picture is shown at half its size
+: vtask  ( -- a ) vw @ c# 12 + ;        \ its task: thirteen cells
 
 create vparts 3 ,       \ the parts of the stacks that no task has: a bit each
 
@@ -68,7 +72,7 @@ create vparts 3 ,       \ the parts of the stacks that no task has: a bit each
 ;
 
 : view-row ( -- ) \ what a viewer's task does on each of its turns
-    up @ c# 11 - vw !                               \ its viewer is what its own record is part of
+    up @ c# 12 - vw !                               \ its viewer is what its own record is part of
     bmh @ vy0 @ vkh @ + < 0= if                     \ the last row that is kept is made
         view-shown  vpart @ vparts or!  retire  exit
     then
@@ -77,6 +81,9 @@ create vparts 3 ,       \ the parts of the stacks that no task has: a bit each
     bmh @ d# 3 and 0= if view-shown then
 ;
 
+: pic-w ( -- n ) tw @ vhalf @ if d# 1 rshift then ; \ the picture's size as it is shown
+: pic-h ( -- n ) th @ vhalf @ if d# 1 rshift then ;
+
 header view-load
 : view-load ( blk# w h -- viewer ) \ start on the TIFF that starts at a block, to be shown w by h
     vparts @ 0= d# 8 -throw                         \ no part of the stacks is left for its task
@@ -84,10 +91,11 @@ header view-load
     VIEW-CELLS >c halloc  dup vw !
     d# 0 swap VIEW-CELLS cells-fill
     dup vimg ! image!                               ( w h )
-    th @ min dup vkh !  th @ swap - d# 1 rshift vy0 !       \ the rows in the middle,
-    tw @ min dup vkw !  tw @ swap - d# 1 rshift             \ and across from the middle,
+    over tw @ <  over th @ <  or vhalf !            \ more than the window shows: at half its size
+    pic-h min dup vkh !  pic-h swap - d# 1 rshift vy0 !     \ the rows in the middle of that,
+    pic-w min dup vkw !  pic-w swap - d# 1 rshift           \ and across from the middle,
     PXMASK invert and >r                            \ or the start of the cell that is in
-    bm vimg @ r> vy0 @ vkw @ vkh @ dither-part vdth !
+    bm vimg @ r> vy0 @ vkw @ vkh @ vhalf @ (dither) vdth !
     vparts @ d# 1 and if d# 1 else d# 2 then        \ a part of the stacks: the higher if it is free
     dup vpart !  dup vparts xor!
     d# 1 = if d# 96 else d# 64 then

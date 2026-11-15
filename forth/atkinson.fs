@@ -86,6 +86,8 @@ target
 create aone    meta lane1 target ,                  \ 1 in each lane
 create aclean  meta lane1 $fff * target ,           \ the number in each lane, without whether it is black
 create agather meta gather target ,
+create around  meta lane1 2 * target ,              \ half of four, in each lane: to round a quarter
+create abyte   meta lane1 $ff * target ,            \ a gray in each lane
 
 \ A dither is a record, so that there may be more than one in hand at a
 \ time, each going down its own picture a row at a turn: `dth` is the one
@@ -108,6 +110,15 @@ create dth 0 ,          \ the dither in hand: its record
 : aoff  ( -- a ) dth @ c# 8 + ;         \ where in a row of lanes the first cell kept starts
 : ay0   ( -- a ) dth @ c# 9 + ;         \ the first row kept,
 : akh   ( -- a ) dth @ c# 10 + ;        \ and how many are
+\ Nor need it be at the image's size.  At half of it a pixel of the bitmap
+\ is four of the image, two of each of two rows, and its gray is theirs
+\ added and then quartered, to the nearest: so a row that is dithered is
+\ two rows read.  The four are added in a row of lanes of their own, since
+\ the lanes a row is dithered in already hold what the rows above gave,
+\ which is not to be quartered.
+: ahalf ( -- a ) dth @ c# 11 + ;        \ true if it is at half the image's size
+: aw    ( -- a ) dth @ c# 12 + ;        \ pixels across what is dithered: the image's, or half
+: agr   ( -- a ) dth @ c# 13 + ;        \ the row of lanes that grays are added up in, at half size
 
 \ A row of lanes has as many cells as make whole cells of a bitmap of the
 \ whole image, so that the pixels can be gathered sixteen cells at a time,
@@ -120,24 +131,59 @@ create dth 0 ,          \ the dither in hand: its record
 
 : apreset ( a -- ) \ what the pixel that is not there, beside each end of the row, would give the row
     d# 128 over +!
-    tw @ 1-  dup LANES 1- and d# 4 lshift d# 128 swap lshift    ( a last x )
+    aw @ 1-  dup LANES 1- and d# 4 lshift d# 128 swap lshift    ( a last x )
     swap LANESHIFT rshift rot + +!
 ;
 
 \ Where the image can give a row's grays in lanes ('grays), it adds them a
 \ cell at a time.  Any other is asked for a pixel at a time.
+: lane+ ( shift a g -- shift' a' ) \ a gray into the lane at that shift of the cell at a, and on to the next lane
+    >r over r> swap lshift  over +!
+    swap d# 16 +  dup CELLBITS = if drop 1+ d# 0 then  swap
+;
+
 : agrays ( lanes -- ) \ the next row's grays, each added to its pixel's lane
     'grays @ ?dup if execute exit then
     d# 0 swap  tw @ negate                          ( shift a -n )
     begin
         dup
     while
-        >r
-        'pixel @ execute  >r over r> swap lshift  over +!
-        swap d# 16 +  dup CELLBITS = if drop 1+ d# 0 then  swap
-        r> 1+
+        >r  'pixel @ execute lane+  r> 1+
     repeat
     drop 2drop
+;
+
+\ The same for half as many lanes, two pixels to each ('pairs, where the
+\ image can).  A row of an odd number of pixels has one over, which is
+\ taken and belongs to no lane.
+: apairs ( lanes -- ) \ the next row's grays, each two pixels' added into a lane
+    'pairs @ ?dup if execute exit then
+    d# 0 swap  aw @ negate                          ( shift a -n )
+    begin
+        dup
+    while
+        >r  'pixel @ execute 'pixel @ execute + lane+  r> 1+
+    repeat
+    drop 2drop
+    tw @ d# 1 and if 'pixel @ execute drop then
+;
+
+: aquarters ( lanes -- ) \ a quarter of what each lane of sums holds, to the nearest, added to its lane
+    agr @ - >r                                      ( R: from the sums to the lanes )
+    agr @ an @ bounds
+    begin
+        2dupxor
+    while
+        dup @ around @ + d# 2 rshift abyte @ and  over r@ + +!
+        1+
+    repeat
+    2drop rdrop
+;
+
+: ahalf-row ( lanes -- ) \ the next two rows of the image, as the grays of one row at half the size
+    d# 0 agr @ an @ cells-fill
+    agr @ apairs  aimg @ tiff-row  agr @ apairs
+    aquarters
 ;
 
 W32+? [if]
@@ -174,7 +220,7 @@ W32+? [if]
 [then]
 
 : atrim ( lanes -- ) \ the lanes of the last cell that are past the last pixel give nothing
-    tw @ LANES 1- and ?dup if
+    aw @ LANES 1- and ?dup if
         d# 4 lshift d# 1 swap lshift 1-             ( lanes mask )
         swap an @ + 1- and!
     else
@@ -247,22 +293,36 @@ INK-BLACK? [if] [else] invert [then]
 \ A row is dithered at a time, so that whoever wants the picture can do
 \ something else between the rows, and can show the rows that are made.
 
-header dither-part
-: dither-part ( bitmap img x y w h -- dither ) \ a new bitmap, as the display is, with no rows made,
-    d# 11 >c halloc dth !               \ for the w by h of the image from x, y; x is where a cell starts
+: (dither) ( bitmap img x y w h half? -- dither ) \ a new bitmap, as the display is, with no rows made
+    d# 14 >c halloc dth !
+    ahalf !
     akh !  >r  ay0 !  LANESHIFT rshift aoff !  r>   ( bitmap img w )
     swap dup aimg ! image!                          ( bitmap w )
     swap abm !
     PXMASK + PXSHIFT rshift abm @ CELL + !
     abm @ CELL + @ akh @ * >c halloc abm @ !
-    tw @ PXMASK + PXSHIFT rshift afull !
-    tw @ LANES 1- + LANESHIFT rshift an !
+    tw @  ahalf @ if d# 1 rshift then  aw !
+    aw @ PXMASK + PXSHIFT rshift afull !
+    aw @ LANES 1- + LANESHIFT rshift an !
+    ahalf @ if an @ >c halloc agr ! then
     d# 512 LANE1 * anew acur !                      \ the rows that are not there gave the first row four
     d# 128 LANE1 * anew dup apreset anxt !          \ times nothing, and the second once
     d# 0 anew dup apreset anx2 !
     pixels
     d# 0 ay !
     dth @
+;
+
+\ The bitmap is of the w by h of the picture from x, y, and x is where a
+\ cell of the bitmap starts.
+header dither-part
+: dither-part ( bitmap img x y w h -- dither ) \ of the image at its own size
+    false (dither)
+;
+
+header dither-half
+: dither-half ( bitmap img x y w h -- dither ) \ of the image at half its size: x, y, w and h are of that
+    true (dither)
 ;
 
 header dither-start
@@ -273,7 +333,8 @@ header dither-start
 header dither-row
 : dither-row ( dither -- ) \ the next row of its image, which is read if it has to be
     dth !  aimg @ tiff-row
-    acur @  dup agrays  dup apixels  dup atrim      ( lanes )
+    acur @  dup ahalf @ if ahalf-row else agrays then
+    dup apixels  dup atrim                          ( lanes )
     ay @ ay0 @ -  dup akh @ u< if                   \ a row that is kept: its pixels, from the first cell kept
         abm @ CELL + @ *  abm @ @ +                 ( lanes dst )
         swap aoff @ + swap abits

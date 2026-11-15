@@ -154,8 +154,7 @@ class Machine:
         im = Image.open(self.tiff).convert("RGB")
         w, h = im.size
         px = im.tobytes()
-        gray = [(77 * px[i] + 150 * px[i + 1] + 29 * px[i + 2]) >> 8 for i in range(0, len(px), 3)]
-        return deskcheck.atkinson(gray, w, h)
+        return [(77 * px[i] + 150 * px[i + 1] + 29 * px[i + 2]) >> 8 for i in range(0, len(px), 3)], w, h
 
     def stop(self):
         self.qemu.kill()
