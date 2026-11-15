@@ -547,7 +547,8 @@ header on-event : on-event ( type code value -- )
     over ctrl-key?  if nip 0<> ctrl ! exit then
     0= if drop exit then                            \ a key going up
     dup d# 127 u> if drop exit then
-    keymap + @  shift @ if d# 8 rshift then  h# ff and     \ a cell a key: what it is, and above that what it is shifted
+    shift @ if d# 128 + then                        \ the keys, and after them the keys shifted:
+    d# 3 lshift  keymap swap char@                  \ characters packed into cells, as text is
     ctrl @ if h# 1f and then
     ?dup if on-key then
 ;

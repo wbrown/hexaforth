@@ -49,12 +49,12 @@ NAMED = {"ret": 28, "backspace": 14, "up": 103, "down": 108, "left": 105, "right
 def keycodes():
     """{character: (Linux key code, shifted?)}, from the map the desktop itself uses."""
     text = open(f"{HERE}/../forth/keymap.fs").read()
-    table = [int(v, 16) for v in re.findall(r"\$([0-9a-f]{4}) ,", text)]    # a cell a key: plain, and shifted above it
-    assert len(table) == 128, "keymap.fs is not 128 cells"
+    table = b"".join(int(v, 16).to_bytes(8, "little") for v in re.findall(r"^\$([0-9a-f]+) b8,", text, re.M))
+    assert len(table) == 256, "keymap.fs is not 256 characters"
     codes = {}
     for shifted in (1, 0):
         for code in range(127, 0, -1):              # the lowest code that gives it, unshifted if it can be
-            ch = table[code] >> 8 * shifted & 0xff
+            ch = table[shifted * 128 + code]
             if ch:
                 codes[chr(ch)] = (code, bool(shifted))
     return codes

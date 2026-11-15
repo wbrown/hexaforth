@@ -1092,6 +1092,11 @@ variable in-depth
     disp-left-low if
         0 swap 8 0 do dup 1 and rot 2* or swap 2/ loop drop
     then ;
+\ Eight characters, the lowest first, of a number written as 64 bits: a
+\ table of characters is written so, eight to a line, and is the same
+\ characters packed into cells whatever the machine's cell is.
+:: b8, ( x -- ) 8 0 do dup $ff and tc, 8 rshift loop drop ;
+
 :: p,  pixels tc, ;
 \ The same eight pixels as a cell of their own: a row of a small bitmap that
 \ is fetched a row at a time.
@@ -1315,13 +1320,6 @@ variable ntf#  0 ntf# !
 :: ,"
     [char] " parse dup tc,
     bounds ?do i c@ tc, loop
-;
-
-\ chars," text" lays down a cell for each character: a table of characters
-\ that is looked in by number, not text that is read from its start.
-:: chars,"
-    tcalign
-    [char] " parse bounds ?do i c@ tcell, loop
 ;
 
 :: allot

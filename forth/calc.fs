@@ -11,7 +11,9 @@ create cst #128 allot
 create cn 0 ,
 create cacc 0 ,
 create centry 0 ,
-create cbtn chars," 789/456*123-0nE+dx< "    \ what each button is: a cell each, four to a row
+create cbtn ," 789/456*123-0nE+dx< "    \ what each button is, four to a row: text, with its count first
+
+: button ( i -- c ) 1+ d# 3 lshift cbtn swap char@ ;    \ the character past the count and i more
 
 : cpush ( x -- )
     cn @ d# 15 < if cn @ cells cst + !  d# 1 cn +! else drop then
@@ -95,7 +97,7 @@ header calc-draw : calc-draw ( win -- )
         ci @ d# 3 and d# 34 *
         d# 96 ci @ d# 2 rshift d# 24 * +
         d# 33 d# 23 frame-rect
-        cbtn ci @ + @
+        ci @ button
         ci @ d# 3 and d# 34 * d# 13 +
         d# 96 ci @ d# 2 rshift d# 24 * + d# 4 +
         draw-char
@@ -111,7 +113,7 @@ header calc-click : calc-click ( x y win -- )
     d# 24 u/mod nip dup d# 4 > if 2drop exit then   ( x row )
     swap dup 0< if 2drop exit then
     d# 34 u/mod nip d# 3 min                        ( row col )
-    swap d# 2 lshift + cbtn + @
+    swap d# 2 lshift + button
     dup [char] E = if drop d# 13 then
     dup [char] < = if drop d# 8 then
     cwin @ calc-key
