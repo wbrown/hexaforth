@@ -1,5 +1,9 @@
 \ system.fs - blocks, the display, devices and the desktop.
 \
+\ It is the same files for a machine with cells of any size that has a
+\ display, but for the drivers of QEMU's devices, which are written for
+\ the machine the AArch64 kernels run on.
+\
 \ This is compiled into code page 1 and code pages 8 and 9.  cross.fs
 \ compiles calls between pages as calls by execution token, so the split
 \ needs no care beyond each page's code fitting in its 8,192 bytes, as
@@ -26,12 +30,16 @@ include display.fs      \ the display: a bitmap in memory, and text on it
 meta 8 code-page target
 
 include region.fs       \ shapes that are not rectangles, to clip to
+W64? [if]               \ the QEMU virt machine's devices, which the AArch64 kernels run on
 include virtio.fs       \ shared by the virtio drivers
 include virtio-blk.fs   \ block driver
 include virtio-input.fs \ keyboard and pointer driver
-include tiff.fs         \ uncompressed TIFF from blocks into memory
+[then]
+include tiff.fs         \ uncompressed TIFF from blocks, a row at a time
 include atkinson.fs     \ Atkinson dithering to the display
+W64? [if]
 include mandrill.fs     \ the demo, without the desktop
+[then]
 include keymap.fs       \ key codes to ASCII
 include gfx.fs          \ rectangles, and text from the output words
 include wm.fs           \ windows, pointer, event loop
@@ -55,6 +63,9 @@ meta $a code-page target
 include join.fs         \ instructions joined as they are compiled, and the rules
 
 \ Every word is where it will be: the tables of names for the decompiler,
-\ which go to a file for the disk (build/nuc.tables).
+\ which go to a file for the disk (build/nuc.tables).  An entry of them is
+\ two halves of a cell, which with cells of 16 bits is too little.
 
+W32+? [if]
 meta t' forth0 t' tstamp name-tables target
+[then]

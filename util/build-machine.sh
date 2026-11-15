@@ -18,17 +18,22 @@ D="-DCELL_BITS=$C -DADDR_BITS=$A $EXTRA"
 mkdir -p build
 gcc -w -fcommon $D -o build/bwgen-$C-$A util/baseword_fs_gen.c vm_opcodes.c vm_debug.c -lm
 build/bwgen-$C-$A build/basewords-$C-$A.fs > /dev/null
-# cross.fs always writes build/nuc.hex and build/nuc.lst, and with 64-bit
-# cells build/nuc.tables, the names that go with the image; keep any that
-# are there, since they belong to the default machine.
-for f in hex lst tables; do [ -f build/nuc.$f ] && mv build/nuc.$f build/nuc.$f.keep; done
+# cross.fs always writes build/nuc.hex, build/nuc.lst, build/nuc.sizes and
+# build/nuc.inline (the calls it compiled in place, which a build with the
+# peephole off reads), and with cells of 32 bits or more build/nuc.tables,
+# the names that go with the image; keep any that are there, since they
+# belong to the default machine.
+KEEP="hex lst tables inline sizes"
+for f in $KEEP; do [ -f build/nuc.$f ] && mv build/nuc.$f build/nuc.$f.keep; done
 (cd forth && gforth ./cross.fs ../build/basewords-$C-$A.fs ./nuc.fs > ../build/cross-$C-$A.log 2>&1) || true
 if grep -q "tdp" build/cross-$C-$A.log; then
     mv build/nuc.hex build/nuc-$C-$A.hex
-    rm -f build/nuc.lst
-    if [ -f build/nuc.tables ]; then mv build/nuc.tables build/nuc-$C-$A.tables; fi
+    rm -f build/nuc.lst build/nuc.inline
+    for f in tables sizes; do
+        if [ -f build/nuc.$f ]; then mv build/nuc.$f build/nuc-$C-$A.$f; fi
+    done
 fi
-for f in hex lst tables; do [ -f build/nuc.$f.keep ] && mv build/nuc.$f.keep build/nuc.$f; done
+for f in $KEEP; do [ -f build/nuc.$f.keep ] && mv build/nuc.$f.keep build/nuc.$f; done
 [ -f build/nuc-$C-$A.hex ] || { tail -8 build/cross-$C-$A.log; exit 1; }
 gcc -O2 -w -fcommon $D -o build/hexaforth-$C-$A main.c vm.c vm_opcodes.c vm_debug.c util/stack.c -lm
 echo "build/nuc-$C-$A.hex: $(tr -c 'a-zA-Z0-9 ' ' ' < build/cross-$C-$A.log | grep -o 'tdp [0-9A-F]* thp [0-9A-F]* tcp [0-9A-F]*')"

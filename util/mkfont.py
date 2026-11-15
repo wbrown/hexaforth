@@ -30,8 +30,9 @@ FIRST, COUNT, HEIGHT = 32, 95, 16
 
 
 def cells(data):
+    """Bytes, eight to a line as a number of 64 bits: b8, lays them down lowest first."""
     data += bytes(-len(data) % 8)
-    return [f"${struct.unpack_from('<Q', data, i)[0]:x} ," for i in range(0, len(data), 8)]
+    return [f"${struct.unpack_from('<Q', data, i)[0]:x} b8," for i in range(0, len(data), 8)]
 
 
 def glyphs(path, size, top, fixed=None):

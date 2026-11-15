@@ -94,7 +94,8 @@ create k-store  ," !"
 \ are a number (a word that only pushes one, a label for data) by the
 \ number.  A table is how many, then a cell for each in order: the key in
 \ the upper half, and in the lower where the name is, with the top bit of
-\ that half set for a label.  For a word that is the address of its
+\ that half set for a label.  A key that half a cell does not hold is not
+\ in a table.  For a word that is the address of its
 \ header.  For a label it is how many cells it is from the start of the
 \ labels, since they are wherever memory was found for them; and a label
 \ is laid out as a header is, the one before it, its value, and its name.
@@ -120,13 +121,17 @@ create nm-n 0 ,         \ and how many entries it is
 
 $100000 constant NAMES-AT   \ where on the disk, in bytes: block 1024
 
+\ An entry of the tables is two halves of a cell, and the cells are the
+\ machine's.  A machine with cells of 16 bits is built with none: half of
+\ such a cell does not hold an execution token.
+W32+? [if]
 : (names-load) ( -- )
-    nm-head >c d# 16 NAMES-AT disk-read
+    nm-head >c CELLB 2* NAMES-AT disk-read
     nm-head @ tstamp @ <> if exit then
     himem @ nm-mark !
     nm-head CELL + @ >c halloc                      ( a )
     himem @ nm-end !
-    dup >c  nm-head CELL + @ >c  NAMES-AT d# 16 +  disk-read
+    dup >c  nm-head CELL + @ >c  NAMES-AT CELLB 2* +  disk-read
     dup dup @ + 1+ dtab !
     dtab @ dup @ + 1+ lbase !
     \ The labels: each holds how far the one before it is from the start,
@@ -142,6 +147,9 @@ $100000 constant NAMES-AT   \ where on the disk, in bytes: block 1024
     then
     xtab !
 ;
+[else]
+: (names-load) ( -- ) ;
+[then]
 
 header names-load
 : names-load ( -- )
@@ -166,8 +174,8 @@ header names-unload
     while
         nm-n @ d# 1 rshift                          ( key half )
         2dup nm-lo @ + @                            ( key half key entry )
-        dup>r d# 32 rshift
-        2dup = if 2drop 2drop r> d# 32 lshift d# 32 rshift exit then
+        dup>r HALFBITS rshift
+        2dup = if 2drop 2drop r> HALFBITS lshift HALFBITS rshift exit then
         u> if                                       \ it is after the middle one,
             dup 1+ nm-lo +!  invert nm-n +!
         else                                        \ or before it
@@ -181,9 +189,9 @@ header names-unload
 : tstop ( -- hdr|0 ) \ how far back the dictionary is searched a word at a time
     xtab @ if forth0 @ else d# 0 then
 ;
-: label? ( entry -- f ) d# 31 rshift 0<> ;
+: label? ( entry -- f ) HALFBITS 1- rshift 0<> ;
 : >hdr   ( entry -- hdr ) \ where the name is
-    dup d# 33 lshift d# 33 rshift  swap label? if lbase @ + then
+    dup HALFBITS 1+ lshift HALFBITS 1+ rshift  swap label? if lbase @ + then
 ;
 
 : xt>hdr ( xt -- hdr|0 ) \ the word that starts at xt: in the dictionary, or a label
@@ -286,8 +294,12 @@ create hv 0 ,
 \ stored in a vector.  Code is in page 1 and from page 8 up.
 : xt? ( n -- f ) dup h# 8000 u< 0= swap h# 1001 - h# fff u< or ;
 
+meta
+:: DATA-CELLS  $10000 $4000 - byte-shift rshift literal ;   \ cells of data and of headers, from VARS
+target
+
 : snum ( n -- )
-    dup d# 2048 cells - d# 6144 cells u< if     \ in data space
+    dup VARS - DATA-CELLS u< if                 \ in data space
         dup lit>hdr ?dup if nip sname exit then
         dup data>lbl ?dup if
             nip true sital !  CELL2 + >c count d# -1 tok  d# 0 sital !  exit
@@ -595,7 +607,13 @@ create whist #64 allot
 create nhist 0 ,
 create scol 0 ,
 create srow 0 ,
-create lk #1536 allot   \ links drawn: place and size, then execution token
+\ What is drawn of a definition is noted, so that the pointer can be told
+\ what it is on: a place is the column, the line (from bit 6) and how many
+\ characters (from bit 10), which a cell of any size holds.  A link is its
+\ place and the execution token it goes to, and an instruction its place
+\ and the instruction: two cells each, 96 links and 192 instructions, in
+\ memory that is asked for when the window is first drawn.
+create lk 0 ,           \ links drawn
 create nlk 0 ,
 create lkx 0 ,
 create lky 0 ,
@@ -604,7 +622,7 @@ create crow 0 ,
 create ccol 0 ,
 create wtmp 0 ,
 create wwin 0 ,         \ the window
-create mt #1536 allot   \ instructions drawn: a cell each, place and size and then the instruction
+create mt 0 ,           \ instructions drawn
 create nmt 0 ,
 create hov 0 ,          \ the instruction the pointer is over, or nothing,
 create hovp 0 ,         \ where its words are, as mt has it,
@@ -689,9 +707,9 @@ header t-words create t-words ," Words"
         r@ 0< 0= if
             false lkx @ lky @ d# 15 + lku @ d# 3 lshift hline
             nlk @ d# 96 < if
-                scol @  srow @ wsrc @ - d# 8 lshift or  lku @ d# 16 lshift or
-                nlk @ 2* cells lk + !
-                r@ nlk @ 2* cells lk + cell+ !
+                scol @  srow @ wsrc @ - d# 6 lshift or  lku @ d# 10 lshift or
+                nlk @ 2* lk @ + !
+                r@ nlk @ 2* lk @ + 1+ !
                 d# 1 nlk +!
             then
         then
@@ -702,9 +720,9 @@ header t-words create t-words ," Words"
             dup if false lkx @ d# 8 - lky @ d# 15 + d# 8 hline then
             negate >r                               ( R: xt, and 1 if the space is its too )
             nmt @ d# 192 < if
-                scol @ r@ -  srow @ wsrc @ - d# 8 lshift or  lku @ r@ + d# 16 lshift or
-                smach @ d# 24 lshift or
-                nmt @ cells mt + !
+                scol @ r@ -  srow @ wsrc @ - d# 6 lshift or  lku @ r@ + d# 10 lshift or
+                nmt @ 2* mt @ + !
+                smach @ nmt @ 2* mt @ + 1+ !
                 d# 1 nmt +!
             then
             r> drop
@@ -759,9 +777,9 @@ header t-words create t-words ," Words"
 : hov-box ( -- ) \ where the box goes: under the words, or over them on the last lines
     hov @ sb-begin .mach sb-end
     sbn @ d# 3 lshift d# 6 + hovw !
-    hovp @ h# ff and d# 3 lshift d# 110 +
+    hovp @ h# 3f and d# 3 lshift d# 110 +
     wwin @ CELL2 + @ d# 2 - hovw @ - min  d# 108 max  hovx !
-    hovp @ d# 8 rshift h# ff and
+    hovp @ d# 6 rshift h# f and
     dup d# 14 < if 1+ d# 4 lshift else d# 4 lshift d# 18 - then  hovy !
 ;
 
@@ -784,10 +802,10 @@ header t-words create t-words ," Words"
     begin
         dup nmt @ <
     while
-        dup cells mt + @ wtmp !
-        wtmp @ d# 8 rshift h# ff and crow @ =
-        ccol @ wtmp @ h# ff and -  wtmp @ d# 16 rshift h# ff and u<  and if
-            drop  wtmp @ h# ffffff and  wtmp @ d# 24 rshift  exit
+        dup 2* mt @ + @ wtmp !
+        wtmp @ d# 6 rshift h# f and crow @ =
+        ccol @ wtmp @ h# 3f and -  wtmp @ d# 10 rshift u<  and if
+            2* mt @ +  dup @ swap 1+ @  exit
         then
         1+
     repeat
@@ -809,6 +827,7 @@ header words-draw : words-draw ( win -- )
     wwin !
     winit @ 0= if
         true winit !  d# 0 wpick
+        d# 192 >c halloc lk !  d# 384 >c halloc mt !
         ['] words-front 'front !  words-front
         ['] words-moved 'moved !
     then
@@ -889,10 +908,10 @@ header words-click : words-click ( x y win -- )
     begin
         dup nlk @ <
     while
-        dup 2* cells lk + @ wtmp !
-        wtmp @ d# 8 rshift h# ff and crow @ =
-        ccol @ wtmp @ h# ff and -  wtmp @ d# 16 rshift u<  and if
-            2* cells lk + cell+ @ wgo exit
+        dup 2* lk @ + @ wtmp !
+        wtmp @ d# 6 rshift h# f and crow @ =
+        ccol @ wtmp @ h# 3f and -  wtmp @ d# 10 rshift u<  and if
+            2* lk @ + 1+ @ wgo exit
         then
         1+
     repeat

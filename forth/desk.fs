@@ -36,6 +36,9 @@ header windows
 
 \ The QEMU virt machine: keyboards and pointers are virtio input devices,
 \ and the disk a virtio block device.  The console's keys are taken too.
+\ A machine with other devices brings them up itself and runs `windows`.
+
+W64? [if]
 
 : virt-poll ( -- ) input-poll uart-poll ;
 
@@ -56,3 +59,5 @@ header desktop
 
 header cold
 : cold ( -- ) ['] desktop catch drop ;
+
+[then]

@@ -48,7 +48,7 @@ NAMED = {"ret": 28, "backspace": 14, "up": 103, "down": 108, "left": 105, "right
 def keycodes():
     """{character: (Linux key code, shifted?)}, from the map the desktop itself uses."""
     text = open(f"{HERE}/../forth/keymap.fs").read()
-    table = b"".join(int(v, 16).to_bytes(8, "little") for v in re.findall(r"^\$([0-9a-f]+) ,", text, re.M))
+    table = b"".join(int(v, 16).to_bytes(8, "little") for v in re.findall(r"^\$([0-9a-f]+) b8,", text, re.M))
     codes = {}
     for shifted in (1, 0):
         for code in range(127, 0, -1):              # the lowest code that gives it, unshifted if it can be

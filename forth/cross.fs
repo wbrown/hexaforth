@@ -802,7 +802,7 @@ variable link 0 link !
 variable llink      0 llink !
 variable named      false named !
 variable named-cp
-cell-bits 64 = constant labelling
+cell-bits 32 >= constant labelling          \ a table's entry is two halves of a cell: see name-tables
 
 \ Where each header is, by name, so that data can refer to a word by its
 \ header (`hdr,`): the name is then in one place, and nothing has to look
@@ -840,24 +840,24 @@ wordlist constant headers-wordlist
 \ the place of the one before, its value, and its name.  A place is how
 \ many cells it is from the start of them all, where the first cell holds
 \ the place of the newest; the decompiler makes addresses of them when it
-\ has read them in.
+\ has read them in.  The cells are the machine's, as a header's are.
 65536 allocate throw constant lflash
 lflash 65536 erase
-variable lp  8 lp !                         \ where the next goes, in bytes
+variable lp  cell-bytes lp !                \ where the next goes, in bytes
 
 : lc,    ( c -- ) lflash lp @ + c!  1 lp +! ;
-: lcell, ( x -- ) lflash lp @ + !  8 lp +! ;
+: lcell, ( x -- ) cell-bytes 0 do dup $ff and lc, 8 rshift loop drop ;
 : lname, ( c-addr u -- )
     dup lc,
     bounds ?do
         i c@ dup [char] A [char] Z 1+ within if 32 + then lc,
     loop
-    lp @ 7 + -8 and lp !
+    lp @ cell-bytes 1- + cell-bytes negate and lp !
 ;
 
-: (label) ( x "name" -- a ) \ a label for the name that follows; a is where x went, on the host
-    lp @ 3 rshift  llink @ lcell,  llink !
-    lflash lp @ + swap lcell,
+: (label) ( x "name" -- ) \ a label for the name that follows
+    lp @ byte-shift rshift  llink @ lcell,  llink !
+    lcell,
     wordstr lname,
 ;
 
@@ -955,7 +955,7 @@ variable in-depth
     wordstr lst @ write-line throw
 
     ?own-page
-    wants-label? if tcp @ 2/ (label) drop then
+    wants-label? if tcp @ 2/ (label) then
     tcp @ wordstart !
     label
     create  here lastdef !  codeptr , 0 , 0 , 0 ,
@@ -1004,6 +1004,11 @@ variable in-depth
 :: c,
     tc,
 ;
+
+\ Eight bytes, the lowest first, of a number written as 64 bits: a table of
+\ bytes is written so, eight to a line, and is the same bytes whatever the
+\ machine's cell is.
+:: b8, ( x -- ) 8 0 do dup $ff and tc, 8 rshift loop drop ;
 
 \ Pixels are written here with the leftmost in the highest bit.  A machine
 \ whose leftmost pixel is the lowest bit of a cell has them the other way
@@ -1063,19 +1068,23 @@ variable in-depth
 \ the lower the address of the header, with the top bit of that half set
 \ for a label.  They are in order, so that one is found by halving.  The
 \ names are looked for as a search would find them, the dictionary before
-\ the labels and the newest first, and the first with a key is kept.
+\ the labels and the newest first, and the first with a key is kept.  A
+\ key that half a cell does not hold has no entry.  With cells of 32 bits
+\ a half is 16: an execution token, and the address of any cell of data.
 \
 \ The tables are not part of the image.  They go to a file, which is put
 \ on the disk, and the decompiler reads them in when it has work to do.
 
+cell-bits 2/ constant half
 create nt 8192 cells allot
 variable nt#  0 nt# !
 
 : nt-add ( hdr label? key -- )
+    dup half rshift if drop 2drop exit then
     nt# @ 0 ?do
-        dup nt i cells + @ 32 rshift = if drop 2drop unloop exit then
+        dup nt i cells + @ half rshift = if drop 2drop unloop exit then
     loop
-    32 lshift  swap if $80000000 or then  or
+    half lshift  swap if 1 half 1- lshift or then  or
     nt nt# @ cells + !  1 nt# +!
 ;
 : nt-sort ( -- )
@@ -1100,11 +1109,12 @@ variable ntf#  0 ntf# !
     0 nt# !
 ;
 
-: hdr-link ( a -- a' ) byte-shift lshift tflash + @ ;
-: hdr-val  ( a -- x )  byte-shift lshift cell-bytes + tflash + @ ;
+: hdr-link ( a -- a' ) byte-shift lshift tflash + @ cell-mask and ;
+: hdr-val  ( a -- x )  byte-shift lshift cell-bytes + tflash + @ cell-mask and ;
 : hdr-xt   ( a -- xt ) hdr-val $ffff and ;
-: lbl-link ( n -- n' ) cells lflash + @ ;           \ a label, by its place
-: lbl-val  ( n -- x )  1+ cells lflash + @ ;
+: lbl-link ( n -- n' ) byte-shift lshift lflash + @ cell-mask and ;    \ a label, by its place
+: lbl-val  ( n -- x )  1+ byte-shift lshift lflash + @ cell-mask and ;
+: lbl-data? ( x -- f ) 1 cell-bits 1- lshift and 0<> ;                 \ is its value an address of data?
 
 : tlv ( w -- n ) dup $fff and swap 12 rshift 3 and 12 * lshift ;
 : lit? ( w kind -- f ) over $c000 and =  swap $3000 and $3000 <> and ;
@@ -1124,7 +1134,7 @@ variable ntf#  0 ntf# !
     llink @ begin
         dup
     while
-        dup lbl-val 0< 0= if dup true over lbl-val $ffff and nt-add then
+        dup lbl-val lbl-data? 0= if dup true over lbl-val $ffff and nt-add then
         lbl-link
     repeat drop
     nt-lay
@@ -1134,15 +1144,15 @@ variable ntf#  0 ntf# !
         dup
     while
         dup hdr-xt thval if
-            dup 32 rshift if drop else over false rot nt-add then
+            over false rot nt-add
         then
         hdr-link
     repeat drop
     llink @ begin
         dup
     while
-        dup lbl-val dup 0< if
-            1 63 lshift invert and  over true rot nt-add
+        dup lbl-val dup lbl-data? if
+            1 cell-bits 1- lshift invert and  over true rot nt-add
         else
             drop
         then
@@ -1253,8 +1263,7 @@ variable ntf#  0 ntf# !
 :: create
     tcalign                                 \ before the label: it holds where the data will be
     named? dup >r 0= labelling and if
-        0 (label)
-        there taddr 1 cell-bits 1- lshift or swap !
+        there taddr 1 cell-bits 1- lshift or (label)
     then
     r> if
         there taddr literal  s" exit" evaluate  label
@@ -1376,6 +1385,7 @@ warnings on
 :: W64?   cell-bits #64 = ;
 :: W32?   cell-bits #32 = ;
 :: W32+?  cell-bits #32 >= ;
+:: DESKTOP? disp-w 0<>  cell-bits #32 >=  and ; \ has it the desktop (system.fs)?
 
 :: asm-0branch
     ' >body @
@@ -1500,18 +1510,23 @@ next-arg 2dup .trim >str constant prefix.
 \ newest word of the dictionary, and stamp the stamp.  The file is beside
 \ the image and has its name (build/nuc.tables), and the tools that read an
 \ image for its labels look for it there.
+create ntb 8 allot                          \ a cell of the file, as its bytes
+: cell>file ( x fid -- ) \ a cell of the machine's, its lowest byte first
+    swap cell-bytes 0 do dup $ff and ntb i + c!  8 rshift loop drop
+    ntb cell-bytes rot write-file throw
+;
 : name-tables ( forth0 stamp -- )
-    cell-bits 64 <> abort" name-tables is for 64-bit cells"
-    link @  tcp @ 16 lshift xor  lp @ 40 lshift xor     ( forth0 stamp x )
+    labelling 0= abort" name-tables is for cells of 32 bits or more"
+    link @  tcp @ 16 lshift xor  lp @ 7 lshift xor  cell-mask and   ( forth0 stamp x )
     dup rot tvar!                                       ( forth0 x )
     link @ rot tvar!                                    ( x )
     0 ntf# !
     ntf,  0 ntf,
     xt-table number-table
-    llink @ lflash !                                    \ the newest label
-    ntf# @ 2 -  lp @ 3 rshift +  ntf cell+ !
+    llink @  lp @  0 lp !  swap lcell,  lp !            \ the newest label, in the first cell of them
+    ntf# @ 2 -  lp @ byte-shift rshift +  ntf cell+ !
     s" tables" out-suffix
-    dup ntf ntf# @ cells rot write-file throw
+    ntf# @ 0 ?do ntf i cells + @ over cell>file loop
     dup lflash lp @ rot write-file throw
     close-file throw
 ;
