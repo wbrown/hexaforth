@@ -271,48 +271,61 @@ header rgn-box : rgn-box ( rgn -- x y w h ) \ the rectangle around it
 
 header scroll-update create scroll-update 0 ,   \ a region, on the screen
 
-create sdx 0 ,
-create sdy 0 ,
-create srx 0 ,
-create sry 0 ,
-create srw 0 ,
-create srh 0 ,
-create s-rect 0 ,       \ regions: the rectangle,
-create s-clip 0 ,       \ the clip rectangle,
-create s-both 0 ,       \ what is in both,
-create s-all 0 ,        \ and in the clip region too: where pixels may be
-create s-from 0 ,       \ that, moved
-create s-move 0 ,       \ the places that have a pixel to come to them
-create s-old 0 ,        \ the port's clip region
+\
+\ It works in three regions of its own, which are next to each other, so
+\ that one place on the return stack is all three: taken from halloc for as
+\ long as it runs and given back.  (Not at here: three regions are more
+\ cells than the data space has left.)  How far to move is on the data
+\ stack throughout.  Once the regions are made the rectangle itself is not
+\ wanted again: what is moved is clipped to the region of what may move,
+\ and what is made white to scroll-update, so the rectangle round each will
+\ do for it.
 
-: scroll-regions ( -- )
-    s-rect @ if exit then
-    new-rgn s-rect !  new-rgn s-clip !  new-rgn s-both !  new-rgn s-all !
-    new-rgn s-from !  new-rgn s-move !  new-rgn scroll-update !
+$102 constant RGN-STEP      \ from one region to the next, of several taken together
+
+: on-screen ( x y w h -- x' y' w h ) 2swap  oy @ + swap ox @ + swap  2swap ;    \ from the port's coordinates
+: in-port   ( x y w h -- x' y' w h ) 2swap  oy @ - swap ox @ - swap  2swap ;    \ and back to them
+
+: from ( dx dy x y -- x-dx y-dy x y ) \ where what goes to x y comes from
+    2swap >r >r  over r> -  over r> -  2swap
 ;
 
 header scroll-rect : scroll-rect ( x y w h dx dy -- )
-    sdy ! sdx ! srh ! srw ! sry ! srx !
-    scroll-regions
-    srx @ ox @ +  sry @ oy @ +  srw @ srh @  s-rect @ rect-rgn
+    scroll-update @ 0= if new-rgn scroll-update ! then
+    2swap >r >r 2swap r> r>                         ( dx dy x y w h )
+    himem @ >r
+    RGN-STEP d# 3 * >c halloc >r                    ( R: himem, three regions )
+    on-screen r@ rect-rgn                           \ the first: the rectangle
     clip @  clip CELL + @  clip CELL2 + @ clip @ -  clip c# 3 + @ clip CELL + @ -
-    s-clip @ rect-rgn
-    s-rect @ s-clip @ s-both @ rgn-and
-    clip-rgn @ if
-        s-both @ clip-rgn @ s-all @ rgn-and
+    r@ RGN-STEP + rect-rgn                          \ the second: the clip rectangle
+    r@  r@ RGN-STEP +  r@ RGN-STEP 2* +  rgn-and    \ the third: what is in both
+    clip-rgn @ ?dup if                              \ the first: and in the clip region too, where pixels may be
+        r@ RGN-STEP 2* +  swap  r@ rgn-and
     else
-        s-both @ s-all @ rgn-copy
+        r@ RGN-STEP 2* +  r@ rgn-copy
     then
-    s-all @ s-from @ rgn-copy
-    sdx @ sdy @ s-from @ rgn-offset
-    s-all @ s-from @ s-move @ rgn-and
-    s-all @ s-move @ scroll-update @ rgn-diff
-    clip-rgn @ s-old !
-    s-move @ rgn-clip!
+    r@  r@ RGN-STEP +  rgn-copy
+    2dup r@ RGN-STEP + rgn-offset                   \ the second: that, moved
+    r@  r@ RGN-STEP +  r@ RGN-STEP 2* +  rgn-and    \ the third: the places that have a pixel to come to them
+    r@  r@ RGN-STEP 2* +  scroll-update @  rgn-diff \ and those that have none
+    clip-rgn @ -rot                                 ( clip dx dy )
     copy-mode
-    screen srx @ sry @  srx @ sdx @ +  sry @ sdy @ +  srw @ srh @ copy-bits
-    scroll-update @ rgn-clip!
+    r@ RGN-STEP 2* + dup rgn-clip!                  ( clip dx dy third )
+    dup rgn-empty? if
+        drop 2drop
+    else
+        >r screen -rot r>                           ( clip screen dx dy third )
+        rgn-box in-port                             ( clip screen dx dy x y w h )
+        >r >r from r> r>
+        copy-bits
+    then
     p-white pattern !
-    srx @ sry @ srw @ srh @ pat-rect
-    s-old @ rgn-clip!
+    scroll-update @ dup rgn-clip!
+    dup rgn-empty? if
+        drop
+    else
+        rgn-box in-port pat-rect
+    then
+    rgn-clip!
+    r> drop  r> himem !
 ;
