@@ -308,19 +308,26 @@ def main():
         source = read_text(shot, 253, 315, 46, 16)
         check("Down moves to the next word", source[0] == ": cold" and source[1].endswith(" catch drop")
               and source[2] == ";", repr(source[:3]))
-        for _ in range(16):                             # page down to "atkinson"
+        # Two words of the dither, which are next to each other in the list:
+        # dither-row has a fused instruction in it, and dither-start a plain
+        # word that is one instruction, and a variable that has no header.
+        for _ in range(16):                             # page down to them
             names = read_text(m.screenshot(f"{out}/10-list.png", settle=1.0), 143, 315, 13, 16)
-            if "atkinson" in names:
+            if "dither-row" in names and "dither-start" in names:
                 break
             m.key("pgdn")
-        check("PgDn pages through the dictionary", "atkinson" in names, repr(names[:4]))
-        m.click(143 + 8, 315 + names.index("atkinson") * 16 + 8 if "atkinson" in names else 345)
-        m.move(756, 24)
+        check("PgDn pages through the dictionary", "dither-row" in names and "dither-start" in names,
+              repr(names[:4]))
+
+        def listed(name):                               # click a name in the list
+            m.click(143 + 8, 315 + names.index(name) * 16 + 8 if name in names else 345)
+            m.move(756, 24)
+
+        listed("dither-row")
         shot = m.screenshot(f"{out}/10-fused.png")
         source = read_text(shot, 253, 315, 45, 16)
         check("a fused instruction is shown as its words",
-              source[0] == ": atkinson" and source[13].endswith(" @ < while"), repr(source[13]))
-        check("a headerless variable is shown by its label", source[1] == "  abm !", repr(source[1]))
+              source[0] == ": dither-row" and source[1].endswith(" @ * + adst !"), repr(source[1]))
 
         # Words in bold are one instruction.  With the pointer on them, a box
         # by them says which: its number, and its fields.  The box is a line
@@ -341,7 +348,12 @@ def main():
         check("the pointer on a fused instruction shows the machine's form of it",
               re.match(r"[0-9A-F]{4} \S*->IN \S+ ->\S+", told) is not None, repr((where, told)))
         # A word that is an instruction by itself says so too: rshift, on the
-        # third line.
+        # third line of dither-start.
+        listed("dither-start")
+        shot = m.screenshot(f"{out}/10-plain.png")
+        source = read_text(shot, 253, 315, 45, 16)
+        check("a headerless variable is shown by its label",
+              source[0] == ": dither-start" and source[1] == "  abm !", repr(source[:2]))
         told = ""
         if "rshift" in source[2]:
             c = source[2].index("rshift")
@@ -419,6 +431,15 @@ def main():
         shot = m.screenshot(f"{out}/13-names.png")
         text = read_text(shot, 15, 53, 50, 16)
         check("the tables of names load from the disk and unload", text[14] == "-1 0  ok", repr(text[12:16]))
+
+        # The picture was read and dithered by a task of its own, a row at a
+        # turn, which took itself out of the ring when the last row was made.
+        # Count the tasks round the ring: the desktop's and the Forth window's.
+        m.type(":noname up @ 0 begin 1+ swap @ swap over up @ = until nip ;\r")
+        m.type("execute .\r")
+        shot = m.screenshot(f"{out}/14-tasks.png")
+        text = read_text(shot, 15, 53, 50, 16)
+        check("the picture's task has left the ring", text[14] == "2  ok", repr(text[12:16]))
         if SCALE > 1:
             check(f"every pixel is a block of {SCALE} by {SCALE}", m.inexact == 0,
                   f"{m.inexact} of {m.shots} screens were not exact")

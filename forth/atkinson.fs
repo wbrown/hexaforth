@@ -128,8 +128,11 @@ INK-BLACK? [if]
 
 : anew ( x -- a ) an @ d# 2 + >c halloc 1+  tuck alanes ;
 
-header atkinson
-: atkinson ( bitmap -- ) \ dither the image into a new bitmap, as the display is
+\ A row is dithered at a time, so that whoever wants the picture can do
+\ something else between the rows, and can show the rows that are made.
+
+header dither-start
+: dither-start ( bitmap -- ) \ a new bitmap for the image, as the display is, with no rows made
     abm !
     tw @ PXMASK + PXSHIFT rshift abm @ CELL + !
     abm @ CELL + @ th @ * >c halloc abm @ !
@@ -140,14 +143,24 @@ header atkinson
     d# 0 anew aerr !
     pixels
     d# 0 ay !
+;
+
+header dither-row
+: dither-row ( -- ) \ the next row of the image, which must have been read
+    abm @ @  ay @ abm @ CELL + @ * +  adst !
+    arow
+    aspread
+    acur @  anxt @ acur !  anx2 @ anxt !  dup anx2 !
+    d# 0 swap alanes
+    d# 1 ay +!
+;
+
+header atkinson
+: atkinson ( bitmap -- ) \ dither the whole image into a new bitmap
+    dither-start
     begin
         ay @ th @ <
     while
-        abm @ @  ay @ abm @ CELL + @ * +  adst !
-        arow
-        aspread
-        acur @  anxt @ acur !  anx2 @ anxt !  dup anx2 !
-        d# 0 swap alanes
-        d# 1 ay +!
+        dither-row
     repeat
 ;

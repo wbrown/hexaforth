@@ -81,24 +81,66 @@ header tiff-open
     then
 ;
 
-create tdest 0 ,
+\ The strips are read a piece at a time, so that whoever reads them can do
+\ something else between the pieces: a piece is what is left of a strip, or
+\ of the block of the disk it is in if that is less.  Where each strip is
+\ and how long is noted before the first piece, in a table of two cells a
+\ strip, so that the directory is not gone back to while the image is read.
+
+create tdest 0 ,        \ where the next piece goes: the address of a byte
+create tstab 0 ,        \ the table: each strip's place in the file, and its length
+create tsend 0 ,        \ the end of the table,
+create tsp   0 ,        \ and the next strip in it
+create toff  0 ,        \ where in the file the strip being read goes on,
+create tleft 0 ,        \ and how many bytes of it are still to come
+create tgot  0 ,        \ bytes of the image read
+create twant 0 ,        \ and how many the rows asked for come to
+
+header tiff-start
+: tiff-start ( -- ) \ make room for the image, and note where its strips are
+    tw @ th @ * tspp @ * halloc raw !
+    raw @ >c tdest !
+    tstrips @ d# 4 + t32@                           ( strips )
+    dup 2* >c halloc dup tstab !  dup tsp !  over 2* + tsend !
+    d# 0
+    begin
+        2dupxor
+    while
+        dup tstrips @ selem  over 2* tstab @ + !
+        dup tcounts @ selem  over 2* tstab @ + CELL + !
+        1+
+    repeat
+    2drop
+    d# 0 tleft !  d# 0 tgot !  d# 0 twant !
+;
+
+: tiff-more ( -- more? ) \ read the next piece; false if there is no more to read
+    tleft @ 0= if
+        tsp @ tsend @ = if false exit then
+        tsp @ @ toff !  tsp @ CELL + @ tleft !
+        CELL2 tsp +!
+    then
+    d# 1024  toff @ tiff-base @ + h# 3ff and -  tleft @ min     ( n )
+    dup >r  tdest @ swap  toff @ tiff-base @ +  disk-read
+    r@ tdest +!  r@ toff +!  r@ tgot +!
+    r> negate tleft +!
+    true
+;
+
+header tiff-row
+: tiff-row ( -- ) \ read on until another row of the image is all there
+    tw @ tspp @ * twant +!
+    begin
+        tgot @ twant @ <
+    while
+        tiff-more 0= if exit then
+    repeat
+;
 
 header tiff-decode
 : tiff-decode ( -- ) \ load every strip
-    tw @ th @ * tspp @ * halloc raw !
-    raw @ >c tdest !
-    d# 0
-    begin
-        dup tstrips @ d# 4 + t32@ <
-    while
-        dup tcounts @ selem                         ( i count )
-        over tstrips @ selem                        ( i count offset )
-        over >r
-        tdest @ -rot tiff-base @ + disk-read
-        r> tdest +!
-        1+
-    repeat
-    drop
+    tiff-start
+    begin tiff-more 0= until
 ;
 
 \ The image is a run of bits, and memory is cells.  A cell is fetched once

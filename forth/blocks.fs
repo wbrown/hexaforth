@@ -43,10 +43,24 @@ header load
 ;
 
 \ Copy any byte range of the device into memory, across block boundaries.
+\
+\ A whole block that is wanted where a cell starts is not copied: the
+\ driver is handed the place it is wanted, and the buffer is left holding
+\ whatever block it held.  So something read a great deal at a time, as a
+\ picture is, does not turn out the block that is being edited, or write
+\ it back before it was asked to.  Only if the buffer holds that very
+\ block, which may have been changed since it was read, is it taken from
+\ there.
 
 create dr-dest 0 ,
 create dr-len  0 ,
 create dr-off  0 ,
+
+: lined? ( -- f ) \ is the next of it a whole block, to go where a cell starts?
+    dr-off @ h# 3ff and  dr-dest @ CELLB 1- and  or 0=
+    dr-len @ d# 1023 > and
+    dr-off @ d# 10 rshift blk-cur @ <> and
+;
 
 header disk-read
 : disk-read ( dest u offset -- ) \ dest is the address of a byte
@@ -54,13 +68,18 @@ header disk-read
     begin
         dr-len @
     while
-        dr-off @ d# 10 rshift block
-        dr-off @ h# 3ff and +                       ( src )
-        d# 1024 dr-off @ h# 3ff and -
-        dr-len @ min                                ( src n )
-        >r dr-dest @ r@ cmove
-        r@ dr-dest +!
-        r@ dr-off +!
-        r> negate dr-len +!
+        lined? if
+            dr-dest @ c>  dr-off @ d# 10 rshift  blk-read
+            d# 1024
+        else
+            dr-off @ d# 10 rshift block
+            dr-off @ h# 3ff and +                   ( src )
+            d# 1024 dr-off @ h# 3ff and -
+            dr-len @ min                            ( src n )
+            dup >r dr-dest @ swap cmove r>
+        then                                        ( n )
+        dup dr-dest +!
+        dup dr-off +!
+        negate dr-len +!
     repeat
 ;
