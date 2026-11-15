@@ -1,71 +1,99 @@
-\ tiff.fs - read an uncompressed TIFF from the block device into memory
+\ tiff.fs - read an uncompressed TIFF from the block device, a row at a time
 \
 \ Handles either byte order, 8-bit grayscale or RGB, and any number of
-\ strips.  The strips are read into memory at `raw` as they are stored, and
-\ `pixel` gives the image out of them a pixel at a time.
+\ strips.  The image is never all in memory: it may be bigger than memory
+\ is.  What is kept of it is a window, a row and a block long.  Blocks are
+\ read into the window as they are stored, just before the row that is in
+\ them is wanted, and `pixel` gives the row out of the window a pixel at a
+\ time; what has been taken is let go when the next row needs the room.
+\
+\ Nothing here is reached by the address of a byte, and no place in the
+\ file is kept as a count of bytes: a file may be longer than a cell can
+\ count, and the window may be where the address of a byte cannot say.  A
+\ place in the file is a block and a byte in it.
 
 \
 \ An image is a record, so that there may be more than one: what its file
-\ says of it, where its strips are and how far they have been read, and
-\ where its pixels have been taken up to.  `img` is the image in hand, and
-\ the words below are its cells.  Nothing here gives another task a turn,
-\ so an image is in hand for as long as the word that took it up runs; but
-\ no longer, and every word that others use takes the image it is to work
-\ on and takes it in hand.
+\ says of it, where its window is and what is in it, and where its pixels
+\ have been taken up to.  `img` is the image in hand, and the words below
+\ are its cells.  Nothing here gives another task a turn, so an image is in
+\ hand for as long as the word that took it up runs; but no longer, and
+\ every word that others use takes the image it is to work on and takes it
+\ in hand.
 
 create img 0 ,          \ the image in hand: its record
 
-$19 constant IMG-CELLS
+$15 constant IMG-CELLS
 
 header tw : tw     ( -- a ) img @ ;                 \ width, height
 header th : th     ( -- a ) img @ 1+ ;
 : tspp      ( -- a ) img @ CELL2 + ;                \ samples per pixel
 : tphoto    ( -- a ) img @ c# 3 + ;                 \ 0: white is zero  1: black is zero  2: RGB
 : tcomp     ( -- a ) img @ c# 4 + ;                 \ compression
-: tiff-base ( -- a ) img @ c# 5 + ;                 \ device byte offset of the file
+: tiff-base ( -- a ) img @ c# 5 + ;                 \ the block of the device the file starts at
 : tiff-be   ( -- a ) img @ c# 6 + ;                 \ true for a big-endian file
-: tstrips   ( -- a ) img @ c# 7 + ;                 \ file offsets of the StripOffsets and
-: tcounts   ( -- a ) img @ c# 8 + ;                 \ StripByteCounts directory entries
-: raw       ( -- a ) img @ c# 9 + ;                 \ the strips as stored: the address of a cell
-: tdest     ( -- a ) img @ c# 10 + ;                \ where the next piece goes: the address of a byte
-: tstab     ( -- a ) img @ c# 11 + ;                \ the table: each strip's place in the file, and its length
-: tsend     ( -- a ) img @ c# 12 + ;                \ the end of the table,
-: tsp       ( -- a ) img @ c# 13 + ;                \ and the next strip in it
-: toff      ( -- a ) img @ c# 14 + ;                \ where in the file the strip being read goes on,
-: tleft     ( -- a ) img @ c# 15 + ;                \ and how many bytes of it are still to come
-: tgot      ( -- a ) img @ c# 16 + ;                \ bytes of the image read
-: twant     ( -- a ) img @ c# 17 + ;                \ and how many the rows asked for come to
-: tbuf      ( -- a ) img @ c# 18 + ;                \ bits fetched and not yet taken,
-: tbn       ( -- a ) img @ c# 19 + ;                \ how many,
-: tbp       ( -- a ) img @ c# 20 + ;                \ and the next cell
-: tsrc      ( -- a ) img @ c# 21 + ;                \ the cell the next row starts in
-header 'pixel : 'pixel ( -- a ) img @ c# 22 + ;     \ ( -- g )  the next pixel's gray
-header 'grays : 'grays ( -- a ) img @ c# 23 + ;     \ ( lanes -- )  a row's grays, or 0: see below
-: tscratch  ( -- a ) img @ c# 24 + ;
+: tfblk     ( -- a ) img @ c# 7 + ;                 \ the block of the file that bytes are counted from
+: tdblk     ( -- a ) img @ c# 8 + ;                 \ the block the directory is in,
+: tstrips   ( -- a ) img @ c# 9 + ;                 \ and the byte from there of its StripOffsets entry, or 0
+: trps      ( -- a ) img @ c# 10 + ;                \ rows in a strip
+: raw       ( -- a ) img @ c# 11 + ;                \ the window; or the whole image, if it is in memory
+: wend      ( -- a ) img @ c# 12 + ;                \ the cell after the last that has been read into it
+: tblk      ( -- a ) img @ c# 13 + ;                \ the block of the device that comes next
+: tstrip    ( -- a ) img @ c# 14 + ;                \ the strip that comes next,
+: tsleft    ( -- a ) img @ c# 15 + ;                \ and the rows still to come of the one being read
+: tbuf      ( -- a ) img @ c# 16 + ;                \ bits fetched and not yet taken,
+: tbn       ( -- a ) img @ c# 17 + ;                \ how many,
+: tbp       ( -- a ) img @ c# 18 + ;                \ and the next cell
+header 'pixel : 'pixel ( -- a ) img @ c# 19 + ;     \ ( -- g )  the next pixel's gray
+header 'grays : 'grays ( -- a ) img @ c# 20 + ;     \ ( lanes -- )  a row's grays, or 0: see below
+
+meta
+:: BLKCELLS  #1024 cell-bytes / literal ;           \ cells in a block
+:: BITSHIFT  byte-shift 3 + literal ;               \ from a count of bits to a count of cells
+target
 
 : new-image ( -- ) \ a record with nothing in it, in hand
     IMG-CELLS >c halloc  dup img !
     d# 0 swap IMG-CELLS cells-fill
 ;
 
-: tbytes ( off n -- a ) \ n bytes of the file, in tscratch
-    tscratch >c swap rot tiff-base @ + disk-read
-    tscratch >c
+\ The directory is read through the block buffer, a byte at a time: a
+\ byte is shifted out of the cell it is in.  A byte's place is counted from
+\ the start of a block of the file (tfblk), so that it is a small number
+\ wherever in the file it is, and a field may lie across two blocks.  A
+\ number of 32 bits is its two halves, which a cell of any size holds.
+
+: byte@ ( a n -- b ) \ byte n of the cells from a; a cell's lowest byte is its first
+    dup BYTESHIFT rshift rot + @
+    swap CELLB 1- and d# 3 lshift rshift
+    h# ff and
 ;
 
-: t16@ ( off -- x ) d# 2 tbytes  tiff-be @ if be16@ else uw@ then ;
-: t32@ ( off -- x ) d# 4 tbytes  tiff-be @ if be32@ else l@ then ;
+: t8@ ( byte -- b )
+    dup d# 10 rshift tfblk @ + tiff-base @ + cblock
+    swap h# 3ff and byte@
+;
+
+: t16@ ( byte -- x ) dup t8@ swap 1+ t8@  tiff-be @ if swap then  d# 8 lshift or ;
+: t32@ ( byte -- lo hi ) dup t16@ swap d# 2 + t16@  tiff-be @ if swap then ;
+
+: tseek ( lo hi -- byte ) \ a place in the file: bytes are counted from its block, and it is this one
+    d# 6 lshift over d# 10 rshift or tfblk !
+    h# 3ff and
+;
 
 \ A directory entry is tag, type, count, value: 2, 2, 4 and 4 bytes.  A
 \ SHORT (type 3) value sits in the first two bytes of the value field.
 
-: tval ( entry -- x ) \ a single SHORT or LONG value
+: tval2 ( entry -- lo hi ) \ a single SHORT or LONG value
     dup d# 2 + t16@ d# 3 = if
-        d# 8 + t16@
+        d# 8 + t16@ d# 0
     else
         d# 8 + t32@
     then
 ;
+
+: tval ( entry -- x ) tval2 d# 16 lshift or ;       \ as much of it as a cell holds
 
 : tfield ( entry tag n var -- entry tag ) \ if the tag is n, keep its value
     >r over = if over tval r@ ! then rdrop
@@ -78,14 +106,13 @@ header 'grays : 'grays ( -- a ) img @ c# 23 + ;     \ ( lanes -- )  a row's gray
 header tiff-open
 : tiff-open ( blk# -- img ) \ read the directory of the TIFF starting at a block
     new-image
-    d# 10 lshift tiff-base !
+    tiff-base !
     d# 1 tspp !  d# 1 tcomp !  d# 1 tphoto !
-    d# 0 tiff-be !
     d# 0 t16@
     dup h# 4d4d = tiff-be !                         \ "MM"
     dup h# 4949 <> swap h# 4d4d <> and d# 38 -throw \ or "II"
     d# 2 t16@ d# 42 <> d# 38 -throw
-    d# 4 t32@                                       ( ifd )
+    d# 4 t32@ tseek  tfblk @ tdblk !                ( ifd )
     dup t16@ swap d# 2 +                            ( n entry )
     swap d# 12 * over + swap                        ( end entry )
     begin
@@ -97,87 +124,31 @@ header tiff-open
         d# 259 tcomp   tfield
         d# 262 tphoto  tfield
         d# 277 tspp    tfield
+        d# 278 trps    tfield
         d# 273 tstrips tentry
-        d# 279 tcounts tentry
         drop d# 12 +
     repeat
     2drop
     tcomp @ d# 1 <> d# 38 -throw                    \ uncompressed only
+    tstrips @ 0= d# 38 -throw
+    trps @ 1- th @ u< 0= if th @ trps ! then        \ a file that does not say has one strip
+    tw @ tspp @ *  d# 1024 +  CELLB + halloc raw !  \ the window: a row, a block, and a cell
     img @
 ;
 
-: selem ( i entry -- x ) \ value i of a StripOffsets or StripByteCounts entry
-    dup d# 4 + t32@ d# 1 = if nip tval exit then    \ one value: held inline
-    dup d# 2 + t16@ d# 3 = if
-        d# 8 + t32@ swap 2* + t16@                  \ array of SHORT
+: selem ( i -- lo hi ) \ where strip i starts in the file
+    tdblk @ tfblk !
+    tstrips @  dup d# 2 + t16@ d# 3 = >r            ( i entry ) ( R: whether they are SHORTs )
+    dup d# 4 + t32@ drop  r@ if d# 3 else d# 2 then u< if
+        d# 8 +                                      \ values that fit in the entry are in it
     else
-        d# 8 + t32@ swap d# 2 lshift + t32@         \ array of LONG
+        d# 8 + t32@ tseek                           \ and more are where it says
+    then                                            ( i byte )
+    r> if
+        swap 2* + t16@ d# 0
+    else
+        swap d# 2 lshift + t32@
     then
-;
-
-\ The strips are read a piece at a time, so that whoever reads them can do
-\ something else between the pieces: a piece is what is left of a strip, or
-\ of the block of the disk it is in if that is less.  Where each strip is
-\ and how long is noted before the first piece, in a table of two cells a
-\ strip, so that the directory is not gone back to while the image is read.
-
-header tiff-start
-: tiff-start ( img -- ) \ make room for the image, and note where its strips are
-    img !
-    tw @ th @ * tspp @ * halloc raw !
-    raw @ >c tdest !
-    tstrips @ d# 4 + t32@                           ( strips )
-    dup 2* >c halloc dup tstab !  dup tsp !  over 2* + tsend !
-    d# 0
-    begin
-        2dupxor
-    while
-        dup tstrips @ selem  over 2* tstab @ + !
-        dup tcounts @ selem  over 2* tstab @ + CELL + !
-        1+
-    repeat
-    2drop
-    d# 0 tleft !  d# 0 tgot !  d# 0 twant !
-;
-
-: tiff-more ( -- more? ) \ read the next piece; false if there is no more to read
-    tleft @ 0= if
-        tsp @ tsend @ = if false exit then
-        tsp @ @ toff !  tsp @ CELL + @ tleft !
-        CELL2 tsp +!
-    then
-    d# 1024  toff @ tiff-base @ + h# 3ff and -  tleft @ min     ( n )
-    dup >r  tdest @ swap  toff @ tiff-base @ +  disk-read
-    r@ tdest +!  r@ toff +!  r@ tgot +!
-    r> negate tleft +!
-    true
-;
-
-header tiff-row
-: tiff-row ( img -- ) \ read on until another row of the image is all there
-    img !
-    tw @ tspp @ * twant +!
-    begin
-        tgot @ twant @ <
-    while
-        tiff-more 0= if exit then
-    repeat
-;
-
-header tiff-decode
-: tiff-decode ( img -- ) \ load every strip
-    tiff-start
-    begin tiff-more 0= until
-;
-
-\ An image that is in memory already, as its strips would be if they had
-\ been read: for whoever has one from somewhere other than a file.
-header image-is
-: image-is ( cell w h samples -- img ) \ gray, black being nothing, if it has one sample to a pixel
-    new-image
-    tspp !  th !  tw !  raw !
-    d# 1 tphoto !
-    img @
 ;
 
 \ The image is a run of bits, and memory is cells.  A cell is fetched once
@@ -198,6 +169,66 @@ header image-is
         tbuf @ 2dup swap rshift tbuf !              ( n x )
         swap negate tbn +!
     then
+;
+
+\ The window.  A block is read where the last one ended, so the bytes of
+\ the file are next to each other in it as they are in the file, and a row
+\ is a run of cells.  When the next row is not all there, the cells that
+\ have not been taken are moved to the front and blocks are read after
+\ them until it is: so a block is read only if a row that is wanted has
+\ bytes in it, and nothing is read past the end of the image.
+\
+\ A strip is whole rows, and may be anywhere in the file.  At the first
+\ row of one the window starts again, from the block the strip starts in.
+
+: win-block ( -- ) \ the next block, after what the window has
+    tblk @ blk-cur @ = if flush then                \ as it now is, if it is the one being edited
+    wend @ tblk @ blk-read
+    BLKCELLS wend +!  d# 1 tblk +!
+;
+
+: next-strip ( -- ) \ go to where the next strip starts
+    tstrip @ selem  d# 1 tstrip +!                  ( lo hi )
+    tseek  tfblk @ tiff-base @ + tblk !             ( byte )
+    raw @ wend !  win-block
+    dup BYTESHIFT rshift raw @ + tbp !  d# 0 tbn !  d# 0 tbuf !
+    CELLB 1- and d# 3 lshift ?dup if                \ it does not start where a cell does:
+        take drop  d# 0 'grays !                    \ then its rows are not cells
+    then
+    trps @ tsleft !
+;
+
+: row-there ( -- ) \ read on until the next row is all in the window
+    tw @ tspp @ * d# 3 lshift  tbn @ -              \ the bits of it that are not fetched yet,
+    CELLBITS 1- + BITSHIFT rshift                   ( n ) \ as cells
+    dup tbp @ + wend @ u> if
+        tbp @ raw @  wend @ tbp @ -  dup >r cells-move
+        raw @ dup tbp !  r> + wend !
+        dup raw @ +                                 ( n need )
+        begin dup wend @ u> while win-block repeat
+        drop
+    then
+    drop
+;
+
+header tiff-row
+: tiff-row ( img -- ) \ take the image in hand, with its next row all there to be taken
+    img !
+    tsleft @ 0= if next-strip then
+    d# -1 tsleft +!
+    row-there
+;
+
+\ An image that is in memory already, as its strips would be if they had
+\ been read: for whoever has one from somewhere other than a file.  It is
+\ one strip, and a window that has everything in it.
+header image-is
+: image-is ( cell w h samples -- img ) \ gray, black being nothing, if it has one sample to a pixel
+    new-image
+    tspp !  th !  tw !  raw !
+    d# 1 tphoto !
+    d# -1 wend !
+    img @
 ;
 
 \ A pixel's gray: its one sample, or 77 R + 150 G + 29 B over 256.  A pixel
@@ -263,7 +294,7 @@ W64? [if]
 ;
 
 : gray-lanes ( lanes -- ) \ the next row's grays, each added to its pixel's lane
-    tsrc @ >r                                       ( a ) ( R: the three cells )
+    tbp @ >r                                        ( a ) ( R: the three cells )
     tw @ d# 2 rshift over + swap                    ( end a )
     begin
         2dupxor
@@ -273,24 +304,26 @@ W64? [if]
         CELL2 +  r> c# 3 + >r
     repeat
     2drop
-    r> tsrc !
+    r> tbp !
 ;
 
 [then]
 
 \ 'grays ( lanes -- ) adds a row's grays to a row of lanes, or is 0 if the
-\ image is one whose pixels have to be asked for one at a time.
+\ image is one whose pixels have to be asked for one at a time: one whose
+\ rows are not whole cells, or are not where cells start.
 
 header image! : image! ( img -- ) img ! ;           \ take an image in hand
 
 header pixels
 : pixels ( -- ) \ the image in hand starts again from its first pixel
     raw @ tbp !  d# 0 tbn !  d# 0 tbuf !
+    d# 0 tstrip !
+    tstrips @ if d# 0 else th @ then tsleft !       \ a file starts at its first strip
     tspp @ d# 3 = if ['] rgb else tspp @ d# 1 = if ['] gray1 else ['] grayn then then
     'pixel !
     d# 0 'grays !
 W64? [if]
-    raw @ tsrc !
     tspp @ d# 3 =  tw @ d# 7 and 0=  and if ['] gray-lanes 'grays ! then
 [then]
 ;

@@ -256,8 +256,8 @@ header dither-start
 ;
 
 header dither-row
-: dither-row ( dither -- ) \ the next row of its image, which must have been read
-    dth !  aimg @ image!
+: dither-row ( dither -- ) \ the next row of its image, which is read if it has to be
+    dth !  aimg @ tiff-row
     acur @  abm @ @  ay @ abm @ CELL + @ * +        ( lanes dst )
     over agrays  over apixels  over atrim
     abits

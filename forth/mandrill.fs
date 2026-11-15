@@ -10,7 +10,7 @@ create showbm 0 , 0 ,
 
 header show
 : show ( blk# -- ) \ dither the TIFF starting at a block, centred
-    tiff-open  dup tiff-decode
+    tiff-open
     showbm swap atkinson
     copy-mode
     showbm d# 0 d# 0

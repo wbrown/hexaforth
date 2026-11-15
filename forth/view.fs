@@ -3,9 +3,10 @@
 \ The image is dithered once, into a bitmap as the display is.  Painting
 \ the window is then a matter of copying it to the screen.
 \
-\ Reading the image and dithering it take a while: 20 million
+\ Reading the image and dithering it take a while: 10 million
 \ instructions for the mandrill.  So a task does them, a row of the image
-\ at each of its turns, and the desktop goes on meanwhile.  The window
+\ at each of its turns, and the desktop goes on meanwhile.  Only the row
+\ being dithered is read, so what is kept is the bitmap.  The window
 \ shows the rows that are made, so the picture comes down the window.  The
 \ rows are put out of date eight at a time and not one, since each time
 \ costs something more than the row.  When the last row is made the task
@@ -55,7 +56,7 @@ create vparts 3 ,       \ the parts of the stacks that no task has: a bit each
     bmh @ th @ < 0= if
         view-shown  vpart @ vparts or!  retire  exit
     then
-    vimg @ tiff-row  vdth @ dither-row
+    vdth @ dither-row
     d# 1 bmh +!
     bmh @ d# 7 and 0= if view-shown then
 ;
@@ -65,7 +66,7 @@ header view-load : view-load ( blk# -- viewer ) \ start on the TIFF that starts 
     tiff-open                                       ( img )
     VIEW-CELLS >c halloc  dup vw !
     d# 0 swap VIEW-CELLS cells-fill
-    dup vimg !  dup tiff-start
+    dup vimg !
     bm swap dither-start vdth !
     vparts @ d# 1 and if d# 1 else d# 2 then        \ a part of the stacks: the higher if it is free
     dup vpart !  dup vparts xor!

@@ -44,6 +44,7 @@ for m in "64 22 768 576 0x4000" "32 17 768 576 0x8000" "16 16 512 342 0x8000"; d
         run display-$C-$s python3 test/display_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s 150 $C $W $H
         run regions-$C-$s python3 test/region_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s 400 $C
         run dither-$C-$s python3 test/dither_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s $C
+        run tiff-$C-$s python3 test/tiff_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s $C
     done
 done
 git checkout util/__pycache__ baremetal/__pycache__ test/__pycache__ 2>/dev/null

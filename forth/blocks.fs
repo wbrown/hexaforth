@@ -23,15 +23,20 @@ header flush
     then
 ;
 
-header block
-: block ( blk# -- a ) \ address of the first byte of a buffer holding the block
+header cblock
+: cblock ( blk# -- a ) \ the cell that a buffer holding the block starts at
     blk-buf @ 0= if d# 1024 halloc blk-buf ! then
-    dup blk-cur @ = if drop blk-buf @ >c exit then
+    dup blk-cur @ = if drop blk-buf @ exit then
     flush
     d# -1 blk-cur !
     blk-buf @ over blk-read
     blk-cur !
-    blk-buf @ >c
+    blk-buf @
+;
+
+header block
+: block ( blk# -- a ) \ address of the first byte of a buffer holding the block
+    cblock >c
 ;
 
 header update
