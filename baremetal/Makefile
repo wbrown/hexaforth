@@ -12,6 +12,8 @@
 #   make demo MIPS=5    the same at five million instructions a second and
 #                   no more, however fast the host is (make run MIPS=5 too)
 #   make demo-profile  drive it, and say where the instructions went
+#   make demo-time MIPS=1   say when the desktop is ready and when its
+#                   picture is made, on a machine of that speed
 
 # KERNEL picks the native kernel: hexaforth (small) or hexaforth-fast.
 KERNEL ?= hexaforth
@@ -162,4 +164,10 @@ demo-profile: $(B)/hexaforth-profile.elf $(B)/disk.img
 	cp $(B)/disk.img $(B)/gui.img
 	python3 deskprof.py $< $(B)/gui.img $(HEX) ../build/nuc.sizes
 
-.PHONY: all size run test demo demo-test demo-profile clean
+# Boot the desktop, leave it alone, and say when it is ready and when the
+# picture is made: at full speed, or with MIPS on a machine of that speed.
+demo-time: $(B)/$(KERNEL)-display$(M).elf $(B)/disk.img
+	cp $(B)/disk.img $(B)/gui.img
+	python3 desktime.py $< $(B)/gui.img $(B)/disk.tiff $(HEX)
+
+.PHONY: all size run test demo demo-test demo-profile demo-time clean

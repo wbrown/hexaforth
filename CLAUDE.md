@@ -662,6 +662,19 @@ are in two registers and nothing is kept in memory; a kernel built without
 `MIPS` is the same to the byte as before. The tests and the profile are
 always at full speed.
 
+`make demo-time MIPS=1` boots the desktop on such a kernel, leaves it
+alone, and says when things happen, in seconds from when the machine was
+started (`baremetal/desktime.py`): when the console says the desktop is
+up, when the Forth window has its prompt on the screen, and when the
+first row of the picture, half its rows and all of them are made. At 1
+MIPS those are 0.1, 0.9, 0.9, 10.3 and 19.6 seconds. It is what to measure
+before and after a change to how the picture is read, dithered or shown:
+how many rows are put out of date at a time was chosen with it. The prompt
+is looked for on the screen; the rows made are read out of the machine's
+memory, where `vw` in `view.fs` is the viewer in hand and the third cell
+of a viewer's record is the rows that are made (`bmh`), so the script
+changes if they do, and says so if the image has no `vw`.
+
 `test/prompt_test.py VM IMAGE.hex [CELL_BITS]` types Forth at the nucleus's
 prompt on the reference VM and checks what comes back: definitions, wide
 numbers, that the nucleus's compiler uses the variable instructions and
