@@ -143,6 +143,14 @@ header tiff-decode
     begin tiff-more 0= until
 ;
 
+\ An image that is in memory already, as its strips would be if they had
+\ been read: for whoever has one from somewhere other than a file.
+header image-is
+: image-is ( cell w h samples -- ) \ gray, black being nothing, if it has one sample to a pixel
+    tspp !  th !  tw !  raw !
+    d# 1 tphoto !
+;
+
 \ The image is a run of bits, and memory is cells.  A cell is fetched once
 \ and what is wanted is shifted out of it: tbuf holds the bits fetched and
 \ not yet taken, lowest first, and tbn how many there are.  `take` gives

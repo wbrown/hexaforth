@@ -1019,6 +1019,14 @@ variable in-depth
     tcalign
     pixels cell-bytes 0 do dup tc, loop drop
 ;
+\ How many cells n runs of 64 pixels are, laid down as a cell: a bitmap that
+\ px, lays down says how long its rows are with this.
+:: px-cells, ( n -- )
+    #64 cell-bits / *
+    tcalign
+    there tcell!  cell-bytes tdp +!
+;
+
 \ 64 pixels of a bitmap, written with the leftmost highest, as the cells
 \ the display would hold them in.
 :: px, ( pixels -- )
@@ -1364,6 +1372,7 @@ warnings on
 :: HDR-BASE   hdr-base literal ;                \ where headers start, and data must stop
 :: CODE-BASE  code-base literal ;
 :: CODE-SIZE  code-size literal ;
+:: DISPLAY? disp-w 0<> ;                \ has the machine a display?
 :: W64?   cell-bits #64 = ;
 :: W32?   cell-bits #32 = ;
 :: W32+?  cell-bits #32 >= ;

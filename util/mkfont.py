@@ -11,7 +11,10 @@ font.fs    Two fonts for ASCII 32-126, each 16 rows high:
            (height, first character, how many, cells in a row of the
            strike, and a zero the system uses), then where each glyph starts and where the last ends,
            then the strike, 64 pixels to a line with the leftmost highest.
-           cross.fs lays those down in the display's own order (px,).
+           cross.fs lays those down in the display's own order (px,), in
+           cells of whatever width the machine has, and the cells in a row
+           are given as runs of 64 pixels for it to make cells of
+           (px-cells,).
 keymap.fs  Linux key codes (as virtio-input reports them) to ASCII: 128
            entries unshifted, then 128 shifted.  Cursor keys get codes
            from 128 up.
@@ -52,7 +55,7 @@ def strike(name, chars):
         starts.append(starts[-1] + width)
     stride = (starts[-1] + 63) // 64
     lines = [f"header {name} create {name}",
-             f"#{HEIGHT} , #{FIRST} , #{COUNT} , #{stride} , #0 ,"]
+             f"#{HEIGHT} , #{FIRST} , #{COUNT} , #{stride} px-cells, #0 ,"]
     lines += [" ".join(f"#{s} ," for s in starts[i:i + 12]) for i in range(0, len(starts), 12)]
     for y in range(HEIGHT):
         row = [bit for _, rows in chars for bit in rows[y]]

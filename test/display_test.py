@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the drawing words in forth/display.fs against a model of them.
 
-    display_test.py VM IMAGE.hex [SEED [COUNT]]
+    display_test.py VM IMAGE.hex [SEED [COUNT [CELL_BITS [W H]]]]
     OPS="scroll region rect text" display_test.py ...   only those operations
 
 Draws the same random sequence of fills, text, copies and scrolls twice,
@@ -9,6 +9,10 @@ in ports with random origins, clip rectangles and clip regions:
 on the reference VM, by typing Forth at its prompt, and here, a pixel at a
 time.  The VM then prints its bitmap and the two are compared.  The display
 is in the VM's memory, so nothing has to show it.
+
+The machine may have cells of 64 bits, 32 or 16, and a display of any
+size that is a whole number of cells across: the drawing is the same, and
+only how the bitmap is read back differs.
 """
 import os
 import random
@@ -18,7 +22,7 @@ import subprocess
 import sys
 
 HERE = __file__.rsplit("/", 2)[0]
-W, H, STRIDE = 768, 576, 12
+W, H, BITS = 768, 576, 64                           # the display, and the cell it is drawn with
 PATTERNS = {"p-white": [0] * 8, "p-black": [0xFF] * 8, "p-gray": [0xAA, 0x55] * 4,
             "p-ltgray": [0x88, 0x22] * 4, "p-dkgray": [0x77, 0xDD] * 4}
 MODES = {"copy-mode": lambda d, s: s, "or-mode": lambda d, s: d | s,
@@ -119,7 +123,7 @@ def session(seed, count):
     lines = ["display-init", "create tb0 64 allot", ": tb tb0 >c ;", ": ch tb + c! ;",
              "new-rgn constant ra", "new-rgn constant rb", "new-rgn constant rc",
              "new-rgn constant rd", "new-rgn constant re",
-             ": dump hex 576 0 do i row 12 0 do dup i + @ . loop drop cr loop decimal ;"]
+             f": dump hex {H} 0 do i row {W // BITS} 0 do dup i + @ . loop drop cr loop decimal ;"]
     for _ in range(count):
         op = rng.choice(only or ["rect"] * 4 + ["text"] * 4 + [
             "copy", "scroll", "clip", "noclip", "mode", "origin", "font", "region", "region",
@@ -217,9 +221,14 @@ def session(seed, count):
 
 
 def main():
+    global W, H, BITS
     vm, image = sys.argv[1:3]
     seed = int(sys.argv[3]) if len(sys.argv) > 3 else 1
     count = int(sys.argv[4]) if len(sys.argv) > 4 else 300
+    if len(sys.argv) > 5:
+        BITS = int(sys.argv[5])
+    if len(sys.argv) > 7:
+        W, H = int(sys.argv[6]), int(sys.argv[7])
     lines, m = session(seed, count)
     out = subprocess.run([vm, image], input="\n".join(lines) + "\n", capture_output=True,
                          text=True, errors="replace").stdout
@@ -227,20 +236,20 @@ def main():
         print("the VM reported an error:", out[out.index("error:") - 80:][:200])
         return 1
     rows = [l.split() for l in out[out.rindex("dump") + 4:].splitlines()]
-    rows = [r for r in rows if len(r) == STRIDE][:H]
+    rows = [r for r in rows if len(r) == W // BITS][:H]
     if len(rows) != H:
         print(f"expected {H} rows of the bitmap, got {len(rows)}")
         return 1
     bad = 0
     for y, row in enumerate(rows):
         for i, word in enumerate(row):
-            cell = int(word, 16) & (1 << 64) - 1
-            for b in range(64):
-                if (cell >> b & 1) != m.px[y][64 * i + b]:
+            cell = int(word, 16) & (1 << BITS) - 1
+            for b in range(BITS):
+                if (cell >> b & 1) != m.px[y][BITS * i + b]:
                     bad += 1
                     if bad <= 5:
-                        print(f"pixel {64 * i + b},{y} is {cell >> b & 1}, should be {m.px[y][64 * i + b]}")
-    print(f"seed {seed}: {count} drawing operations, {bad} pixels differ")
+                        print(f"pixel {BITS * i + b},{y} is {cell >> b & 1}, should be {m.px[y][BITS * i + b]}")
+    print(f"seed {seed}, cells of {BITS} bits, {W} by {H}: {count} drawing operations, {bad} pixels differ")
     return 1 if bad else 0
 
 

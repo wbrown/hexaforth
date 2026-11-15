@@ -456,8 +456,10 @@ Pages 8 and 9 are the drivers and the desktop:
   two rows below a cell at a time. The dither keeps three rows of lanes,
   the bitmap and how far down it is, between one row and the next, and
   nothing else: it had seventeen variables and a pixel cost 73
-  instructions, and it has six and a pixel costs 38. It wants two lanes
-  to a cell, so cells of 32 bits or 64. `take` shifts a pixel out of a
+  instructions, and it has six and a pixel costs 38. A cell of 16 bits is
+  one lane, and there what a pixel gives the two after it is two numbers
+  on the stacks and not lanes of the cell; the rest is the same words.
+  `take` shifts a pixel out of a
   cell fetched once, for an image that has to be asked for a pixel at a
   time. A row of an image of three samples that lies on cells
   (its width a multiple of eight) is not asked for a pixel at a time:
@@ -774,9 +776,8 @@ fetched back.)
   for the three; `scroll-update`, which whoever scrolled reads, is the one
   variable left
 - coordinates are less than `END-MIN` from nothing either way: 2^31 with
-  64 bits, 4,096 with 16. Nothing in `region.fs` or in what reads a region
-  has a number in it that wants a wide cell, but only the 64-bit machine
-  builds them, so that is by reading and not by test
+  64 bits, 4,096 with 16. `test/sizes.sh` runs the region test and the
+  drawing under regions with cells of 64, 32 and 16 bits
 
 In the profile `region.fs` ran 1,617,696 instructions and 2,142,456 cycles
 as it was, 29% of them fetches and stores of variables, and runs 1,166,113
@@ -910,8 +911,26 @@ flags `W64?`, `W32?`, `W32+?` for `[if]`.
 nucleus and the reference VM for a size, into `build/`. The default
 (checked-in `basewords.fs`, plain `make`) is 64-bit cells and 32MB.
 
-At 32 and 16 bits only the kernel is built: `system.fs` (drivers and the
-desktop) is written for 64-bit cells. With a 16-bit cell memory is 65,536
+`test/sizes.sh` builds the machine with cells of 64 bits, of 32 and of 16,
+each with a display and each `STRICT`, and runs on each the tests that
+type at the reference VM's prompt: the nucleus, the drawing words against
+their model, regions a cell at a time, and the dither against a dither a
+pixel at a time (`test/dither_test.py`, which makes images in memory with
+`image-is`). Run it after changing anything that draws: nothing is cell-
+size safe that it has not run. The first time the drawing was built at 32
+and 16 bits it found text wrong at both, since a font said how long a row
+of its strike is in cells of 64 bits; fonts now say it in runs of 64
+pixels (`px-cells,`).
+
+A machine with cells of 32 or 16 bits that has a display (`-DDISP_W=...`
+and the rest, through `EXTRA` to `build-machine.sh`) has `graphics.fs`:
+the display, regions, rectangles, the TIFF reader and the dither, which
+are written for any cell, and no drivers or desktop. With 16-bit cells its
+code is below instruction `0x8000`, where a header's 15 bits reach: page
+1, and the first of the two pages that run-time definitions have. The
+desktop and its drivers (`system.fs`) are built only with 64-bit cells,
+and so are the AArch64 kernels, which is why nothing of the desktop is
+tested at the other sizes yet. With a 16-bit cell memory is 65,536
 cells, run-time code goes at instruction `0x6000`, and an execution token is
 15 bits, since the top bit of its cell in a header is the immediate flag. A shift count is taken modulo 64, so a shift by
 16 to 63 gives zero where cells are 16 or 32 bits, which `w!` and the

@@ -2,7 +2,7 @@
 """Regions: the idea, and the machine against it.
 
     region_test.py [SEED]                   the model alone
-    region_test.py VM IMAGE.hex [SEED [COUNT]]   region.fs on the reference VM
+    region_test.py VM IMAGE.hex [SEED [COUNT [CELL_BITS]]]   region.fs on the reference VM
 
 A region is a count of the cells that follow, and then bands.  A band is
 
@@ -34,6 +34,13 @@ END_MIN = 1 << 31                       # every crossing is below this and every
 NEVER = 1 << 33
 mem = [0] * 200000
 top = [2]
+
+
+def cell_of(bits):
+    """The three numbers, as display.fs makes them for a cell of that width."""
+    global AS_END, END_MIN, NEVER
+    AS_END = 1 << min(bits - 3, 32)
+    END_MIN, NEVER = AS_END >> 1, AS_END << 1
 
 
 def new_rgn():
@@ -146,7 +153,7 @@ def model(seed):
 REGIONS = 8
 
 
-def machine(vm, image, seed, count):
+def machine(vm, image, seed, count, bits=64):
     rng = random.Random(seed)
     lines = [f"new-rgn constant r{i}" for i in range(REGIONS)]
     lines.append(": d swap . dup @ 1+ over + swap do i @ . loop ;")     # ( n rgn -- )
@@ -200,7 +207,8 @@ def machine(vm, image, seed, count):
             failed += 1
             if failed <= 5:
                 print(f"FAIL {line}\n  wanted {' '.join(map(str, cells))}\n  got    {' '.join(got)}")
-    print(f"the machine, seed {seed}: {len(want)} regions and boxes looked at, {failed} wrong")
+    print(f"the machine, cells of {bits} bits, seed {seed}: {len(want)} regions and boxes looked at, "
+          f"{failed} wrong")
     return 1 if failed else 0
 
 
@@ -212,7 +220,9 @@ def main():
     vm, image = args[:2]
     seed = int(args[2]) if len(args) > 2 else 1
     count = int(args[3]) if len(args) > 3 else 400
-    return machine(vm, image, seed, count)
+    bits = int(args[4]) if len(args) > 4 else 64
+    cell_of(bits)
+    return machine(vm, image, seed, count, bits)
 
 
 if __name__ == "__main__":

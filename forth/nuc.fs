@@ -1603,14 +1603,20 @@ meta
     $2000 org
 target
 
-\ The nucleus's peephole (join.fs) is in every size of machine.  The rest
-\ is written for 64-bit cells: the drivers and the display work in 64-bit
-\ quantities throughout.  system.fs has the peephole on a page of its own,
-\ after everything else.
+\ The nucleus's peephole (join.fs) is in every size of machine.  A machine
+\ with 64-bit cells has all of system.fs, the drivers and the desktop,
+\ with the peephole on a page of its own after everything else.  A smaller
+\ machine that has a display has what draws on it (graphics.fs): the
+\ display, regions and the dither, which are written for any cell.  One
+\ with no display has the peephole alone.
 W64? [if]
 include system.fs
 [else]
+DISPLAY? [if]
+include graphics.fs
+[else]
 include join.fs
+[then]
 [then]
 
 meta

@@ -16,7 +16,16 @@ header reg64! : reg64! ( x pa -- ) h# c0 io!  h# c8 io! ;
 
 \ Memory above the dictionary, for buffers too big for it.  Never freed.
 
-create himem $30000 ,       \ in bytes: cell $6000, after the display
+\ It starts after the display, which is the last thing the machine itself
+\ lays out.
+meta
+: display-end ( -- byte ) \ where the last bank's last row ends
+    disp-bank-step disp-banks 1- *
+    disp-h disp-banks + 1- disp-banks / disp-stride * +
+    disp-base + cell-bytes *  $f + $f invert and
+;
+target
+create himem  meta display-end target ,     \ in bytes
 
 header halloc
 : halloc ( u -- a ) \ u bytes, 16-byte aligned; a is the address of a cell

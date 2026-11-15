@@ -44,10 +44,10 @@
 \ bitmap and how far down it is, between one row and the next.  Nothing
 \ else is kept: a row is done on the stacks.
 \
-\ A cell must hold two lanes at least, for a pixel to give to the two
-\ after it: cells of 32 bits or 64.
-
-W32+? [if]
+\ A cell of 16 bits is one lane, and what a pixel gives to the two after
+\ it cannot ride in the cell.  Then it is two numbers: what the next pixel
+\ is owed by the two before it, and what the last pixel gave, which the
+\ one after the next is owed.  Everything else is the same words.
 
 meta
 cell-bits #16 / constant lanes                      \ lanes to a cell
@@ -63,7 +63,7 @@ each-lane constant lane1                            \ 1 in each lane
 ;
 to-top constant gather
 :: LANES      lanes literal ;
-:: LANESHIFT  lanes 4 = if 2 else 1 then literal ;  \ a pixel to its cell
+:: LANESHIFT  lanes 4 = if 2 else lanes 2 = if 1 else 0 then then literal ;  \ a pixel to its cell
 :: NIBSHIFT   cell-bits lanes - literal ;           \ the top of a cell, less its pixels
 :: TOPLANE    cell-bits #16 - literal ;             \ the highest lane, as a shift
 
@@ -125,6 +125,8 @@ create ay    0 ,        \ how many rows are done
     drop 2drop
 ;
 
+W32+? [if]
+
 : apixels ( lanes -- ) \ every pixel of the row: each lane is left as what its pixel gives
     h# 800100 >r                                    \ what the two before the first would have left: 256, and 128
     an @ bounds
@@ -136,6 +138,25 @@ create ay    0 ,        \ how many rows are done
     repeat
     2drop rdrop
 ;
+
+[else]
+
+: apixels ( lanes -- ) \ the same, a cell being one pixel
+    d# 128 >r  d# 256 swap                          ( owed lanes ) ( R: what the last pixel gave )
+    an @ bounds
+    begin
+        2dupxor
+    while
+        rot over @ +  h# fff and                    ( end p pixel )
+        dup d# 896 <  h# 80ff and + 1+  d# 3 rshift ( end p gives )
+        2dup swap !
+        dup r> +  swap >r                           \ the next is owed this and the one before; the one after, this
+        -rot 1+
+    repeat
+    2drop drop rdrop
+;
+
+[then]
 
 : atrim ( lanes -- ) \ the lanes of the last cell that are past the last pixel give nothing
     tw @ LANES 1- and ?dup if
@@ -245,5 +266,3 @@ header atkinson
         dither-row
     repeat
 ;
-
-[then]
