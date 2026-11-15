@@ -52,6 +52,7 @@ meta
 :: BLKCELLS  #1024 cell-bytes / literal ;           \ cells in a block
 :: BLKSHIFT  #10 byte-shift - literal ;             \ from a count of cells to a count of blocks
 :: BITSHIFT  byte-shift 3 + literal ;               \ from a count of bits to a count of cells
+:: HALFMASK  1 cell-bits 2/ lshift 1- literal ;     \ the lower half of a cell
 target
 
 : new-image ( -- ) \ a record with nothing in it, in hand
@@ -260,6 +261,16 @@ W32+? [if]
 ;
 [then]
 
+\ Whoever dithers keeps what each pixel is owed in a lane, sixteen bits of
+\ a cell, as many to a cell as fit, and a gray is the low eight of its
+\ lane.  Where a row lies on cells its grays are added to those lanes a
+\ cell at a time, and nothing is fetched for a pixel.
+header gray-mask
+create gray-mask  meta $00ff00ff00ff00ff cell-mask and target ,     \ a gray in each lane
+W64? [if]
+create pair-mask  meta $0000ffff0000ffff target ,   \ the lower lane of each two
+[then]
+
 \ A row of an image of three samples, where the row lies on cells, is not
 \ taken a pixel at a time.  Eight pixels are three cells.  Two pixels are
 \ six bytes of a cell, and their grays are made together: the two reds are
@@ -267,9 +278,7 @@ W32+? [if]
 \ shifted down to the same two places and multiplied by theirs, and the
 \ three added, which is each pixel's gray times 256 with nothing carried
 \ from one to the other.  Four pixels' grays are then a cell of four
-\ lanes, sixteen bits each, and that is how whoever dithers keeps what each
-\ pixel is owed: so the grays are added to those a cell at a time, and
-\ nothing is fetched for a pixel.
+\ lanes.
 
 W64? [if]
 
@@ -316,8 +325,8 @@ W64? [if]
 \ to each other.  So eight pixels, three cells, are four lanes of sums,
 \ which is one cell.
 : fold ( y -- z ) \ four grays in four lanes: each two added, in the lower two lanes
-    dup d# 16 rshift +  h# ffff0000ffff and
-    dup d# 16 rshift or  h# ffffffff and
+    dup d# 16 rshift +  pair-mask @ and
+    dup d# 16 rshift or  HALFMASK and
 ;
 
 : gray-pairs ( lanes -- ) \ the next row's grays, each two pixels' added into a lane
@@ -334,6 +343,69 @@ W64? [if]
 ;
 
 [then]
+
+\ Nor is a row of an image of one sample, with a cell of any size.  A cell
+\ of the row is as many grays as it has bytes, which is twice as many as
+\ it has lanes: so each half of it is a cell of lanes, when its grays have
+\ been moved apart.  They are moved half of them at a time: the upper half
+\ up by as far as it is long, and then the upper half of each of those,
+\ until a gray is by itself at the bottom of a lane.
+
+: spread ( x -- y ) \ the grays in half a cell, nothing above them: each in a lane, the first lowest
+W64? [if]
+    dup d# 16 lshift or  pair-mask @ and
+[then]
+W32+? [if]
+    dup d# 8 lshift or  gray-mask @ and
+[then]
+;
+
+\ Where white is nothing a gray is what it is short of white.  The row is
+\ in the window to be taken once, so it is made so where it is: not!, an
+\ instruction a cell.  (An image that image-is made has black for nothing,
+\ and is left as it was given.)
+: white-row ( -- ) \ the next row's grays, if white is nothing: each made what black being nothing has it
+    tphoto @ if exit then
+    tbp @  tw @ BYTESHIFT rshift  bounds
+    begin
+        2dupxor
+    while
+        dup not!
+        1+
+    repeat
+    2drop
+;
+
+: gray1-lanes ( lanes -- ) \ the next row's grays, each added to its pixel's lane
+    white-row
+    >r                                              ( R: the two cells of lanes a cell of the row is )
+    tbp @  tw @ BYTESHIFT rshift  bounds            ( end p )
+    begin
+        2dupxor
+    while
+        dup @ HALFMASK and spread  r@ +!
+        dup @ HALFBITS rshift spread  r@ 1+ +!
+        1+  r> CELL2 + >r
+    repeat
+    drop tbp !  rdrop
+;
+
+\ At half the size a lane is two pixels of the row, so a cell of the row
+\ is one cell of lanes: every other gray where it is, and the others moved
+\ down onto them and added.
+: gray1-pairs ( lanes -- ) \ the next row's grays, each two pixels' added into a lane
+    white-row
+    tbp @ - >r                                      ( R: from a cell of the row to its cell of lanes )
+    tbp @  tw @ BYTESHIFT rshift  bounds            ( end p )
+    begin
+        2dupxor
+    while
+        dup @  dup d# 8 rshift gray-mask @ and  swap gray-mask @ and  +
+        over r@ + +!
+        1+
+    repeat
+    drop tbp !  rdrop
+;
 
 \ 'grays ( lanes -- ) adds a row's grays to a row of lanes, or is 0 if the
 \ image is one whose pixels have to be asked for one at a time: one whose
@@ -355,4 +427,7 @@ W64? [if]
         ['] gray-lanes 'grays !  ['] gray-pairs 'pairs !
     then
 [then]
+    tspp @ d# 1 =  tw @ CELLB 1- and 0=  and if
+        ['] gray1-lanes 'grays !  ['] gray1-pairs 'pairs !
+    then
 ;

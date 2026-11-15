@@ -15,10 +15,10 @@
 \
 \                   more than 64K cells             64K cells
 \   page 1          machine blocks font display     and region
-\   the next        region (virtio) tiff atkinson   tiff atkinson keymap gfx wm
+\   the next        region tiff atkinson            tiff atkinson keymap gfx wm
 \                     keymap gfx wm                   term edit view calc
 \   the next        term edit view calc see         see desk join
-\   the next        paint desk
+\   the next        paint (virtio mandrill) desk
 \   the next        join
 \   the kernel's                                    paint, in its upper half
 \
@@ -53,24 +53,16 @@ include vmdisk.fs       \ block driver for the reference VM's disk
 include font.fs         \ the fonts
 include display.fs      \ the display: a bitmap in memory, and text on it
 
-\ Regions, the drivers, the picture, and the window manager.
+\ Regions, the picture, and the window manager.
 
 meta 0 big-page target
 
 include region.fs       \ shapes that are not rectangles, to clip to
-W64? [if]               \ the QEMU virt machine's devices, which the AArch64 kernels run on
-include virtio.fs       \ shared by the virtio drivers
-include virtio-blk.fs   \ block driver
-include virtio-input.fs \ keyboard and pointer driver
-[then]
 
 meta 0 small-page target
 
 include tiff.fs         \ uncompressed TIFF from blocks, a row at a time
 include atkinson.fs     \ Atkinson dithering to the display
-W64? [if]
-include mandrill.fs     \ the demo, without the desktop
-[then]
 include keymap.fs       \ key codes to ASCII
 include gfx.fs          \ rectangles, and text from the output words
 include wm.fs           \ windows, pointer, event loop
@@ -99,6 +91,17 @@ meta 2 big-page  low-page target
 include paint.fs        \ a window to draw in
 
 meta low-page-end target
+
+\ The QEMU virt machine's devices, which the AArch64 kernels run on, are
+\ reached through the interface's vectors, and are with what brings them
+\ up: the desktop, and the picture by itself.
+
+W64? [if]
+include virtio.fs       \ shared by the virtio drivers
+include virtio-blk.fs   \ block driver
+include virtio-input.fs \ keyboard and pointer driver
+include mandrill.fs     \ the demo, without the desktop
+[then]
 
 include desk.fs         \ the desktop itself
 

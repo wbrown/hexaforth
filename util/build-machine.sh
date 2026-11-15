@@ -8,6 +8,7 @@
 #   basewords-C-A.fs   the machine definition cross.fs reads
 #   nuc-C-A.hex        the nucleus compiled for that machine
 #   hexaforth-C-A      the reference VM built for it
+#   dither-test-C-A    the dither's test, which has that VM in it
 set -e
 cd "$(dirname "$0")/.."
 C=$1
@@ -42,5 +43,7 @@ if grep -q "tdp" build/cross-$C-$A.log; then
 fi
 for f in $KEEP; do [ -f build/nuc.$f.keep ] && mv build/nuc.$f.keep build/nuc.$f; done
 [ -f build/nuc-$C-$A.hex ] || { tail -8 build/cross-$C-$A.log; exit 1; }
-gcc -O2 -w -fcommon $D -o build/hexaforth-$C-$A main.c vm.c vm_opcodes.c vm_debug.c util/stack.c -lm
+VM="vm.c vm_opcodes.c vm_debug.c util/stack.c"
+gcc -O2 -w -fcommon $D -o build/hexaforth-$C-$A main.c $VM -lm
+gcc -O2 -w -fcommon $D -o build/dither-test-$C-$A test/dither_test.c $VM util/image.c -lm
 echo "build/nuc-$C-$A.hex: $(tr -c 'a-zA-Z0-9 ' ' ' < build/cross-$C-$A.log | grep -o 'tdp [0-9A-F]* thp [0-9A-F]* tcp [0-9A-F]*')"

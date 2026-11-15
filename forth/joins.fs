@@ -7,7 +7,7 @@
 \ the one instruction they are together.  join-rules, in the kernel,
 \ is told where they are and how many.  They are all on one page.
 
-meta $550 table-room  tcp @ 2/ t' join-rules tvar! target
+meta $558 table-room  tcp @ 2/ t' join-rules tvar! target
 $0000 i, $6000 i, $600c i, $600c i,   \ drop dup , drop
 $0000 i, $6000 i, $6020 i, $6000 i,   \ drop dup , swap
 $0000 i, $6000 i, $642c i, $600c i,   \ drop dup , nip
@@ -138,6 +138,7 @@ $0000 i, $6404 i, $6403 i, $6407 i,   \ dup , rdrop
 $0000 i, $6404 i, $6480 i, $6484 i,   \ dup , invert
 $0000 i, $6404 i, $650d i, $6501 i,   \ dup , >r
 $0000 i, $6404 i, $6800 i, $6804 i,   \ dup , @
+$0000 i, $6404 i, $6b8c i, $6b80 i,   \ dup , not!
 $0000 i, $6404 i, $6d08 i, $600c i,   \ dup , 2drop
 $0000 i, $6407 i, $600c i, $6403 i,   \ dup rdrop , drop
 $0000 i, $6407 i, $6020 i, $6407 i,   \ dup rdrop , swap
@@ -272,6 +273,7 @@ $0000 i, $6804 i, $642c i, $6800 i,   \ dup@ , nip
 $0000 i, $683c i, $642c i, $6838 i,   \ @ + , nip
 $0000 i, $687c i, $642c i, $6878 i,   \ @ * , nip
 $0000 i, $6880 i, $6480 i, $6800 i,   \ @ invert , invert
+$0000 i, $6b80 i, $600c i, $6b8c i,   \ dup not! , drop
 $0000 i, $6c00 i, $600c i, $600c i,   \ r@ nip , drop
 $0000 i, $6c00 i, $6403 i, $6c03 i,   \ r@ nip , rdrop
 $0000 i, $6c00 i, $6d08 i, $6d08 i,   \ r@ nip , 2drop
@@ -348,4 +350,4 @@ $6c07 i, $6020 i, $60dc i, $6cd3 i,   \ r> , swap , lshift
 $6c17 i, $643c i, $6718 i, $6f3b i,   \ swapr> , + , swap !
 $6c17 i, $645c i, $6718 i, $6f5b i,   \ swapr> , or , swap !
 $6ce7 i, $6004 i, $6308 i, $6fe3 i,   \ r> @ , over , !
-meta $154 t' join-rules 1+ tvar! target
+meta $156 t' join-rules 1+ tvar! target

@@ -42,6 +42,7 @@ for m in "64 22 768 576 0x4000" "32 17 768 576 0x8000" "16 16 512 342 0x8000"; d
         continue
     fi
     mv build/hexaforth-$C-$A $OUT/vm-$C
+    mv build/dither-test-$C-$A $OUT/dither-test-$C
     mv build/nuc-$C-$A.hex $OUT/nuc-$C.hex
     rm -f $OUT/nuc-$C.tables                # the names that go with the image, if it has any
     [ -f build/nuc-$C-$A.tables ] && mv build/nuc-$C-$A.tables $OUT/nuc-$C.tables
@@ -61,7 +62,7 @@ for m in "64 22 768 576 0x4000" "32 17 768 576 0x8000" "16 16 512 342 0x8000"; d
     for s in $SEEDS; do
         run display-$C-$s python3 test/display_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s 150 $C $W $H
         run regions-$C-$s python3 test/region_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s 400 $C
-        run dither-$C-$s python3 test/dither_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s $C
+        run dither-$C-$s $OUT/dither-test-$C $OUT/nuc-$C.hex $s
         run tiff-$C-$s python3 test/tiff_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s $C
     done
 done

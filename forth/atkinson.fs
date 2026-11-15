@@ -87,7 +87,6 @@ create aone    meta lane1 target ,                  \ 1 in each lane
 create aclean  meta lane1 $fff * target ,           \ the number in each lane, without whether it is black
 create agather meta gather target ,
 create around  meta lane1 2 * target ,              \ half of four, in each lane: to round a quarter
-create abyte   meta lane1 $ff * target ,            \ a gray in each lane
 
 \ A dither is a record, so that there may be more than one in hand at a
 \ time, each going down its own picture a row at a turn: `dth` is the one
@@ -174,7 +173,7 @@ create dth 0 ,          \ the dither in hand: its record
     begin
         2dupxor
     while
-        dup @ around @ + d# 2 rshift abyte @ and  over r@ + +!
+        dup @ around @ + d# 2 rshift gray-mask @ and  over r@ + +!
         1+
     repeat
     2drop rdrop

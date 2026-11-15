@@ -182,8 +182,9 @@ PEEPHOLE=off gforth ./cross.fs ./basewords.fs ./nuc.fs   # the same with the pee
 ```
 
 `util/build-machine.sh CELL_BITS [ADDR_BITS]` builds the generator, the
-nucleus and the reference VM for a machine of another size, into
-`build/`; `EXTRA` carries more definitions to it (`-DSTRICT`, a display).
+nucleus, the reference VM and the tests that have that VM in them for a
+machine of another size, into `build/`; `EXTRA` carries more definitions
+to it (`-DSTRICT`, a display).
 `./hexaforth IMAGE.hex [DISK.img]` runs an image.
 
 Beside an image `cross.fs` writes `.lst` (symbols), `.sizes` (code and
@@ -256,7 +257,9 @@ The machine, in C:
   `fuse.c` (which instruction does the work of others, by running them on
   `vm.c`: what it trusts and why is said at its top)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
-  `vm_test.c`, `main.c`, `generate_test_cases.c`
+  `vm_test.c`, `main.c`, `generate_test_cases.c`; `dither_test.c` (the
+  dither against a dither a pixel at a time: it runs the nucleus on
+  `vm.c`, types at its prompt and reads the bitmap out of its memory)
 
 The toolchain and the nucleus, in Forth (`forth/`):
 

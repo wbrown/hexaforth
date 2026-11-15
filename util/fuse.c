@@ -59,13 +59,17 @@
 #define ROM_BYTES   (DATA * CELL_BYTES)
 
 // The machine, which stops by coming back here.  It says why it stopped
-// each time, which is not wanted.
+// each time, which is not wanted.  What stderr was is put back and not
+// only taken away: where the C library is Apple's it is a macro and
+// nothing else, and what is included after this uses it.
 static jmp_buf stopped;
 static FILE* nowhere;
 #define exit(code) longjmp(stopped, 1)
+#pragma push_macro("stderr")
+#undef stderr
 #define stderr nowhere
 #include "../vm.c"
-#undef stderr
+#pragma pop_macro("stderr")
 #undef exit
 #include "../vm_opcodes.c"
 #include "stack.c"
