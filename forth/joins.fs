@@ -7,7 +7,7 @@
 \ the one instruction they are together.  join-rules, in the kernel,
 \ is told where they are and how many.  They are all on one page.
 
-meta $4bc table-room  tcp @ 2/ t' join-rules tvar! target
+meta $4c4 table-room  tcp @ 2/ t' join-rules tvar! target
 $0000 i, $6000 i, $600c i, $600c i,   \ drop dup , drop
 $0000 i, $6000 i, $6020 i, $6000 i,   \ drop dup , swap
 $0000 i, $6000 i, $642c i, $600c i,   \ drop dup , nip
@@ -257,6 +257,7 @@ $0000 i, $6c07 i, $600c i, $6403 i,   \ r> , drop
 $0000 i, $6c07 i, $642c i, $6c03 i,   \ r> , nip
 $0000 i, $6c07 i, $6480 i, $6c87 i,   \ r> , invert
 $0000 i, $6c07 i, $6718 i, $6f0f i,   \ r> , swap !
+$0000 i, $6c07 i, $6800 i, $6ce7 i,   \ r> , @
 $0000 i, $6c07 i, $6d08 i, $600f i,   \ r> , 2drop
 $0000 i, $6c0f i, $650d i, $6d08 i,   \ 2drop r> , >r
 $0000 i, $6c10 i, $600c i, $642c i,   \ nip r@ , drop
@@ -311,4 +312,5 @@ $6c07 i, $6004 i, $6308 i, $6f03 i,   \ r> , over , !
 $6c07 i, $6020 i, $60cc i, $6cc3 i,   \ r> , swap , rshift
 $6c07 i, $6020 i, $60dc i, $6cd3 i,   \ r> , swap , lshift
 $6c17 i, $643c i, $6718 i, $6f3b i,   \ swapr> , + , swap !
-meta $12f t' join-rules 1+ tvar! target
+$6ce7 i, $6004 i, $6308 i, $6fe3 i,   \ r> @ , over , !
+meta $131 t' join-rules 1+ tvar! target

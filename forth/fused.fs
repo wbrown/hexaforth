@@ -161,6 +161,7 @@ $6d3d , $4 , hdr, drop hdr, r@ hdr, bounds hdr, swap>r
 $6f3b , $4 , hdr, swapr> hdr, + hdr, swap hdr, !
 $6fe3 , $4 , hdr, r> hdr, @ hdr, over hdr, !
 $6fec , $3 , hdr, @r hdr, swap hdr, !
+$6ce7 , $2 , hdr, r> hdr, @
 0 ,
 
 \ The names of an instruction's fields, as vm_opcodes.h has them: where

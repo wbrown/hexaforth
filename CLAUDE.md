@@ -816,7 +816,14 @@ two), and `+` after a push makes it an add. The rules are
 --fused build/nuc.hex forth/fused.fs forth/joins.fs`: they are the
 decompiler's table the other way round, so what `see` shows compiles, when
 typed, to the instruction it was shown for, and every instruction a rule
-gives is one the image has and the decompiler can show. A rule is four
+gives is one the decompiler can show. Mostly that is one the image has.
+But a rule joins two instructions or three, so an instruction shown as
+four words is reached a step at a time, and where a step is not an
+instruction of the image there is a rule for it all the same and the
+table has it too: `r> @`, on the way to the `r> @ over !` that `move-row`
+has, which was written by its fields. The generator says which entries
+are steps, and which phrases, if any, are still not joined when typed;
+`test/prompt_test.py` types that one. A rule is four
 instructions laid down with `i,` after the peephole's code (nothing or the
 instruction two before, the one before, the one being compiled, and what
 they are together), in order, and found by halving. The kernel's ROM has

@@ -50,6 +50,11 @@ CHECKS = [
     ("create w 5 ,  10 w or!  w @ .", "15  ok"),
     (": o 48 w or! w @ ; o .", "63  ok"),
     ("60 w and!  w @ .  5 w xor!  w @ .  3 w *!  w @ .  w not!  w @ .", "60 57 171 -172  ok"),
+    # An instruction shown as four words is reached a step at a time: r> @
+    # is a step, an instruction the image has not, and with over ! it is the
+    # one that move-row has.  So this is >r, that one, and the exit.
+    *([("cp @ : j6 >r r> @ over ! ; cp @ swap - .", "3  ok"),
+       ("7 x !  w x j6 drop  w @ .", "7  ok")] if BITS == 64 else []),
     # A word that has a great deal in hand keeps it in variables, and sets
     # them aside if it is run while it is running.  Here each is told it is
     # running, with its variables all 77: it must draw, and leave them so.
