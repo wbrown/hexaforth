@@ -233,19 +233,14 @@ create tsrc 0 ,         \ the cell the next row starts in
     swap CELL2 + @ d# 16 rshift  quad
 ;
 
-: lanes+ ( y a -- ) \ four grays, to the lanes of four pixels that start a lane into the cell at a
-    over d# 16 lshift over +!
-    swap d# 48 rshift swap 1+ +!
-;
-
-: gray-lanes ( lanes -- ) \ the next row's grays, each added to its pixel's lane; pixel 0 is lane 1
+: gray-lanes ( lanes -- ) \ the next row's grays, each added to its pixel's lane
     tsrc @ >r                                       ( a ) ( R: the three cells )
     tw @ d# 2 rshift over + swap                    ( end a )
     begin
         2dupxor
     while
-        r@ quad-a over lanes+
-        r@ quad-b over 1+ lanes+
+        r@ quad-a over +!
+        r@ quad-b over 1+ +!
         CELL2 +  r> c# 3 + >r
     repeat
     2drop

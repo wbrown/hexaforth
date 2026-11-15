@@ -327,7 +327,7 @@ def main():
         shot = m.screenshot(f"{out}/10-fused.png")
         source = read_text(shot, 253, 315, 45, 16)
         check("a fused instruction is shown as its words",
-              source[0] == ": dither-row" and source[1].endswith(" @ * + adst !"), repr(source[1]))
+              source[0] == ": dither-row" and " abm @ 1 + @ * + " in source[1], repr(source[1]))
 
         # Words in bold are one instruction.  With the pointer on them, a box
         # by them says which: its number, and its fields.  The box is a line

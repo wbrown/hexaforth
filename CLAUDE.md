@@ -440,11 +440,26 @@ Pages 8 and 9 are the drivers and the desktop:
   below
 - `virtio.fs`, `virtio-blk.fs`: the QEMU `virt` block driver
 - `tiff.fs`, `atkinson.fs`, `mandrill.fs`: uncompressed TIFF reader, Atkinson
-  dithering, and the demo. Neither touches memory a pixel at a time: `take`
-  shifts a pixel out of a cell fetched once, the errors for the rows below
-  are kept in 16-bit lanes (as many to a cell as fit) and added a cell at a
-  time, and the pixels are gathered into a cell of a bitmap in the
-  display's form. A row of an image of three samples that lies on cells
+  dithering, and the demo. Neither touches memory a pixel at a time. In
+  the dither a pixel is a lane of a cell, sixteen bits, and all it is
+  thresholded on is added into its lane before it is looked at: its gray,
+  what the rows above gave it, and what the two pixels before it gave it.
+  The last is the cell's own doing: the cell is on the stack with the
+  pixel being done its lowest lane, and when the pixel is done the cell is
+  shifted down a lane and what the pixel gives is added to the lowest two
+  by one multiplication (`CELL-DONE`, the lanes of a cell written out in
+  line), so what is left after a cell's last pixel is what the next
+  cell's first two are owed. What a pixel gives is its error and, above it
+  at bit 12, whether it is black, so a row that is done is both the errors
+  for the rows below and the pixels: the pixels of a cell are brought
+  together by one multiplication (`anib`), and the errors are added to the
+  two rows below a cell at a time. The dither keeps three rows of lanes,
+  the bitmap and how far down it is, between one row and the next, and
+  nothing else: it had seventeen variables and a pixel cost 73
+  instructions, and it has six and a pixel costs 38. It wants two lanes
+  to a cell, so cells of 32 bits or 64. `take` shifts a pixel out of a
+  cell fetched once, for an image that has to be asked for a pixel at a
+  time. A row of an image of three samples that lies on cells
   (its width a multiple of eight) is not asked for a pixel at a time:
   eight pixels are three cells, two pixels' grays are made together (the
   reds masked where they are and multiplied by 77, the greens and blues
