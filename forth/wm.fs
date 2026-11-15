@@ -91,6 +91,24 @@ header 'moved create 'moved 0 ,     \ ( -- )
 
 create t-menu ," hexaforth"
 
+\ The title in the bar is a menu: the windows, the one in front first.
+\ The button going down on the title brings it down under the title.  If
+\ the button goes up on a line of it, that window comes to the front; if
+\ it goes up on the title the menu stays, and the next press picks a line
+\ or, anywhere else, takes the menu away.  So it works held down and
+\ dragged, or with a click and then a click.
+\
+\ While it is down it is in front of every window.  It is counted with
+\ what covers them, so that none of them paints or scrolls where it is,
+\ and it is painted after them where it is out of date.
+header menu-open create menu-open 0 ,   \ true while it is down
+create menu-held 0 ,    \ true while the button that brought it down is still down
+create menu-hot -1 ,    \ the line of it the pointer is on, or -1
+create menu-w 0 ,       \ how wide it is,
+create menu-tw 0 ,      \ and how much of the bar its title has
+
+: menu-box ( -- x y w h ) d# 4 d# 19  menu-w @  nwin @ d# 4 lshift d# 2 + ;
+
 \ ---- what is out of date
 
 create dirty 0 , 0 , 0 , 0 ,    \ the rectangle around it: left, top, and past the right
@@ -188,10 +206,37 @@ header inval-window : inval-window ( win -- ) \ frame and all
     true d# 0 d# 0 fb-w @ d# 19 fill-rect
     false d# 0 d# 19 fb-w @ hline
     sans font !
+    t-menu >c count text-width d# 16 + menu-tw !
+    menu-open @ if                                  \ its title is white on black while it is down
+        false d# 4 d# 1 menu-tw @ d# 8 - d# 17 fill-rect
+        true inverse !
+    then
     t-menu >c count d# 8 d# 2 draw-text
+    d# 0 inverse !
     mono font !
     p-gray pattern !
     d# 0 d# 20 fb-w @ fb-h @ d# 20 - pat-rect
+;
+
+: draw-menu ( -- ) \ a line for each window, the one in front first
+    true menu-box fill-rect  false menu-box frame-rect
+    sans font !
+    d# 0
+    begin
+        dup nwin @ <
+    while
+        >r                                          ( R: the line )
+        r@ menu-hot @ = if                          \ the one the pointer is on
+            false  d# 5  r@ d# 4 lshift d# 20 +  menu-w @ d# 2 -  d# 16  fill-rect
+            true inverse !
+        then
+        nwin @ 1- r@ - cells wins + @ c# 4 + @ >c count
+        d# 12  r@ d# 4 lshift d# 20 +  draw-text
+        d# 0 inverse !
+        r> 1+
+    repeat
+    drop
+    mono font !
 ;
 
 \ What can be seen of each window changes only when a window is made,
@@ -207,7 +252,7 @@ create vsum -1 ,
 ;
 
 : layout ( -- sum )
-    nwin @ >r                                       ( R: the sum so far )
+    nwin @ menu-open @ + >r                         ( R: the sum so far: the menu covers them too )
     wins nwin @ bounds
     begin
         2dupxor
@@ -221,7 +266,7 @@ create vsum -1 ,
 : visible ( -- ) \ work out what can be seen of each window, and of the desk
     layout dup vsum @ = if drop exit then
     vsum !
-    rcov @ rgn-none
+    menu-open @ if menu-box rcov @ rect-rgn else rcov @ rgn-none then
     nwin @
     begin
         dup
@@ -280,6 +325,14 @@ header refresh : refresh ( -- ) \ paint what is out of date
         1+
     repeat
     drop
+    menu-open @ if                                  \ the menu, over all of them
+        menu-box rwin @ rect-rgn
+        ru @ rwin @ rpaint @ rgn-and
+        rpaint @ rgn-empty? 0= if
+            uclip  rpaint @ rgn-clip!
+            draw-menu
+        then
+    then
     noclip
     cursor-show
 ;
@@ -321,13 +374,63 @@ header 'front create 'front 0 ,     \ ( -- )
     cells wins + r> swap !
 ;
 
-\ ---- the mouse button: front a window, drag its title, or click in it
+\ ---- the menu: bringing it down, and what the button does while it is
+
+: menu-inval ( -- ) menu-box inval-rect  d# 0 d# 0 menu-tw @ d# 19 inval-rect ;     \ it, and its title
+
+: menu-line ( -- i ) \ the line of it the pointer is on, or -1
+    mx @ d# 4 - menu-w @ u<  my @ d# 20 - nwin @ d# 4 lshift u<  and
+    if my @ d# 20 - d# 4 rshift else d# -1 then
+;
+
+: on-title? ( -- f ) my @ d# 19 <  mx @ menu-tw @ <  and ;
+
+: menu-down ( -- ) \ as wide as the longest title wants
+    sans font !
+    d# 0  wins nwin @ bounds
+    begin
+        2dupxor
+    while
+        dup @ c# 4 + @ >c count text-width  >r rot r> max -rot
+        1+
+    repeat
+    2drop
+    mono font !
+    d# 24 + menu-w !
+    true menu-open !  true menu-held !  d# -1 menu-hot !
+    menu-inval
+;
+
+: menu-up ( -- ) menu-inval  d# 0 menu-open !  d# 0 menu-held ! ;
+
+: menu-pick ( i -- ) \ the window on that line comes to the front
+    menu-up
+    nwin @ 1- swap -                                ( where it is among the windows )
+    dup 1+ nwin @ <> if
+        redraw-top raise redraw-top  fronted
+    else
+        drop
+    then
+;
+
+: menu-track ( -- ) \ the pointer has moved: the line it is on is the one shown so
+    menu-open @ if
+        menu-line dup menu-hot @ <> if menu-hot ! menu-inval else drop then
+    then
+;
+
+\ ---- the mouse button: the menu, or front a window, drag its title, or click in it
 
 create dragging 0 ,
 create dx0 0 ,
 create dy0 0 ,
 
 : press ( -- )
+    menu-open @ if                                  \ a line of it, or away with it
+        menu-line dup 0< if drop menu-up else menu-pick then
+        exit
+    then
+    on-title? if menu-down exit then
     win-at dup 0< if drop exit then
     dup 1+ nwin @ <> if
         redraw-top raise redraw-top                 \ the one that was in front, and the one that is
@@ -350,6 +453,15 @@ create dy0 0 ,
 ;
 
 : release ( -- )
+    menu-held @ if                                  \ the button that brought the menu down
+        d# 0 menu-held !
+        menu-line dup 0< if
+            drop  on-title? 0= if menu-up then      \ let go on the title, it stays
+        else
+            menu-pick
+        then
+        exit
+    then
     dragging @ if
         d# 0 dragging !
         redraw-top                                  \ where it was
@@ -366,6 +478,7 @@ create ctrl 0 ,
 create quitting 0 ,
 
 : on-key ( c -- )
+    menu-open @ if menu-up then                     \ a key takes the menu away, and is then a key
     dup d# 17 = if drop true quitting ! exit then   \ ^Q: leave the desktop
     dup d# 23 = if                                  \ ^W: next window
         drop
@@ -400,6 +513,7 @@ header on-event : on-event ( type code value -- )
         else
             fb-w @ scaled my @ set-mouse
         then
+        menu-track
         exit
     then
     d# 1 <> if 2drop exit then                      \ otherwise keys only

@@ -588,7 +588,20 @@ Pages 8 and 9 are the drivers and the desktop:
   again for it. Keys and pointer events come from whatever the machine
   has: each time round, the event loop runs the word in `'poll`, which a
   driver stores there, and the driver hands what it has to `on-event`.
-  With none stored it is `uart-poll`, the console's keys
+  With none stored it is `uart-poll`, the console's keys.
+  The title in the bar, `hexaforth`, is a menu of the windows, the one in
+  front first. The button going down on the title brings it down; going
+  up on a line of it brings that window to the front, and going up on the
+  title leaves the menu down, for a press on a line to pick or a press
+  anywhere else to take away, so it works held and dragged or with two
+  clicks; a key takes it away too. The line the pointer is on is shown
+  white on black, as the title is while the menu is down. While it is
+  down it is counted with what covers the windows (`visible`), so that
+  none of them paints or scrolls where it is, and it is painted after
+  them where it is out of date (`draw-menu`). `menu-open` says whether it
+  is down. It is as wide as the longest title (`text-width`, which until
+  the menu used it added each character's width to the wrong cell of the
+  stack, and was never run)
 - `term.fs`, `edit.fs`, `view.fs`, `calc.fs`: the Forth window, block
   editor, image viewer and RPN calculator
 - `see.fs`: a decompiler (`see name`), and the Words window, which lists
@@ -1091,7 +1104,8 @@ nucleus and the reference VM for a size, into `build/`. The default
 `test/sizes.sh` builds the machine with cells of 64 bits, of 32 and of 16,
 each with a display and each `STRICT`, and runs on each the tests that
 type at the reference VM's prompt: the nucleus, the desktop
-(`test/desktop_test.py`, above: 28 checks, the Mandrill among them), the
+(`test/desktop_test.py`, above: 35 checks, the Mandrill and the menu
+among them), the
 drawing words against their model, regions a cell at a time, the dither
 against a dither a pixel at a time (`test/dither_test.py`, which makes
 images in memory with `image-is`, and bitmaps of parts of them), and the

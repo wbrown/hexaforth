@@ -97,6 +97,9 @@ def shows(shot, text, x, y, font="sans", inverse=False):
     return True
 
 
+TITLES = {"viewer": "Mandrill", "editor": "Editor", "words": "Words", "calc": "Calculator", "forth": "Forth"}
+
+
 class Desk:
     """Where the windows are, from back to front, as the checks move them."""
 
@@ -414,6 +417,72 @@ def run(m, d, out, scale_note=None):
     shot = m.screenshot(f"{out}/14-tasks.png")
     text = forth_text(shot)
     check("the picture's task has left the ring", text[14] == "2  ok", repr(text[12:16]))
+
+    # The title in the bar is a menu of the windows, the one in front first,
+    # a line of 16 pixels each from just under the bar.  A click on the title
+    # brings it down and it stays; a click on a line brings that window to
+    # the front and takes the menu away.
+    def lines(shot):
+        return [name for i, name in enumerate(reversed(d.order))
+                if shows(shot, TITLES[name], 12, 20 + 16 * i)]
+
+    def in_front(shot, name):
+        x, y, _, _ = d.rect[name]
+        return shows(shot, TITLES[name], x + 8, y + 2, inverse=True)
+
+    m.click(20, 8)
+    m.move(*away)                                   # the pointer off the title, to read it
+    shot = m.screenshot(f"{out}/15-menu.png")
+    check("the title is a menu of the windows, the one in front first",
+          lines(shot) == list(reversed(d.order)) and shows(shot, "hexaforth", 8, 2, inverse=True),
+          repr(lines(shot)))
+    at = list(reversed(d.order)).index("words")     # the pointer on a line, to the right of its name
+    m.move(80, 20 + 16 * at + 8)
+    shot = m.screenshot(f"{out}/15-menu-line.png")
+    check("the line the pointer is on is shown so", shows(shot, "Words", 12, 20 + 16 * at, inverse=True)
+          and len(lines(shot)) == len(d.order) - 1, repr(lines(shot)))
+    m.click(32, 20 + 16 * list(reversed(d.order)).index("calc") + 8)
+    d.front("calc")
+    m.move(*away)
+    shot = m.screenshot(f"{out}/15-picked.png")
+    check("a click on a line brings its window to the front", in_front(shot, "calc") and lines(shot) == []
+          and shows(shot, "hexaforth", 8, 2), repr(lines(shot)))
+    # Held down and dragged: the button goes down on the title and up on a line.
+    m.drag(20, 8, 32, 20 + 16 * list(reversed(d.order)).index("words") + 8)
+    d.front("words")
+    m.move(*away)
+    shot = m.screenshot(f"{out}/15-dragged.png")
+    check("and so does letting the button go on one", in_front(shot, "words") and lines(shot) == [],
+          repr(lines(shot)))
+    # A window under the menu does not draw where it is.  The Forth window
+    # is brought to the front and given a word that waits for the menu to
+    # be down and then prints twenty lines, so that it scrolls under it:
+    # the menu must be whole, and the text beside it moved.  When the menu
+    # is taken away, by a press that is not on it, what was under it is
+    # painted as it now is.
+    raise_("forth")
+    m.type(":noname begin pause menu-open @ until 20 0 do i . cr loop ;\r")
+    m.type("execute\r")
+    m.click(20, 8)
+    m.move(*away)
+    shot = m.screenshot(f"{out}/15-over.png")
+    text = forth_text(shot)
+    check("a window under the menu prints and scrolls without drawing on it",
+          lines(shot) == list(reversed(d.order)) and text[12:15] == ["18", "19", " ok"],
+          repr((lines(shot), text[11:15])))
+    fx0, fy0, fw, fh = d.rect["forth"]
+    m.click(fx0 + fw - 40, fy0 + fh - 40)           # in the Forth window, which does nothing with a click
+    m.move(*away)
+    shot = m.screenshot(f"{out}/15-away.png")
+    text = forth_text(shot)
+    check("a press off the menu takes it away, and what was under it is painted",
+          lines(shot) == [] and text[0:3] == ["6", "7", "8"] and in_front(shot, "forth"),
+          repr((lines(shot), text[0:3])))
+    m.click(20, 8)
+    m.key("backspace")
+    m.move(*away)
+    shot = m.screenshot(f"{out}/15-key.png")
+    check("and so does a key", lines(shot) == [] and shows(shot, "hexaforth", 8, 2), repr(lines(shot)))
     return failures
 
 

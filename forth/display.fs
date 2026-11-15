@@ -938,7 +938,8 @@ header text-width : text-width ( addr u -- n ) \ in pixels
     begin
         2dupxor
     while
-        dup c@ glyph CELL + @  rot + -rot
+        dup c@ glyph CELL + @                       ( n end a w )
+        >r rot r> + -rot
         1+
     repeat
     2drop
