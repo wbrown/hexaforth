@@ -220,7 +220,7 @@ create vacc 0 ,
 : visible ( -- ) \ work out what can be seen of each window, and of the desk
     layout dup vsum @ = if drop exit then
     vsum !
-    d# 0 rcov @ !
+    rcov @ rgn-none
     nwin @
     begin
         dup
@@ -245,7 +245,7 @@ header refresh : refresh ( -- ) \ paint what is out of date
     dirty c# 3 + @ fb-h @ min urect c# 3 + !
     d# 0 dirty !  d# 0 dirty CELL2 + !
     rd @ ru @ rd ! ru !                             \ paint this; start another
-    d# 0 rd @ !
+    rd @ rgn-none
     visible
     cursor-off
     ru @ rdesk @ rpaint @ rgn-and

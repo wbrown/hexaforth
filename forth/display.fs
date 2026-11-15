@@ -205,19 +205,28 @@ create mforce 0 ,
     2drop rdrop
 ;
 
-: mfind ( y -- row|0 ) \ the row of the region that y is in; sets mk0 and mk1
-    >r
-    h# 7fffffff negate mk0 !  h# 7fffffff mk1 !
-    d# 0                                            ( found ) ( R: y )
-    mrgn @ dup 1+ swap @ bounds                     ( found end p )
+\ A region (region.fs) is a count of the cells that follow, and then bands:
+\ a count of crossings, the crossings, and where the band ends, which is
+\ the row it goes down to plus AS-END.  So the end is further along than
+\ any crossing, and ends them: anything from END-MIN up is an end.  The
+\ first band has no crossings and ends at the region's top, and the last
+\ has none and ends at NEVER, so every row is in a band.
+$100000000 constant AS-END
+$80000000  constant END-MIN
+$200000000 constant NEVER
+
+: mfind ( y -- band ) \ the band of the region that y is in; sets mk0 and mk1
+    AS-END + >r                                     ( R: y, as the end of a band is said )
+    h# 7fffffff negate mk0 !
+    mrgn @ 1+
     begin
-        2dupxor
+        dup dup @ + 1+ @                            ( band end )
+        dup r@ > 0=                                 \ it ends at y, or above
     while
-        dup @ r@ > if @ mk1 !  drop  rdrop exit then    \ the first row below y
-        rot drop tuck                               \ this one is the nearest so far
-        dup CELL + @ + CELL2 +
+        AS-END - mk0 !
+        dup @ + CELL2 +
     repeat
-    2drop rdrop
+    AS-END - mk1 !  rdrop
 ;
 
 : rmask ( y -- ) \ y on the screen
@@ -226,22 +235,19 @@ create mforce 0 ,
     dup mk0 @ < 0=  over mk1 @ <  and if drop exit then
     d# 0 mrow DISP-STRIDE cells-fill
     d# 0 mone !
-    mfind dup 0= mnone !
-    ?dup if
-        dup @ mk0 !
-        dup CELL + @ 0= mnone !
-        dup CELL + @ d# 2 = if
-            true mone !  dup CELL2 + @ mx0 !  dup c# 3 + @ mx1 !
-        then
-        dup CELL2 + swap CELL + @ bounds            ( end p )
-        begin
-            2dupxor
-        while
-            dup @ over 1+ @ mspan
-            CELL2 +
-        repeat
-        2drop
+    mfind                                           ( band )
+    dup @ 0= mnone !
+    dup @ d# 2 = if
+        true mone !  dup CELL + @ mx0 !  dup CELL2 + @ mx1 !
     then
+    dup 1+ swap @ bounds                            ( end p )
+    begin
+        2dupxor
+    while
+        dup @ over 1+ @ mspan
+        CELL2 +
+    repeat
+    2drop
     mforce @  mone @ 0=  or mmask !
 ;
 
@@ -268,14 +274,14 @@ create mforce 0 ,
     d# 0 mrgn !  d# 1 mk0 !  d# 0 mk1 !  d# 0 mnone !
     d# 0 mone !  d# 0 mmask !  d# 0 mforce !
     clip-rgn @ ?dup if
-        dup @ d# 6 = if                             \ a rectangle: y 2 x0 x1, y 0
+        dup @ d# 8 = if                             \ a rectangle: 0 top, 2 x0 x1 bottom, 0 never
             >r
-            r@ c# 3 + @ clip @ max clip !
-            r@ 1+ @ clip CELL + @ max clip CELL + !
-            r@ c# 4 + @ clip CELL2 + @ min clip CELL2 + !
-            r> c# 5 + @ clip c# 3 + @ min clip c# 3 + !
+            r@ c# 4 + @ clip @ max clip !
+            r@ CELL2 + @ AS-END - clip CELL + @ max clip CELL + !
+            r@ c# 5 + @ clip CELL2 + @ min clip CELL2 + !
+            r> c# 6 + @ AS-END - clip c# 3 + @ min clip c# 3 + !
         else
-            dup @ if mrgn ! else drop  clip @ clip CELL2 + ! then
+            dup @ d# 2 = if drop  clip @ clip CELL2 + ! else mrgn ! then
         then
     then
     clip CELL2 + @ clip @ >  clip c# 3 + @ clip CELL + @ >  and 0= if

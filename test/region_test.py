@@ -149,7 +149,7 @@ REGIONS = 8
 def machine(vm, image, seed, count):
     rng = random.Random(seed)
     lines = [f"new-rgn constant r{i}" for i in range(REGIONS)]
-    lines.append(": d ( n rgn -- ) swap . dup @ 1+ bounds do i @ . loop ;")
+    lines.append(": d swap . dup @ 1+ over + swap do i @ . loop ;")     # ( n rgn -- )
     held = [set() for _ in range(REGIONS)]
     want = []                                           # what each line that prints should print
     for n in range(count):
