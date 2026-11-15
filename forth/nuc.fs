@@ -1148,6 +1148,10 @@ header-imm repeat
 \ which joins instructions as they are compiled and comes here for the rest.
 create 'compile 0 ,
 
+\ Where its rules are, and how many: they are instructions laid down after
+\ its code, and the tools that read an image must not take them for code.
+header join-rules create join-rules 0 , 0 ,
+
 : (compile,) ( xt -- )
     dup i@ isreturn if
         i@ h# effc and      \ single-instruction word: inline it without RET r-1
@@ -1599,12 +1603,14 @@ meta
     $2000 org
 target
 
-include join.fs         \ the nucleus's peephole, in every size of machine
-
-\ The rest is written for 64-bit cells: the drivers and the display work
-\ in 64-bit quantities throughout.
+\ The nucleus's peephole (join.fs) is in every size of machine.  The rest
+\ is written for 64-bit cells: the drivers and the display work in 64-bit
+\ quantities throughout.  system.fs has the peephole on a page of its own,
+\ after everything else.
 W64? [if]
 include system.fs
+[else]
+include join.fs
 [then]
 
 meta

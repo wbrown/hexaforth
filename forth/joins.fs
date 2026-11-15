@@ -4,9 +4,10 @@
 \
 \ A rule is four instructions, and they are in order: nothing or the
 \ instruction two before, the one before, the one being compiled, and
-\ the one instruction they are together.
+\ the one instruction they are together.  join-rules, in the kernel,
+\ is told where they are and how many.
 
-meta tcp @ 2/ target constant JOINS
+meta tcp @ 2/ t' join-rules tvar! target
 $0000 i, $6000 i, $600c i, $600c i,   \ drop dup , drop
 $0000 i, $6000 i, $6020 i, $6000 i,   \ drop dup , swap
 $0000 i, $6000 i, $642c i, $600c i,   \ drop dup , nip
@@ -212,12 +213,9 @@ $0000 i, $6800 i, $64ac i, $68ac i,   \ @ , <
 $0000 i, $6800 i, $64bc i, $68bc i,   \ @ , u<
 $0000 i, $6800 i, $650d i, $65ed i,   \ @ , >r
 $0000 i, $6800 i, $6718 i, $6b18 i,   \ @ , swap !
-$0000 i, $6800 i, $6800 i, $68e0 i,   \ @ , @
 $0000 i, $6804 i, $642c i, $6800 i,   \ dup@ , nip
 $0000 i, $683c i, $642c i, $6838 i,   \ @ + , nip
-$0000 i, $683c i, $650d i, $6939 i,   \ @ + , >r
 $0000 i, $6880 i, $6480 i, $6800 i,   \ @ invert , invert
-$0000 i, $6939 i, $6c07 i, $683c i,   \ @ + >r , r>
 $0000 i, $6c03 i, $600c i, $600f i,   \ r> nip , drop
 $0000 i, $6c03 i, $642c i, $6c0f i,   \ r> nip , nip
 $0000 i, $6c03 i, $650d i, $600c i,   \ r> nip , >r
@@ -266,6 +264,7 @@ $6004 i, $6020 i, $60cc i, $60c0 i,   \ over , swap , rshift
 $6004 i, $6020 i, $60dc i, $60d0 i,   \ over , swap , lshift
 $6004 i, $6020 i, $64ac i, $64a0 i,   \ over , swap , <
 $6004 i, $6020 i, $64bc i, $64b0 i,   \ over , swap , u<
+$6004 i, $6020 i, $6b38 i, $6b3c i,   \ over , swap , +!
 $6004 i, $60e4 i, $649c i, $6894 i,   \ over , over@ , =
 $6004 i, $6c04 i, $643c i, $6c34 i,   \ over , r@ , +
 $6004 i, $6c04 i, $649c i, $6c94 i,   \ over , r@ , =
@@ -285,4 +284,4 @@ $6c07 i, $6004 i, $6308 i, $6f03 i,   \ r> , over , !
 $6c07 i, $6020 i, $60cc i, $6cc3 i,   \ r> , swap , rshift
 $6c07 i, $6020 i, $60dc i, $6cd3 i,   \ r> , swap , lshift
 $6c17 i, $643c i, $6718 i, $6f3b i,   \ swapr> , + , swap !
-$116 constant JOINS#
+meta $114 t' join-rules 1+ tvar! target

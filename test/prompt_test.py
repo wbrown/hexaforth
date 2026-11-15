@@ -50,6 +50,17 @@ CHECKS = [
     ("create w 5 ,  10 w or!  w @ .", "15  ok"),
     (": o 48 w or! w @ ; o .", "63  ok"),
     ("60 w and!  w @ .  5 w xor!  w @ .  3 w *!  w @ .  w not!  w @ .", "60 57 171 -172  ok"),
+    # A word that has a great deal in hand keeps it in variables, and sets
+    # them aside if it is run while it is running.  Here each is told it is
+    # running, with its variables all 77: it must draw, and leave them so.
+    *([("display-init  77 text-state text-end over - cells-fill", " ok"),
+       ("true text-busy !  65 10 10 draw-char  0 text-busy !", " ok"),
+       ("text-state @ . text-end 1- @ .", "77 77  ok"),
+       ("0  26 10 do i row @ or loop  0<> .", "-1  ok"),
+       ("77 copy-state copy-end over - cells-fill", " ok"),
+       ("true copy-busy !  screen 0 0 300 300 64 64 copy-bits  0 copy-busy !", " ok"),
+       ("copy-state @ . copy-end 1- @ .", "77 77  ok"),
+       ("0  364 300 do i row 4 + @ or loop  0<> .", "-1  ok")] if BITS == 64 else []),
     # Tasks: one that counts, and a loop that keeps its index across pauses.
     ("create rec 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,", " ok"),
     ("create n 0 ,", " ok"),

@@ -48,6 +48,12 @@ include fused.fs        \ fused instructions as words, for the decompiler
 include see.fs          \ decompiler and the dictionary browser
 include desk.fs         \ the desktop itself
 
+\ Page 10: the nucleus's peephole, which the kernel reaches through a vector.
+
+meta $a code-page target
+
+include join.fs         \ instructions joined as they are compiled, and the rules
+
 \ Every word is where it will be: the tables of names for the decompiler,
 \ which go to a file for the disk (build/nuc.tables).
 

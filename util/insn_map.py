@@ -714,13 +714,14 @@ def write_joins(path, words, own, found, used):
                 "\\ from a built image.  Do not edit.\n\\\n"
                 "\\ A rule is four instructions, and they are in order: nothing or the\n"
                 "\\ instruction two before, the one before, the one being compiled, and\n"
-                "\\ the one instruction they are together.\n\n"
-                "meta tcp @ 2/ target constant JOINS\n")
+                "\\ the one instruction they are together.  join-rules, in the kernel,\n"
+                "\\ is told where they are and how many.\n\n"
+                "meta tcp @ 2/ t' join-rules tvar! target\n")
         name = lambda i: own.get(i) or found.get(i) or describe(i)
         for (x, a, b), y in sorted(rules.items()):
             f.write(f"${x:04x} i, ${a:04x} i, ${b:04x} i, ${y:04x} i,   \\ "
                     + (f"{name(x)} , " if x else "") + f"{name(a)} , {name(b)}\n")
-        f.write(f"${len(rules):x} constant JOINS#\n")
+        f.write(f"meta ${len(rules):x} t' join-rules 1+ tvar! target\n")
     pairs = sum(1 for k in rules if not k[0])
     print(f"{pairs} rules for two instructions and {len(rules) - pairs} for three written to {path}"
           + (f"; typed, these are not joined to the one instruction they are shown for: "
@@ -781,19 +782,13 @@ def load_image(path):
             EXECUTE = xt
         if raw[link + 16:link + 27] == b"\x0ajoin-rules":
             # The rules of the nucleus's peephole are instructions laid down
-            # among the code, and are not code: the word pushes where they
-            # are and how many, four instructions each.  Take them out.
-            pushed = []
-            for w in code[xt:xt + 6]:
-                if not w & 0x8000 or w >> 12 & 3 == 3:
-                    break
-                value = (w & 0xFFF) << 12 * (w >> 12 & 3)
-                if w & 0x4000:
-                    pushed[-1] += value
-                else:
-                    pushed.append(value)
-            if len(pushed) == 2:
-                code[pushed[0]:pushed[0] + 4 * pushed[1]] = [0] * (4 * pushed[1])
+            # after its code, and are not code.  The word pushes the address
+            # of two cells: where they are and how many, four instructions
+            # each.  They are taken out, and being the last of what their
+            # page has, what is left there is nothing.
+            where = sum((w & 0xFFF) << 12 * (w >> 12 & 3) for w in cells[xt:xt + 2] if w & 0x8000)
+            at, count = struct.unpack_from("<2Q", raw, 8 * where)
+            code[at:at + 4 * count] = [0] * (4 * count)
         link = 8 * struct.unpack_from("<Q", raw, link)[0]
     # Labels name the definitions that have no header.  One for code holds
     # its execution token; one for data has the top bit set.

@@ -1221,16 +1221,6 @@ variable ntf#  0 ntf# !
     does>   @ literal
 ;
 
-\ A word that needs more than the stacks hold keeps it in a record of its
-\ own, for as long as it runs: memory taken at here when it starts and
-\ given back when it ends, with a variable pointing at the one in use.
-\ n field: frame name  makes name the nth cell of the record that the
-\ variable frame points at: it compiles the fetch of frame and the step.
-:: field: ( n "frame" "name" -- )
-    ' >body @ create , ,
-    does> dup @ literal  s" @" evaluate  cell+ @ ?dup if literal s" +" evaluate then
-;
-
 \ A table that is instructions, as the rules of the nucleus's peephole are,
 \ is laid down among the code, an instruction to a place, where i@ reads
 \ it.  It is not code to be run, and nothing is joined to it or across it.

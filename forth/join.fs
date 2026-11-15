@@ -23,12 +23,6 @@
 \ full: the kernel's compile, goes through a vector, which the build sets
 \ to pcompile, here.
 
-include joins.fs
-
-\ Where the rules are, and how many: for the tools that read an image, so
-\ that they do not take the rules for code.
-header join-rules : join-rules ( -- ia n ) JOINS JOINS# ;
-
 create jk 0 , 0 , 0 ,   \ the three instructions looked for
 create jlo 0 ,          \ where the rules still to look in start,
 create jn# 0 ,          \ and how many they are
@@ -42,7 +36,7 @@ create jn 0 ,           \ the instruction being compiled
 
 : jfind ( x a b -- y|0 ) \ by halving: the rules are in order
     jk CELL2 + !  jk CELL + !  jk !
-    JOINS jlo !  JOINS# jn# !
+    join-rules @ jlo !  join-rules CELL + @ jn# !
     begin
         jn# @
     while
@@ -133,3 +127,7 @@ create jn 0 ,           \ the instruction being compiled
     repeat
     2drop
 ;
+
+\ The rules come last, so that they are the end of what their page has:
+\ they are not code, and nothing that reads the image as code goes that far.
+include joins.fs

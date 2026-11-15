@@ -80,6 +80,27 @@ header paper : paper ( mask a -- ) or! ;
 header ink   : ink   ( mask a -- ) swap invert swap and! ;
 [then]
 
+\ What a word is working on is on the two stacks, not in variables, so that
+\ a word may be in use more than once: by two tasks, or by something that
+\ draws while something else is drawing.  A word has the top of the data
+\ stack, the cell under it and the top of the return stack to hand.  Where
+\ it needs one more, it is made of smaller words that each need no more
+\ (slab).
+\
+\ Where it needs a great deal more (copy-bits, draw-text), what it has in
+\ hand is variables, which are an instruction each to reach, all in one
+\ run of memory.  The word says while it is running that it is busy, and
+\ if it is asked to run again while it is, it first sets that run of
+\ memory aside and afterwards puts it back.  So the one who was running
+\ finds everything as it was, and it costs nothing unless it happens.
+\
+\ The memory to set it aside in is allotted at here, and given back by
+\ putting dp where it was: a word's locals.
+: borrow ( cells -- a ) \ that many cells, for as long as the word that asks is running
+    align here swap >c dp +!
+    dp @ HDR-BASE u> d# 8 -throw
+;
+
 : x!   ( bits a -- ) xor! ;                                 \ invert
 : seg! ( bits mask a -- ) dup >r @ swap invert and or r> ! ; \ replace
 
@@ -133,12 +154,6 @@ header p-black  create p-black   $ff prow, $ff prow, $ff prow, $ff prow, $ff pro
 header p-gray   create p-gray    $aa prow, $55 prow, $aa prow, $55 prow, $aa prow, $55 prow, $aa prow, $55 prow,
 header p-ltgray create p-ltgray  $88 prow, $22 prow, $88 prow, $22 prow, $88 prow, $22 prow, $88 prow, $22 prow,
 header p-dkgray create p-dkgray  $77 prow, $dd prow, $77 prow, $dd prow, $77 prow, $dd prow, $77 prow, $dd prow,
-
-\ What a word is working on is on the two stacks, not in variables, so that
-\ a word may be in use more than once: by two tasks, or by something that
-\ draws while something else is drawing.  A word has the top of the data
-\ stack, the cell under it and the top of the return stack to hand; where
-\ it needs more, it is made of smaller words that each need no more.
 
 \ The n leftmost pixels of a cell are looked up, not made: making them is a
 \ shift by a whole cell less n, and one of none is a shift the machine does
@@ -437,26 +452,26 @@ header pat-rect : pat-rect ( x y w h -- ) \ only the rows the clip rectangle has
 header screen create screen 0 , 0 ,
 
 \ A copy has more in hand than the stacks hold: what it was asked for, what
-\ it works out from that, and a row set aside.  They are a record that is
-\ the copy's own: copy-bits takes the memory for it at here when it starts
-\ and gives it back when it ends, so a copy made while another is being
-\ made has another.  copy-frame is the one in use.
-create copy-frame 0 ,
+\ it works out from that, and a row set aside.  It is all in one run of
+\ memory, from copy-state up to copy-end, which copy-bits sets aside if it
+\ is asked to copy while it is copying, and puts back after.
+header copy-busy create copy-busy 0 ,
 
-$0 field: copy-frame boff       \ pixels to shift the source left by
-$1 field: copy-frame sbm        \ the source, and where in it
-$2 field: copy-frame ssx
-$3 field: copy-frame ssy
-$4 field: copy-frame bdx        \ where on the screen
-$5 field: copy-frame bdy
-$6 field: copy-frame bw
-$7 field: copy-frame bh
-$9 field: copy-frame bi0        \ the cell of rowbuf the first cell comes from
-$a field: copy-frame bstore     \ true in copy mode: a whole cell may be stored
-$b field: copy-frame bp0        \ the cell of rowbuf a row's first cell comes from
-$c field: copy-frame bdirect    \ true if rows go straight across (move-row)
-$d field: copy-frame rowbuf     \ a row of the source, set aside: the rest of the record
-meta disp-stride 4 + $d + target constant COPY-CELLS
+header copy-state create copy-state
+create sbm 0 ,          \ the source, and where in it
+create ssx 0 ,
+create ssy 0 ,
+create bdx 0 ,          \ where on the screen
+create bdy 0 ,
+create bw 0 ,
+create bh 0 ,
+create boff 0 ,         \ pixels to shift the source left by
+create bi0 0 ,          \ and the cell of rowbuf the first cell comes from
+create bstore 0 ,       \ true in copy mode: a whole cell may be stored
+create bp0 0 ,          \ the cell of rowbuf a row's first cell comes from
+create bdirect 0 ,      \ true if rows go straight across (move-row)
+create rowbuf  meta disp-stride 4 + cell-bytes * target allot
+header copy-end create copy-end
 
 : src-row ( y -- a )
     sbm @ @ ?dup if swap sbm @ CELL + @ * + else row then
@@ -633,10 +648,16 @@ meta disp-stride 4 + $d + target constant COPY-CELLS
 ;
 
 header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
-    copy-frame @ >r  dp @ >r                        ( R: the record before, and where data ended )
-    align  here copy-frame !  COPY-CELLS >c dp +!
-    (copy-bits)
-    r> dp !  r> copy-frame !
+    copy-busy @ if                                  \ a copy is being made: set it aside
+        dp @ >r
+        copy-end copy-state - borrow >r             ( R: where memory was, the copy )
+        copy-state r@ copy-end copy-state - cells-move
+        (copy-bits)
+        r> copy-state copy-end copy-state - cells-move
+        r> dp !
+        exit
+    then
+    true copy-busy !  (copy-bits)  d# 0 copy-busy !
 ;
 
 \ Eight pixels at x: the part of them in the cell x is in, and the part
@@ -733,23 +754,18 @@ create kg 0 ,           \ its cells in what is opened out
     kc @
 ;
 
-create fc 0 ,           \ the port's font, opened out,
-create ffirst 0 ,       \ its first character
-create fcount 0 ,       \ and how many it has
-
-: font-open ( -- )
-    font @ c# 4 + @ ?dup 0= if
-        font @ open-font dup font @ c# 4 + !
+: font-open ( -- ) \ see that the port's font is opened out
+    font @ c# 4 + @ 0= if
+        font @ open-font  font @ c# 4 + !
     then
-    fc !
-    font @ CELL + @ ffirst !
-    font @ CELL2 + @ fcount !
 ;
 
+\ What is asked of the font is asked of the port's font each time, and
+\ nothing is kept of it between.
 : glyph ( c -- a ) \ a character's four cells: its rows, its width, and the rows with black in
-    ffirst @ -
-    dup fcount @ u< 0= if drop d# 0 then
-    d# 2 lshift fc @ +
+    font @ CELL + @ -
+    dup font @ CELL2 + @ u< 0= if drop d# 0 then
+    d# 2 lshift font @ c# 4 + @ +
 ;
 
 header text-width : text-width ( addr u -- n ) \ in pixels
@@ -778,6 +794,13 @@ $20 constant MAX-ROWS    \ the highest a font may be
 
 $80 constant MAX-GLYPHS  \ the most that one call will draw
 
+\ Drawing a string has a great deal in hand, and the cells it gathers: far
+\ more than the stacks hold.  As with a copy (copy-state), it is all in one
+\ run of memory, from text-state up to text-end, which draw-text sets
+\ aside if it is asked to draw while it is drawing, and puts back after.
+header text-busy create text-busy 0 ,
+
+header text-state create text-state
 create ta 0 ,           \ the string
 create tu 0 ,
 create tx 0 ,           \ where the first glyph drawn goes
@@ -786,8 +809,6 @@ create pen 0 ,          \ where the next glyph goes
 create tr 0 ,           \ the row being drawn
 create styled 0 ,       \ true if the rows need more than copying
 create da 0 ,           \ the cell being stored
-create tband  meta $20 cell-bytes * target allot    \ the cells being gathered
-create tsty   meta $20 cell-bytes * target allot    \ a glyph's rows, styled
 create tn 0 ,           \ how many rows are drawn
 create tend 0 ,         \ the end of those cells of tband
 create gd 0 ,           \ from a cell of tband to the glyph's row for it
@@ -806,8 +827,15 @@ create m0 0 ,           \ and the pixels of it that are drawn
 create m1x 0 ,          \ the cell it ends in,
 create m1 0 ,           \ and its
 create gn 0 ,           \ how many glyphs will be seen
-create gbuf 0 ,         \ and which: a cell for each
 create gw 0 ,           \ how wide the one in hand is
+create trn 0 ,          \ how many rows of the glyph in hand are drawn
+create ttrim 0 ,        \ true if the clip rectangle was trimmed to the region's one run
+create tcx0 0 ,         \ and what its sides were
+create tcx1 0 ,
+create tband  meta $20 cell-bytes * target allot    \ the cells being gathered
+create tsty   meta $20 cell-bytes * target allot    \ a glyph's rows, styled
+create gbuf   meta $80 cell-bytes * target allot    \ the glyphs that will be seen: a cell for each
+header text-end create text-end
 
 : glyphs ( -- ) \ note each glyph that will be seen
     d# 0 gn !
@@ -823,7 +851,7 @@ create gw 0 ,           \ how wide the one in hand is
             drop
         else
             gn @ 0= if pen @ tx ! then
-            gbuf @ gn @ + !  d# 1 gn +!
+            gbuf gn @ + !  d# 1 gn +!
             pen @ gw @ + vx1 !                      \ where the last one drawn ends
         then
         gw @ pen +!
@@ -951,8 +979,6 @@ INK-BLACK? [if] [else]
 
 INK-BLACK? [if] BANKED? [if] [else]
 
-create trn 0 ,          \ how many rows of the glyph in hand are drawn
-
 : or-plain ( rows dst -- ) \ trn rows of a glyph, hi pixels along, all of them drawn
     >r trn @ bounds                                 ( end rows ) ( R: dst )
     begin
@@ -1013,7 +1039,7 @@ create trn 0 ,          \ how many rows of the glyph in hand are drawn
 
 : text-fast ( -- ) \ every glyph that will be seen
     tx @ pen !
-    gbuf @ gn @ bounds
+    gbuf gn @ bounds
     begin
         2dupxor
     while
@@ -1025,10 +1051,6 @@ create trn 0 ,          \ how many rows of the glyph in hand are drawn
 ;
 
 [then] [then]
-
-create ttrim 0 ,        \ true if the clip rectangle was trimmed to the region's one run
-create tcx0 0 ,         \ and what its sides were
-create tcx1 0 ,
 
 : text-body ( -- ) \ rows r0 up to r1 of the string, clipped to the clip rectangle
     font-open
@@ -1056,7 +1078,7 @@ BANKED? [if] [else]
     d# 0 tband tn @ cells-fill
     tx @ PXMASK invert and cx !
     tx @ PXMASK and hi !
-    gbuf @ gn @ bounds
+    gbuf gn @ bounds
     begin
         2dupxor
     while
@@ -1082,7 +1104,7 @@ BANKED? [if] [else]
 \ all in one band of it.  If that band is one run of pixels, the clip
 \ rectangle is trimmed to the run for as long as the text is drawn, and
 \ nothing is masked.  Otherwise the text is masked a row at a time.
-header draw-text : draw-text ( addr u x y -- ) \ in the port's font, clipped to the pixel
+: (draw-text) ( addr u x y -- ) \ with a record to work in
     ty ! tx ! tu ! ta !
     ox @ tx +!  oy @ ty +!
     clip CELL + @ ty @ - d# 0 max r0 !
@@ -1106,11 +1128,24 @@ header draw-text : draw-text ( addr u x y -- ) \ in the port's font, clipped to 
     mforce @ if d# 0 mforce !  band-stale then
 ;
 
-create ch1 0 ,
+header draw-text : draw-text ( addr u x y -- ) \ in the port's font, clipped to the pixel
+    text-busy @ if                                  \ a string is being drawn: set it aside
+        dp @ >r
+        text-end text-state - borrow >r             ( R: where memory was, the copy )
+        text-state r@ text-end text-state - cells-move
+        (draw-text)
+        r> text-state text-end text-state - cells-move
+        r> dp !
+        exit
+    then
+    true text-busy !  (draw-text)  d# 0 text-busy !
+;
 
-header draw-char : draw-char ( c x y -- )
-    rot ch1 !
-    >r >r ch1 >c d# 1 r> r> draw-text
+header draw-char : draw-char ( c x y -- ) \ the character is a string of one, in a cell taken for it
+    dp @ >r
+    rot d# 1 borrow tuck !                          ( x y a )
+    >c d# 1 2swap draw-text
+    r> dp !
 ;
 
 \ ---- ports that are not in use
@@ -1138,7 +1173,7 @@ header new-port : new-port ( -- port ) \ the whole screen, black, copying, plain
 header display-init
 : display-init ( -- )
     ['] dplot 'plot !
-    gbuf @ 0= if MAX-GLYPHS >c halloc gbuf ! then
+    d# 0 text-busy !  d# 0 copy-busy !
     d# 0 port !
     new-port dup screen-port ! port!
 ;

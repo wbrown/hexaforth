@@ -267,8 +267,8 @@ shared: only one task should compile at a time.
 `xt dbase rbase record spawn` starts a task that runs `xt` again and again
 with a `pause` between; if it throws, the task reports it and from then on
 only takes its turn. `key` pauses while no key is waiting. Nothing stops a
-task that runs past its part of a stack. The kernel's code is 3,974 bytes
-with 64-bit cells, 3,994 with 32 and 3,934 with 16, against the 4,096 the
+task that runs past its part of a stack. The kernel's code is 3,978 bytes
+with 64-bit cells, 3,998 with 32 and 3,942 with 16, against the 4,096 the
 kernel ROM holds.
 
 On the desktop the Forth window's interpreter is a task with the upper half
@@ -313,7 +313,8 @@ if a definition runs off the end of its page. Execution tokens are stored in
 ### Devices, Blocks and Graphics
 
 `forth/system.fs` (included at the end of `nuc.fs`) is cross-compiled into
-code page 1 (`0x2000`) and code pages 8 and 9 (`0x10000` up). The kernel
+code page 1 (`0x2000`) and code pages 8, 9 and 10 (`0x10000` up; page 10
+is the nucleus's peephole, `join.fs`). The kernel
 never calls into it; its words are reached by name or by execution token.
 A page is 4,096 instructions, 8,192 bytes of code as `build/nuc.sizes`
 gives it, and the image may use all of each.
@@ -586,6 +587,36 @@ benchmark as they were and took 1.6% off its cycles. The port (`clip`,
 `ox`, `oy`, `pattern`, `'mode`) is state that many words read, and is
 rightly variables; what one word stores for the next to fetch is not.
 
+What matters more than the cost is that a word which keeps what it is
+working on in a variable can be in use only once: two tasks, or something
+that draws while something else is drawing, would each write over the
+other's. `vars.py` counts the words that do. In `display.fs`:
+
+- a word has the top of the data stack, the cell under it and the top of
+  the return stack to hand, and what it works on is there. Where it needs
+  one more it is made of smaller words that each need no more: a slab has
+  the row of the pattern and the cell both on the return stack, the cell
+  on top while the ends are done and the row while the cells between are
+  stored (`fast-slab`, `row-out`, `move-row`); and a second place is the
+  first plus how far apart they are
+- where it needs a great deal more (`copy-bits`, `draw-text`: thirty
+  values and the cells they gather), it is variables, an instruction each
+  to reach, all in one run of memory from `copy-state` to `copy-end` and
+  `text-state` to `text-end`. The word says it is busy while it runs
+  (`copy-busy`, `text-busy`), and if it is run while it is busy it first
+  sets that run of memory aside and afterwards puts it back, so it costs
+  nothing unless it happens. `test/prompt_test.py` tells each it is
+  running, and checks that it draws and leaves the variables as they were
+- the memory to set it aside in is allotted at `here` (`borrow`), and
+  given back by putting `dp` where it was: a word's locals. Memory above
+  `here` that has not been allotted is nobody's to keep anything in. A record
+  reached through a pointer, in place of the variables, cost the drawing
+  benchmark 22% of its cycles, since the loops of text fetch from it at
+  every row
+- what is left is the port's own: the mask of the clip region for the row
+  in hand (`rmask`, thirteen words), which goes with where a task's port
+  is to live; and the opening of a font, which is done once
+
 A loop that tests at the top goes round with a jump. Where the test is one
 instruction that says whether two things are the same (`2dupxor while`,
 which every loop over memory has), `repeat` in `cross.fs` compiles the
@@ -658,13 +689,16 @@ two), and `+` after a push makes it an add. The rules are
 decompiler's table the other way round, so what `see` shows compiles, when
 typed, to the instruction it was shown for, and every instruction a rule
 gives is one the image has and the decompiler can show. A rule is four
-instructions laid down among the code of page 1 with `i,` (nothing or the
+instructions laid down with `i,` after the peephole's code (nothing or the
 instruction two before, the one before, the one being compiled, and what
 they are together), in order, and found by halving. The kernel's ROM has
-only a vector for this: `compile,` runs `'compile`, which the build sets
-to `pcompile,`. It is in every size of machine. `insn_map.py` takes the
-rules out of the code it reads, finding them by the word `join-rules`.
-Build until `fused.fs` and `joins.fs` stop changing.
+only a vector for this, `compile,` running `'compile`, which the build
+sets to `pcompile,`; and `join-rules`, two cells that say where the rules
+are and how many. It is in every size of machine: on code page 1 where
+only the kernel is built, and with 64-bit cells on a page of its own,
+page 10, after the desktop's, since page 1 is the display's. `insn_map.py`
+takes the rules out of the code it reads, finding them through
+`join-rules`. Build until `fused.fs` and `joins.fs` stop changing.
 
 After changing any of this, build with and without `PEEPHOLE=off` and run
 `python3 util/insn_map.py --compare plain.hex optimised.hex`: every

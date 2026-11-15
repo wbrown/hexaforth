@@ -116,7 +116,7 @@ def session(seed, count):
     rng = random.Random(seed)
     only = os.environ.get("OPS", "").split()        # to try some operations harder
     m = Model()
-    lines = ["display-init", ": tb here 64 + >c ;", ": ch tb + c! ;",
+    lines = ["display-init", "create tb0 64 allot", ": tb tb0 >c ;", ": ch tb + c! ;",
              "new-rgn constant ra", "new-rgn constant rb", "new-rgn constant rc",
              "new-rgn constant rd", "new-rgn constant re",
              ": dump hex 576 0 do i row 12 0 do dup i + @ . loop drop cr loop decimal ;"]

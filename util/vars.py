@@ -78,7 +78,7 @@ def main():
 
     # The names of the variables: a label for data holds its address with the
     # top bit set, and a word of the dictionary that only pushes one is one.
-    var_name = {}
+    var_name, marks = {}, {}
     for value, n in im.labels_of(image):
         if value >> 63:
             var_name.setdefault(value & 0xFFFF, n)
@@ -93,7 +93,9 @@ def main():
                 value += (code[k] & 0xFFF) << 12 * (code[k] >> 12 & 3)
                 k += 1
             if code[k] == 0x7403:
-                var_name[value] = raw[link + 17:link + 17 + raw[link + 16]].decode("latin-1")
+                name = raw[link + 17:link + 17 + raw[link + 16]].decode("latin-1")
+                marks[name] = value                 # ...-state and ...-end mark a run of variables,
+                var_name.setdefault(value, name)    # and are at the same place as one of them
         link = 8 * struct.unpack_from("<Q", raw, link)[0]
 
     def var(off):
@@ -108,6 +110,14 @@ def main():
     # of what ran.
     port = next((v & 0xFFFF for v, n in im.labels_of(image) if n == "gstate" and v >> 63), None)
     is_port = lambda cell: port is not None and port <= cell < port + 18
+    # Nor are the variables from a word named ...-state up to the one named
+    # ...-end: they are what one word has in hand, all in one run of memory,
+    # which that word sets aside if it is run while it is running and puts
+    # back after (draw-text, copy-bits).  The ...-busy that says it is
+    # running is part of that.
+    runs = [(marks[n], marks[n[:-6] + "-end"]) for n in marks
+            if n.endswith("-state") and n[:-6] + "-end" in marks]
+    set_aside = lambda cell: any(a <= cell < b for a, b in runs)
     touches = defaultdict(set)
     every = set()
     written = {w & 0xFFF for a, w in enumerate(code)        # a cell nothing here stores to is
@@ -116,11 +126,9 @@ def main():
         if not w or not wanted(a):
             continue
         every.add(word_of(a))
-        # A variable named ...-frame points at a record that a word took for
-        # itself when it started and gives back when it ends, putting back
-        # what the variable was: each use of the word has its own.
-        if w & 0xB000 == 0xB000 and w & 0xFFF in written and not is_port(im.VAR_BASE + (w & 0xFFF)) \
-                and not var(w & 0xFFF).endswith("-frame"):
+        cell = im.VAR_BASE + (w & 0xFFF)
+        if w & 0xB000 == 0xB000 and w & 0xFFF in written and not is_port(cell) \
+                and not set_aside(cell) and not var(w & 0xFFF).endswith("-busy"):
             touches[word_of(a)].add(var(w & 0xFFF))
     census = [f"words: {len(every)}; {len(every) - len(touches)} keep nothing in a variable but the "
               f"port's, and {len(touches)} do:"]
