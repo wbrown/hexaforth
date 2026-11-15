@@ -416,9 +416,17 @@ Page 1 is what the rest is built on:
     those to be set put in with `or!`, and a cell that is all in the
     rectangle is stored. That is an instruction a cell and five to go
     round, where a row at a time was about 75 before a cell was touched.
-    A display whose rows are dealt into banks goes a row at a time. In the
-    profile the display's work went from 13.6 million instructions to 8.9
-    with the two
+    A display whose rows are dealt into banks goes a row at a time
+  - under a region that is not a rectangle, a rectangle is a rectangle for
+    each run of each band of the region that it meets (`bands-fill`,
+    `runs`): the band's rows that it has, and what the run and it both
+    have across, each filled as any rectangle is (`rows-fill`). No mask is
+    made for a fill and no row of one is looked at by itself; the clip
+    rectangle is trimmed to the rectangle's left and right for as long as
+    it takes, so that a run is clipped to it as anything is. Lines, text
+    and copies under such a region still go by the mask of the row. In
+    the profile the display's work went from 13.6 million instructions to
+    7.0 with the three
 
 Pages 8 and 9 are the drivers and the desktop:
 

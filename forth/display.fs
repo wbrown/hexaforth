@@ -513,35 +513,72 @@ BANKED? [if]
 
 [then]
 
+: rows-fill ( x y n rows -- ) \ on the screen and clipped, with nothing masked; n and rows are more than none
+    plain? if plain-rect exit then
+    >r swap r> over + >r swap                       ( x y n ) ( R: past the last row )
+    begin
+        over r@ <
+    while
+        >r 2dup r@ slab
+        1+ r>
+    repeat
+    drop 2drop rdrop
+;
+
+\ Under a region that is not a rectangle, a rectangle is a rectangle for
+\ each run of each band of the region that it meets: the band's rows that
+\ it has, and what the run and it both have across.  Each is filled as any
+\ rectangle is, so no mask is made and no row is looked at by itself.  The
+\ clip rectangle is trimmed to the rectangle's left and right for as long
+\ as that takes, so that a run is clipped to it as anything is.
+: runs ( y rows band -- ) \ what the band's runs have of those rows
+    -rot >r >r                                      ( band ) ( R: rows y )
+    dup 1+ swap @ bounds
+    begin
+        2dupxor
+    while
+        dup @  over 1+ @ over -  clip-span          ( end p x n )
+        dup 0> if
+            r@ swap  r> r@ swap >r  rows-fill       \ x y n rows
+        else
+            2drop
+        then
+        CELL2 +
+    repeat
+    2drop rdrop rdrop
+;
+
+: bands-fill ( y yend -- ) \ the rows from y up to yend, a band of the region at a time
+    swap  mrgn @ 1+ >r                              ( yend y ) ( R: band )
+    begin
+        2dup >
+    while
+        over  r@ dup @ + 1+ @ AS-END -  min  over max      ( yend y e ) \ where the band ends, in these rows
+        tuck over -                                 ( yend e y rows )
+        dup 0> if r@ runs else 2drop then
+        r> dup @ + CELL2 + >r
+    repeat
+    2drop rdrop
+;
+
 \ A rectangle is clipped once, not a row at a time: the rows the clip
-\ rectangle has, and, where no region has to be looked at, the pixels of a
-\ row that it has, which are the same in every row.
+\ rectangle has, and the pixels of a row that it has, which are the same
+\ in every row.
 header pat-rect : pat-rect ( x y w h -- )
     >r >r >screen r> r>                             \ on the screen from here
     >r over r> +  clip c# 3 + @ min  >r             ( x y w ) ( R: past the last row drawn )
     swap  clip CELL + @ max  swap
-    mrgn @ if
-        begin
-            over r@ <
-        while
-            >r 2dup r@ rgn-slab
-            1+ r>
-        repeat
-        drop 2drop rdrop exit
-    then
     >r swap r> clip-span rot swap                   ( x' y n' )
-    over r@ <  over 0> and  plain? and if           \ plain, and something of it is left
-        over r> swap - plain-rect exit
+    over r@ <  over 0> and  0= if drop 2drop rdrop exit then    \ nothing of it is left
+    mrgn @ 0= if
+        over r> swap - rows-fill exit
     then
-    dup 0> if
-        begin
-            over r@ <
-        while
-            >r 2dup r@ slab
-            1+ r>
-        repeat
-    then
-    drop 2drop rdrop
+    d# 0 mmask !  band-stale                        \ no mask is used, and the one there is of no row of this
+    r>                                              ( x y n yend )
+    clip @ >r  clip CELL2 + @ >r                    ( R: the clip rectangle's left and right )
+    >r rot  dup clip !  + clip CELL2 + !  r>        ( y yend )
+    bands-fill
+    r> clip CELL2 + !  r> clip !
 ;
 
 \ ---- copying
