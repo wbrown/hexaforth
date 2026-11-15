@@ -13,7 +13,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     printf("Loading %s\n", filepath);
     fflush(stdout);
     FILE* hexfile = fopen(filepath, "r");
-    FILE* lstfile = fopen(lstpath, "r");
+    FILE* lstfile = lstpath ? fopen(lstpath, "r") : NULL;
     char *line = NULL;
     size_t len = 0;
     ssize_t read;
@@ -43,27 +43,35 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
 
 
     // The image ends with the address of the newest dictionary header.  A
-    // header is cells: link, xt (top bit: immediate), then the name, five
-    // bits a character (header_name in vm.h).
+    // header is cells: link, xt (top bit: immediate), then the name.  The
+    // headers are walked to count them and to find where they start; what
+    // a word is called is not read from them (below).
     const uint8_t *bytes = (const uint8_t *)ctx->memory;
     const unsigned unit = CELL_BYTES;                    // bytes to an address
     uint32_t head = ctx->memory[last_addr] * unit;
-    dprintf("WORDS:\n");
 
     uint16_t DP0 = last_addr;
     uint16_t WORDCT=0;
     while (head) {
-        uint64_t link = 0, xt = 0;
+        uint64_t link = 0;
         memcpy(&link, bytes + head, CELL_BYTES);
-        memcpy(&xt, bytes + head + CELL_BYTES, CELL_BYTES);
-        xt &= ~(1ull << (CELL_BITS - 1));
-        char word[256];
-        header_name(bytes + head + 2 * CELL_BYTES, word);
-        if (xt < 65536) asprintf(&ctx->meta[xt], "%s", word);
         WORDCT++;
-        dprintf("  0x%0.4x @ %s => 0x%0.4x\n", head, word, (unsigned)xt);
         DP0 = head / 2;
         head = (uint32_t)link * unit;
+    }
+
+    // The names are in the listing cross.fs wrote beside the image, a line
+    // for each definition: the instruction its code starts at, in hex, and
+    // its name.  How a name is packed in a header is cross.fs's to say.
+    dprintf("WORDS:\n");
+    if (lstfile) {
+        unsigned xt;
+        char word[256];
+        while (fscanf(lstfile, "%x %255s", &xt, word) == 2) {
+            if (xt < 65536) asprintf(&ctx->meta[xt], "%s", word);
+            dprintf("  %s => 0x%0.4x\n", word, xt);
+        }
+        fclose(lstfile);
     }
     dprintf(" ... %d words scanned!\n", WORDCT);
 
@@ -129,7 +137,14 @@ int main(int argc, char *argv[]) {
 #ifdef DEBUG
     init_opcodes(ctx->words);
 #endif
-    load_hex(argv[1], NULL, ctx);
+    // The listing is beside the image, with the same name: nuc.lst for
+    // nuc.hex.  Only a debug build wants it, for the names in its trace.
+    char *lstpath = NULL;
+#ifdef DEBUG
+    char *dot = strrchr(argv[1], '.');
+    if (dot) asprintf(&lstpath, "%.*s.lst", (int)(dot - argv[1]), argv[1]);
+#endif
+    load_hex(argv[1], lstpath, ctx);
     ctx->OUT=stdout;
     ctx->IN=stdin;
     // A second argument is a file to be the disk (vm.c): one that can be

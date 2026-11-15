@@ -115,7 +115,8 @@ int main(int argc, char *argv[]) {
 
   // Walk the dictionary from the newest header, whose address is the last
   // nonzero word of the image.  A header is cells: link, xt (top bit:
-  // immediate), then the name, five bits a character (header_name in vm.h).
+  // immediate), then the name.  What a word is called is in the listing,
+  // if one was given: how a name is packed is cross.fs's to say.
   printf("Dictionary entries:\n");
   const uint8_t *bytes = (const uint8_t *)memory;
   int last = 0;
@@ -127,11 +128,10 @@ int main(int argc, char *argv[]) {
     memcpy(&link, bytes + head, CELL_BYTES);
     memcpy(&xt, bytes + head + CELL_BYTES, CELL_BYTES);
     xt &= ~(1ull << (CELL_BITS - 1));
-    char name[256];
-    header_name(bytes + head + 2 * CELL_BYTES, name);
+    const char *name = find_label((uint16_t)xt);
     printf("  '%s' @ 0x%04X: code at word 0x%04X (byte 0x%04X), link=0x%04X\n",
-           name, head, (unsigned)xt, (unsigned)xt * 2, (unsigned)link);
-    add_label((uint16_t)xt, name);
+           name ? name : "?", head, (unsigned)xt, (unsigned)xt * 2,
+           (unsigned)link);
     head = (uint32_t)link;
   }
   printf("\n");

@@ -1086,14 +1086,18 @@ variable in-depth
     drop
 ;
 
+\ The listing (build/<name>.lst) says where each definition's code is and
+\ what it is called, a line each: the instruction it starts at, in hex,
+\ and its name.  It is how a tool that is not Forth knows a word by name:
+\ how a name is packed in a header is said here and nowhere else.
 :: :
     hex
-    there s>d
-    <# bl hold # # # # #>
+    ?own-page
+    tcp @ 2/ s>d
+    <# bl hold #s #>
     lst @ write-file throw
     wordstr lst @ write-line throw
 
-    ?own-page
     wants-label? if tcp @ 2/ (label) then
     tcp @ wordstart !
     label
@@ -1152,10 +1156,35 @@ variable in-depth
     disp-left-low if
         0 swap 8 0 do dup 1 and rot 2* or swap 2/ loop drop
     then ;
-\ Eight characters, the lowest first, of a number written as 64 bits: a
-\ table of characters is written so, eight to a line, and is the same
-\ characters packed into cells whatever the machine's cell is.
-:: b8, ( x -- ) 8 0 do dup $ff and tc, 8 rshift loop drop ;
+\ The key map (keymap.fs): what each of 128 keys is, and what each is with
+\ shift held.  It is said a row of keys at a time, by the code of the
+\ row's first key, what the keys are and what they are shifted; and a key
+\ that is the same either way by its code and what it is.  What is laid
+\ down is 256 characters, the keys and then the keys shifted, packed into
+\ cells as text is.
+create key-plain 128 allot
+create key-shifted 128 allot
+variable key-at
+
+:: keys[ ( -- ) key-plain 128 erase  key-shifted 128 erase ;
+
+:: keyrow ( code "keys" "shifted" -- )
+    key-at !
+    parse-name parse-name                           ( keys n shifted n )
+    rot over <> abort" a row of keys is as many shifted as not"
+    0 ?do                                           ( keys shifted )
+        over i + c@  key-plain   key-at @ i + +  c!
+        dup  i + c@  key-shifted key-at @ i + +  c!
+    loop
+    2drop
+;
+
+:: keyis ( code what -- ) swap  2dup key-plain + c!  key-shifted + c! ;
+
+:: ]keys ( -- )
+    128 0 do key-plain i + c@ tc, loop
+    128 0 do key-shifted i + c@ tc, loop
+;
 
 :: p,  pixels tc, ;
 \ The same eight pixels as a cell of their own: a row of a small bitmap that
@@ -1239,7 +1268,7 @@ variable fkc                                \ the cell it is opened out from
 
 \ 64 pixels of a bitmap, written with the leftmost highest, as the cells
 \ the display would hold them in.
-:: px, ( pixels -- )
+: px-lay ( pixels -- )
     in-font @ if fstrike fstrike# @ cells + !  1 fstrike# +!  exit then
     tcalign
     8 cell-bytes / 0 do                             \ a cell at a time, from the left
@@ -1253,6 +1282,23 @@ variable fkc                                \ the cell it is opened out from
             tc,
         loop
     loop drop
+;
+:: px, ( pixels -- ) px-lay ;
+
+\ A row of a picture, drawn where it is wanted: the rest of the line, in
+\ which # is a pixel of ink and . is one of none, and the spaces are for
+\ whoever reads it.  It is laid down 64 pixels at a time, as px, lays
+\ them, so a row is a whole number of those.
+:: row| ( "pixels" -- )
+    0 0                                             ( pixels how-many )
+    0 parse bounds ?do
+        i c@ bl <> if
+            i c@ [char] # <>  i c@ [char] . <>  and abort" a picture is # and ."
+            swap 2*  i c@ [char] # = 1 and or  swap 1+
+            dup 64 = if drop px-lay 0 0 then
+        then
+    loop
+    nip abort" a row of a picture is not a whole number of 64 pixels"
 ;
 \ A cell for each number of pixels from none to a whole cell: that many
 \ pixels at the left of a cell.

@@ -99,35 +99,28 @@ typedef struct dict_entry {
   uint16_t link;      // Link to previous entry
 } dict_entry;
 
-// Parse the dictionary of a test image, where the headers are laid end to
-// end from byte 0x8000.  A header is cells: link, xt (top bit: immediate),
-// then the name, five bits a character (header_name in vm.h).  Past the last
-// header there is nothing: a cell of no codes that is not marked as the last.
-static int parse_dictionary(uint16_t *memory, dict_entry *entries,
-                            int max_entries) {
-  const uint8_t *bytes = (const uint8_t *)memory;
-  uint32_t at = 0x8000;
-  int count = 0;
+// The words of a test image and where the code of each is, from the listing
+// that cross.fs writes beside the image: a line for each definition, the
+// instruction its code starts at, in hex, and its name.  How a name is
+// packed in a dictionary header is cross.fs's to say, and is not read here.
+static int parse_listing(const char *filename, dict_entry *entries,
+                         int max_entries) {
+  FILE *f = fopen(filename, "r");
+  if (!f)
+    return 0;
 
-  while (count < max_entries) {
-    uint64_t link = 0, xt = 0;
-    memcpy(&link, bytes + at, CELL_BYTES);
-    memcpy(&xt, bytes + at + CELL_BYTES, CELL_BYTES);
-    uint64_t first = 0;
-    memcpy(&first, bytes + at + 2 * CELL_BYTES, CELL_BYTES);
-    if (first == 0)
-      break;
-    char name[256];
-    int name_bytes = header_name(bytes + at + 2 * CELL_BYTES, name);
+  int count = 0;
+  unsigned code_addr;
+  char name[256];
+  while (count < max_entries &&
+         fscanf(f, "%x %255s", &code_addr, name) == 2) {
     if (strlen(name) > 63)
-      break;
+      continue;
     strcpy(entries[count].name, name);
-    entries[count].dict_addr = at / 2;
-    entries[count].code_addr = (uint16_t)(xt & ~(1ull << (CELL_BITS - 1)));
-    entries[count].link = (uint16_t)(link * CELL_BYTES / 2);
+    entries[count].code_addr = (uint16_t)code_addr;
     count++;
-    at += 2 * CELL_BYTES + name_bytes;
   }
+  fclose(f);
 
   return count;
 }
@@ -183,10 +176,10 @@ int main() {
   }
   printf("Loaded %d words from test_cases.hex\n", total_words);
 
-  // Parse dictionary to find all test words
+  // Read the listing to find all test words
   dict_entry dict_entries[200];
-  int dict_count = parse_dictionary(hex_memory, dict_entries, 200);
-  printf("Found %d dictionary entries\n", dict_count);
+  int dict_count = parse_listing("build/test_cases.lst", dict_entries, 200);
+  printf("Found %d entries in the listing\n", dict_count);
 
   // Count how many test_N entries we found
   int cross_test_count = 0;

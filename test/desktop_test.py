@@ -29,7 +29,6 @@ is the same every time it is run.  The screen is the display in the VM's
 memory, printed a cell at a time.
 """
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -46,25 +45,10 @@ NAMED = {"ret": 28, "backspace": 14, "up": 103, "down": 108, "left": 105, "right
          "pgup": 104, "pgdn": 109, "ctrl": 29, "shift": 42}
 
 
-def keycodes():
-    """{character: (Linux key code, shifted?)}, from the map the desktop itself uses."""
-    text = open(f"{HERE}/../forth/keymap.fs").read()
-    table = b"".join(int(v, 16).to_bytes(8, "little") for v in re.findall(r"^\$([0-9a-f]+) b8,", text, re.M))
-    assert len(table) == 256, "keymap.fs is not 256 characters"
-    codes = {}
-    for shifted in (1, 0):
-        for code in range(127, 0, -1):              # the lowest code that gives it, unshifted if it can be
-            ch = table[shifted * 128 + code]
-            if ch:
-                codes[chr(ch)] = (code, bool(shifted))
-    return codes
-
-
 class Machine:
     def __init__(self, vm, image, disk, out, bits, W, H, base):
         self.bits, self.W, self.H, self.base = bits, W, H, base
         self.cell_pixels = bits                     # a cell of the display is as many pixels as it has bits
-        self.codes = keycodes()
         self.tiff = os.path.splitext(disk)[0] + ".tiff"
         self.disk = f"{out}/disk.img"               # a copy, for the editor to save to
         shutil.copyfile(disk, self.disk)
@@ -85,6 +69,15 @@ class Machine:
         self.out = bytearray()
         self.more = threading.Condition()
         threading.Thread(target=self.reader, daemon=True).start()
+        # Which key is which character is asked of the machine, which has the map: the
+        # lowest code that gives a character, unshifted if it can be.
+        self.send(b": km 256 0 do keymap i 3 lshift char@ . loop ; 123 emit km 125 emit\n")
+        end = self.until(b"}")
+        table = [int(v) for v in bytes(self.out[self.out.index(b"{") + 1:end - 1]).split()]
+        self.codes = {}
+        for at, ch in enumerate(table):
+            if ch and at & 127:
+                self.codes.setdefault(chr(ch), (at & 127, at > 127))
         self.send("".join(line + "\n" for line in lines).encode())
 
     def reader(self):
