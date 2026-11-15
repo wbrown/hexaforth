@@ -436,19 +436,27 @@ header pat-rect : pat-rect ( x y w h -- ) \ only the rows the clip rectangle has
 
 header screen create screen 0 , 0 ,
 
-create sbm 0 ,          \ the source, and where in it
-create ssx 0 ,
-create ssy 0 ,
-create bdx 0 ,          \ where on the screen
-create bdy 0 ,
-create bw 0 ,
-create bh 0 ,
-create br 0 ,           \ the row being copied
-create boff 0 ,         \ pixels to shift the source left by
-create bi0 0 ,          \ and the cell of rowbuf the first cell comes from
-create bstore 0 ,       \ true in copy mode: a whole cell may be stored
-create bp0 0 ,          \ the cell of rowbuf a row's first cell comes from
-create rowbuf  meta disp-stride 4 + cell-bytes * target allot
+\ A copy has more in hand than the stacks hold: what it was asked for, what
+\ it works out from that, and a row set aside.  They are a record that is
+\ the copy's own: copy-bits takes the memory for it at here when it starts
+\ and gives it back when it ends, so a copy made while another is being
+\ made has another.  copy-frame is the one in use.
+create copy-frame 0 ,
+
+$0 field: copy-frame boff       \ pixels to shift the source left by
+$1 field: copy-frame sbm        \ the source, and where in it
+$2 field: copy-frame ssx
+$3 field: copy-frame ssy
+$4 field: copy-frame bdx        \ where on the screen
+$5 field: copy-frame bdy
+$6 field: copy-frame bw
+$7 field: copy-frame bh
+$9 field: copy-frame bi0        \ the cell of rowbuf the first cell comes from
+$a field: copy-frame bstore     \ true in copy mode: a whole cell may be stored
+$b field: copy-frame bp0        \ the cell of rowbuf a row's first cell comes from
+$c field: copy-frame bdirect    \ true if rows go straight across (move-row)
+$d field: copy-frame rowbuf     \ a row of the source, set aside: the rest of the record
+meta disp-stride 4 + $d + target constant COPY-CELLS
 
 : src-row ( y -- a )
     sbm @ @ ?dup if swap sbm @ CELL + @ * + else row then
@@ -468,11 +476,10 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
 \ far apart the two are: that distance is on the return stack under the
 \ cell, and on top of it while the whole cells are done.
 : bsrc ( p -- raw ) \ a cell of what is copied, from the cell of rowbuf at p and the next
-    dup @
-    boff @ if
-        boff @ PIXL  swap 1+ @ PXCELL boff @ - PIXR  or
+    boff @ ?dup if                                  \ fetched once: it is in the record
+        >r  dup @ r@ PIXL  swap 1+ @ PXCELL r> - PIXR  or
     else
-        nip
+        @
     then
 ;
 
@@ -526,7 +533,6 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
 \ straight from where they are to where they go, with nothing set aside
 \ and nothing asked of each; the cell at either end is merged under its
 \ mask.  bdirect is true if the copy is of that kind.
-create bdirect 0 ,
 
 : move! ( a mask dist -- a ) \ the pixels of the mask, to the cell at a from the cell dist on
     >r over r> + @ under!
@@ -566,7 +572,7 @@ create bdirect 0 ,
     move-row
 ;
 
-header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
+: (copy-bits) ( bitmap sx sy dx dy w h -- ) \ with a record to work in
     bh ! bw ! bdy ! bdx ! ssy ! ssx ! sbm !
     ox @ bdx +!  oy @ bdy +!
     sbm @ @ 0= if ox @ ssx +!  oy @ ssy +! then      \ the screen, as the port sees it
@@ -581,11 +587,12 @@ header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
     bi0 @ rowbuf + bp0 !
     bstore @  boff @ 0=  and
     sbm @ @ 0<>  ssy @ bdy @ <>  or  and  bdirect !
-    d# 0 br !
+    bh @ negate                                     \ the rows are counted up to nothing
     begin
-        br @ bh @ <
+        dup
     while
-        ssy @ bdy @ < if bh @ 1- br @ - else br @ then  ( row )
+        dup bh @ +
+        ssy @ bdy @ < if bh @ 1- swap - then        ( count row ) \ from the bottom up if they move down
         mrgn @ if                                   \ a region that is not a rectangle
             dup bdy @ + rmask
             mnone @ if
@@ -620,8 +627,16 @@ header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
                 whole-row
             then
         then
-        d# 1 br +!
+        1+
     repeat
+    drop
+;
+
+header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
+    copy-frame @ >r  dp @ >r                        ( R: the record before, and where data ended )
+    align  here copy-frame !  COPY-CELLS >c dp +!
+    (copy-bits)
+    r> dp !  r> copy-frame !
 ;
 
 \ Eight pixels at x: the part of them in the cell x is in, and the part

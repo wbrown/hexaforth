@@ -116,7 +116,11 @@ def main():
         if not w or not wanted(a):
             continue
         every.add(word_of(a))
-        if w & 0xB000 == 0xB000 and w & 0xFFF in written and not is_port(im.VAR_BASE + (w & 0xFFF)):
+        # A variable named ...-frame points at a record that a word took for
+        # itself when it started and gives back when it ends, putting back
+        # what the variable was: each use of the word has its own.
+        if w & 0xB000 == 0xB000 and w & 0xFFF in written and not is_port(im.VAR_BASE + (w & 0xFFF)) \
+                and not var(w & 0xFFF).endswith("-frame"):
             touches[word_of(a)].add(var(w & 0xFFF))
     census = [f"words: {len(every)}; {len(every) - len(touches)} keep nothing in a variable but the "
               f"port's, and {len(touches)} do:"]
