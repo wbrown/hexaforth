@@ -200,21 +200,22 @@ header win-inval : win-inval ( x y w h win -- ) \ in a window's content
 \ sum is kept: it is a few instructions a window to see that nothing has
 \ changed, whoever might have changed it.
 create vsum -1 ,
-create vacc 0 ,
-: v+ ( x -- ) vacc @ d# 31 * + vacc ! ;
+: v+ ( sum x -- sum' ) swap d# 31 * + ;
+
+: win-sum ( sum win -- sum' ) \ which it is, and where
+    >r  r@ v+  r@ @ v+  r@ CELL + @ v+  r@ CELL2 + @ v+  r> c# 3 + @ v+
+;
 
 : layout ( -- sum )
-    nwin @ vacc !
+    nwin @ >r                                       ( R: the sum so far )
     wins nwin @ bounds
     begin
         2dupxor
     while
-        dup @                                       ( end p win )
-        dup v+  dup @ v+  dup CELL + @ v+  dup CELL2 + @ v+  c# 3 + @ v+
+        dup @ r> swap win-sum >r
         1+
     repeat
-    2drop
-    vacc @
+    2drop r>
 ;
 
 : visible ( -- ) \ work out what can be seen of each window, and of the desk
@@ -273,16 +274,13 @@ header refresh : refresh ( -- ) \ paint what is out of date
 
 \ ---- which window, and bringing one to the front
 
-create hx 0 ,
-create hy 0 ,
-
-: inside? ( win -- f ) \ is hx,hy in it?
-    dup @ hx @ swap - over CELL2 + @ u<
-    swap dup CELL + @ hy @ swap - swap c# 3 + @ u<
+: inside? ( win -- f ) \ is the pointer in it?
+    dup @ mx @ swap - over CELL2 + @ u<
+    swap dup CELL + @ my @ swap - swap c# 3 + @ u<
     and
 ;
 
-: win-at ( -- i ) \ the frontmost window under hx,hy, or -1
+: win-at ( -- i ) \ the frontmost window under the pointer, or -1
     nwin @
     begin
         dup
@@ -315,7 +313,6 @@ create dx0 0 ,
 create dy0 0 ,
 
 : press ( -- )
-    mx @ hx !  my @ hy !
     win-at dup 0< if drop exit then
     dup 1+ nwin @ <> if
         redraw-top raise redraw-top                 \ the one that was in front, and the one that is
@@ -324,14 +321,14 @@ create dy0 0 ,
         drop
     then
     top cw !
-    hy @ cw.y - d# 19 < if
+    my @ cw.y - d# 19 < if
         true dragging !  mx @ dx0 !  my @ dy0 !
         exit
     then
     top c# 7 + @ ?dup if
         >r
         true auto !
-        hx @ cw.x - 1-  hy @ cw.y - d# 19 -  top
+        mx @ cw.x - 1-  my @ cw.y - d# 19 -  top
         r> execute
         auto @ if redraw-top then
     then

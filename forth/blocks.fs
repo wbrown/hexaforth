@@ -52,34 +52,37 @@ header load
 \ block, which may have been changed since it was read, is it taken from
 \ there.
 
-create dr-dest 0 ,
-create dr-len  0 ,
-create dr-off  0 ,
+\
+\ What is read goes up through the device from offset to where it ends,
+\ and where it goes in memory is that plus how far apart the two are, which
+\ is on the return stack: nothing is kept anywhere else, so it does not
+\ matter who else is reading.
 
-: lined? ( -- f ) \ is the next of it a whole block, to go where a cell starts?
-    dr-off @ h# 3ff and  dr-dest @ CELLB 1- and  or 0=
-    dr-len @ d# 1023 > and
-    dr-off @ d# 10 rshift blk-cur @ <> and
+: room ( end offset -- end offset n ) \ how much of what is left is in the block the offset is in
+    2dup -  over h# 3ff and d# 1024 swap -  min
+;
+
+: piece ( offset n dest -- ) \ n bytes of one block, to dest
+    over d# 1024 =  over CELLB 1- and 0=  and       \ a whole block, to go where a cell starts,
+    >r rot r>                                       ( n dest offset f )
+    over d# 10 rshift blk-cur @ <> and if           \ and not the one in the buffer
+        d# 10 rshift  swap c> swap  blk-read  drop
+    else
+        dup d# 10 rshift block  swap h# 3ff and +   ( n dest src )
+        swap rot cmove
+    then
 ;
 
 header disk-read
 : disk-read ( dest u offset -- ) \ dest is the address of a byte
-    dr-off ! dr-len ! dr-dest !
+    rot over - >r                                   ( u offset ) ( R: from an offset to where it goes )
+    tuck + swap                                     ( end offset )
     begin
-        dr-len @
+        2dupxor
     while
-        lined? if
-            dr-dest @ c>  dr-off @ d# 10 rshift  blk-read
-            d# 1024
-        else
-            dr-off @ d# 10 rshift block
-            dr-off @ h# 3ff and +                   ( src )
-            d# 1024 dr-off @ h# 3ff and -
-            dr-len @ min                            ( src n )
-            dup >r dr-dest @ swap cmove r>
-        then                                        ( n )
-        dup dr-dest +!
-        dup dr-off +!
-        negate dr-len +!
+        room                                        ( end offset n )
+        2dup over r@ + piece
+        +
     repeat
+    2drop rdrop
 ;
