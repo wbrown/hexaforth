@@ -51,6 +51,19 @@ static char* RSTACK_REPR[] = {
         "r+0", "r+1", "r-1", "r-2"
 };
 
+// === NAME_CODES: the characters of a name in a dictionary header that are
+// not letters.  A name is five bits a character, as many to a cell as a cell
+// holds, the first the lowest, and the top bit of its last cell is set.
+// Codes 1 to 26 are the letters.  These are the rest, in three lots: those
+// with a code of their own, and those said by a code that says which lot
+// and then which of it, counted from 1.  cross.fs packs names with these
+// (they are written into basewords.fs), and `decode_name` reads one.
+static char* NAME_CODES_REPR[] = {
+        "-!?",                                  // codes 27, 28 and 29
+        "0123456789><@'(),.+*/=\"#:;[]$%&",     // after code 30
+        "\\^`{|}~_",                            // after code 31
+};
+
 // ==========================================================================
 // Instruction field operation, instruction defines
 // ==========================================================================
@@ -279,5 +292,6 @@ uint8_t lookup_word(word_node* nodes, const char* word, instruction* lookup);
 const char* lookup_opcode(word_node nodes[], instruction ins);
 char* instruction_to_str(instruction ins);
 bool init_opcodes(word_node opcodes[]);
+int decode_name(const uint8_t* cells, char* out);
 
 #endif //HEXAFORTH_VM_OPCODES_H

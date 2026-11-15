@@ -12,6 +12,14 @@
 #1 constant disp-banks
 #0 constant disp-bank-step
 
+\ the codes of a name, from vm_opcodes.h
+create n-direct  #45 c, #33 c, #63 c,
+#3 constant n-directs
+create n-page1  #48 c, #49 c, #50 c, #51 c, #52 c, #53 c, #54 c, #55 c, #56 c, #57 c, #62 c, #60 c, #64 c, #39 c, #40 c, #41 c, #44 c, #46 c, #43 c, #42 c, #47 c, #61 c, #34 c, #35 c, #58 c, #59 c, #91 c, #93 c, #36 c, #37 c, #38 c,
+#31 constant n-page1s
+create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
+#8 constant n-page2s
+
 \ input_mux
 : N->IN      h# 0000 ;
 : T->IN      h# 0400 ;

@@ -872,17 +872,14 @@ variable link 0 link !
 \ have been taken from it is nothing, and whoever reads a name stops
 \ there and does not look at the cell's padding.
 
-: tcell, ( x -- ) there tcell!  cell-bytes tdp +! ;
+\
+\ Which characters those are is not said here.  It is in vm_opcodes.h
+\ (NAME_CODES_REPR), where the C that reads a header has it too, and the
+\ machine file brings it: n-direct, the three with codes 27 to 29;
+\ n-page1, what follows code 30; n-page2, what follows code 31; and how
+\ many each is (n-directs, n-page1s, n-page2s).
 
-create n-direct  char - c, char ! c, char ? c,              \ codes 27 to 29
-create n-page1                                              \ what follows code 30: these, the first being 1
-    char 0 c, char 1 c, char 2 c, char 3 c, char 4 c, char 5 c, char 6 c, char 7 c,
-    char 8 c, char 9 c, char > c, char < c, char @ c, char ' c, char ( c, char ) c,
-    char , c, char . c, char + c, char * c, char / c, char = c, char " c, char # c,
-    char : c, char ; c, char [ c, char ] c, char $ c, char % c, char & c,
-create n-page2                                              \ and what follows code 31
-    char \ c, char ^ c, char ` c, char { c, char | c, char } c, char ~ c, char _ c,
-3 constant n-directs   31 constant n-page1s   8 constant n-page2s
+: tcell, ( x -- ) there tcell!  cell-bytes tdp +! ;
 
 cell-bits 5 / constant name-per             \ codes to a cell
 name-per 5 * constant name-bits             \ and the bits they are
@@ -1086,18 +1083,14 @@ variable in-depth
     drop
 ;
 
-\ The listing (build/<name>.lst) says where each definition's code is and
-\ what it is called, a line each: the instruction it starts at, in hex,
-\ and its name.  It is how a tool that is not Forth knows a word by name:
-\ how a name is packed in a header is said here and nowhere else.
 :: :
     hex
-    ?own-page
-    tcp @ 2/ s>d
-    <# bl hold #s #>
+    there s>d
+    <# bl hold # # # # #>
     lst @ write-file throw
     wordstr lst @ write-line throw
 
+    ?own-page
     wants-label? if tcp @ 2/ (label) then
     tcp @ wordstart !
     label

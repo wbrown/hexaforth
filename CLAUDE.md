@@ -355,7 +355,11 @@ and never kept one, so a character is a code of five bits: nothing, the
 others (the digits and most marks) or one of the last eight, counted from
 one, so that no code of a name is nothing and what is left of a cell after
 its last is the padding. That is every
-character that can be typed in a name; `cross.fs` says which is which
+character that can be typed in a name. Which is which is said in
+`vm_opcodes.h` (`NAME_CODES_REPR`: the three after the letters, the 31 and
+the eight), where the fields of an instruction are said, and
+`baseword_fs_gen` writes it into `basewords.fs` with the machine's sizes
+(`n-direct`, `n-page1`, `n-page2`); `cross.fs` packs names with that
 (`n-code`), and lays down the machine's two tables of it. The kernel packs
 a name to look it up or to make a header of it (`>key`, with `kcode`, what
 each character is). Whoever shows a name has its
@@ -363,14 +367,18 @@ characters put in a buffer (`name> ( a -- c-addr u )`, with `kchar`, what
 each code is): the text of
 one name at a time, from cells that may be anywhere in memory. Both are
 the kernel's, as `words` is, and both pack with one word (`pack,`: codes
-of five bits into the key, characters of eight into the text). The codes
-are said in `cross.fs` and nowhere else that is to stay. The C that wants
-a word by its name (`main.c` for its trace, `test/main.c` to find a test,
-`util/disasm_hex.c`) does not read a header for it: `cross.fs` writes a
-listing beside the image, `build/<name>.lst`, a line for each definition,
-the instruction its code starts at in hex and its name, and they read
-that. `insn_map.py` still has the codes a second time (`name_at`), until
-it is gone.
+of five bits into the key, characters of eight into the text). The C that
+wants a word by its name (`main.c` for its trace, `test/main.c` to find a
+test, `util/disasm_hex.c` for its labels) reads the image's headers, from
+the newest, whose address an image ends with, and a name with
+`decode_name` in `vm_opcodes.c`, which reads the same table. So an image
+that is to be read ends so: `nuc.fs` lays that cell down, and the test
+cases do (`test/generate_test_cases.c`). For as long as the test cases did
+not, and `test/main.c` looked for headers where they once were, it found
+no test and compared nothing, and passed: it now fails if the image has
+fewer tests than there are. `insn_map.py` still has the codes a second
+time (`name_at`),
+until it is gone.
 Labels are laid out the same, so `see` searches them with `sfind`.
 
 What that cost and what it saved, counted. A name was a count and its
@@ -1584,7 +1592,7 @@ gforth ./cross.fs ./basewords.fs ./yourprogram.fs
 
 This creates:
 - `../build/yourprogram.hex` - The compiled hex file
-- `../build/yourprogram.lst` - Listing: a line for each definition, the instruction its code starts at (hex) and its name
+- `../build/yourprogram.lst` - Symbol listing (addresses include 0x4000 offset)
 
 ### Example
 

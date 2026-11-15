@@ -99,28 +99,38 @@ typedef struct dict_entry {
   uint16_t link;      // Link to previous entry
 } dict_entry;
 
-// The words of a test image and where the code of each is, from the listing
-// that cross.fs writes beside the image: a line for each definition, the
-// instruction its code starts at, in hex, and its name.  How a name is
-// packed in a dictionary header is cross.fs's to say, and is not read here.
-static int parse_listing(const char *filename, dict_entry *entries,
-                         int max_entries) {
-  FILE *f = fopen(filename, "r");
-  if (!f)
-    return 0;
-
-  int count = 0;
-  unsigned code_addr;
-  char name[256];
-  while (count < max_entries &&
-         fscanf(f, "%x %255s", &code_addr, name) == 2) {
-    if (strlen(name) > 63)
-      continue;
-    strcpy(entries[count].name, name);
-    entries[count].code_addr = (uint16_t)code_addr;
-    count++;
+// Parse the dictionary of a test image.  The image ends with the address of
+// the newest header, which is the last nonzero word below the code pages,
+// and each header says where the one before it is: nothing here says where
+// the headers start.  A header is cells: link, xt (top bit: immediate), then
+// the name, five bits a character (decode_name in vm_opcodes.c).  A link and
+// the address the image ends with are the numbers of cells.
+static int parse_dictionary(uint16_t *memory, int total_words,
+                            dict_entry *entries, int max_entries) {
+  const uint8_t *bytes = (const uint8_t *)memory;
+  int last = 0;
+  for (int i = 0x2000; i < total_words && i < 0x8000; i++) {
+    if (memory[i])
+      last = i;
   }
-  fclose(f);
+  uint32_t head = last ? memory[last] * CELL_BYTES : 0;
+  int count = 0;
+
+  while (head && head < (uint32_t)total_words * 2 && count < max_entries) {
+    uint64_t link = 0, xt = 0;
+    memcpy(&link, bytes + head, CELL_BYTES);
+    memcpy(&xt, bytes + head + CELL_BYTES, CELL_BYTES);
+    char name[256];
+    decode_name(bytes + head + 2 * CELL_BYTES, name);
+    if (strlen(name) <= 63) {
+      strcpy(entries[count].name, name);
+      entries[count].dict_addr = head / 2;
+      entries[count].code_addr = (uint16_t)(xt & ~(1ull << (CELL_BITS - 1)));
+      entries[count].link = (uint16_t)(link * CELL_BYTES / 2);
+      count++;
+    }
+    head = (uint32_t)link * CELL_BYTES;
+  }
 
   return count;
 }
@@ -176,10 +186,11 @@ int main() {
   }
   printf("Loaded %d words from test_cases.hex\n", total_words);
 
-  // Read the listing to find all test words
+  // Parse dictionary to find all test words
   dict_entry dict_entries[200];
-  int dict_count = parse_listing("build/test_cases.lst", dict_entries, 200);
-  printf("Found %d entries in the listing\n", dict_count);
+  int dict_count =
+      parse_dictionary(hex_memory, total_words, dict_entries, 200);
+  printf("Found %d dictionary entries\n", dict_count);
 
   // Count how many test_N entries we found
   int cross_test_count = 0;
@@ -191,7 +202,9 @@ int main() {
   printf("Found %d test words in dictionary\n", cross_test_count);
 
   // Extract bytecode for tests
-  test_bytecode cross_tests[100];
+  // As many as there can be dictionary entries: there are more than a
+  // hundred tests, and one that is not found has no bytes to free.
+  test_bytecode cross_tests[200] = {0};
   extract_test_bytecode(hex_memory, cross_tests, cross_test_count,
                         dict_entries, dict_count);
 
@@ -208,6 +221,13 @@ int main() {
   }
 
   bool all_compiler_tests_passed = true;
+
+  // A test that cross.fs's image has no word for is compared with nothing.
+  if (cross_test_count < active_tests) {
+    printf("%d tests, and the image has %d of them\n", active_tests,
+           cross_test_count);
+    all_compiler_tests_passed = false;
+  }
 
   for (int i = 0; i < active_tests && i < cross_test_count; i++) {
     printf("Test %d: %-30s", i, TESTS[i].label);

@@ -93,6 +93,38 @@ bool lookup_op_word(word_node* nodes, char* word, instruction* lookup) {
     return(interpret_imm(word, lookup));
 }
 
+// Given where the name in a dictionary header starts, write the name out as
+// a string, and return how many bytes of the header the name's cells are.
+// See `NAME_CODES_REPR` for what the codes of a name are.
+int decode_name(const uint8_t* cells, char* out) {
+    const char* lot = NULL;     // which lot the next code is one of, if any
+    int len = 0;
+    int bytes = 0;
+    bool last = false;
+
+    while (!last && len < 128) {
+        uint64_t cell = 0;
+        memcpy(&cell, cells + bytes, CELL_BYTES);
+        bytes += CELL_BYTES;
+        last = (cell >> (CELL_BITS - 1)) & 1;
+        for (int idx = 0; idx < CELL_BITS / 5; idx++) {
+            uint8_t code = (cell >> (5 * idx)) & 31;
+            if (lot) {
+                out[len++] = (code && code <= strlen(lot)) ? lot[code - 1] : '?';
+                lot = NULL;
+            } else if (code >= 30) {
+                lot = NAME_CODES_REPR[code - 29];
+            } else if (code >= 27) {
+                out[len++] = NAME_CODES_REPR[0][code - 27];
+            } else if (code) {
+                out[len++] = 'a' + code - 1;
+            }
+        }
+    }
+    out[len] = '\0';
+    return(bytes);
+}
+
 void decode_instruction(char* out, instruction ins, word_node words[]) {
     const char* forth_word = lookup_opcode(words, ins);
     char* ins_r = instruction_to_str(ins);
