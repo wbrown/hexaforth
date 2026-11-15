@@ -7,6 +7,8 @@
 #   make KERNEL=hexaforth-fast ...   any target, with the table-decoded kernel
 #   make demo       boot into the desktop, with a disk, keyboard and pointer
 #   make demo-test  drive the desktop headless and check the screen
+#   make demo SCALE=2   the same with each pixel two across and two down, for
+#                   a screen whose own pixels are small (demo-test too)
 #   make demo-profile  drive it, and say where the instructions went
 
 # KERNEL picks the native kernel: hexaforth (small) or hexaforth-fast.
@@ -51,7 +53,24 @@ $(B)/ramfb.o: ramfb.S
 $(B)/%-display.elf: $(B)/ramfb.o $(B)/%-display.o
 	ld.lld -Ttext=$(LOAD) -e _start -o $@ $^
 
-# And the same again, counting how often each instruction is executed.
+# SCALE=n: the bridge draws each pixel of the display n across and n down,
+# so the picture is n times the size and still exact.  It is another bridge
+# and another kernel file, named for n; the kernel's own code is the same.
+SCALE ?= 1
+X     := $(if $(filter-out 1,$(SCALE)),-x$(SCALE))
+
+$(B)/ramfb-x%.o: ramfb.S
+	@mkdir -p $(B)
+	clang $(TARGET) -c -DSCALE=$* $< -o $@
+
+ifneq ($(X),)
+$(B)/%-display$(X).elf: $(B)/ramfb$(X).o $(B)/%-display.o
+	ld.lld -Ttext=$(LOAD) -e _start -o $@ $^
+endif
+
+# And the same again, counting how often each instruction is executed.  The
+# counts are kept 4MB past the stacks, which is clear of the pixels only
+# when they are not scaled, so this is always the plain bridge.
 $(B)/%-profile.o: %.S $(B)/image.bin
 	clang $(TARGET) -c -DIMAGE='"$(B)/image.bin"' -DBRIDGE -DPROFILE \
 	    -DADDR_BITS=$(ADDR_BITS) $< -o $@
@@ -71,7 +90,7 @@ $(B)/%.elf: $(B)/%.o
 $(B)/%.bin: $(B)/%.elf
 	$(LLVM)llvm-objcopy -O binary $< $@
 
-.PRECIOUS: $(B)/%.o $(B)/%.elf $(B)/%-display.o $(B)/%-display.elf
+.PRECIOUS: $(B)/%.o $(B)/%.elf $(B)/%-display.o $(B)/%-display.elf $(B)/ramfb-x%.o
 
 size: $(B)/$(KERNEL).elf
 	@$(LLVM)llvm-nm --radix=d $< | awk '/ native_end$$/{e=$$1} / _start$$/{s=$$1} \
@@ -102,14 +121,15 @@ DEVICES := -device ramfb -global virtio-mmio.force-legacy=false \
 # Boot into the desktop.  Needs a QEMU with a graphical display; the serial
 # console also types into the front window.  ^Q leaves the desktop for the
 # serial prompt.
-demo: $(B)/$(KERNEL)-display.elf $(B)/disk.img
+demo: $(B)/$(KERNEL)-display$(X).elf $(B)/disk.img
 	qemu-system-aarch64 -M virt -cpu cortex-a53 -m 256 -serial mon:stdio -nic none $(DEVICES) -kernel $<
 
 # Boot headless, drive the desktop with key and pointer events, and check
-# the screen.  Screenshots are left in $(B)/gui.
-demo-test: $(B)/$(KERNEL)-display.elf $(B)/disk.img
+# the screen.  Screenshots are left in $(B)/gui.  With SCALE it checks as
+# well that every pixel came out as a whole block.
+demo-test: $(B)/$(KERNEL)-display$(X).elf $(B)/disk.img
 	cp $(B)/disk.img $(B)/gui.img
-	python3 guitest.py $< $(B)/gui.img $(B)/disk.tiff $(B)/gui
+	SCALE=$(SCALE) python3 guitest.py $< $(B)/gui.img $(B)/disk.tiff $(B)/gui
 
 # Drive the desktop as demo-test does, and say where the instructions went.
 demo-profile: $(B)/hexaforth-profile.elf $(B)/disk.img

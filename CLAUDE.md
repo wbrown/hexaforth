@@ -507,6 +507,16 @@ with `-DBRIDGE` calls `bridge_init` at boot and `bridge_poll` whenever the
 machine asks for a key or whether one is waiting. `vm.c` and the Verilog do
 not show the bitmap yet.
 
+`make demo SCALE=2` (or 3, or more) has the bridge draw each pixel of the
+display that many across and that many down, for a screen whose own pixels
+are small. The picture is a whole number of times the size and so still
+exact, which QEMU's stretching of a window is not: a dither stretched by
+anything but a whole number comes out in bands. Nothing in the machine or
+the kernel changes, only what `ramfb` is given. `make demo-test SCALE=2`
+runs the same checks on one pixel of each block, and checks as well that
+every block is all one colour. The profile build is always the plain
+bridge.
+
 `test/prompt_test.py VM IMAGE.hex [CELL_BITS]` types Forth at the nucleus's
 prompt on the reference VM and checks what comes back: definitions, wide
 numbers, that the nucleus's compiler uses the variable instructions and

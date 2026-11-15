@@ -22,16 +22,30 @@
 // The display it copies is the hosted machine's: the leftmost pixel of a
 // cell is its lowest bit, a set bit is black, and the rows follow one
 // another with no gap.  The size and the base are those of vm_constants.h.
+//
+// SCALE makes the picture bigger and keeps it exact: each pixel of the
+// bitmap is drawn SCALE pixels across and SCALE down, and ramfb is told a
+// width and a height SCALE times as great.  QEMU can stretch a picture to
+// fit a window, but not by a whole number, and a dither stretched by
+// anything else comes out in bands.  The pixels take
+// DISP_W * DISP_H * 4 * SCALE * SCALE bytes of the free memory.
 
 #ifndef DISP_W
 #define DISP_W    768
 #define DISP_H    576
 #define DISP_BASE 0x4000
 #endif
+#ifndef SCALE
+#define SCALE     1
+#endif
 
         .equ    FWCFG,    0x09020000    // data, selector at +8, DMA address at +16
         .equ    CELLS,    DISP_W * DISP_H / 64
-        .equ    FBBYTES,  DISP_W * DISP_H * 4
+        .equ    ROWCELLS, DISP_W / 64           // cells in a row of the bitmap
+        .equ    STRIDE,   DISP_W * SCALE * 4    // bytes in a row of pixels
+        .equ    FBBYTES,  STRIDE * DISP_H * SCALE
+        .equ    CELLSTEP, 64 * SCALE * 4        // bytes of pixels a cell is across
+        .equ    ROWSTEP,  STRIDE * SCALE        // and from a row of the bitmap to the next
 
         // The state block.
         .equ    SRC,      0             // the bitmap
@@ -51,7 +65,7 @@ bridge_init:
         add     x3, x0, #(DISP_BASE * 8)
         str     x3, [x2, #SRC]
         str     x1, [x2, #FB]
-        mov     x4, #FBBYTES
+        ldr     x4, =FBBYTES
         add     x5, x1, x4
         str     x5, [x2, #SHADOW]
         mov     w6, #0x00ffffff                 // an empty bitmap is a white screen
@@ -103,13 +117,13 @@ bridge_init:
         rev     w15, w15
         str     w15, [x2, #(CFG + 8)]
         str     wzr, [x2, #(CFG + 12)]
-        mov     w15, #DISP_W
+        ldr     w15, =(DISP_W * SCALE)
         rev     w15, w15
         str     w15, [x2, #(CFG + 16)]
-        mov     w15, #DISP_H
+        ldr     w15, =(DISP_H * SCALE)
         rev     w15, w15
         str     w15, [x2, #(CFG + 20)]
-        mov     w15, #(DISP_W * 4)
+        ldr     w15, =STRIDE
         rev     w15, w15
         str     w15, [x2, #(CFG + 24)]
 
@@ -136,24 +150,44 @@ bridge_poll:
         cmp     x4, x3
         b.lo    9f
         str     x0, [x1, #LAST]
-        ldp     x2, x3, [x1, #SRC]              // bitmap, pixels
+        ldr     x2, [x1, #SRC]                  // the bitmap
         ldr     x4, [x1, #SHADOW]
         mov     x5, #CELLS
 1:      ldr     x6, [x2], #8
         ldr     x7, [x4]
         cmp     x6, x7
-        b.eq    3f
+        b.eq    4f
         str     x6, [x4]
+
+        // Where the cell's pixels start: from how far into the copy the
+        // cell is, its row of the bitmap and how far along the row.
+        adr     x1, state
+        ldp     x3, x0, [x1, #FB]               // the pixels, and the copy
+        sub     x0, x4, x0
+        lsr     x0, x0, #3                      // the cell's number
+        mov     x7, #ROWCELLS
+        udiv    x1, x0, x7                      // its row
+        msub    x0, x1, x7, x0                  // and its place in the row
+        ldr     x7, =ROWSTEP
+        madd    x3, x1, x7, x3
+        mov     x7, #CELLSTEP
+        madd    x3, x0, x7, x3
+
         mov     w7, #0x00ffffff
+        .rept   SCALE                           // each row of pixels the cell is on
+        ldr     x6, [x4]                        // the cell, from the copy
         mov     x0, #64
 2:      tst     x6, #1
         csel    w1, wzr, w7, ne                 // a set bit is black
+        .rept   SCALE
         str     w1, [x3], #4
+        .endr
         lsr     x6, x6, #1
         subs    x0, x0, #1
         b.ne    2b
-        b       4f
-3:      add     x3, x3, #256
+        ldr     x0, =(STRIDE - CELLSTEP)        // the same place in the next row
+        add     x3, x3, x0
+        .endr
 4:      add     x4, x4, #8
         subs    x5, x5, #1
         b.ne    1b

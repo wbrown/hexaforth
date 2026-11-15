@@ -22,6 +22,7 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 W, H = 768, 576
+SCALE = int(os.environ.get("SCALE", "1"))   # the bridge draws each pixel this many across and down
 QCODE = {" ": "spc", "\r": "ret", ".": "dot", ",": "comma", "/": "slash", "-": "minus",
          "=": "equal", ";": "semicolon", "'": "apostrophe", "[": "bracket_left",
          "]": "bracket_right", "\\": "backslash", "`": "grave_accent"}
@@ -64,6 +65,7 @@ def dither(tiff_path):
 
 class Machine:
     def __init__(self, elf, disk):
+        self.shots = self.inexact = 0       # screens taken, and those not in whole blocks
         self.tmp = tempfile.mkdtemp()
         sock = f"{self.tmp}/qmp"
         self.qemu = subprocess.Popen(
@@ -154,6 +156,14 @@ class Machine:
         self.command("screendump", filename=ppm)
         time.sleep(0.3)
         shot = Image.open(ppm).convert("L").point(lambda v: 255 if v else 0)
+        self.shots += 1
+        if SCALE > 1:
+            # One pixel of each block is the display's; the screen is exact
+            # if making blocks of those again gives the same screen.
+            big, shot = shot, shot.resize((W, H), Image.NEAREST)
+            if big.size != (W * SCALE, H * SCALE) or \
+                    shot.resize(big.size, Image.NEAREST).tobytes() != big.tobytes():
+                self.inexact += 1
         shot.save(path)
         return shot
 
@@ -409,6 +419,9 @@ def main():
         shot = m.screenshot(f"{out}/13-names.png")
         text = read_text(shot, 15, 53, 50, 16)
         check("the tables of names load from the disk and unload", text[14] == "-1 0  ok", repr(text[12:16]))
+        if SCALE > 1:
+            check(f"every pixel is a block of {SCALE} by {SCALE}", m.inexact == 0,
+                  f"{m.inexact} of {m.shots} screens were not exact")
     finally:
         m.stop()
     print(f"screenshots in {out}/")
