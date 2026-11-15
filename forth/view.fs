@@ -8,9 +8,11 @@
 \ at each of its turns, and the desktop goes on meanwhile.  Only the row
 \ being dithered is read, so what is kept is the bitmap.  The window
 \ shows the rows that are made, so the picture comes down the window.  The
-\ rows are put out of date eight at a time and not one, since each time
-\ costs something more than the row.  When the last row is made the task
-\ takes itself out of the ring.
+\ rows are put out of date four at a time and not one, since each time
+\ costs about ten thousand instructions, which is half of what a row
+\ does: at 1 MIPS the picture is finished at 18.8 seconds with eight at a
+\ time, 19.6 with four, 20.8 with two and 23.2 with one.  When the last
+\ row is made the task takes itself out of the ring.
 \
 \ A viewer is a record: its bitmap, how much of it is made and shown, its
 \ window, its image and its dither, and the task that makes it, whose own
@@ -58,7 +60,7 @@ create vparts 3 ,       \ the parts of the stacks that no task has: a bit each
     then
     vdth @ dither-row
     d# 1 bmh +!
-    bmh @ d# 7 and 0= if view-shown then
+    bmh @ d# 3 and 0= if view-shown then
 ;
 
 header view-load : view-load ( blk# -- viewer ) \ start on the TIFF that starts at a block

@@ -287,11 +287,16 @@ out of date is where it goes deepest). `make demo-profile`
 says how far each task got. Nothing stops a task from outside. This one takes itself out of the
 ring when the last row is made (`retire`): the task before it is made to
 point past it, and its next `pause` does not come back. The rows are put
-out of date eight at a time, since every window that lies over what is out
-of date is painted again: a row at a time made the picture half as long
-again in coming. At 1 MIPS the desktop is ready in 2 seconds and the
-picture is finished 35 seconds after, where it was 34 seconds before
-anything was drawn; a turn of the event loop is 69 ms while it loads.
+out of date four at a time. Painting what is out of date costs about ten
+thousand instructions each time, however little there is, and that is
+half of what dithering a row is. At 1 MIPS the picture is finished at 18.8
+seconds with eight rows at a time, 19.6 with four, 20.8 with two and 23.2
+with one: so four is a twenty-fifth longer than eight and shows the
+picture twice as often, two is a tenth longer and one a quarter. What it
+costs is to be measured again when either the dither or the painting
+changes: when a row was 67,000 instructions, two at a time was a
+thirtieth longer and was the choice. At 1 MIPS the desktop is ready in 0.9
+seconds, where it was 34 seconds before anything was drawn.
 
 ### Code Paging
 
