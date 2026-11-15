@@ -139,11 +139,6 @@ header p-dkgray create p-dkgray  $77 prow, $dd prow, $77 prow, $dd prow, $77 pro
 \ draws while something else is drawing.  A word has the top of the data
 \ stack, the cell under it and the top of the return stack to hand; where
 \ it needs more, it is made of smaller words that each need no more.
-\
-\ These three are still used by the words that copy (copy-bits).
-create hn  0 ,
-create ba  0 ,          \ the cell being drawn in
-create bn  0 ,          \ and how far into it
 
 \ The n leftmost pixels of a cell are looked up, not made: making them is a
 \ shift by a whole cell less n, and one of none is a shift the machine does
@@ -451,7 +446,6 @@ create bh 0 ,
 create br 0 ,           \ the row being copied
 create boff 0 ,         \ pixels to shift the source left by
 create bi0 0 ,          \ and the cell of rowbuf the first cell comes from
-create bp 0 ,
 create bstore 0 ,       \ true in copy mode: a whole cell may be stored
 create bp0 0 ,          \ the cell of rowbuf a row's first cell comes from
 create rowbuf  meta disp-stride 4 + cell-bytes * target allot
@@ -467,40 +461,62 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
     cells-move
 ;
 
-: bsrc ( -- raw ) \ the cell of the source that goes to the cell at ba
-    bp @ @
+\ A row is copied as a slab is filled: the cell it starts part of the way
+\ into, the whole cells, and the cell it ends part of the way into.  What
+\ is in hand is the cell on the screen, how far into it, how many pixels,
+\ and where the pixels come from, which is the cell on the screen plus how
+\ far apart the two are: that distance is on the return stack under the
+\ cell, and on top of it while the whole cells are done.
+: bsrc ( p -- raw ) \ a cell of what is copied, from the cell of rowbuf at p and the next
+    dup @
     boff @ if
-        boff @ PIXL  bp @ 1+ @ PXCELL boff @ - PIXR  or
+        boff @ PIXL  swap 1+ @ PXCELL boff @ - PIXR  or
+    else
+        nip
     then
 ;
 
-: whole? ( -- f ) \ is the cell at ba to be stored as it comes?
-    bn @ if false exit then
-    hn @ PXCELL < if false exit then
-    bstore @ 0= if false exit then
-    mmask @ if ba @ mbase @ - mrow + @ 1+ 0= else true then
+: copy-cell ( a mask dist -- a ) \ the pixels of the mask, to the cell at a from rowbuf
+    >r over r> + bsrc RAW>SRC cell-mode
 ;
 
-: row-out ( -- ) \ hn pixels from the cell of rowbuf at bp to the row at ba, bn
+: whole? ( a -- f ) \ is the whole cell at a to be stored as it comes?
+    bstore @ 0= if drop false exit then
+    mmask @ if mbase @ - mrow + @ 1+ 0= else drop true then
+;
+
+: row-out ( b n dist a -- ) \ n pixels from bit b of the cell at a, from rowbuf dist cells on
+    swap >r >r swap                                 ( n b ) ( R: dist a )
+    2dup + PXCELL > 0= if                           \ all in one cell
+        swap leftn swap PIXR  r> swap r> copy-cell drop
+        exit
+    then
+    ?dup if
+        tuck PXCELL - +
+        swap d# -1 swap PIXR
+        r> swap r@ copy-cell 1+ >r
+    then
+    dup PXSHIFT rshift  r> swap bounds              ( n end a ) ( R: dist )
     begin
-        hn @ 0>
+        2dupxor
     while
-        whole? if
-            bsrc ba @ !
-            PXCELL negate hn +!
+        dup whole? if
+            dup r@ + bsrc over !
         else
-            PXCELL bn @ - hn @ min
-            dup leftn bn @ PIXR                     ( pixels mask )
-            bsrc RAW>SRC swap ba @ rm 'mode @ execute
-            negate hn +!
+            d# -1 r@ copy-cell
         then
-        d# 0 bn !  d# 1 ba +!  d# 1 bp +!
+        1+
     repeat
+    drop
+    swap PXMASK and ?dup if
+        leftn r@ copy-cell
+    then
+    drop rdrop
 ;
 
 : whole-row ( row -- ) \ all of the row that is copied
-    bw @ hn !  bp0 @ bp !
-    bdx @ swap bdy @ + prow ba ! bn !
+    bdx @ swap bdy @ + prow                         ( b a )
+    bw @ swap  bp0 @ over -  swap                   ( b n dist a )
     row-out
 ;
 
@@ -511,30 +527,42 @@ create rowbuf  meta disp-stride 4 + cell-bytes * target allot
 \ and nothing asked of each; the cell at either end is merged under its
 \ mask.  bdirect is true if the copy is of that kind.
 create bdirect 0 ,
-create bsa 0 ,          \ the cell of the source that goes to the cell at ba
 
-: move-row ( -- ) \ hn pixels from bn of the cell at ba, from the cell at bsa
-    bn @ hn @ + PXCELL > 0= if                      \ all in one cell
-        bsa @ @  hn @ leftn bn @ PIXR  tuck and swap  ba @ seg!
+: move! ( a mask dist -- a ) \ the pixels of the mask, to the cell at a from the cell dist on
+    >r over r> + @ under!
+;
+
+: move-row ( b n dist a -- ) \ n pixels from bit b of the cell at a, from the cell dist cells on
+    swap >r >r swap                                 ( n b ) ( R: dist a )
+    2dup + PXCELL > 0= if                           \ all in one cell
+        swap leftn swap PIXR  r> swap r> move! drop
         exit
     then
-    bn @ if
-        bsa @ @  d# -1 bn @ PIXR  tuck and swap  ba @ seg!
-        bn @ PXCELL - hn +!  d# 1 ba +!  d# 1 bsa +!
+    ?dup if
+        tuck PXCELL - +
+        swap d# -1 swap PIXR
+        r> swap r@ move! 1+ >r
     then
-    hn @ PXSHIFT rshift >r                          ( R: whole cells )
-    bsa @ ba @ r@ cells-move
-    hn @ PXMASK and ?dup if
-        leftn  bsa @ r@ + @ over and  swap  ba @ r@ + seg!
+    dup PXSHIFT rshift  r> swap bounds              ( n end a ) ( R: dist )
+    begin
+        2dupxor
+    while
+        dup r@ + @ over ! 1+
+    repeat
+    drop
+    swap PXMASK and ?dup if
+        leftn r@ move!
     then
-    rdrop
+    drop rdrop
 ;
 
 : row-direct ( row x n -- ) \ n pixels of a row of what is copied, from x on the screen
-    hn !
-    2dup swap bdy @ + prow ba ! bn !                ( row x )
+    >r
+    2dup swap bdy @ + prow                          ( row x b a ) ( R: n )
+    2swap
     ssx @ bdx @ - +  PXSHIFT rshift
-    swap ssy @ + src-row +  bsa !
+    swap ssy @ + src-row +                          ( b a from )
+    over -  swap  r> -rot                           ( b n dist a )
     move-row
 ;
 
@@ -569,10 +597,11 @@ header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
                         bdirect @ if
                             row-direct
                         else
-                            hn !
+                            >r                      ( row x ) ( R: n )
                             over ssy @ + row-aside
-                            dup PXSHIFT rshift  bdx @ PXSHIFT rshift -  bp0 @ + bp !
-                            swap bdy @ + prow ba ! bn !
+                            dup PXSHIFT rshift  bdx @ PXSHIFT rshift -  bp0 @ +
+                            >r  swap bdy @ + prow   ( b a ) ( R: n, where in rowbuf )
+                            r> over -  swap  r> -rot
                             row-out
                         then
                     else
