@@ -16,6 +16,13 @@ C=$1
 A=${2:-$(case $C in (64) echo 22;; (32) echo 17;; (*) echo 16;; esac)}
 D="-DCELL_BITS=$C -DADDR_BITS=$A $EXTRA"
 mkdir -p build
+# cross.fs has gforth build C (util/fuse.c).  Where gforth is Homebrew's,
+# the compiler has to be told where Homebrew's headers are, as
+# CMakeLists.txt tells it.
+if command -v brew > /dev/null 2>&1; then
+    CPATH="$(brew --prefix)/include${CPATH:+:$CPATH}"
+    export CPATH
+fi
 gcc -w -fcommon $D -o build/bwgen-$C-$A util/baseword_fs_gen.c vm_opcodes.c vm_debug.c -lm
 build/bwgen-$C-$A build/basewords-$C-$A.fs > /dev/null
 # cross.fs always writes build/nuc.hex, build/nuc.lst, build/nuc.sizes and

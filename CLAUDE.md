@@ -191,12 +191,20 @@ data by file), `.inline` (the calls it compiled in place, which a build
 with the peephole off reads, so build with it on first) and `.tables`
 (the names for the decompiler, which go on the disk).
 
+`cross.fs` asks the machine which instruction does the work of two or
+three: `util/fuse.c`, which has `vm.c` in it, is built by gforth each time
+an image is and called through gforth's C interface. gforth builds C with
+`libtool`, which has to be installed. Where gforth is Homebrew's, the
+compiler is told where Homebrew's headers are: `CMakeLists.txt` and
+`build-machine.sh` do, and by hand it is
+`CPATH="$(brew --prefix)/include" gforth ...`.
+
 Generated, and checked in: `forth/basewords.fs` (by `basewords-fs-gen`,
-from `vm_constants.h` and `vm_opcodes.h`), `forth/peephole.fs` and
-`forth/litrules.fs` (the cross-compiler's peephole), `forth/fused.fs` and
+from `vm_constants.h` and `vm_opcodes.h`), `forth/litrules.fs` (the
+cross-compiler's rules that have a literal in them), `forth/fused.fs` and
 `forth/joins.fs` (the decompiler's table and the nucleus's peephole, made
-from a built image: build until they stop changing). The last four are
-still made by `util/insn_map.py` and `util/litrules.py`.
+from a built image: build until they stop changing). The last three are
+still made by `util/litrules.py` and `util/insn_map.py`.
 
 ## Testing
 
@@ -244,7 +252,9 @@ The machine, in C:
   definitions, and reads an image's dictionary (`read_header`)
 - `util/`: `baseword_fs_gen.c` (writes `basewords.fs`), `disasm_hex.c`,
   `hex2bin.c` and `memimage.c` (an image as bytes for the kernels, and as
-  what the Verilog loads; `image.c` reads one), `mkdisk.c` (a disk)
+  what the Verilog loads; `image.c` reads one), `mkdisk.c` (a disk),
+  `fuse.c` (which instruction does the work of others, by running them on
+  `vm.c`: what it trusts and why is said at its top)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`
 
