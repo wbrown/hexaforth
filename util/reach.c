@@ -92,13 +92,10 @@ static void reach(const cut_image* m, reached* how) {
         }
     }
 
-    // Cells of data: those of the pages that have no code, but for the
-    // dictionary, where every header has its word's place.
-    static unsigned char has_code[CUT_PLACES / PAGE];
-    memset(has_code, 0, sizeof(has_code));
-    for(int idx=0; idx < m->n; idx++) {
-        if (m->words[idx].at < m->instructions) has_code[m->words[idx].at / PAGE] = 1;
-    }
+    // Cells of data: those of the pages that have no code (cut.c says
+    // which have), but for the dictionary, where every header has its
+    // word's place.
+    const unsigned char* has_code = m->has_code;
     size_t headers_from = len, headers_to = 0;
     for(uint32_t head = newest_header(bytes, len); head; ) {
         uint64_t xt;
@@ -107,13 +104,13 @@ static void reach(const cut_image* m, reached* how) {
         if (head < headers_from) headers_from = head;
         if (end > headers_to) headers_to = end;
         head = read_header(bytes, len, head, &xt, name);
-        int is = xt < CUT_PLACES ? starting_at(m, (long)xt) : -1;
+        int is = xt < (uint64_t)m->instructions ? starting_at(m, (long)xt) : -1;
         if (is >= 0) how[is].typed = 1;
     }
     for(size_t at=0; at + CELL_BYTES <= len; at += CELL_BYTES) {
         if (has_code[at / 2 / PAGE] || (at >= headers_from && at < headers_to)) continue;
         uint64_t held = cell_of(bytes, at / CELL_BYTES);
-        int to = held && held < CUT_PLACES ? starting_at(m, (long)held) : -1;
+        int to = held && held < (uint64_t)m->instructions ? starting_at(m, (long)held) : -1;
         if (to >= 0) how[to].cells++;
     }
 

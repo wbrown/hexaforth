@@ -10,38 +10,39 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "../util/room.c"
 
-typedef struct { long from, to; char file[64]; } span;
+typedef struct { long from, to; char* file; } span;     // where its code is, and its name, which is as long as it is
 
 // The files that compiled code, each with where its code is: how many, and
-// the list, which is made here and is as long as that.  It stops if there
-// is no such file of sizes.
+// the list, which is made here and has room for them all.  It stops if
+// there is no such file of sizes.
 static int files_of(const char* sizes, span** list) {
-    span* out = NULL;
-    int n = 0;
-    for(int filling=0; filling < 2; filling++) {        // they are counted, and then listed
-        FILE* in = fopen(sizes, "r");
-        if (in == NULL) {
-            perror(sizes);
-            exit(EXIT_FAILURE);
-        }
-        if (filling) out = calloc(n ? n : 1, sizeof(span));
-        if (filling && !out) { fprintf(stderr, "there is no room for %d files\n", n); exit(EXIT_FAILURE); }
-        n = 0;
-        char row[256];
-        while (fgets(row, sizeof(row), in)) {
-            span is;
-            long bytes = 0, a, b, c, from = 0;
-            if (sscanf(row, "%63s %ld %ld %ld %ld %ld", is.file, &bytes, &a, &b, &c, &from) != 6) continue;
-            if (is.file[0] == '(' || !bytes) continue;
-            is.from = from, is.to = from + bytes / (long)sizeof(uint16_t);
-            if (filling) out[n] = is;
-            n++;
-        }
-        fclose(in);
+    FILE* in = fopen(sizes, "r");
+    if (in == NULL) {
+        perror(sizes);
+        exit(EXIT_FAILURE);
     }
+    span* out = NULL;
+    char* line = NULL;
+    long n = 0, room = 0, line_room = 0;
+    while (line_of(in, &line, &line_room)) {
+        long bytes = 0, a, b, c, from = 0;
+        int named = 0;
+        if (sscanf(line, "%*s%n %ld %ld %ld %ld %ld", &named, &bytes, &a, &b, &c, &from) != 5) continue;
+        const char* name = line + strspn(line, " \t");
+        if (name[0] == '(' || !bytes) continue;         // the line for all of it, and a file that compiled no code
+        ONE_MORE(out, n, room);
+        out[n].file = room_for(line + named - name + 1, 1);
+        memcpy(out[n].file, name, line + named - name);
+        out[n].from = from, out[n].to = from + bytes / (long)sizeof(uint16_t);
+        n++;
+    }
+    fclose(in);
+    free(line);
+    ONE_MORE(out, n, room);                             // so that there is a list, if there are none
     *list = out;
-    return(n);
+    return((int)n);
 }
 
 // The file a place's code is of: the smallest file's that has it.  None,

@@ -254,8 +254,13 @@ static void look(const char* name) {
     desk_turns(12);
     shot = desk_screen();
     if (!name) return;
-    char path[512];
-    snprintf(path, sizeof(path), "%s/%s.pbm", machine->out, name);
+    static const char form[] = "%s/%s.pbm";
+    char* path = malloc(strlen(machine->out) + strlen(name) + sizeof(form));
+    if (path == NULL) {
+        fprintf(stderr, "there is no room for the name of a screen's file\n");
+        exit(EXIT_FAILURE);
+    }
+    sprintf(path, form, machine->out, name);
     FILE* out = fopen(path, "wb");
     if (out == NULL) {
         perror(path);
@@ -270,6 +275,7 @@ static void look(const char* name) {
         }
     }
     fclose(out);
+    free(path);
 }
 
 static void click(int x, int y) {
@@ -442,14 +448,15 @@ static bool shown_in_front(int n) {
 static bool windows_start(void) {
     static const char* ARRANGED[] = { "big-desk", "small-desk" };
     static const int BACK_TO_FRONT[] = { PAINT, VIEWER, EDITOR, WORDS, CALC, FORTH };
-    for(int which=0; which < 2; which++) {
-        int64_t at[4 * WINDOWS];
-        table("desk.fs", ARRANGED[which], at, 4 * WINDOWS, 4 * WINDOWS);
+    for(int which=0; which < (int)(sizeof(ARRANGED) / sizeof(ARRANGED[0])); which++) {
+        int64_t* at;
+        table("desk.fs", ARRANGED[which], &at, 4 * WINDOWS);    // each window's corner, and its width and height
         for(int n=0; n < WINDOWS; n++) {
             rect[n].x = (int)at[4 * n], rect[n].y = (int)at[4 * n + 1];
             rect[n].w = (int)at[4 * n + 2], rect[n].h = (int)at[4 * n + 3];
             order[n] = BACK_TO_FRONT[n];
         }
+        free(at);
         if (shown_in_front(FORTH)) return(true);
     }
     return(false);
@@ -496,7 +503,8 @@ static const char* PATTERNS[][2] = { {"display.fs", "p-white"}, {"display.fs", "
                                      {"display.fs", "p-ltgray"}, {"paint.fs", "p-brick"},
                                      {"paint.fs", "p-diag"}, {"paint.fs", "p-dots"} };
 enum { WHITE, BLACK };
-static pattern patterns[8];
+#define PATTERNS_THERE ((int)(sizeof(PATTERNS) / sizeof(PATTERNS[0])))
+static pattern patterns[PATTERNS_THERE];
 
 // The tools, two to a row down the left of its window.
 enum { PENCIL, BRUSH, ERASER, LINE, RECT, RECT_FILLED, OVAL, OVAL_FILLED };
@@ -536,11 +544,18 @@ static void line_of_dots(int x0, int y0, int x1, int y1) {
 // The rectangle two corners make, and an oval in it: half its width and
 // height, its middle, and how far it reaches at each row from the middle.
 static int bx0, by0, bx1, by1;
-static int half_w, half_h, mid_x, mid_y, reach[1024];
+static int half_w, half_h, mid_x, mid_y;
+static int* reach;              // a row each, from the middle to the edge and one more
 static void box(int x0, int y0, int x1, int y1) {
     bx0 = low(x0, x1), by0 = low(y0, y1), bx1 = high(x0, x1), by1 = high(y0, y1);
     half_w = (bx1 - bx0) >> 1, half_h = (by1 - by0) >> 1;
     mid_x = bx0 + half_w, mid_y = by0 + half_h;
+    free(reach);
+    reach = calloc((size_t)half_h + 2, sizeof(int));
+    if (reach == NULL) {
+        fprintf(stderr, "there is no room for an oval %d rows high\n", by1 - by0);
+        exit(EXIT_FAILURE);
+    }
     for(int dy=0, s=half_h; dy <= half_h; dy++) {
         while (half_h && s * s > half_h * half_h - dy * dy) s--;
         reach[dy] = half_h ? half_w * s / half_h : half_w;
@@ -674,12 +689,21 @@ static void does(const char* said) {
     for(const char* at = said; ; ) {
         while (*at == ' ') at++;
         if (!*at) return;
-        char word[256];
+        // a word of it, with room for all that is said and for each %W or
+        // %H as a number, which is no more digits than three a byte
+        static char* word;
+        const size_t room = strlen(said) * (1 + 3 * sizeof(int)) + 1;
+        free(word);
+        word = malloc(room);
+        if (word == NULL) {
+            fprintf(stderr, "there is no room for a word of what is done\n");
+            exit(EXIT_FAILURE);
+        }
         size_t len;
         if (*at == '\'') {
             len = strcspn(at + 1, "'");
             size_t out = 0;
-            for(size_t idx=0; idx < len && out < sizeof(word) - 8; idx++) {
+            for(size_t idx=0; idx < len; idx++) {
                 const char* c = at + 1 + idx;
                 if (c[0] == '%' && (c[1] == 'W' || c[1] == 'H')) {
                     out += sprintf(word + out, "%d", c[1] == 'W' ? W : H);
@@ -695,7 +719,6 @@ static void does(const char* said) {
             continue;
         }
         len = strcspn(at, " ");
-        if (len >= sizeof(word)) len = sizeof(word) - 1;
         memcpy(word, at, len);
         word[len] = '\0';
         at += len;
@@ -749,16 +772,22 @@ static void does(const char* said) {
         } else if (!strncmp(word, "over:", 5)) {
             desk_pointer(80, 20 + 16 * menu_line(window(of, name)) + 8);
         } else if (!strncmp(word, "find:", 5)) {
-            char first[64], second[64];
+            // the two names, in what was said: the first ends where the comma was
             size_t comma = strcspn(of, ",");
-            snprintf(first, sizeof(first), "%.*s", (int)comma, of);
-            snprintf(second, sizeof(second), "%s", of[comma] ? of + comma + 1 : "");
-            for(int page=0; page < 16; page++) {
+            char* first = word + (of - word);
+            const char* second = of[comma] ? of + comma + 1 : "";
+            first[comma] = '\0';
+            // a page of the list at a time, until both are on one, or a
+            // page down shows the page there was: that was the last
+            static char before[ROWS][COLS + 1];
+            bool last = false;
+            for(int page=0; !last; page++) {
                 look("10-list");
+                memcpy(before, names, sizeof(names));
                 for(int row=0; row < ROWS; row++) read_grid("names", row, names[row]);
                 both = listed(first) >= 0 && listed(second) >= 0;
-                if (both) break;
-                desk_key("pgdn", NULL);
+                last = both || (page && !memcmp(before, names, sizeof(names)));
+                if (!last) desk_key("pgdn", NULL);
             }
         } else if (!strncmp(word, "name:", 5)) {
             const grid* g = grid_named("names");
@@ -1176,7 +1205,7 @@ static void begin(const desk* on) {
             for(int bit=0; bit < 8 && bit < width; bit++) glyphs[c][row] |= strike_pixel(&mono, start + bit, row) << (7 - bit);
         }
     }
-    for(int n=0; n < 8; n++) patterns[n] = pattern_named(PATTERNS[n][0], PATTERNS[n][1]);
+    for(int n=0; n < PATTERNS_THERE; n++) patterns[n] = pattern_named(PATTERNS[n][0], PATTERNS[n][1]);
     kept = calloc(SCREEN, 1);
 }
 

@@ -67,11 +67,10 @@ int main(int argc, char *argv[]) {
 
     clock_gettime(CLOCK_MONOTONIC, &started);
     qemu_start(argv[1], argv[2]);
-    static char said[1 << 16];
     while (when[ALL] < 0 && now() < limit) {
-        qemu_said(said, sizeof(said));
-        uint64_t viewer = qemu_cell(memory + 8 * vw);
-        int rows = viewer ? (int)qemu_cell(memory + 8 * (viewer + ROWS_MADE)) : 0;
+        const char* said = qemu_said();
+        uint64_t viewer = qemu_cell(memory + CELL_BYTES * vw);
+        int rows = viewer ? (int)qemu_cell(memory + CELL_BYTES * (viewer + ROWS_MADE)) : 0;
         if (strstr(said, "desktop")) note(UP);
         if (rows) note(FIRST);
         if (2 * rows >= height) note(HALF);
@@ -80,8 +79,9 @@ int main(int argc, char *argv[]) {
         desk_turns(0);
     }
 
-    char half[64];
-    snprintf(half, sizeof(half), "half its %d rows are made", height);
+    static const char half_is[] = "half its %d rows are made";
+    char half[sizeof(half_is) + 3 * sizeof(int)];       // and the number, which is no more digits than three a byte
+    snprintf(half, sizeof(half), half_is, height);
     const char* what[TIMES] = { "the console says the desktop is up", "the Forth window has its prompt",
                                 "the first row of the picture is made", half, "the picture is finished" };
     for(int n=0; n < TIMES; n++) {

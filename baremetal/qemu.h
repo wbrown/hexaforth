@@ -25,9 +25,9 @@
 // Start QEMU on a kernel, with a disk.  It is stopped when the program ends.
 void qemu_start(const char* elf, const char* disk);
 
-// What the console has said that has not been asked for yet, added to
-// what is there: it does not wait.
-void qemu_said(char* text, size_t room);
+// All the console has said so far, however much: it does not wait for
+// more.  The text is where it is only until this is next asked.
+const char* qemu_said(void);
 
 // Eight bytes of the machine's memory, at an address of the machine's.
 uint64_t qemu_cell(uint64_t address);

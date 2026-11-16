@@ -15,13 +15,12 @@
 // the nucleus's tables, which are instructions laid down after its code,
 // are not code (words.c).
 //
+// An image is as long as it is, and has as many words and runs as it has:
+// what is said of it here has room for all of it (room.c).
+//
 
 #include "image.h"
 #include "words.c"
-
-#define CUT_WORDS 8192
-#define CUT_ITEMS (1 << 17)
-#define CUT_PLACES (1 << 17)
 
 typedef struct {
     char run;                           // a run, or an instruction that leaves one
@@ -31,12 +30,14 @@ typedef struct {
 
 typedef struct {
     uint16_t* code;
-    long instructions;
-    word words[CUT_WORDS];
-    int n;
-    item items[CUT_ITEMS];
-    long count;
-    unsigned char lands[CUT_PLACES];        // a branch lands here, or (2) a word starts here
+    long instructions;                  // as many as the image has
+    word* words;                        // its words, in order of where they are,
+    int n;                              // and how many
+    item* items;                        // its runs and what leaves them, in order,
+    long count, room;                   // how many, and how many there is room for
+    unsigned char* lands;               // of each instruction: a branch lands here, or (2) a word starts here
+    long pages;                         // the pages the image is,
+    unsigned char* has_code;            // and of each, whether a word is in it
 } cut_image;
 
 static instruction ins_of(uint16_t w) { return(*(instruction*)&w); }
@@ -55,35 +56,43 @@ static int pushes_number(uint16_t w, int adds) {
 static long number_in(uint16_t w) { return((long)ins_of(w).lit.lit_v << (ins_of(w).lit.lit_shifts * LIT_BITS)); }
 
 static item* add_item(cut_image* m, int run, long at, long len) {
-    if (m->count == CUT_ITEMS) { fprintf(stderr, "there are too many runs\n"); exit(1); }
+    ONE_MORE(m->items, m->count, m->room);
     item* it = &m->items[m->count++];
     it->run = run; it->at = at; it->len = len; it->to = -1;
     return(it);
 }
 
+// Is a place in the image the start of a word?
+static int word_starts(const cut_image* m, long at) {
+    return(at >= 0 && at < m->instructions && m->lands[at] == 2);
+}
+
 static void cut(cut_image* m, const char* hex, const char* tables) {
     uint8_t* bytes;
     size_t len = load_image(hex, &bytes);
+    memset(m, 0, sizeof(cut_image));
     m->code = (uint16_t*)bytes;
-    m->instructions = len / 2 < CUT_PLACES ? len / 2 : CUT_PLACES;
-    m->n = words_of(bytes, len, tables, m->words, CUT_WORDS);
+    m->instructions = len / sizeof(uint16_t);
+    m->n = words_of(bytes, len, tables, &m->words);
     long execute = place_of(m->words, m->n, "execute");
     without_tables(bytes, len, m->words, m->n);
 
-    static long last[CUT_PLACES / PAGE];
-    static unsigned char has_code[CUT_PLACES / PAGE];
-    memset(has_code, 0, sizeof(has_code));
+    m->pages = m->instructions / PAGE + 1;
+    m->has_code = room_for(m->pages, 1);
+    m->lands = room_for(m->instructions + 1, 1);
+    long* last = room_for(m->pages, sizeof(long));      // the last instruction each page has
     for(int idx=0; idx < m->n; idx++) {
         if (m->words[idx].at >= m->instructions) continue;
-        has_code[m->words[idx].at / PAGE] = 1;
+        m->has_code[m->words[idx].at / PAGE] = 1;
         m->lands[m->words[idx].at] = 2;
     }
-    for(long page=0; page < CUT_PLACES / PAGE; page++) last[page] = -1;
+    for(long page=0; page < m->pages; page++) last[page] = -1;
     for(long at=0; at < m->instructions; at++) {
         uint16_t w = m->code[at];
-        if (!has_code[at / PAGE] || !w) continue;
+        if (!m->has_code[at / PAGE] || !w) continue;
         last[at / PAGE] = at;
-        if (!in_a_run(w) && goes_to(at, w) < CUT_PLACES && !m->lands[goes_to(at, w)]) m->lands[goes_to(at, w)] = 1;
+        long to = in_a_run(w) ? -1 : goes_to(at, w);
+        if (to >= 0 && to < m->instructions && !m->lands[to]) m->lands[to] = 1;
     }
 
     long start = 0, run = 0;
@@ -115,7 +124,7 @@ static void cut(cut_image* m, const char* hex, const char* tables) {
             if (k && pushes_number(c[k - 1], 0)) {
                 long pushed = 0;
                 for(long j=k - 1; j < before->len; j++) pushed += number_in(c[j]);
-                if (pushed < CUT_PLACES && m->lands[pushed] == 2) {
+                if (word_starts(m, pushed)) {
                     from = before->at + k - 1;
                     if (k - 1) before->len = k - 1; else m->count--;
                     to = pushed;
@@ -125,6 +134,7 @@ static void cut(cut_image* m, const char* hex, const char* tables) {
         add_item(m, 0, from, at + 1 - from)->to = to;
     }
     if (run) add_item(m, 1, start, run);
+    free(last);
 }
 
 // Are two images the same runs and the same instructions that leave them,

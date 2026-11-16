@@ -240,11 +240,9 @@ static int64_t AS_END;          // what a row is added to, to be the end of a ba
 static int64_t NEVER;           // and where the last band ends: as the machine has them
 static uint64_t room;           // the cells the machine gives a region
 
-#define MOST 4096               // more cells than any region here is
-
 typedef struct {
-    int64_t cells[MOST];        // the count, and the bands
-    int count;                  // how many cells that is, the count one of them
+    int64_t* cells;             // the count, and the bands: as many cells as the region is,
+    int count, cells_room;      // how many that is, the count one of them, and how many there is room for
     int widest;                 // the most crossings a band of it has
     bool empty;                 // nothing is in it; or the rectangle around it is
     int x, y, w, h;
@@ -253,11 +251,20 @@ typedef struct {
 static form forms[REGIONS];     // of each region's pixels
 static bool stale[REGIONS];     // the pixels have changed since it was made
 
-static void cell(form* f, int64_t x) {
-    if (f->count >= MOST) {
-        fprintf(stderr, "region_test: a region is more than %d cells\n", MOST);
+// Room for a form to have so many cells: twice as many as it has room for,
+// if that is more.
+static void cells_for(form* f, int count) {
+    if (count <= f->cells_room) return;
+    f->cells_room = count > 2 * f->cells_room ? count : 2 * f->cells_room;
+    f->cells = realloc(f->cells, f->cells_room * sizeof(int64_t));
+    if (f->cells == NULL) {
+        fprintf(stderr, "region_test: there is no room for a region of %d cells\n", count);
         exit(EXIT_FAILURE);
     }
+}
+
+static void cell(form* f, int64_t x) {
+    cells_for(f, f->count + 1);
     f->cells[f->count++] = x;
 }
 
@@ -272,6 +279,7 @@ static void form_of(int r) {
             bottom = y + 1;
         }
     }
+    cells_for(f, 1);
     f->count = 1;               // the count is the first cell, and is known last
     f->widest = 0;
     f->empty = top == INT_MAX;

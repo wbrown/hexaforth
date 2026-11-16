@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../vm_opcodes.h"
+#include "room.c"
 
 #define PAGE 4096                       // instructions to a page of code
 
@@ -37,31 +38,44 @@ static uint64_t cell_of(const uint8_t* cells, size_t which) {
     return(cell);
 }
 
-// The words of an image, in order of where they are: how many there are.
-// A second name for the same code has no instructions of its own.
-static int words_of(const uint8_t* image, size_t len, const char* tables, word* out, int most) {
-    int n = 0;
-    for(uint32_t head = newest_header(image, len); head && n < most; ) {
+// The labels the file of names has, of code or of data, put after what a
+// list has: how many the list then has.  A label of data has the top bit
+// of its place set, which is taken off here.
+static long labels_of(const char* tables, int of_data, word** list, long n, long* room) {
+    uint8_t* cells;
+    size_t have = tables ? file_bytes(tables, &cells) / CELL_BYTES : 0;
+    if (!have) return(n);
+    size_t at = 2;                                      // past the stamp and the count
+    if (have > at) at += 1 + 2 * cell_of(cells, at);    // and the two tables
+    if (have > at) at += 1 + 2 * cell_of(cells, at);
+    for(uint64_t place = have > at ? cell_of(cells, at) : 0; place && at + place + 2 < have;
+        place = cell_of(cells, at + place)) {
+        uint64_t value = cell_of(cells, at + place + 1), data = value >> (CELL_BITS - 1);
+        if (!data != !of_data) continue;
+        ONE_MORE(*list, n, *room);
+        decode_name(cells + (at + place + 2) * CELL_BYTES, (have - at - place - 2) * CELL_BYTES, (*list)[n].name);
+        (*list)[n].at = (long)(value & ~(1ull << (CELL_BITS - 1)));
+        (*list)[n++].size = 0;
+    }
+    free(cells);
+    return(n);
+}
+
+// The words of an image, in order of where they are: how many there are,
+// and the list, which is made here and has room for them all.  A second
+// name for the same code has no instructions of its own.
+static int words_of(const uint8_t* image, size_t len, const char* tables, word** list) {
+    word* out = NULL;
+    long n = 0, room = 0;
+    for(uint32_t head = newest_header(image, len); head; ) {
         uint64_t xt;
+        ONE_MORE(out, n, room);
         head = read_header(image, len, head, &xt, out[n].name);
         out[n++].at = xt;
     }
-    FILE* in = tables ? fopen(tables, "rb") : NULL;
-    if (in) {
-        static uint8_t cells[1 << 20];
-        size_t have = fread(cells, CELL_BYTES, sizeof(cells) / CELL_BYTES, in);
-        fclose(in);
-        size_t at = 2;                                  // past the stamp and the count
-        if (have > at) at += 1 + 2 * cell_of(cells, at);        // and the two tables
-        if (have > at) at += 1 + 2 * cell_of(cells, at);
-        for(uint64_t place = have > at ? cell_of(cells, at) : 0; place && at + place + 2 < have && n < most;
-            place = cell_of(cells, at + place)) {
-            uint64_t value = cell_of(cells, at + place + 1);
-            if (value >> (CELL_BITS - 1)) continue;             // a label for data
-            decode_name(cells + (at + place + 2) * CELL_BYTES, (have - at - place - 2) * CELL_BYTES, out[n].name);
-            out[n++].at = value;
-        }
-    }
+    n = labels_of(tables, 0, &out, n, &room);
+    ONE_MORE(out, n, room);                             // so that there is a list, if there are none
+    *list = out;
     qsort(out, n, sizeof(word), by_place);
     const uint16_t* code = (const uint16_t*)image;
     long instructions = len / 2;
@@ -84,44 +98,23 @@ static int words_of(const uint8_t* image, size_t len, const char* tables, word* 
 
 // The labels for data that the file of names has: a variable or a table
 // that has no header, by its name, with the cell it is of as its place.
-// Returns how many there are, whatever there is room for: the first `most`
-// are put in `out`, and with no room they are only counted.
-static int data_of(const char* tables, word* out, int most) {
-    FILE* in = fopen(tables, "rb");
-    if (!in) return(0);
-    fseek(in, 0, SEEK_END);
-    long bytes = ftell(in);
-    rewind(in);
-    uint8_t* cells = malloc(bytes > 0 ? bytes : 1);
-    size_t have = cells ? fread(cells, CELL_BYTES, bytes / CELL_BYTES, in) : 0;
-    fclose(in);
-    size_t at = 2;                                      // past the stamp and the count
-    if (have > at) at += 1 + 2 * cell_of(cells, at);    // and the two tables
-    if (have > at) at += 1 + 2 * cell_of(cells, at);
-    int n = 0;
-    for(uint64_t place = have > at ? cell_of(cells, at) : 0; place && at + place + 2 < have;
-        place = cell_of(cells, at + place)) {
-        uint64_t value = cell_of(cells, at + place + 1);
-        if (!(value >> (CELL_BITS - 1))) continue;      // a label for code
-        if (n < most) {
-            decode_name(cells + (at + place + 2) * CELL_BYTES, (have - at - place - 2) * CELL_BYTES, out[n].name);
-            out[n].at = (long)(value & ~(1ull << (CELL_BITS - 1)));
-            out[n].size = 0;
-        }
-        n++;
-    }
-    free(cells);
+// How many there are, and the list, which is made here, with how much it
+// has room for, for whoever puts more after them (ONE_MORE).
+static long data_of(const char* tables, word** list, long* room) {
+    *list = NULL;
+    *room = 0;
+    long n = labels_of(tables, 1, list, 0, room);
+    ONE_MORE(*list, n, *room);                          // so that there is a list, if there are none
     return(n);
 }
 
 // The cell a label for data is of, or 0 if the file of names has no such
 // label.
 static uint64_t data_called(const char* tables, const char* name) {
-    int n = data_of(tables, NULL, 0);
-    word* labels = calloc(n ? n : 1, sizeof(word));
+    word* labels;
+    long room, n = data_of(tables, &labels, &room);
     uint64_t is = 0;
-    if (labels) data_of(tables, labels, n);
-    for(int idx=0; labels && idx < n && !is; idx++) if (!strcmp(labels[idx].name, name)) is = (uint64_t)labels[idx].at;
+    for(long idx=0; idx < n && !is; idx++) if (!strcmp(labels[idx].name, name)) is = (uint64_t)labels[idx].at;
     free(labels);
     return(is);
 }

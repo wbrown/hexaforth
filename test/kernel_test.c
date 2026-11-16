@@ -25,7 +25,7 @@
 #include "../util/reach.c"
 
 static cut_image IMAGE;
-static reached HOW[CUT_WORDS];
+static reached* HOW;                    // of each of its words
 
 int main(int argc, char *argv[]) {
     if (argc < 3 || argc > 4 || (argc == 4 && strcmp(argv[3], "typed"))) {
@@ -33,6 +33,7 @@ int main(int argc, char *argv[]) {
         return(1);
     }
     cut(&IMAGE, argv[1], argv[2]);
+    HOW = room_for(IMAGE.n, sizeof(reached));
     reach(&IMAGE, HOW);
 
     long words = 0, instructions = 0, dead = 0, typed = 0, typed_instructions = 0;

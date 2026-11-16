@@ -40,8 +40,8 @@
 static cut_image PLAIN, BUILT;
 static uint16_t EXIT;                   // the instruction that is an exit
 
-#define LONGEST 1024                    // instructions in a run
-#define NUMBERS 12                      // numbers of a run that may be places: more are not tried every way
+#define MAY_BE_PLACES 12                // numbers of a run that may be places: more are not tried every way,
+                                        // since each way of taking them is tried.  Chosen, and not the machine's
 
 // The item of an image that starts at a place, or less than nothing.
 static long item_at(const cut_image* m, long at) {
@@ -64,13 +64,18 @@ static int leave_the_same(const uint16_t* a, int alen, const uint16_t* b, int bl
 // The same, where a conditional branch comes after: with what the branch
 // asks after each.
 static int leave_the_same_to_a_branch(const uint16_t* a, int alen, const uint16_t* b, int blen) {
-    static uint16_t x[LONGEST * 2 + 8], y[LONGEST + 8];
+    // each with room for itself, a number (fuse.c says how long one can be) and what asks
+    uint16_t* x = room_for(alen + NUMBER_ROOM + 1, sizeof(uint16_t));
+    uint16_t* y = room_for(blen + NUMBER_ROOM + 1, sizeof(uint16_t));
     memcpy(x, a, alen * sizeof(uint16_t));
     memcpy(y, b, blen * sizeof(uint16_t));
     int asks = write_number(0, 0, x + alen);
     x[alen + asks] = IS_SAME;
     memcpy(y + blen, x + alen, (asks + 1) * sizeof(uint16_t));
-    return(leave_the_same(x, alen + asks + 1, y, blen + asks + 1));
+    int same = leave_the_same(x, alen + asks + 1, y, blen + asks + 1);
+    free(x);
+    free(y);
+    return(same);
 }
 
 // Is an instruction a read or a write of a port, of which the step says nothing?
@@ -137,7 +142,7 @@ typedef struct { int from, upto; long there; } spot;
 
 static int places_in(const uint16_t* run, int len, const uint16_t* other, int other_len, spot* out) {
     int n = 0;
-    for(int at=0; at < len && n < NUMBERS; ) {
+    for(int at=0; at < len && n < MAY_BE_PLACES; ) {
         int end = at + 1;
         if (pushes_number(run[at], 0)) {
             while (end < len && pushes_number(run[end], 1)) end++;
@@ -178,17 +183,20 @@ static int with_places(const uint16_t* run, int len, const spot* places, int n, 
 // place of are tried too.
 static int runs_leave_the_same(const uint16_t* plain, int plen, const uint16_t* built, int blen, int branch, int* pieces) {
     if (same_one_way(plain, plen, built, blen, branch, pieces)) return(1);
-    spot places[NUMBERS];
-    static uint16_t tried[LONGEST * 2];
-    for(int likely=0; likely < 2; likely++) {
+    spot places[MAY_BE_PLACES];
+    // the run, with room for each of those numbers written as a place's is
+    uint16_t* tried = room_for(plen + MAY_BE_PLACES * NUMBER_ROOM, sizeof(uint16_t));
+    int same = 0;
+    for(int likely=0; likely < 2 && !same; likely++) {
         int n = likely ? places_in(plain, plen, built, blen, places) : places_in(plain, plen, NULL, 0, places);
-        for(unsigned which=1; which < 1u << n; which++) {
+        for(unsigned which=1; which < 1u << n && !same; which++) {
             int len = with_places(plain, plen, places, n, which, tried);
-            if (same_one_way(tried, len, built, blen, branch, pieces)) return(1);
+            same = same_one_way(tried, len, built, blen, branch, pieces);
         }
-        if (n < NUMBERS) break;             // every one of them was tried
+        if (n < MAY_BE_PLACES) break;       // every one of them was tried
     }
-    return(0);
+    free(tried);
+    return(same);
 }
 
 // Do two instructions that leave a run go to the same place?  The same
@@ -241,7 +249,6 @@ int main(int argc, char *argv[]) {
             continue;
         }
         runs++;
-        if (p->len > LONGEST || q->len > LONGEST) { fprintf(stderr, "builds_test: a run is too long\n"); return(1); }
         const uint16_t* plain = PLAIN.code + p->at;
         const uint16_t* built = BUILT.code + q->at;
         if (p->len == q->len && !memcmp(plain, built, p->len * sizeof(uint16_t))) { alike++; continue; }

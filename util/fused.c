@@ -36,9 +36,7 @@
 #include "image.h"
 #include "words.c"
 
-#define VOCAB 256
-#define WANTED 4096
-#define MOST 4                          // the most words an instruction is shown as
+#define MOST 4                          // the most words an instruction is shown as: chosen, and not the machine's
 
 typedef struct {
     const char* name;
@@ -46,8 +44,8 @@ typedef struct {
     int len;
     int standard;                       // gforth has it
 } vocable;
-static vocable TYPED[VOCAB];            // the words of vm_opcodes.h that have a header, and that the step says of
-static int typed;
+static vocable TYPED[COUNT(FORTH_WORDS)];       // the words of vm_opcodes.h that have a header, and that the step
+static int typed;                               // says of: no more than it has words
 
 typedef struct {
     uint16_t ins;
@@ -58,17 +56,19 @@ typedef struct {
     long rank;                          // of those words: fewer, then fewer instructions, then shorter
     const char* shown;                  // or the one name it is shown as
 } wanted;
-static wanted WANT[WANTED];
-static int wants;
+static wanted* WANT;                    // as many as the image has, with room for more as they are found
+static long wants, wants_room;
 static int want_at[EVERY_WORD];
 
 static int has_header(const word* words, int n, const char* name) {
     return(place_of(words, n, name) >= 0);
 }
 
+// What is wanted of an instruction, which is there from when it is first
+// asked for.  (It is where it is only until the next is asked for.)
 static wanted* want(uint16_t ins) {
     if (want_at[ins] < 0) {
-        if (wants == WANTED) { fprintf(stderr, "fused: too many instructions\n"); exit(1); }
+        ONE_MORE(WANT, wants, wants_room);
         want_at[ins] = wants;
         memset(&WANT[wants], 0, sizeof(wanted));
         WANT[wants].ins = ins;
@@ -106,15 +106,17 @@ static int is_the_instruction(const uint16_t* code, int len, uint16_t ins) {
 
 // Which of some words gforth has: it is asked, a line a word.
 static void ask_gforth(const char* beside) {
-    char path[1024], command[1100];
-    snprintf(path, sizeof(path), "%s.ask", beside);
+    static const char ask[] = ".ask", run[] = "gforth ";
+    char* path = room_for(strlen(beside) + sizeof(ask), 1);
+    char* command = room_for(strlen(beside) + sizeof(ask) + sizeof(run), 1);
+    sprintf(path, "%s%s", beside, ask);
     FILE* script = fopen(path, "w");
     if (!script) { perror(path); exit(1); }
     fprintf(script, ": t parse-name find-name 0<> . cr ;\n");
     for(int idx=0; idx < typed; idx++) fprintf(script, "t %s\n", TYPED[idx].name);
     fprintf(script, "bye\n");
     fclose(script);
-    snprintf(command, sizeof(command), "gforth %s", path);
+    sprintf(command, "%s%s", run, path);
     FILE* answers = popen(command, "r");
     int answered = 0, has;
     while (answers && answered < typed && fscanf(answers, "%d", &has) == 1) TYPED[answered++].standard = has != 0;
@@ -159,36 +161,29 @@ static void settle(int standard) {
     for(int w=0; w < wants; w++) {
         wanted* x = &WANT[w];
         if (x->shown || !x->said_n) continue;
-        static char text[WANTED][160];
-        text[w][0] = 0;
+        static const char before[] = " hdr, ";          // what is before each name, but for its space the first time
+        size_t room = 1;
+        for(int idx=0; idx < x->said_n; idx++) room += sizeof(before) + strlen(TYPED[x->said[idx]].name);
+        char* text = room_for(room, 1);
         for(int idx=0; idx < x->said_n; idx++) {
-            strcat(text[w], idx ? " hdr, " : "hdr, ");
-            strcat(text[w], TYPED[x->said[idx]].name);
+            strcat(text, idx ? before : before + 1);
+            strcat(text, TYPED[x->said[idx]].name);
         }
-        x->shown = text[w];
+        x->shown = text;
         (void)standard;
     }
 }
 
 // The four-word phrases: the phrases of one, two and three words that
 // leave something no earlier phrase left, each with one word more.
-#define LONGEST 48                      // instructions in a phrase
+#define LONGEST 48                      // instructions in a phrase: chosen
 typedef struct { int phrase[MOST]; int n; uint16_t code[LONGEST]; int len; } reached;
 
-#define SEEN (1 << 22)
-static uint64_t SEEN_BEFORE[SEEN];
-
-// Has something that leaves this been reached before?  It has now.
-static int seen_before(uint64_t leaves) {
-    uint64_t at = (leaves * 0x9e3779b97f4a7c15ull) >> 42;
-    while (SEEN_BEFORE[at] && SEEN_BEFORE[at] != leaves) at = (at + 1) & (SEEN - 1);
-    if (SEEN_BEFORE[at]) return(1);
-    SEEN_BEFORE[at] = leaves;
-    return(0);
-}
+static number_set REACHED;              // what has been reached, by the number for what it leaves (room.c)
 
 static void four_words(void) {
-    int left[WANTED], lefts = 0;        // the instructions that have no words yet
+    int* left = room_for(wants, sizeof(int));   // the instructions that have no words yet
+    int lefts = 0;
     for(int w=0; w < wants; w++) if (!WANT[w].shown && WANT[w].leaves) left[lefts++] = w;
     reached* frontier = calloc(1, sizeof(reached));
     long fronts = 1;
@@ -215,13 +210,14 @@ static void four_words(void) {
                     }
                     continue;
                 }
-                if (!seen_before(leaves)) next[nexts++] = r;
+                if (!already_in(&REACHED, leaves)) next[nexts++] = r;
             }
         }
         free(frontier);
         frontier = next;
         fronts = nexts;
     }
+    free(left);
 }
 
 static int by_uses(const void* a, const void* b) {
@@ -261,8 +257,8 @@ int main(int argc, char *argv[]) {
     memset(want_at, -1, sizeof(want_at));
     uint8_t* image;
     size_t len = load_image(argv[1], &image);
-    static word words[8192];
-    int n = words_of(image, len, argv[2], words, 8192);
+    word* words;
+    int n = words_of(image, len, argv[2], &words);
     without_tables(image, len, words, n);
 
     uint16_t noop = ins_named("noop"), leaves = ins_named("exit");
@@ -281,7 +277,7 @@ int main(int argc, char *argv[]) {
         }
         named m;
         forget();
-        if (typed == VOCAB || !names((const uint16_t*)w->ins, w->num_ins, &m)) continue;
+        if (!names((const uint16_t*)w->ins, w->num_ins, &m)) continue;
         TYPED[typed].name = w->repr;
         TYPED[typed].len = w->num_ins;
         memcpy(TYPED[typed].code, w->ins, w->num_ins * sizeof(uint16_t));
@@ -291,10 +287,11 @@ int main(int argc, char *argv[]) {
 
     // The instructions the image's code has.  Code is the pages that words
     // are in.
-    static unsigned char has_code[1 << 16];
-    for(int idx=0; idx < n; idx++) if (words[idx].at / PAGE < (1 << 16)) has_code[words[idx].at / PAGE] = 1;
+    const size_t instructions = len / sizeof(uint16_t);
+    unsigned char* has_code = room_for(instructions / PAGE + 1, 1);
+    for(int idx=0; idx < n; idx++) if ((size_t)words[idx].at < instructions) has_code[words[idx].at / PAGE] = 1;
     const uint16_t* code = (const uint16_t*)image;
-    for(size_t at=0; at < len / 2; at++) {
+    for(size_t at=0; at < instructions; at++) {
         if (!has_code[at / PAGE]) continue;
         instruction ins = *(const instruction*)&code[at];
         if (ins.lit.lit_f || ins.alu.op_type != OP_TYPE_ALU) continue;
@@ -311,13 +308,14 @@ int main(int argc, char *argv[]) {
     // One standard word, or two; then the machine's own name; then three
     // standard words; then two or three of any; then four.
     int phrase[MOST];
-    static uint16_t seq[64 * MOST];
+    static uint16_t seq[MOST * COUNT(((word_node*)0)->ins)];    // as many words, each as long as one can be
     for(int count=1; count <= 2; count++) phrases(count, 1, 0, phrase, seq, 0, 0);
     settle(1);
     for(int w=0; w < wants; w++) if (!WANT[w].shown && WANT[w].own) {
-        static char own[WANTED][80];
-        snprintf(own[w], sizeof(own[w]), "hdr, %s", WANT[w].own);
-        WANT[w].shown = own[w];
+        static const char before[] = "hdr, ";
+        char* own = room_for(sizeof(before) + strlen(WANT[w].own), 1);
+        sprintf(own, "%s%s", before, WANT[w].own);
+        WANT[w].shown = own;
         WANT[w].said_n = 1;
     }
     phrases(3, 1, 0, phrase, seq, 0, 0);
@@ -354,9 +352,9 @@ int main(int argc, char *argv[]) {
     fprintf(out, "\n\\ The names of an instruction's fields, as vm_opcodes.h has them: where\n"
                  "\\ the ALU's input is from, the operation, and where the result goes.\n"
                  "\\ Each is counted strings laid end to end: text, so bulk.\nbulk\n");
-    field_names(out, "f-in", "input_mux", 4, with_in);
-    field_names(out, "f-op", "alu_op", 16, with_op);
-    field_names(out, "f-out", "output_mux", 4, with_out);
+    field_names(out, "f-in", "input_mux", INPUTS, with_in);
+    field_names(out, "f-op", "alu_op", OPS, with_op);
+    field_names(out, "f-out", "output_mux", OUTPUTS, with_out);
     fprintf(out, "unbulk\n");
     fclose(out);
     printf("%d instructions as one word and %d as more written to %s; %d needed four words; %d have no words\n",

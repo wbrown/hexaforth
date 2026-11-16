@@ -21,8 +21,9 @@ void tables_are(const char* dir);
 // it is hex or neither, and after each is the word that lays it down; the
 // table ends at the first word that is neither.  Returns how many there
 // are, which is to be `count` if that is not 0: the test stops if a table
-// is not there or is not as many.
-int table(const char* file, const char* name, int64_t* out, int most, int count);
+// is not there or is not as many.  The numbers are made here, as many as
+// there are, and are whoever asked's to free.
+int table(const char* file, const char* name, int64_t** numbers, int count);
 
 // A font, as font.fs says one is: how high, the first character, how many,
 // the numbers in a row of the strike, a cell the system uses; then where

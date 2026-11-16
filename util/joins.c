@@ -28,7 +28,8 @@
 //
 #include "fuse.c"
 
-#define MOST 256
+#define MOST COUNT(FORTH_WORDS)         // there are no more named instructions than vm_opcodes.h has words,
+                                        // nor more rules than named instructions
 static uint16_t NAMED[MOST];            // the ALU instructions that have a name and do not return,
 static const char* NAME_OF[MOST];       // and the name
 static int named_ones;
@@ -69,11 +70,11 @@ static int folds(uint16_t ins) {
     start(&m);
     step_named(&m, ins);
     if (m.unsaid || lost || m.next >= 0 || m.fetches || m.M != MEMORY_TERM) return(0);
-    if (m.RSP != DEEP || m.R != SLOTS + DEEP - 1) return(0);
-    for(int idx=0; idx < DEEP - 1; idx++) if (m.RS[idx] != SLOTS + idx) return(0);
+    if (m.RSP != DEEP || m.R != RETURN_TERM(DEEP - 1)) return(0);
+    for(int idx=0; idx < DEEP - 1; idx++) if (m.RS[idx] != RETURN_TERM(idx)) return(0);
     int of = DEEP + 1 - m.SP;
     if (of != 1 && of != 2) return(0);
-    for(int idx=0; idx < m.SP - 1; idx++) if (m.DS[idx] != idx) return(0);
+    for(int idx=0; idx < m.SP - 1; idx++) if (m.DS[idx] != DATA_TERM(idx)) return(0);
     return(made_only_of(m.T, of == 1 ? 1 : 3) ? of : 0);
 }
 
@@ -143,7 +144,7 @@ static void find_rules(uint16_t across) {
         if (taken) continue;
         rule* new = &RULE[rules++];
         new->mask = 0xffff; new->change = p ^ y;
-        for(int bit=0; bit < 16; bit++) {
+        for(int bit=0; bit < 8 * (int)sizeof(instruction); bit++) {
             uint16_t wider = new->mask & ~(1 << bit);
             if (right_for_all(across, wider, p & wider, new->change)) new->mask = wider;
         }

@@ -18,7 +18,7 @@
 #include "../vm.h"
 
 extern context machine;         // the machine: it has the memory, the stacks and the disk
-extern char said[1 << 16];      // what it printed when it was last typed at
+extern char* said;              // what it printed when it was last typed at: all of it, until it is typed at again
 
 // The image the machine is started from.  This is said once, first.
 void nucleus_is(const char* path);

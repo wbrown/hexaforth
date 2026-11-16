@@ -147,17 +147,8 @@ static FILE* nowhere;
 #define OPS         COUNT(ALU_OPS_REPR)
 #define OUTPUTS     COUNT(OUTPUT_MUX_REPR)
 
-// A word of vm_opcodes.h, by its name; and the one instruction a word is,
-// or nothing if there is no such word or it is more than one.
-static const word_node* word_named(const char* name) {
-    for(const word_node* w = FORTH_WORDS; w->repr && strlen(w->repr); w++) if (!strcmp(w->repr, name)) return(w);
-    return(NULL);
-}
-
-static uint16_t ins_named(const char* name) {
-    const word_node* w = word_named(name);
-    return(w && w->num_ins == 1 ? *(const uint16_t*)&w->ins[0] : 0);
-}
+#include "named.c"                  // a word of vm_opcodes.h by its name
+#include "room.c"                   // room for as many of a thing as there are
 
 typedef struct {
     int64_t dstack[FILLED];
@@ -1055,8 +1046,8 @@ static int find(uint64_t names) {
 // another file.  A line is the sequence, with a bit to say whether one
 // instruction was asked for or two, and what was found, or nothing.
 static const char* TEXTS[] = {
-    "fuse.c", "stack.c", "../vm.c", "../vm_step.h", "../vm.h", "../vm_opcodes.c", "../vm_opcodes.h",
-    "../vm_instruction.h", "../vm_constants.h",
+    "fuse.c", "named.c", "room.c", "stack.c", "../vm.c", "../vm_step.h", "../vm.h", "../vm_opcodes.c",
+    "../vm_opcodes.h", "../vm_instruction.h", "../vm_constants.h",
 };
 static uint64_t written;            // the number for the texts,
 static int texts_read = 1;          // and whether every one could be read
@@ -1064,9 +1055,13 @@ static int texts_read = 1;          // and whether every one could be read
 // A file by where it is from this one.
 static FILE* beside(const char* name, const char* mode) {
     const char* slash = strrchr(__FILE__, '/');
-    char path[1024];
-    snprintf(path, sizeof(path), "%.*s%s", slash ? (int)(slash - __FILE__ + 1) : 0, __FILE__, name);
-    return(fopen(path, mode));
+    size_t here = slash ? (size_t)(slash - __FILE__ + 1) : 0;
+    char* path = room_for(here + strlen(name) + 1, 1);
+    memcpy(path, __FILE__, here);
+    strcpy(path + here, name);
+    FILE* is = fopen(path, mode);
+    free(path);
+    return(is);
 }
 
 static void read_texts(void) {
@@ -1078,61 +1073,112 @@ static void read_texts(void) {
     }
 }
 
-#define KEPT (1 << 18)
 #define FOR_ONE (1ull << 48)        // in what was asked: one instruction was asked for
-static uint64_t kept_asked[KEPT];
-static long kept_found[KEPT];
 static FILE* kept_file;
 
+// What was asked, and what was found for it: as many as have been asked,
+// with room for twice that, so that one is come to in a step or two.
+typedef struct { uint64_t asked; long found; } answer_kept;
+static answer_kept* KEPT_ANSWER;
+static int kept_bits;               // there is room for two to this many
+static long kept_count;
+
+static answer_kept* kept_at(uint64_t was_asked) {
+    long at = mix(0, was_asked) & ((1L << kept_bits) - 1);
+    while (KEPT_ANSWER[at].asked && KEPT_ANSWER[at].asked != was_asked) at = (at + 1) & ((1L << kept_bits) - 1);
+    return(&KEPT_ANSWER[at]);
+}
+
 // Where what was found for a question is, or will be: less than nothing
-// until it is known.
+// until it is known.  It is where it is only until the next is asked for.
 static long* kept(uint64_t was_asked) {
-    long at = mix(0, was_asked) & (KEPT - 1);
-    while (kept_asked[at] && kept_asked[at] != was_asked) at = (at + 1) & (KEPT - 1);
-    kept_asked[at] = was_asked;
-    return(&kept_found[at]);
+    if (!KEPT_ANSWER || 2 * (kept_count + 1) > 1L << kept_bits) {
+        answer_kept* had = KEPT_ANSWER;
+        long was = had ? 1L << kept_bits : 0;
+        kept_bits = had ? kept_bits + 1 : 1;
+        KEPT_ANSWER = room_for((size_t)1 << kept_bits, sizeof(answer_kept));
+        for(long idx=0; idx < was; idx++) if (had[idx].asked) *kept_at(had[idx].asked) = had[idx];
+        free(had);
+    }
+    answer_kept* is = kept_at(was_asked);
+    if (!is->asked) {
+        is->asked = was_asked;
+        is->found = -1;
+        kept_count++;
+    }
+    return(&is->found);
 }
 
 // What was found for a run with numbers in it is kept too (fuse_lit): the
 // run by a number for it, how long what does the same is, or less than
-// nothing, and what that is.  Its line begins with an L.
-#define LIT_KEPT   (1 << 16)
-#define LIT_ROOM   7
-typedef struct { uint64_t asked; int8_t len; uint16_t run[LIT_ROOM]; } lit_answer;
-static lit_answer LIT[LIT_KEPT];
+// nothing, and what that is, which is as long as it is.  Its line begins
+// with an L.
+typedef struct { uint64_t asked; int len; uint16_t* run; } lit_answer;
+static lit_answer* LIT;
+static int lit_bits;
+static long lit_count;
 
-static lit_answer* lit_kept(uint64_t asked) {
-    long at = mix(1, asked) & (LIT_KEPT - 1);
-    while (LIT[at].asked && LIT[at].asked != asked) at = (at + 1) & (LIT_KEPT - 1);
+static lit_answer* lit_at(uint64_t asked) {
+    long at = mix(1, asked) & ((1L << lit_bits) - 1);
+    while (LIT[at].asked && LIT[at].asked != asked) at = (at + 1) & ((1L << lit_bits) - 1);
     return(&LIT[at]);
 }
 
+// What is kept for a run, or where it will be: with nothing asked, until
+// it is.  It is where it is only until the next is asked for.
+static lit_answer* lit_kept(uint64_t asked) {
+    if (!LIT || 2 * (lit_count + 1) > 1L << lit_bits) {
+        lit_answer* had = LIT;
+        long was = had ? 1L << lit_bits : 0;
+        lit_bits = had ? lit_bits + 1 : 1;
+        LIT = room_for((size_t)1 << lit_bits, sizeof(lit_answer));
+        for(long idx=0; idx < was; idx++) if (had[idx].asked) *lit_at(had[idx].asked) = had[idx];
+        free(had);
+    }
+    return(lit_at(asked));
+}
+
+// A run is kept for what was asked: how long it is, or less than nothing
+// if none was found, and the run.
+static void lit_keep(uint64_t asked, int len, const uint16_t* run) {
+    lit_answer* answer = lit_kept(asked);
+    if (!answer->asked) lit_count++;
+    free(answer->run);
+    answer->asked = asked;
+    answer->len = len;
+    answer->run = len > 0 ? room_for(len, sizeof(uint16_t)) : NULL;
+    if (len > 0) memcpy(answer->run, run, len * sizeof(uint16_t));
+}
+
 static void read_kept(void) {
-    for(long at=0; at < KEPT; at++) kept_found[at] = -1;
     if (!texts_read) return;        // nothing is kept that cannot be said to be of these texts
-    char name[80], line[160];
-    snprintf(name, sizeof(name), "../build/fuse-%d-%016llx.kept", CELL_BITS, (unsigned long long)written);
+    static const char form[] = "../build/fuse-%d-%016llx.kept";
+    char name[sizeof(form) + 3 * sizeof(int)];          // the cell's size is no more digits than three a byte
+    snprintf(name, sizeof(name), form, CELL_BITS, (unsigned long long)written);
     FILE* in = beside(name, "r");
-    while (in && fgets(line, sizeof(line), in)) {
+    char* line = NULL;
+    long room = 0;
+    while (in && line_of(in, &line, &room)) {
         unsigned long long was_asked;
         long found;
         int len, at;
-        if (sscanf(line, "L %llx %d%n", &was_asked, &len, &at) == 2 && len <= LIT_ROOM) {
-            lit_answer* answer = lit_kept(was_asked);
-            answer->asked = was_asked;
-            answer->len = len;
+        if (sscanf(line, "L %llx %d%n", &was_asked, &len, &at) == 2) {
+            uint16_t* run = room_for(len > 0 ? len : 0, sizeof(uint16_t));
             char* rest = line + at;
-            for(int idx=0; idx < len; idx++) answer->run[idx] = strtol(rest, &rest, 16);
+            for(int idx=0; idx < len; idx++) run[idx] = strtol(rest, &rest, 16);
+            lit_keep(was_asked, len, run);
+            free(run);
         } else if (sscanf(line, "%llx %lx", &was_asked, &found) == 2) {
             *kept(was_asked) = found;
         }
     }
+    free(line);
     if (in) fclose(in);
     kept_file = beside(name, "a");
 }
 
-static long keep(long* where, uint64_t was_asked, long found) {
-    *where = found;
+static long keep(uint64_t was_asked, long found) {
+    *kept(was_asked) = found;
     if (kept_file) {
         fprintf(kept_file, "%llx %lx\n", (unsigned long long)was_asked, found);
         fflush(kept_file);
@@ -1189,10 +1235,9 @@ long fuse_one(long first, long second, long third) {
     names(&one, 1, &b);
     if (!same_named(&a, &b)) return(0);
     uint64_t was_asked = FOR_ONE | (uint64_t)first << 32 | (uint64_t)second << 16 | third;
-    long* answer = kept(was_asked);
-    if (*answer == one) return(one);
+    if (*kept(was_asked) == one) return(one);
     tried(seq, len, &one, 1);
-    return(keep(answer, was_asked, one));
+    return(keep(was_asked, one));
 }
 
 // The pairs that may do the work of three: every two of the instructions
@@ -1255,9 +1300,9 @@ long fuse_two(long first, long second, long third) {
     uint16_t seq[SEQ] = { first, second, third };
     if (!asked(seq, SEQ)) return(0);
     uint64_t was_asked = (uint64_t)seq[0] << 32 | (uint64_t)seq[1] << 16 | seq[2];
-    long* two = kept(was_asked);
-    if (*two >= 0) return(*two);
-    return(keep(two, was_asked, look_for_two(seq)));
+    long two = *kept(was_asked);
+    if (two >= 0) return(two);
+    return(keep(was_asked, look_for_two(seq)));
 }
 
 // If the third returns, so does the second of the two: the pairs are
@@ -1340,7 +1385,9 @@ long fuse_same(const uint16_t* a, long alen, const uint16_t* b, long blen) {
 // with a number on top pushes, and what it pushed is what one in its bits
 // is worth; one that leaves the top with a number added to it adds.
 typedef struct { uint16_t ins; int64_t worth; } literal;
-static literal PUSHES[16], ADDS[16];
+static literal* PUSHES;             // as many as the machine has of each: there is room as they are found
+static literal* ADDS;
+static long pushes_room, adds_room;
 static int pushes, adds;
 static int64_t most;                // the most the bits of a literal say
 static uint16_t INVERTS, IS_SAME;   // the basewords `invert` and `=`
@@ -1369,12 +1416,14 @@ static void learn_literals(void) {
         if (m.unsaid || lost || m.fetches || m.M != MEMORY_TERM) continue;
         const term* t = &KNOWN[m.T];
         if (m.SP == DEEP + 1 && t->kind == A_NUMBER && t->number > 0 && m.DS[DEEP - 1] == top) {
+            ONE_MORE(PUSHES, pushes, pushes_room);
             PUSHES[pushes++] = (literal){ x, t->number };
         }
         if (m.SP == DEEP && t->kind == BY_ALU && t->op == ALU_ADD && t->n == 2) {
             for(int which=0; which < 2; which++) {
                 const term* number = &KNOWN[t->of[which]];
                 if (t->of[1 - which] == top && number->kind == A_NUMBER && number->number > 0) {
+                    ONE_MORE(ADDS, adds, adds_room);
                     ADDS[adds++] = (literal){ x, number->number };
                 }
             }
@@ -1422,13 +1471,13 @@ static int write_number(int64_t v, int add, uint16_t* out) {
 
 // The instructions that are basewords and do not return, and those that
 // stand for the rest and do not return.
-static int BASE[1024], bases;
+static int BASE[COUNT(FORTH_WORDS)], bases;    // no more of them than there are words
 static int REPS[EVERY_WORD], reps;
 
 static void list_tried(void) {
     for(int at=0; at < alus; at++) {
         if (returns(ALU[at].ins)) continue;
-        if (is_word(ALU[at].ins) && bases < 1024) BASE[bases++] = at;
+        if (is_word(ALU[at].ins)) BASE[bases++] = at;
         if (ALU[at].stands == ALU[at].ins) REPS[reps++] = at;
     }
 }
@@ -1624,7 +1673,7 @@ long fuse_lit(const uint16_t* run, long len, long branch, uint16_t* out) {
     uint64_t asked = branch + 2;
     for(int idx=0; idx < len; idx++) asked = mix(asked, run[idx]);
     asked |= 1;
-    lit_answer* answer = lit_kept(asked);
+    const lit_answer* answer = lit_kept(asked);
     if (answer->asked) {
         if (answer->len < 0) return(-1);
         named again;                // what was kept is what does the same, or it is not used
@@ -1637,24 +1686,25 @@ long fuse_lit(const uint16_t* run, long len, long branch, uint16_t* out) {
         }
     }
 
+    // A shorter run is what is kept, however long it is: it is shorter
+    // than the run, which is as long as cross.fs gave room for.
     look_for_run(run, len);
-    answer->asked = asked;
-    answer->len = -1;
-    if (looked.best_len < len && looked.best_len <= LIT_ROOM) {
+    int found = -1;
+    if (looked.best_len < len) {
         memcpy(tried_run, looked.best, looked.best_len * 2);
         memcpy(tried_run + looked.best_len, looked.tail, looked.tail_len * 2);
         tried(whole, len + looked.tail_len, tried_run, looked.best_len + looked.tail_len);
-        answer->len = looked.best_len;
-        memcpy(answer->run, looked.best, looked.best_len * 2);
+        found = looked.best_len;
         memcpy(out, looked.best, looked.best_len * 2);
     }
+    lit_keep(asked, found, looked.best);
     if (kept_file) {
-        fprintf(kept_file, "L %llx %d", (unsigned long long)asked, answer->len);
-        for(int idx=0; idx < answer->len; idx++) fprintf(kept_file, " %x", answer->run[idx]);
+        fprintf(kept_file, "L %llx %d", (unsigned long long)asked, found);
+        for(int idx=0; idx < found; idx++) fprintf(kept_file, " %x", looked.best[idx]);
         fprintf(kept_file, "\n");
         fflush(kept_file);
     }
-    return(answer->len);
+    return(found);
 }
 
 // Look for a shorter run that leaves what is wanted (looked.want, which

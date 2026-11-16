@@ -102,31 +102,7 @@ static int only_data(const uint16_t* code, int len) {
 
 typedef struct { int phrase[MOST]; int n; uint16_t code[LONG]; int len; } reached;
 
-static uint64_t* SEEN_BEFORE;           // what has been reached, found by what it leaves:
-static int seen_bits;                   // there is room for two to this many,
-static long seen;                       // and more is made before half of it is taken
-
-static uint64_t* seen_at(uint64_t leaves) {
-    uint64_t at = (leaves * 0x9e3779b97f4a7c15ull) >> (64 - seen_bits);
-    while (SEEN_BEFORE[at] && SEEN_BEFORE[at] != leaves) at = (at + 1) & (((uint64_t)1 << seen_bits) - 1);
-    return(&SEEN_BEFORE[at]);
-}
-
-static int seen_before(uint64_t leaves) {       // has something that leaves this been reached?  It has now.
-    if (!SEEN_BEFORE || 2 * (seen + 1) > (long)1 << seen_bits) {
-        uint64_t* had = SEEN_BEFORE;
-        long was = had ? (long)1 << seen_bits : 0;
-        seen_bits = had ? seen_bits + 1 : 8 * (int)sizeof(uint16_t);    // to begin with, as many as there are words
-        SEEN_BEFORE = room_for((size_t)1 << seen_bits, sizeof(uint64_t));
-        for(long idx=0; idx < was; idx++) if (had[idx]) *seen_at(had[idx]) = had[idx];
-        free(had);
-    }
-    uint64_t* at = seen_at(leaves);
-    if (*at) return(1);
-    *at = leaves;
-    seen++;
-    return(0);
-}
+static number_set REACHED;              // what has been reached, by the number for what it leaves (room.c)
 
 // The shortest run of words for each instruction that a run of up to so
 // many gives: the runs of one word, then each that left something new
@@ -157,7 +133,7 @@ static void find_phrases(int longest) {
                     k->ways = 1;
                     found++;
                 }
-                if (depth < longest && !seen_before(leaves)) next[nexts++] = r;
+                if (depth < longest && !already_in(&REACHED, leaves)) next[nexts++] = r;
             }
         }
         free(frontier);
@@ -196,6 +172,12 @@ static void find_others(int longest) {
     }
 }
 
+// A phrase as text is no longer than its words' names and the spaces
+// between, and a name is no longer than vm_opcodes.h has room for; and all
+// an instruction's phrases are so many of those, with what is between.
+#define PHRASE_ROOM  (MOST * sizeof(((forth_op*)0)->repr) + sizeof("(no phrase)"))
+#define PHRASES_ROOM (WAYS * (PHRASE_ROOM + sizeof("  |  ")))
+
 static void say_way(char* text, const entry* k, int way) {
     for(int n=0; n < k->said; n++) {
         if (n) strcat(text, " ");
@@ -230,7 +212,7 @@ static void compile(entry** batch, int count) {
     if (!source) { perror("phrasetest.fs"); exit(1); }
     fprintf(source, "meta 4 org target\nheader execute : execute >r ;\n");
     for(int n=0; n < count; n++) {
-        char phrase[256];
+        char phrase[PHRASE_ROOM];
         say_phrase(phrase, batch[n]);
         fprintf(source, "meta $%x org target : p%d %s ;\n", each * (FIRST_AT + HELD * n), n, phrase);
     }
@@ -326,9 +308,10 @@ static int in_gforth(const char* text, int64_t result[STACKS][FILLED], int* dept
     fprintf(script, "bye\n");
     fclose(script);
     FILE* answers = popen("gforth ../build/phrases.ask < /dev/null 2>&1", "r");
-    char row[4096];
+    char* row = NULL;               // a line of what it says, however long
+    long row_room = 0;
     int s = 0, known = answers != NULL;
-    while (known && fgets(row, sizeof(row), answers)) {
+    while (known && line_of(answers, &row, &row_room)) {
         int deep = 0, used = 0;
         if (sscanf(row, " <%d>%n", &deep, &used) != 1 || deep > FILLED || s == STACKS) { known = 0; break; }
         const char* at = row + used;
@@ -340,6 +323,7 @@ static int in_gforth(const char* text, int64_t result[STACKS][FILLED], int* dept
         depth[s++] = deep;
     }
     if (answers) pclose(answers);
+    free(row);
     remove("../build/phrases.ask");
     return(known && s == STACKS);
 }
@@ -444,17 +428,20 @@ int main(int argc, char *argv[]) {
     printf("names, against gforth:\n");
     static int64_t theirs[STACKS][FILLED], ours[STACKS][FILLED];
     int their_depth[STACKS], our_depth[STACKS], agree = 0, differ = 0, absent = 0;
-    char differing[2048] = "", lacking[4096] = "";
+    char* differing = NULL;         // the names of each, a space before every one: all of them
+    char* lacking = NULL;
+    text_more(&differing, "");
+    text_more(&lacking, "");
     for(int w=0; w < vocab; w++) {
         if (!TYPED[w].stack_only || !on_machine(TYPED[w].code, TYPED[w].len, ours, our_depth)) continue;
         if (!gforth_has(TYPED[w].name) || !in_gforth(TYPED[w].name, theirs, their_depth)) {
             absent++;
-            snprintf(lacking + strlen(lacking), sizeof(lacking) - strlen(lacking), " %s", TYPED[w].name);
+            text_more(&lacking, " %s", TYPED[w].name);
         } else if (same_results(ours, our_depth, theirs, their_depth)) {
             agree++;
         } else {
             differ++;
-            snprintf(differing + strlen(differing), sizeof(differing) - strlen(differing), " %s", TYPED[w].name);
+            text_more(&differing, " %s", TYPED[w].name);
         }
     }
 
@@ -483,7 +470,7 @@ int main(int argc, char *argv[]) {
         if (!said || !in_gforth(said, theirs, their_depth)) continue;
         for(int n=0; n < entries; n++) {
             entry* k = &ENTRY[n];
-            char is[256], phrase[256];
+            char is[256], phrase[PHRASE_ROOM];
             if (!k->stack_only || !same_results(k->result, k->depth, theirs, their_depth)) continue;
             decode_instruction(is, *(instruction*)&k->is->ins, shown);
             say_phrase(phrase, k);
@@ -498,7 +485,7 @@ int main(int argc, char *argv[]) {
     for(int n=0; n < phrased; n++) if (said[n]->compiled > 1) order[listed++] = said[n];
     qsort(order, listed, sizeof(entry*), by_length);
     for(int n=0; n < listed; n++) {
-        char is[256], phrase[256];
+        char is[256], phrase[PHRASE_ROOM];
         decode_instruction(is, *(instruction*)&order[n]->is->ins, shown);
         say_phrase(phrase, order[n]);
         printing = n < 24;
@@ -510,7 +497,7 @@ int main(int argc, char *argv[]) {
     SAY("Every instruction a phrase gives, and the phrase; and other phrases as short, if there are any:");
     qsort(said, phrased, sizeof(entry*), by_ins);
     for(int n=0; n < phrased; n++) {
-        char is[256], phrase[1024];
+        char is[256], phrase[PHRASES_ROOM];
         decode_instruction(is, *(instruction*)&said[n]->is->ins, shown);
         say_phrases(phrase, said[n]);
         SAY("    %04x  %-9s %s = %s", said[n]->is->ins, said[n]->is->name ? said[n]->is->name : "", is, phrase);

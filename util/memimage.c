@@ -54,11 +54,17 @@ int main(int argc, char *argv[]) {
     if (len > MEM_BYTES) len = MEM_BYTES;
     while (len % CELL_BYTES) len++;
 
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/mem.hex", argv[2]);
+    static const char cells[] = "/mem.hex", krom[] = "/krom.vh";
+    char* path = malloc(strlen(argv[2]) + sizeof(cells) + sizeof(krom));    // room for the longer of the two
+    if (path == NULL) {
+        fprintf(stderr, "memimage: there is no room for the name of a file in %s\n", argv[2]);
+        return(1);
+    }
+    sprintf(path, "%s%s", argv[2], cells);
     write_cells(path, bytes, len);
-    snprintf(path, sizeof(path), "%s/krom.vh", argv[2]);
+    sprintf(path, "%s%s", argv[2], krom);
     write_krom(path, bytes, len);
+    free(path);
 
     // The kernel's page is 8KB of code, of which the ROM is the first part.
     for(size_t at=KROM_BYTES; at < len && at < 0x2000; at++) {

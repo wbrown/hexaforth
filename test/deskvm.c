@@ -2,6 +2,7 @@
 // The desktop on the reference VM: deskvm.h says what this is for.
 //
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,8 +21,8 @@ static const struct { const char* name; int code; } KEYS[] = {
 
 long deskvm_turns;
 
-static int key_of[256];         // the key that gives each character,
-static bool shifted[256];       // and whether Shift is held for it
+static int key_of[UCHAR_MAX + 1];       // the key that gives each character there can be,
+static bool shifted[UCHAR_MAX + 1];     // and whether Shift is held for it
 static const char* disk_path;   // the copy of the disk
 static const char* picture;
 static bool started;            // the machine has left its prompt for the desktop
@@ -65,16 +66,20 @@ static int code_of(const char* name) {
 // the line that starts the desktop but what stops the machine, and it is
 // seen to have started before it is sent more.
 const char* desk_boot(void) {
-    static char console[sizeof(said)];
-    char stops[32];
-    sent += snprintf(stops, sizeof(stops), "%d execute", stopping()) + 1;      // which the desktop takes a turn a character
-    line("%s", stops);
+    static const char stops[] = "%d execute";
+    sent += snprintf(NULL, 0, stops, stopping()) + 1;   // which the desktop takes a turn a character
+    line(stops, stopping());
     taken();
     if (!strstr(said, "desktop") || strstr(said, "error")) {
         printf("FAIL the machine did not start its desktop.  It said:\n%s\n", said);
         exit(EXIT_FAILURE);
     }
-    memcpy(console, said, sizeof(said));
+    char* console = malloc(strlen(said) + 1);           // it is kept: what the machine says next is said elsewhere
+    if (console == NULL) {
+        fprintf(stderr, "there is no room for what the console said\n");
+        exit(EXIT_FAILURE);
+    }
+    strcpy(console, said);
     desk_turns(read_tiff(picture).h + 80);      // the picture comes down a row a turn
     return(console);
 }
@@ -172,8 +177,13 @@ static void disk_is(const char* from, const char* to) {
 }
 
 desk deskvm_start(const char* image, const char* disk, const char* is_picture, const char* out, bool names) {
-    static char copy[512];
-    snprintf(copy, sizeof(copy), "%s/disk.img", out);
+    static const char file[] = "/disk.img";
+    char* copy = malloc(strlen(out) + sizeof(file));
+    if (copy == NULL) {
+        fprintf(stderr, "there is no room for the name of the disk's copy\n");
+        exit(EXIT_FAILURE);
+    }
+    sprintf(copy, "%s%s", out, file);
     picture = is_picture;
     screen = malloc((size_t)W * H);
 

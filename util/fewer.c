@@ -33,8 +33,7 @@
 //
 
 // How much is looked at is not the machine's to say: these were chosen.
-#define FEW_SEEN_BITS   20              // the states a search remembers having come to: two to this many
-#define FEW_SEEN        (1 << FEW_SEEN_BITS)
+#define FEW_SEEN_BITS   16              // there is room to begin with for two to this many states come to
 #define FEW_LIVE        6               // the most cells a turn may keep things in, to be run from few numbers,
 #define FEW_FROM        4               // and the states of fuse.c's that they are given in
 #define FEW_STORES      32              // the most stores in what is wanted
@@ -451,7 +450,9 @@ static int at_least(wanted* w, const named* m) {
 // ---- the search
 
 typedef struct { uint64_t state; int stamp; int left; } was_seen;
-static was_seen* SEEN_WITH;
+static was_seen* SEEN_WITH;             // the states come to, found by the state: there is room for twice as many
+static int seen_bits;                   // as a search has come to, which is two to this many,
+static long seen_now;                   // and this is how many this search has come to
 static int searching;                   // which search this is: what an earlier one saw is not seen
 static long states_left;
 static int gave_up;
@@ -465,11 +466,26 @@ static uint64_t state_of(const named* m) {
 
 // Has this been come to before with as many instructions left, or more?
 // It has now.
+static was_seen* seen_at(uint64_t state) {      // where a state of this search is, or would be
+    uint64_t at = (state * 0x9e3779b97f4a7c15ull) >> (8 * sizeof(uint64_t) - seen_bits);
+    while (SEEN_WITH[at].stamp == searching && SEEN_WITH[at].state != state) at = (at + 1) & (((uint64_t)1 << seen_bits) - 1);
+    return(&SEEN_WITH[at]);
+}
+
 static int seen_with(const named* m, int left) {
-    uint64_t state = state_of(m), at = (state * 0x9e3779b97f4a7c15ull) >> (64 - FEW_SEEN_BITS);
-    while (SEEN_WITH[at].stamp == searching && SEEN_WITH[at].state != state) at = (at + 1) & (FEW_SEEN - 1);
-    if (SEEN_WITH[at].stamp == searching && SEEN_WITH[at].left >= left) return(1);
-    SEEN_WITH[at] = (was_seen){ state, searching, left };
+    uint64_t state = state_of(m);
+    if (!SEEN_WITH || 2 * (seen_now + 1) > (long)1 << seen_bits) {      // there is to be room for twice what there is
+        was_seen* had = SEEN_WITH;
+        long was = had ? (long)1 << seen_bits : 0;
+        seen_bits = had ? seen_bits + 1 : FEW_SEEN_BITS;
+        SEEN_WITH = room_for((size_t)1 << seen_bits, sizeof(was_seen));
+        for(long idx=0; idx < was; idx++) if (had[idx].stamp == searching) *seen_at(had[idx].state) = had[idx];
+        free(had);
+    }
+    was_seen* is = seen_at(state);
+    if (is->stamp == searching && is->left >= left) return(1);
+    if (is->stamp != searching) seen_now++;
+    *is = (was_seen){ state, searching, left };
     return(0);
 }
 
@@ -552,9 +568,9 @@ static int look(wanted* w, const named* m, int left, uint16_t* path, int at) {
 // search was given up before it had looked at everything.
 static int exactly(wanted* w, const named* from, int length, long states, uint16_t* found, int* given_up) {
     named first;
-    if (!SEEN_WITH) SEEN_WITH = calloc(FEW_SEEN, sizeof(was_seen));
     if (from) first = *from; else start(&first);
     searching++;
+    seen_now = 0;
     states_left = states;
     gave_up = 0;
     known = w->base;

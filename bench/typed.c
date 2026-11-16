@@ -24,34 +24,41 @@
 
 #include "../util/image.h"
 #include "../util/words.c"
+#include "../util/named.c"
 
-#define MOST 512
-#define WORDS 8192
-
+// A run is as long as it is, and so is its line and the word's name: each
+// is given room as it is read (room.c).
 typedef struct {
-    char word[200];
-    int typed[MOST], n;
-    int made[MOST], m;                  // by cross.fs
+    char* word;                         // the word and place, in the room of the line it was read from
+    int* typed;                         // the run as typed,
+    long n, typed_room;
+    int* made;                          // and as cross.fs made it
+    long m, made_room;
 } run;
 
 static instruction ins_of(uint16_t w) { return(*(instruction*)&w); }
-static int is_exit(uint16_t w, const instruction* exit) { return(w == *(const uint16_t*)exit); }
 
 // The next run that is typed: its exit is left off, and cross.fs's if it is alone.
-static int next_run(FILE* in, run* r, const instruction* exit) {
-    static char line[1 << 16];
-    while (fgets(line, sizeof(line), in)) {
+static int next_run(FILE* in, run* r, uint16_t exit) {
+    static char* line;
+    static long room;
+    while (line_of(in, &line, &room)) {
         int after = 0;
         r->n = r->m = 0;
-        r->word[0] = 0;
+        r->word = NULL;
         for(char* tok = strtok(line, " \n"); tok; tok = strtok(NULL, " \n")) {
-            if (!r->word[0]) { strncpy(r->word, tok, sizeof(r->word) - 1); continue; }
+            if (!r->word) { r->word = tok; continue; }
             if (!strcmp(tok, "|")) { after = 1; continue; }
-            if (after && r->m < MOST) r->made[r->m++] = strtol(tok, NULL, 16);
-            if (!after && r->n < MOST) r->typed[r->n++] = strtol(tok, NULL, 16);
+            if (after) {
+                ONE_MORE(r->made, r->m, r->made_room);
+                r->made[r->m++] = strtol(tok, NULL, 16);
+            } else {
+                ONE_MORE(r->typed, r->n, r->typed_room);
+                r->typed[r->n++] = strtol(tok, NULL, 16);
+            }
         }
-        if (r->n && is_exit(r->typed[r->n - 1], exit)) r->n--;
-        if (r->m && is_exit(r->made[r->m - 1], exit)) r->m--;
+        if (r->n && r->typed[r->n - 1] == exit) r->n--;
+        if (r->m && r->made[r->m - 1] == exit) r->m--;
         if (!r->n) continue;
         instruction last = ins_of(r->typed[r->n - 1]);
         if (!last.lit.lit_f && last.alu.r_eip) continue;
@@ -66,8 +73,8 @@ int main(int argc, char *argv[]) {
         return(1);
     }
     init_opcodes(FORTH_WORDS);
-    instruction exit_ins[8];            // lookup_word clears as many
-    if (lookup_word(FORTH_WORDS, "exit", exit_ins) != 1) {
+    uint16_t exit_ins = ins_named("exit");
+    if (!exit_ins) {
         fprintf(stderr, "typed: exit is not one instruction\n");
         return(1);
     }
@@ -78,8 +85,8 @@ int main(int argc, char *argv[]) {
     if (!strcmp(argv[1], "type")) {
         uint8_t* image;
         size_t len = load_image(argv[3], &image);
-        static word words[WORDS];
-        int n = words_of(image, len, argc > 4 ? argv[4] : NULL, words, WORDS);
+        word* words;
+        int n = words_of(image, len, argc > 4 ? argv[4] : NULL, &words);
         long emit1 = place_of(words, n, "emit1"), sync = place_of(words, n, "sync");
         if (emit1 < 0 || sync < 0) {
             fprintf(stderr, "typed: emit1 and sync are not among the words of %s\n", argv[3]);
@@ -95,7 +102,7 @@ int main(int argc, char *argv[]) {
         printf("rr\n");                                 // what compiling these used is not a run's
         while (next_run(runs, &r, exit_ins)) {
             printf("[[\n");
-            for(int idx=0; idx < r.n; idx++) printf("%04x j,%s", r.typed[idx], idx % 8 == 7 || idx == r.n - 1 ? "\n" : " ");
+            for(long idx=0; idx < r.n; idx++) printf("%04x j,%s", r.typed[idx], idx % 8 == 7 || idx == r.n - 1 ? "\n" : " ");
             printf("]]\n");
         }
         printf("decimal 8000 execute\n");
@@ -104,19 +111,19 @@ int main(int argc, char *argv[]) {
 
     FILE* out = fopen(argv[3], "r");
     if (!out) { perror(argv[3]); return(1); }
-    static char line[1 << 16];
-    long count = 0;
+    char* line = NULL;
+    long room = 0, count = 0;
     while (next_run(runs, &r, exit_ins)) {
         long made = -1;
-        while (made < 0 && fgets(line, sizeof(line), out)) {
+        while (made < 0 && line_of(out, &line, &room)) {
             if (strstr(line, "error")) { fprintf(stderr, "typed: the nucleus said: %s", line); return(1); }
             if (strncmp(line, "]] ", 3)) continue;
             char* rest;
             made = strtol(line + 3, &rest, 16);
-            printf("%s %d %ld %d |", r.word, r.n, made, r.m);
-            for(int idx=0; idx < r.n; idx++) printf(" %04x", r.typed[idx]);
+            printf("%s %ld %ld %ld |", r.word, r.n, made, r.m);
+            for(long idx=0; idx < r.n; idx++) printf(" %04x", r.typed[idx]);
             printf(" |");
-            for(int idx=0; idx < r.m; idx++) printf(" %04x", r.made[idx]);
+            for(long idx=0; idx < r.m; idx++) printf(" %04x", r.made[idx]);
             printf(" |");
             for(long idx=0; idx < made; idx++) printf(" %04lx", strtol(rest, &rest, 16));
             printf(" |");

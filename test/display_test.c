@@ -186,10 +186,11 @@ static check SAID[] = {
 
 // ---- the system's patterns and fonts, read from its source (tables.h)
 
+#define THERE(names) ((int)(sizeof(names) / sizeof((names)[0])) - 1)    // how many a list has, before what ends it
 static const char* PATTERNS[] = { "p-white", "p-black", "p-gray", "p-ltgray", "p-dkgray", NULL };
-static pattern patterns[5];
+static pattern patterns[THERE(PATTERNS)];
 static const char* FONTS[] = { "mono", "sans", NULL };
-static font fonts[2];
+static font fonts[THERE(FONTS)];
 
 static void tables(const char* dir) {
     tables_are(dir);
@@ -554,13 +555,34 @@ static int below(int n) {       // a number that is not negative and is less tha
 static int between(int low, int past) { return(low + below(past - low)); }      // from low up to past
 #define ONE_OF(...) ((int[]){ __VA_ARGS__ })[below(sizeof((int[]){ __VA_ARGS__ }) / sizeof(int))]
 
-static char typed[2048];        // what a step types
+static char* typed;             // what a step types: all of it, however much
+static size_t typed_len, typed_room;
+
+static void room_to_type(size_t more) {
+    if (typed_len + more + 1 <= typed_room) return;
+    typed_room = 2 * (typed_len + more + 1);
+    typed = realloc(typed, typed_room);
+    if (typed == NULL) {
+        fprintf(stderr, "display_test: there is no room for what a step types\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+static void nothing_typed(void) {
+    typed_len = 0;
+    room_to_type(0);
+    typed[0] = '\0';
+}
+
 static void more(const char* format, ...) {
-    va_list args;
+    va_list args, again;
     va_start(args, format);
-    size_t len = strlen(typed);
-    vsnprintf(typed + len, sizeof(typed) - len, format, args);
+    va_copy(again, args);
+    int len = vsnprintf(NULL, 0, format, args);     // how long it is, and then it is written
     va_end(args);
+    room_to_type(len);
+    typed_len += vsnprintf(typed + typed_len, len + 1, format, again);
+    va_end(again);
 }
 
 // A rectangle for a region to be: on the screen or partly off it.
@@ -599,11 +621,11 @@ static const char* step(void) {
                                   "scroll", "clip", "noclip", "mode", "origin", "font", "region", "region",
                                   "noregion", "pattern", "style", "text-or" };
     const char* what = does[below(sizeof(does) / sizeof(does[0]))];
-    typed[0] = '\0';
+    nothing_typed();
     int x, y;
     somewhere(&x, &y);
     if (!strcmp(what, "rect")) {
-        if (below(2)) more("%s pattern !  ", PATTERNS[below(5)]);       // or with the pattern there is
+        if (below(2)) more("%s pattern !  ", PATTERNS[below(THERE(PATTERNS))]);     // or with the pattern there is
         more("%d %d %d %d pat-rect", x - ox, y - oy, ONE_OF(1, 7, 64, 130, 300), ONE_OF(1, 3, 16, 60));
     } else if (!strcmp(what, "text")) {
         int count = ONE_OF(1, 2, 9, 20);
@@ -635,7 +657,7 @@ static const char* step(void) {
     } else if (!strcmp(what, "origin")) {
         if (below(2)) more("0 0 origin!"); else more("%d %d origin!", between(-30, 301), between(-30, 301));
     } else if (!strcmp(what, "font")) {
-        more("%s font !", FONTS[below(2)]);
+        more("%s font !", FONTS[below(THERE(FONTS))]);
     } else if (!strcmp(what, "region")) {
         // Two or three rectangles, combined.  The region that is clipped to
         // is not to be made while it is: so nothing is clipped to first.
@@ -653,7 +675,7 @@ static const char* step(void) {
     } else if (!strcmp(what, "noregion")) {
         more("0 rgn-clip!");
     } else if (!strcmp(what, "pattern")) {
-        more("%s pattern !", PATTERNS[below(5)]);
+        more("%s pattern !", PATTERNS[below(THERE(PATTERNS))]);
     } else if (!strcmp(what, "style")) {
         int which = below(3);
         bool is = which == 0 ? inverse : which == 1 ? bold : italic;
@@ -701,13 +723,14 @@ int main(int argc, char *argv[]) {
     // They start from a screen with something all over it, so that what a
     // step copies, scrolls or fills is not mostly white: gray, and rows of
     // text across it.
-    int wrong = 0, tried[4] = { 0 }, seen[4] = { 0 };
+    int wrong = 0, tried[THERE(DRAWS)] = { 0 }, seen[THERE(DRAWS)] = { 0 };
     display_start();
     for(int y=-24; y < H; y += 24) {
+        nothing_typed();
         if (y < 0) {
-            snprintf(typed, sizeof(typed), "p-ltgray pattern !  0 0 %d %d pat-rect  p-black pattern !", W, H);
+            more("p-ltgray pattern !  0 0 %d %d pat-rect  p-black pattern !", W, H);
         } else {
-            snprintf(typed, sizeof(typed), "%s font !  %d bold !", FONTS[y / 24 % 2], y / 48 % 2 ? -1 : 0);
+            more("%s font !  %d bold !", FONTS[y / 24 % THERE(FONTS)], y / 48 % 2 ? -1 : 0);
             for(int x=-(y % 7); x < W; x += 260) more("\nt\" Rows of text, 0123456789, to move.\" %d %d draw-text", x, y);
             more("\nmono font !  0 bold !");
         }

@@ -252,25 +252,27 @@ int main(int argc, char *argv[]) {
         cell[ins.alu.in_mux][ins.alu.alu_op][ins.alu.out_mux].used += USES[k].places > 0;
         cell[ins.alu.in_mux][ins.alu.alu_op][ins.alu.out_mux].runs += USES[k].runs;
     }
-    char row[512];
-    snprintf(row, sizeof(row), "%22s", "");
-    for(int m=0; m < OUTPUTS; m++) snprintf(row + strlen(row), sizeof(row) - strlen(row), "%28s", OUTPUT_MUX_REPR[m]);
+    char* row = NULL;               // a row of it, which is as long as there are destinations
+    text_more(&row, "%22s", "");
+    for(int m=0; m < OUTPUTS; m++) text_more(&row, "%28s", OUTPUT_MUX_REPR[m]);
     SAY("%s", row);
     for(int i=0; i < INPUTS; i++) {
         for(int o=0; o < OPS; o++) {
-            snprintf(row, sizeof(row), "%-8s %-12s ", INPUT_MUX_REPR[i], ALU_OPS_REPR[o]);
+            row[0] = '\0';
+            text_more(&row, "%-8s %-12s ", INPUT_MUX_REPR[i], ALU_OPS_REPR[o]);
             for(int m=0; m < OUTPUTS; m++) {
                 if (cell[i][o][m].all) {
-                    snprintf(row + strlen(row), sizeof(row) - strlen(row), "%6d/%2d/%3d %13.0f", cell[i][o][m].all,
-                             cell[i][o][m].named, cell[i][o][m].used, cell[i][o][m].runs);
+                    text_more(&row, "%6d/%2d/%3d %13.0f", cell[i][o][m].all, cell[i][o][m].named, cell[i][o][m].used,
+                              cell[i][o][m].runs);
                 } else {
-                    snprintf(row + strlen(row), sizeof(row) - strlen(row), "%28s", "-");
+                    text_more(&row, "%28s", "-");
                 }
             }
             SAY("%s", row);
         }
         SAY("%s", "");
     }
+    free(row);
 
     // 2. What the image uses.
     printing = 1;

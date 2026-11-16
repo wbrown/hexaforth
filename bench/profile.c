@@ -59,7 +59,7 @@ static const struct { const char* name; const char* does; } DONE[] = {
 
 // ---- what a place is in
 
-static word WORDS[1 << 14];
+static word* WORDS;             // the image's words (words.c)
 static int words;
 static long image_places;       // the instructions the image was built with
 static span* SPANS;             // the files its code is of (files.c)
@@ -93,20 +93,13 @@ static const char* kind_of(long at) {
 // ---- what is counted, by what it is of
 
 typedef struct { const char* of; double much, calls; } share;
-static share* SHARES;           // as many as there are, and room for more as they are found
-static int shares, shares_room;
+static share* SHARES;           // as many as there are, and room for more as they are found (room.c)
+static long shares, shares_room;
 
 static void shared(const char* of, double much, double calls) {
-    int n = 0;
+    long n = 0;
     while (n < shares && strcmp(SHARES[n].of, of)) n++;
-    if (n == shares_room) {
-        shares_room = 2 * shares_room + words + 1;
-        SHARES = realloc(SHARES, shares_room * sizeof(share));
-        if (SHARES == NULL) {
-            fprintf(stderr, "there is no room for %d shares\n", shares_room);
-            exit(EXIT_FAILURE);
-        }
-    }
+    ONE_MORE(SHARES, shares, shares_room);
     if (n == shares) SHARES[shares++] = (share){ of, 0, 0 };
     SHARES[n].much += much;
     SHARES[n].calls += calls;
@@ -118,14 +111,16 @@ static int by_most(const void* a, const void* b) {
 }
 
 // The places' counts by file, word or kind, and the most of them printed.
+static long places;             // the places the counts are of: as many as have been run (counting.h)
+
 static void by(const char* what, const double* counts, const char* (*of)(long), int most, double whole, double each) {
     shares = 0;
-    for(long at=0; at < PLACES; at++) {
+    for(long at=0; at < places; at++) {
         if (counts[at] > 0) shared(of(at), counts[at], 0);
     }
     qsort(SHARES, shares, sizeof(share), by_most);
     printf("  %s", what);
-    for(int n=0; n < shares && n < most; n++) {
+    for(long n=0; n < shares && n < most; n++) {
         if (each) printf("%s %s %.0f", n ? "," : "", SHARES[n].of, SHARES[n].much / each);
         else printf("%s %s %.0f%%", n ? "," : "", SHARES[n].of, 100 * SHARES[n].much / whole);
     }
@@ -134,13 +129,26 @@ static void by(const char* what, const double* counts, const char* (*of)(long), 
 
 // ---- the readings
 
-static uint64_t last[PLACES];
+// Each is of a place, and has room for as many places as have been run:
+// more are run as the work goes on, and what is new is nothing.
+static uint64_t* last;          // the counts as they were at the last reading,
+static uint64_t* counts;        // what has been run since,
+static double* net;             // that without what the turns it took run with nothing happening,
+static double* work;            // all of that so far,
+static double* a_turn;          // and what a turn with nothing happening runs
 static long last_turns;
 
 // What has been run since the last reading, and the turns the loop took.
-static long reading(uint64_t* counts) {
+static long reading(void) {
+    static long room[5];
     desk_screen();                      // the machine takes everything that was sent
-    for(long at=0; at < PLACES; at++) counts[at] = RAN[at] - last[at], last[at] = RAN[at];
+    places = RAN_TO;
+    AS_MANY(last, places, room[0]);
+    AS_MANY(counts, places, room[1]);
+    AS_MANY(net, places, room[2]);
+    AS_MANY(work, places, room[3]);
+    AS_MANY(a_turn, places, room[4]);
+    for(long at=0; at < places; at++) counts[at] = RAN[at] - last[at], last[at] = RAN[at];
     long turns = deskvm_turns - last_turns;
     last_turns = deskvm_turns;
     return(turns);
@@ -171,7 +179,7 @@ int main(int argc, char *argv[]) {
     uint8_t* image;
     size_t len = load_image(argv[1], &image);
     image_places = len / 2;
-    words = words_of(image, len, argv[2], WORDS, 1 << 14);
+    words = words_of(image, len, argv[2], &WORDS);
     spans = files_of(argv[3], &SPANS);
     tables_are(argv[6]);
 
@@ -180,18 +188,16 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "the desktop did not come up with its windows where forth/desk.fs puts them\n");
         return(1);
     }
-    static uint64_t counts[PLACES];
-    static double net[PLACES], work[PLACES], a_turn[PLACES];
-    long turns = reading(counts);
+    long turns = reading();
     double all = 0;
-    for(long at=0; at < PLACES; at++) all += counts[at];
+    for(long at=0; at < places; at++) all += counts[at];
     printf("booting, with the picture dithered: %.0f instructions, %ld turns of the loop\n", all, turns);
 
     // Nothing happening: what a turn of the loop runs.
     desk_turns(200);
-    turns = reading(counts);
+    turns = reading();
     all = 0;
-    for(long at=0; at < PLACES; at++) a_turn[at] = (double)counts[at] / turns, all += a_turn[at];
+    for(long at=0; at < places; at++) a_turn[at] = (double)counts[at] / turns, all += a_turn[at];
     printf("\na turn of the event loop with nothing happening: %.0f instructions\n", all);
     by("by word: ", a_turn, word_of, 9, all, 1);
 
@@ -199,9 +205,9 @@ int main(int argc, char *argv[]) {
     for(int n=0; DONE[n].name; n++) {
         desk_does(DONE[n].does);
         desk_turns(12);
-        turns = reading(counts);
+        turns = reading();
         double total = 0, ran = 0;
-        for(long at=0; at < PLACES; at++) {
+        for(long at=0; at < places; at++) {
             net[at] = counts[at] - turns * a_turn[at];
             if (net[at] < 0) net[at] = 0;
             work[at] += net[at];
@@ -215,12 +221,12 @@ int main(int argc, char *argv[]) {
         by("by kind: ", net, kind_of, 9, total, 0);
         if (detail && strstr(DONE[n].name, detail)) {   // each word: its instructions, and its calls
             shares = 0;
-            for(long at=0; at < PLACES; at++) {
+            for(long at=0; at < places; at++) {
                 bool first = at < image_places && place_of(WORDS, words, word_of(at)) == at;
                 if (net[at] > 0) shared(word_of(at), net[at], first ? net[at] : 0);
             }
             qsort(SHARES, shares, sizeof(share), by_most);
-            for(int w=0; w < shares && w < 40; w++) {
+            for(long w=0; w < shares && w < 40; w++) {
                 printf("    %-20s %12.0f %10.0f calls %8.1f each\n", SHARES[w].of, SHARES[w].much, SHARES[w].calls,
                        SHARES[w].much / (SHARES[w].calls > 1 ? SHARES[w].calls : 1));
             }
@@ -231,7 +237,8 @@ int main(int argc, char *argv[]) {
     used("data", machine.DSTACK);
     used("return", machine.RSTACK);
 
-    char path[512];
-    snprintf(path, sizeof(path), "%s/desktop.counts", argv[7]);
-    return(work_written(path, work, a_turn, PLACES) ? 0 : 1);
+    static const char file[] = "/desktop.counts";
+    char* path = room_for(strlen(argv[7]) + sizeof(file), 1);
+    sprintf(path, "%s%s", argv[7], file);
+    return(work_written(path, work, a_turn, places) ? 0 : 1);
 }

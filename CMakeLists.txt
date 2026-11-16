@@ -28,8 +28,8 @@ list(FILTER FORTH_SOURCES EXCLUDE REGEX "/test_cases\\.fs$")
 # with libtool, which has to be there; and where gforth is Homebrew's, the
 # compiler has to be told where Homebrew's headers are, gforth's own among
 # them.
-set(MACHINE_SOURCES util/fuse.c vm.c vm_step.h vm.h vm_opcodes.c vm_opcodes.h
-                    vm_instruction.h vm_constants.h util/stack.c)
+set(MACHINE_SOURCES util/fuse.c util/named.c util/room.c vm.c vm_step.h vm.h vm_opcodes.c
+                    vm_opcodes.h vm_instruction.h vm_constants.h util/stack.c)
 set(GFORTH gforth)
 find_program(BREW brew)
 if(BREW)

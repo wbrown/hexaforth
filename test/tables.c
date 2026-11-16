@@ -13,8 +13,16 @@ void tables_are(const char* dir) {
     forth = dir;
 }
 
-static char* source_of(const char* file, char* path, size_t path_len) {
-    snprintf(path, path_len, "%s/%s", forth, file);
+// A file of the Forth, whole; and where it is, for what is said of it.
+// Both are made here.
+static char* source_of(const char* file, char** where) {
+    char* path = malloc(strlen(forth) + strlen(file) + 2);
+    if (path == NULL) {
+        fprintf(stderr, "there is no room for the name of %s\n", file);
+        exit(EXIT_FAILURE);
+    }
+    sprintf(path, "%s/%s", forth, file);
+    *where = path;
     FILE* in = fopen(path, "rb");
     if (in == NULL) {
         perror(path);
@@ -45,14 +53,22 @@ static bool number(const char* word, int64_t* n) {
     return(!*end);
 }
 
-int table(const char* file, const char* name, int64_t* out, int most, int count) {
-    char path[512], word[64], next[64];
-    char* source = source_of(file, path, sizeof(path));
+int table(const char* file, const char* name, int64_t** numbers, int count) {
+    char* path;
+    char* source = source_of(file, &path);
+    size_t whole = strlen(source);
+    char* word = malloc(2 * (whole + 1));           // a word of it is no longer than all of it; and the word after
+    int64_t* out = malloc((whole / 2 + 1) * sizeof(int64_t));   // a number is a word and a space, at the least
+    if (word == NULL || out == NULL) {
+        fprintf(stderr, "there is no room for the numbers of %s\n", path);
+        exit(EXIT_FAILURE);
+    }
+    char* next = word + whole + 1;
     const char* at = NULL;
     int used = 0;
-    for(const char* from = source; !at && sscanf(from, "%63s%n", word, &used) == 1; ) {
+    for(const char* from = source; !at && sscanf(from, "%s%n", word, &used) == 1; ) {
         from += used;
-        if (!strcmp(word, "create") && sscanf(from, "%63s%n", next, &used) == 1 && !strcmp(next, name)) {
+        if (!strcmp(word, "create") && sscanf(from, "%s%n", next, &used) == 1 && !strcmp(next, name)) {
             at = from + used;
         }
     }
@@ -61,16 +77,12 @@ int table(const char* file, const char* name, int64_t* out, int most, int count)
         exit(EXIT_FAILURE);
     }
     int n = 0;
-    while (sscanf(at, "%63s%n", word, &used) == 1) {
+    while (sscanf(at, "%s%n", word, &used) == 1) {
         at += used;
         if (!strcmp(word, "font[")) continue;       // what a font's numbers are between
         int64_t x;
-        if (!number(word, &x) || sscanf(at, "%63s%n", next, &used) != 1 || next[strlen(next) - 1] != ',') break;
+        if (!number(word, &x) || sscanf(at, "%s%n", next, &used) != 1 || next[strlen(next) - 1] != ',') break;
         at += used;
-        if (n == most) {
-            fprintf(stderr, "%s: %s is more numbers than %d\n", path, name, most);
-            exit(EXIT_FAILURE);
-        }
         out[n++] = x;
     }
     if (count && n != count) {
@@ -78,13 +90,15 @@ int table(const char* file, const char* name, int64_t* out, int most, int count)
         exit(EXIT_FAILURE);
     }
     free(source);
+    free(word);
+    free(path);
+    *numbers = out;
     return(n);
 }
 
 font font_named(const char* name) {
-    int most = 1 << 12;
-    int64_t* numbers = malloc(most * sizeof(int64_t));
-    int count = table("font.fs", name, numbers, most, 0);
+    int64_t* numbers;
+    int count = table("font.fs", name, &numbers, 0);
     font f = { 0 };
     if (count >= 5) {
         f.rows = (int)numbers[0], f.first = (int)numbers[1], f.count = (int)numbers[2], f.across = (int)numbers[3];
@@ -111,7 +125,11 @@ bool strike_pixel(const font* f, int x, int row) {
 
 pattern pattern_named(const char* file, const char* name) {
     pattern p;
-    table(file, name, p.rows, 8, 8);
+    int64_t* rows;
+    const int count = sizeof(p.rows) / sizeof(p.rows[0]);
+    table(file, name, &rows, count);
+    memcpy(p.rows, rows, sizeof(p.rows));
+    free(rows);
     return(p);
 }
 

@@ -18,6 +18,8 @@
 // (cross.fs, fold-exit) is the instruction and then the return.
 //
 
+#include "room.c"
+
 typedef struct {
     uint16_t ins;                       // the instruction that stands for the kind
     uint64_t leaves;                    // the number for what it leaves (fuse.c)
@@ -27,17 +29,6 @@ typedef struct {
 static kind* KIND;                      // as many as there are: no more than the instructions the step says of
 static int kinds;
 static int kind_at[EVERY_WORD];         // the kind an instruction is of, or less than nothing
-
-// Room for so many of something, or it stops: nothing here goes on with
-// less than it asked for.
-static void* room_for(size_t count, size_t size) {
-    void* room = calloc(count ? count : 1, size);
-    if (!room) {
-        fprintf(stderr, "there is no room for %zu of %zu bytes\n", count, size);
-        exit(EXIT_FAILURE);
-    }
-    return(room);
-}
 
 // ---- the instructions that have a number in them
 

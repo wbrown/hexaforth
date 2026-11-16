@@ -439,6 +439,11 @@ The machine, in C:
   generators that have it in them), `tables.sh` (which runs them),
   `phrases.c` and `phrases.sh` (the phrase book, which has it in it too),
   `survey.c` (the encoding against a profile, which has it too),
+  `room.c` (room for as many of a thing as there are: a list that grows,
+  a file or a line of any length, text that grows.  Nothing in the tools
+  or the tests has room for only so many of what it reads),
+  `named.c` (a word of `vm_opcodes.h` by its name), `rules.c` (the rules
+  of `joins.fs`, as it writes them),
   `words.c` (an image's words, by header and by label, for the tools
   that read an image), `cut.c` (two builds of an image cut into the same
   straight-line runs), `reach.c` (what reaches each word of an image:

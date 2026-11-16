@@ -8,16 +8,19 @@
 #include <string.h>
 #include "nucleus.h"
 #include "../util/image.h"
+#include "../util/room.c"
 
 context machine;                // too big for the stack: it has the machine's memory
-char said[1 << 16];
+char* said = "";                // all it printed, however much
 
 static uint8_t* nucleus;        // the image, as cross.fs wrote it,
 static size_t nucleus_len;      // and how many bytes it is
 static int stop_at;             // an instruction that is nothing: the machine stops at one
 static int prompt_at;           // where the machine is at its prompt: quit, as the machine says
-static char typed[1 << 12];     // what is typed at it,
+static char* typed;             // what is typed at it, which has room for as much as is typed,
+static long typed_room;
 static size_t typed_len;        // and how much that is
+static char* was_said;          // the room for what it printed, which is made anew each time it is run
 
 uint64_t as_cell(int64_t x) {
 #if CELL_BITS == 64
@@ -62,35 +65,35 @@ void start(void) {
 }
 
 void line(const char* format, ...) {
-    va_list args;
+    va_list args, again;
     va_start(args, format);
-    typed_len += vsnprintf(typed + typed_len, sizeof(typed) - typed_len, format, args);
+    va_copy(again, args);
+    int more = vsnprintf(NULL, 0, format, args);        // how long it is, and then it is written
     va_end(args);
-    if (typed_len + 2 > sizeof(typed)) {
-        fprintf(stderr, "there is too much to type at the machine\n");
-        exit(EXIT_FAILURE);
-    }
+    AS_MANY(typed, (long)typed_len + more + 2, typed_room);
+    typed_len += vsnprintf(typed + typed_len, more + 1, format, again);
+    va_end(again);
     typed[typed_len++] = '\n';
     typed[typed_len] = '\0';
 }
 
 void keys(const void* bytes, size_t count) {
-    if (typed_len + count + 1 > sizeof(typed)) {
-        fprintf(stderr, "there is too much for the machine to read\n");
-        exit(EXIT_FAILURE);
-    }
+    AS_MANY(typed, (long)(typed_len + count) + 1, typed_room);
     memcpy(typed + typed_len, bytes, count);
     typed_len += count;
 }
 
 // What has been said has then been read: what is said next is read after.
 static void read_it(void) {
-    memset(said, 0, sizeof(said));
+    size_t said_len = 0;
+    free(was_said);
+    AS_MANY(typed, 1, typed_room);                      // so that there is something to read from, if nothing was typed
     machine.IN = fmemopen(typed, typed_len, "r");
-    machine.OUT = fmemopen(said, sizeof(said) - 1, "w");
+    machine.OUT = open_memstream(&was_said, &said_len);
     vm(&machine);
     fclose(machine.IN);
     fclose(machine.OUT);
+    said = was_said;
     typed_len = 0;
 }
 
