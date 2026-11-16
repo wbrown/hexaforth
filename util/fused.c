@@ -42,7 +42,7 @@
 
 typedef struct {
     const char* name;
-    uint16_t code[64];
+    uint16_t code[COUNT(((word_node*)0)->ins)];     // as long as a word of vm_opcodes.h can be
     int len;
     int standard;                       // gforth has it
 } vocable;
@@ -60,7 +60,7 @@ typedef struct {
 } wanted;
 static wanted WANT[WANTED];
 static int wants;
-static int want_at[65536];
+static int want_at[EVERY_WORD];
 
 static int has_header(const word* words, int n, const char* name) {
     return(place_of(words, n, name) >= 0);
@@ -265,9 +265,8 @@ int main(int argc, char *argv[]) {
     int n = words_of(image, len, argv[2], words, 8192);
     without_tables(image, len, words, n);
 
-    instruction noop[8], exit_ins[8];   // lookup_word clears as many
-    lookup_word(FORTH_WORDS, "noop", noop);
-    lookup_word(FORTH_WORDS, "exit", exit_ins);
+    uint16_t noop = ins_named("noop"), leaves = ins_named("exit");
+    instruction exit_ins = *(instruction*)&leaves;
 
     // The words that may be said: those of vm_opcodes.h that have a header
     // and that the step says of; and the machine's own name for an
@@ -300,12 +299,12 @@ int main(int argc, char *argv[]) {
         instruction ins = *(const instruction*)&code[at];
         if (ins.lit.lit_f || ins.alu.op_type != OP_TYPE_ALU) continue;
         if (ins.alu.r_eip) {
-            if (ins.alu.rstack != exit_ins[0].alu.rstack) continue; // not a return that was folded in
+            if (ins.alu.rstack != exit_ins.alu.rstack) continue;    // not a return that was folded in
             ins.alu.r_eip = 0;
             ins.alu.rstack = 0;
         }
         uint16_t x = *(uint16_t*)&ins;
-        if (x == *(uint16_t*)noop) continue;
+        if (x == noop) continue;
         want(x)->uses++;
     }
 

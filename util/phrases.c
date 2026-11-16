@@ -39,22 +39,30 @@
 #include "kinds.c"
 #include "image.h"
 
-#define VOCAB   256
+// How much is looked for and how it is tried were chosen, and are not the
+// machine's.
 #define MOST    4                       // the most words a phrase is
 #define WAYS    4                       // the most phrases said for an instruction
 #define ALL     3                       // every run of so many words is looked at for them
 #define LONG    48                      // the most instructions a phrase is
 #define HELD    16                      // instructions kept for a phrase when it is compiled
 #define BATCH   200                     // phrases compiled at a time
-#define STACKS  36                      // the stacks a word is tried on
+#define FIRST_AT 0x1000                 // the instruction the first of a batch is compiled at, past where main is,
+#define MAIN_AT (FIRST_AT / 2)          // which is here
+#define BY_CHANCE 24                    // the stacks a word is tried on: so many by chance,
+#define TOP_TWO   6                     // so many with the top two cells the same,
+#define TOP_THIRD 6                     // and so many with the top and the third
+#define STACKS  (BY_CHANCE + TOP_TWO + TOP_THIRD)
 
+// A word of vm_opcodes.h that may be written: there are no more than it
+// has words, and none is longer than a word there can be.
 typedef struct {
     const char* name;
-    uint16_t code[32];
+    uint16_t code[COUNT(((word_node*)0)->ins)];
     int len;
     int stack_only;                     // the step says it uses the data stack and nothing else
 } vocable;
-static vocable TYPED[VOCAB];
+static vocable TYPED[COUNT(FORTH_WORDS)];
 static int vocab;
 
 // What is found of a kind of instruction (kinds.c): of each kind that does
@@ -68,9 +76,9 @@ typedef struct {
     int64_t result[STACKS][FILLED];     // what it leaves of each stack, run on vm.c,
     int depth[STACKS];                  // and how deep
 } entry;
-static entry ENTRY[8192];
+static entry* ENTRY;                    // no more than there are kinds
 static int entries;
-static entry* entry_of[8192];           // by kind
+static entry** entry_of;                // by kind
 
 // What is found of the kind that leaves this, if one does.
 static entry* entry_leaving(uint64_t leaves) {
@@ -94,14 +102,29 @@ static int only_data(const uint16_t* code, int len) {
 
 typedef struct { int phrase[MOST]; int n; uint16_t code[LONG]; int len; } reached;
 
-#define SEEN (1 << 24)
-static uint64_t* SEEN_BEFORE;
+static uint64_t* SEEN_BEFORE;           // what has been reached, found by what it leaves:
+static int seen_bits;                   // there is room for two to this many,
+static long seen;                       // and more is made before half of it is taken
+
+static uint64_t* seen_at(uint64_t leaves) {
+    uint64_t at = (leaves * 0x9e3779b97f4a7c15ull) >> (64 - seen_bits);
+    while (SEEN_BEFORE[at] && SEEN_BEFORE[at] != leaves) at = (at + 1) & (((uint64_t)1 << seen_bits) - 1);
+    return(&SEEN_BEFORE[at]);
+}
 
 static int seen_before(uint64_t leaves) {       // has something that leaves this been reached?  It has now.
-    uint64_t at = (leaves * 0x9e3779b97f4a7c15ull) >> 40;
-    while (SEEN_BEFORE[at] && SEEN_BEFORE[at] != leaves) at = (at + 1) & (SEEN - 1);
-    if (SEEN_BEFORE[at]) return(1);
-    SEEN_BEFORE[at] = leaves;
+    if (!SEEN_BEFORE || 2 * (seen + 1) > (long)1 << seen_bits) {
+        uint64_t* had = SEEN_BEFORE;
+        long was = had ? (long)1 << seen_bits : 0;
+        seen_bits = had ? seen_bits + 1 : 8 * (int)sizeof(uint16_t);    // to begin with, as many as there are words
+        SEEN_BEFORE = room_for((size_t)1 << seen_bits, sizeof(uint64_t));
+        for(long idx=0; idx < was; idx++) if (had[idx]) *seen_at(had[idx]) = had[idx];
+        free(had);
+    }
+    uint64_t* at = seen_at(leaves);
+    if (*at) return(1);
+    *at = leaves;
+    seen++;
     return(0);
 }
 
@@ -112,7 +135,6 @@ static void find_phrases(int longest) {
     reached* frontier = calloc(1, sizeof(reached));
     long fronts = 1;
     int found = 0;
-    SEEN_BEFORE = calloc(SEEN, sizeof(uint64_t));
     for(int depth=1; depth <= longest; depth++) {
         reached* next = depth < longest ? malloc(sizeof(reached) * (fronts * vocab + 1)) : NULL;
         long nexts = 0;
@@ -202,23 +224,23 @@ static void say_phrases(char* text, const entry* k) {
 // and how many instructions each came to.  An exit that did not fold is
 // not the phrase's.
 static void compile(entry** batch, int count) {
-    instruction leaves[8];
-    lookup_word(FORTH_WORDS, "exit", leaves);
+    uint16_t leaves = ins_named("exit");
+    const int each = sizeof(instruction);       // cross.fs is told where code goes in bytes
     FILE* source = fopen("phrasetest.fs", "w");
     if (!source) { perror("phrasetest.fs"); exit(1); }
     fprintf(source, "meta 4 org target\nheader execute : execute >r ;\n");
     for(int n=0; n < count; n++) {
         char phrase[256];
         say_phrase(phrase, batch[n]);
-        fprintf(source, "meta $%x org target : p%d %s ;\n", 0x2000 + 2 * HELD * n, n, phrase);
+        fprintf(source, "meta $%x org target : p%d %s ;\n", each * (FIRST_AT + HELD * n), n, phrase);
     }
-    fprintf(source, "meta $1000 org target\nheader main : main halt ;\nheader quit : quit halt ;\n");
+    fprintf(source, "meta $%x org target\nheader main : main halt ;\nheader quit : quit halt ;\n", each * MAIN_AT);
     fclose(source);
     int built = !system("gforth ./cross.fs ./basewords.fs ./phrasetest.fs > ../build/phrasetest.log 2>&1");
     remove("phrasetest.fs");
     uint8_t* image;
     size_t len = built ? load_image("../build/phrasetest.hex", &image) : 0;
-    if (len / 2 < (size_t)0x1000 + HELD * count) {
+    if (len / each < (size_t)FIRST_AT + HELD * count) {
         printf("    a batch of phrases did not build: see build/phrasetest.log\n");
         return;
     }
@@ -226,9 +248,9 @@ static void compile(entry** batch, int count) {
     for(int n=0; n < count; n++) {
         int size = 0, last = 0;
         for(int idx=0; idx < HELD; idx++) {
-            if (code[0x1000 + HELD * n + idx]) size++, last = code[0x1000 + HELD * n + idx];
+            if (code[FIRST_AT + HELD * n + idx]) size++, last = code[FIRST_AT + HELD * n + idx];
         }
-        if (size && last == *(uint16_t*)leaves) size--;
+        if (size && last == leaves) size--;
         batch[n]->compiled = size ? size : 1;
     }
     free(image);
@@ -246,10 +268,10 @@ static void make_stacks(void) {
     for(int s=0; s < STACKS; s++) {
         for(int idx=0; idx < DEPTH; idx++) {
             seed ^= seed << 13, seed ^= seed >> 7, seed ^= seed << 17;
-            TRY[s][idx] = FEW[(seed >> 32) % 10];
+            TRY[s][idx] = FEW[(seed >> 32) % COUNT(FEW)];
         }
-        if (s >= 24 && s < 30) TRY[s][DEPTH - 1] = TRY[s][DEPTH - 2];  // the top two the same
-        if (s >= 30) TRY[s][DEPTH - 1] = TRY[s][DEPTH - 3];            // the top and the third
+        if (s >= BY_CHANCE && s < BY_CHANCE + TOP_TWO) TRY[s][DEPTH - 1] = TRY[s][DEPTH - 2];  // the top two the same
+        if (s >= BY_CHANCE + TOP_TWO) TRY[s][DEPTH - 1] = TRY[s][DEPTH - 3];                   // the top and the third
     }
 }
 
@@ -370,12 +392,13 @@ int main(int argc, char *argv[]) {
     if (longest < 1 || longest > MOST) longest = 3;
     get_ready();
     make_stacks();
-    static word_node shown[1024];
-    init_opcodes(shown);
+    word_node* const shown = FORTH_WORDS;       // an instruction is shown by the machine's own names for it
 
     // The instructions that do different things (kinds.c), not counting
     // those that also return: which the step says.
     list_kinds();
+    ENTRY = room_for(kinds, sizeof(entry));
+    entry_of = room_for(kinds, sizeof(entry*));
     int have_name = 0;
     for(int k=0; k < kinds; k++) {
         named m;
@@ -388,8 +411,8 @@ int main(int argc, char *argv[]) {
 
     // The words that may be written: those of vm_opcodes.h that the step
     // says of.
-    for(word_node* w = FORTH_WORDS; w->repr && strlen(w->repr) && vocab < VOCAB; w++) {
-        if (!w->num_ins || w->num_ins > 32) continue;
+    for(word_node* w = FORTH_WORDS; w->repr && strlen(w->repr); w++) {
+        if (!w->num_ins) continue;
         if (!strcmp(w->repr, "noop") || !strcmp(w->repr, "halt") || !strcmp(w->repr, "exit") || !strcmp(w->repr, "r@;")) continue;
         named m;
         forget();
@@ -409,7 +432,7 @@ int main(int argc, char *argv[]) {
     printf("phrases of up to %d of %d words:\n", longest, vocab);
     find_phrases(longest);
     find_others(longest < ALL ? longest : ALL);
-    static entry* said[8192];
+    entry** said = room_for(entries, sizeof(entry*));
     int phrased = 0;
     for(int n=0; n < entries; n++) if (ENTRY[n].said) said[phrased++] = &ENTRY[n];
 
@@ -455,8 +478,7 @@ int main(int argc, char *argv[]) {
     SAY("%s", "");
     SAY("Words other Forths have, that are one instruction here and have no name here:");
     for(int o=0; OTHERS[o].name; o++) {
-        instruction has[8];
-        if (lookup_word(FORTH_WORDS, (char*)OTHERS[o].name, has)) continue;    // the machine has the name
+        if (word_named(OTHERS[o].name)) continue;       // the machine has the name
         const char* said = gforth_has(OTHERS[o].name) ? OTHERS[o].name : OTHERS[o].is;
         if (!said || !in_gforth(said, theirs, their_depth)) continue;
         for(int n=0; n < entries; n++) {
@@ -471,7 +493,7 @@ int main(int argc, char *argv[]) {
 
     SAY("%s", "");
     SAY("Phrases cross.fs does not make one instruction of:");
-    static entry* order[8192];
+    entry** order = room_for(phrased, sizeof(entry*));
     int listed = 0;
     for(int n=0; n < phrased; n++) if (said[n]->compiled > 1) order[listed++] = said[n];
     qsort(order, listed, sizeof(entry*), by_length);

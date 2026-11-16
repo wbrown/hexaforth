@@ -75,23 +75,26 @@ static turn_check TURNS[] = {
     {"a number stored to every cell up to an end", NULL, "7 over ! 1+ over over =", 0, 0, 4},
     {NULL}};
 
+// A search here is of a few instructions, and is never to be given up: no
+// search of these looks at as many states as this.
+#define STATES_AT_MOST 1000000
+
 // Words as their instructions: how many.  A number is the instruction
-// that pushes it, as the step found them (fewer.c).
+// that pushes it, as the step found them (kinds.c).
 static int compiled(const char* words, uint16_t* code) {
     int len = 0;
     char word[64];
     for(int used=0; sscanf(words, "%63s%n", word, &used) == 1; words += used) {
-        instruction ins[8];             // lookup_word clears as many
         char* end;
         long number = strtol(word, &end, 10);
-        const numbered* pushes = *end ? NULL : number_among(PUSHING, pushing, number);
-        int n = pushes ? 1 : lookup_word(FORTH_WORDS, word, ins);
-        if (pushes) *(uint16_t*)ins = pushes->ins;
+        const numbered* pushes = *end ? NULL : numbered_as(PUSHES_IT, number);
+        const word_node* is = pushes ? NULL : word_named(word);
+        int n = pushes ? 1 : is ? is->num_ins : 0;
         if (!n || len + n > RUN) {
             fprintf(stderr, "fewer_test: %s is not a word of vm_opcodes.h, or the run is too long\n", word);
             exit(EXIT_FAILURE);
         }
-        memcpy(code + len, ins, n * sizeof(uint16_t));
+        if (pushes) code[len] = pushes->ins; else memcpy(code + len, is->ins, n * sizeof(uint16_t));
         len += n;
     }
     return(len);
@@ -119,7 +122,7 @@ int main(void) {
         }
         for(int length=1; length < len && fewest == len; length++) {
             int given_up = 0;
-            if (exactly(&OF_RUN, NULL, length, 1000000, found, &given_up)) {
+            if (exactly(&OF_RUN, NULL, length, STATES_AT_MOST, found, &given_up)) {
                 fewest = length;
                 agrees = agree_on_machine(code, len, found, length, NULL, NULL, 0, c->tops, 0, 0) > 0;
             }
@@ -135,10 +138,11 @@ int main(void) {
 
     for(const turn_check* c = TURNS; c->label; c++) {
         uint16_t test[RUN], body[RUN];
-        turn is = { c->test ? test : NULL, c->test ? compiled(c->test, test) : 0, body, compiled(c->body, body) };
+        turn is = { c->test ? TESTS_AT_TOP : TESTS_AT_BOTTOM, c->test ? test : NULL, c->test ? compiled(c->test, test) : 0,
+                    body, compiled(c->body, body) };
         static shortened s;
         checks++;
-        if (!shorten(&is, c->test ? 1 : 2, 1000000, &s)) {
+        if (!shorten(&is, STATES_AT_MOST, &s)) {
             printf("FAIL %s: the step cannot follow a turn\n", c->label);
             failed++;
             continue;

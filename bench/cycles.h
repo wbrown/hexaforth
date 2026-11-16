@@ -13,8 +13,11 @@
 
 #include "../vm_instruction.h"
 
-static int cycles_of(instruction ins) {
-    if (ins.lit.lit_f) return(ins.lit.lit_shifts == 3 && !ins.lit.lit_add ? 2 : 1);
+// An instruction with a number in it reads memory if it fetches a
+// variable, which whoever asks says: what such an instruction does is the
+// machine's step's to say (util/kinds.c), and not its fields'.
+static int cycles_of(instruction ins, int fetches_a_variable) {
+    if (ins.lit.lit_f) return(fetches_a_variable ? 2 : 1);
     if (ins.alu.op_type != OP_TYPE_ALU) return(1);
     return(1 + (ins.alu.in_mux == INPUT_LOAD_T) + (ins.alu.alu_op == ALU_LOAD) +
            (ins.alu.alu_op == ALU_RSHIFT || ins.alu.alu_op == ALU_LSHIFT) + 2 * (ins.alu.alu_op == ALU_MUL));

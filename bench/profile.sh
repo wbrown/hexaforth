@@ -58,8 +58,9 @@ $OUT/profile $IMAGE.hex $IMAGE.tables $IMAGE.sizes $OUT/made.img $PICTURE forth 
     || stop "the profile" $OUT/profile.log
 cat $OUT/profile.txt
 
-gcc -O2 -w -fcommon $(cat build/machine-$C-$A.flags) -o $OUT/costs bench/costs.c vm_opcodes.c vm_debug.c \
-    util/stack.c util/image.c -lm || exit 1
+# (costs.c has the machine's step in it, for a cell of this size, as the
+# two after it have.)
+gcc -O2 -w -fcommon -Iutil -DCELL_BITS=$C -o $OUT/costs bench/costs.c util/image.c -lm || exit 1
 echo
 $OUT/costs $IMAGE.hex $IMAGE.tables $IMAGE.sizes $OUT/desktop.counts $OUT $FILES 2> $OUT/costs.log \
     || stop "what the work costs" $OUT/costs.log

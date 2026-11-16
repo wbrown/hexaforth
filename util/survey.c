@@ -35,32 +35,38 @@
 #include "kinds.c"
 #include "../bench/work.c"
 
-#define LONGEST 6                       // instructions in a run that is tried
+#define LONGEST 6                       // instructions in a run that is tried: chosen, and not the machine's
 
 // What the image does with each kind of instruction (kinds.c): the places
 // it has one, how often those ran as work, and in a turn of the idle loop.
-static struct { long places; double runs, turn; } USES[8192];
-
-static word_node shown[1024];
+static struct { long places; double runs, turn; }* USES;       // by kind
 
 // ---- every two instructions, by what they leave
 
 typedef struct { uint64_t leaves; uint16_t first, second; } two;
-#define TWOS (1 << 25)
-static two* TWO;
+static two* TWO;                        // found by what they leave: there is room for twice the pairs there are,
+static int two_bits;                    // which is two to this many
+
+static two* two_at(uint64_t leaves) {   // where two that leave this are, or would be
+    uint64_t at = (leaves * 0x9e3779b97f4a7c15ull) >> (64 - two_bits);
+    while (TWO[at].leaves && TWO[at].leaves != leaves) at = (at + 1) & (((uint64_t)1 << two_bits) - 1);
+    return(&TWO[at]);
+}
 
 // Two instructions that do the work of a run, or nothing: of every two
-// that do not write to a port or read one, the second of which may
-// return.  The table is made when it is first asked.
+// that do not return, the second of which may.  The table is made when it
+// is first asked.
 static const two* two_leaving(uint64_t leaves) {
     if (!TWO) {
-        static uint16_t firsts[4096];
+        uint16_t* firsts = room_for(alus, sizeof(uint16_t));
         int n = 0;
-        TWO = calloc(TWOS, sizeof(two));
         for(int idx=0; idx < alus; idx++) {
-            instruction ins = ins_of(ALU[idx].ins);
-            if (!ins.alu.r_eip && ins.alu.alu_op != ALU_IO_READ && ins.alu.out_mux != OUTPUT_IO_T) firsts[n++] = ALU[idx].ins;
+            named m;
+            forget();
+            if (names(&ALU[idx].ins, 1, &m) && m.next < 0) firsts[n++] = ALU[idx].ins;
         }
+        for(two_bits = 1; ((uint64_t)1 << two_bits) < 4 * (uint64_t)n * n; two_bits++);
+        TWO = room_for((size_t)1 << two_bits, sizeof(two));
         for(int a=0; a < n; a++) {
             for(int b=0; b < 2 * n; b++) {
                 uint16_t pair[2] = { firsts[a], b < n ? firsts[b] : returning(firsts[b - n], 1) };
@@ -68,22 +74,21 @@ static const two* two_leaving(uint64_t leaves) {
                 forget();
                 uint64_t is = names(pair, 2, &m);
                 if (!is || find(is) >= 0) continue;
-                uint64_t at = (is * 0x9e3779b97f4a7c15ull) >> 39;
-                while (TWO[at].leaves && TWO[at].leaves != is) at = (at + 1) & (TWOS - 1);
-                if (!TWO[at].leaves) TWO[at] = (two){ is, pair[0], pair[1] };
+                two* at = two_at(is);
+                if (!at->leaves) *at = (two){ is, pair[0], pair[1] };
             }
         }
+        free(firsts);
     }
-    uint64_t at = (leaves * 0x9e3779b97f4a7c15ull) >> 39;
-    while (TWO[at].leaves && TWO[at].leaves != leaves) at = (at + 1) & (TWOS - 1);
-    return(TWO[at].leaves ? &TWO[at] : NULL);
+    const two* at = two_at(leaves);
+    return(at->leaves ? at : NULL);
 }
 
 // ---- runs that fewer would do
 
-typedef struct { char run[200], does[120]; long places; double saved, turn; } fewer;
-static fewer FEWER[1 << 14];
-static int fewers;
+typedef struct { char* run; char* does; long places; double saved, turn; } fewer;    // each as it is said (kinds.c)
+static fewer* FEWER;                    // those found, and room for more as they are
+static int fewers, fewers_room;
 
 static int by_saved(const void* a, const void* b) {
     double x = ((const fewer*)a)->saved, y = ((const fewer*)b)->saved;
@@ -104,18 +109,25 @@ int main(int argc, char *argv[]) {
     }
     const char* report = argc > 4 ? argv[4] : "build/survey.txt";
     get_ready();
-    init_opcodes(shown);
-    instruction takes[8];               // lookup_word clears as many
-    lookup_word(FORTH_WORDS, "r>", takes);
+    uint16_t takes = ins_named("r>");
     list_kinds();
+    USES = room_for(kinds, sizeof(*USES));
     cut(&IMAGE, argv[1], argv[2]);
     const uint16_t* code = IMAGE.code;
-    long n = IMAGE.instructions < WORKED ? IMAGE.instructions : WORKED;
+    long n = IMAGE.instructions;
 
-    static double work[WORKED], idle[WORKED];
+    // How often each of the image's instructions ran, and in a turn of
+    // the idle loop: nothing, for one the counts are not of.
+    double* work = room_for(n, sizeof(double));
+    double* idle = room_for(n, sizeof(double));
     const char* unit = "places";
     if (argc > 3) {
-        if (!work_read(argv[3], work, idle)) return(1);
+        double* counts;
+        double* a_turn;
+        long counted = work_read(argv[3], &counts, &a_turn);
+        if (!counted) return(1);
+        for(long at=0; at < n && at < counted; at++) work[at] = counts[at], idle[at] = a_turn[at];
+        free(counts);
         unit = "runs";
     } else {
         for(long at=0; at < n; at++) work[at] = code[at] ? 1 : 0;
@@ -148,12 +160,12 @@ int main(int argc, char *argv[]) {
 
     // What is not used and could be.  The instruction after a call of a
     // word that takes its return address is not joined to what follows it.
-    static unsigned char pinned[CUT_PLACES];
+    unsigned char* pinned = room_for(n + 1, 1);
     for(long at=0; at < n; at++) {
         instruction ins = ins_of(code[at]);
         if (!code[at] || ins.lit.lit_f || ins.jmp.op_type != OP_TYPE_CALL) continue;
         long to = goes_to(at, code[at]);
-        if (to >= 0 && to < n && code[to] == *(uint16_t*)takes) pinned[at + 1] = 1;
+        if (to >= 0 && to < n && code[to] == takes) pinned[at + 1] = 1;
     }
     long places = 0;
     double saved = 0, turn_saved = 0;
@@ -189,12 +201,20 @@ int main(int argc, char *argv[]) {
                 i++;
                 continue;
             }
-            fewer f = { "", "", 0, 0, 0 };
-            say_run(f.run, code + it->at + i, best, 0);
-            say_run(f.does, does, best_does, 0);
+            fewer f = { run_said(code + it->at + i, best, 0), run_said(does, best_does, 0), 0, 0, 0 };
             int at = 0;
             while (at < fewers && (strcmp(FEWER[at].run, f.run) || strcmp(FEWER[at].does, f.does))) at++;
-            if (at == fewers && fewers < (1 << 14)) FEWER[fewers++] = f;
+            if (at < fewers) {
+                free(f.run);
+                free(f.does);
+            } else {
+                if (fewers == fewers_room) {
+                    fewers_room = 2 * fewers_room + kinds;
+                    FEWER = realloc(FEWER, fewers_room * sizeof(fewer));
+                    if (!FEWER) { fprintf(stderr, "there is no room for %d runs\n", fewers_room); return(1); }
+                }
+                FEWER[fewers++] = f;
+            }
             int gain = best - best_does;
             FEWER[at].places++;
             FEWER[at].saved += gain * work[it->at + i];
@@ -224,7 +244,7 @@ int main(int argc, char *argv[]) {
     SAY("1. The space.  For each source and operation, and each destination: instructions that do");
     SAY("   different things / named / used in the image, and %s.", unit);
     SAY("%s", "");
-    static struct { int all, named, used; double runs; } cell[4][16][4];
+    static struct { int all, named, used; double runs; } cell[INPUTS][OPS][OUTPUTS];
     for(int k=0; k < kinds; k++) {
         instruction ins = ins_of(KIND[k].ins);
         cell[ins.alu.in_mux][ins.alu.alu_op][ins.alu.out_mux].all++;
@@ -234,12 +254,12 @@ int main(int argc, char *argv[]) {
     }
     char row[512];
     snprintf(row, sizeof(row), "%22s", "");
-    for(int m=0; m < 4; m++) snprintf(row + strlen(row), sizeof(row) - strlen(row), "%28s", OUTPUT_MUX_REPR[m]);
+    for(int m=0; m < OUTPUTS; m++) snprintf(row + strlen(row), sizeof(row) - strlen(row), "%28s", OUTPUT_MUX_REPR[m]);
     SAY("%s", row);
-    for(int i=0; i < 4; i++) {
-        for(int o=0; o < 16; o++) {
+    for(int i=0; i < INPUTS; i++) {
+        for(int o=0; o < OPS; o++) {
             snprintf(row, sizeof(row), "%-8s %-12s ", INPUT_MUX_REPR[i], ALU_OPS_REPR[o]);
-            for(int m=0; m < 4; m++) {
+            for(int m=0; m < OUTPUTS; m++) {
                 if (cell[i][o][m].all) {
                     snprintf(row + strlen(row), sizeof(row) - strlen(row), "%6d/%2d/%3d %13.0f", cell[i][o][m].all,
                              cell[i][o][m].named, cell[i][o][m].used, cell[i][o][m].runs);
@@ -257,14 +277,14 @@ int main(int argc, char *argv[]) {
     SAY("2. Every instruction the image uses, by %s.  * has no name.", unit);
     SAY("%s", "");
     SAY("   %6s %14s %7s  instruction", "places", unit, "idle");
-    static int order[8192];
+    int* order = room_for(kinds, sizeof(int));
     int listed = 0;
     for(int k=0; k < kinds; k++) if (USES[k].places) order[listed++] = k;
     qsort(order, listed, sizeof(int), by_runs);
     for(int idx=0; idx < listed; idx++) {
         const kind* k = &KIND[order[idx]];
         char is[256];
-        decode_instruction(is, ins_of(k->ins), shown);
+        decode_instruction(is, ins_of(k->ins), FORTH_WORDS);
         printing = idx < 30;
         SAY(" %s %6ld %14.0f %7.1f  %-9s %s", k->name ? " " : "*", USES[order[idx]].places, USES[order[idx]].runs,
             USES[order[idx]].turn, k->name ? k->name : "", is);
@@ -290,7 +310,7 @@ int main(int argc, char *argv[]) {
     for(int idx=0; idx < alus; idx++) {
         const kind* k = &KIND[kind_at[ALU[idx].ins]];
         char is[256];
-        decode_instruction(is, ins_of(ALU[idx].ins), shown);
+        decode_instruction(is, ins_of(ALU[idx].ins), FORTH_WORDS);
         SAY("   %04x  %s  as %04x %s", ALU[idx].ins, is, k->ins, k->name ? k->name : "");
     }
     fclose(out);

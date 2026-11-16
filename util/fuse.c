@@ -138,6 +138,27 @@ static FILE* nowhere;
 #include "../vm_opcodes.c"
 #include "stack.c"
 
+// The machine's sizes, from where it says them: every word an instruction
+// can be is as many as an instruction has bits for (vm_instruction.h), and
+// a field has as many values as vm_opcodes.h has names for it.
+#define COUNT(of)   ((int)(sizeof(of) / sizeof((of)[0])))
+#define EVERY_WORD  (1 << (8 * sizeof(instruction)))
+#define INPUTS      COUNT(INPUT_MUX_REPR)
+#define OPS         COUNT(ALU_OPS_REPR)
+#define OUTPUTS     COUNT(OUTPUT_MUX_REPR)
+
+// A word of vm_opcodes.h, by its name; and the one instruction a word is,
+// or nothing if there is no such word or it is more than one.
+static const word_node* word_named(const char* name) {
+    for(const word_node* w = FORTH_WORDS; w->repr && strlen(w->repr); w++) if (!strcmp(w->repr, name)) return(w);
+    return(NULL);
+}
+
+static uint16_t ins_named(const char* name) {
+    const word_node* w = word_named(name);
+    return(w && w->num_ins == 1 ? *(const uint16_t*)&w->ins[0] : 0);
+}
+
 typedef struct {
     int64_t dstack[FILLED];
     int64_t rstack[FILLED];
@@ -235,12 +256,11 @@ static uint16_t jump(int target) {
 // in, which a state can lead to, fetches the same whichever is run.
 static int lead;                    // how many instructions lead to a sequence
 static void lay_leads(void) {
-    instruction io_store[8];            // lookup_word clears as many
-    lookup_word(FORTH_WORDS, "io!", io_store);
+    uint16_t io_store = ins_named("io!");
     for(int which=0; which < 2; which++) {
         uint16_t* m = machine.memory + LEAD(which);
-        *m++ = push(DEPTH);  *m++ = push(IO_RSP);  *m++ = *(uint16_t*)io_store;
-        *m++ = push(DEPTH);  *m++ = push(IO_SP);   *m++ = *(uint16_t*)io_store;
+        *m++ = push(DEPTH);  *m++ = push(IO_RSP);  *m++ = io_store;
+        *m++ = push(DEPTH);  *m++ = push(IO_SP);   *m++ = io_store;
         *m++ = jump(AT(which));
         lead = m - (machine.memory + LEAD(which));
     }
@@ -576,7 +596,16 @@ enum { IN_DATA, IN_RETURN, A_NUMBER, BY_ALU, FETCHED, MEMORY_WAS, STORED };
 #define OPERANDS 8                  // the most terms a term is made of
 #define SLOTS    32                 // cells of each stack that have a name,
 #define DEEP     (SLOTS / 2)        // and the depth a sequence starts at
-#define FIXED    (2 * SLOTS + 1)    // the terms there always are: those cells, and memory
+// The terms there always are: first the cells of the data stack as they
+// were at the start, then those of the return stack, and then memory as it
+// was.
+#define DATA_TERM(idx)   (idx)
+#define RETURN_TERM(idx) (SLOTS + (idx))
+#define CELL_TERMS       (2 * SLOTS)        // how many of them are cells',
+#define OF_DATA(term)    ((term) < SLOTS)   // whether a cell's is of the data stack,
+#define CELL_OF(term)    ((term) % SLOTS)   // and which cell of its stack it is of
+#define MEMORY_TERM      CELL_TERMS
+#define FIXED            (MEMORY_TERM + 1)
 #define ROOM     512
 #define FETCHES  16
 
@@ -686,7 +715,7 @@ static int of_flag(int op, int a, int b) {
     int64_t if_false = cell(alu(op, when(a, FALSE), when(b, FALSE)));
     if (if_true == if_false) return(t_number(if_true));
     if (if_true == cell(TRUE) && if_false == cell(FALSE)) return(flag);
-    for(int undo=0; undo < 16; undo++) {
+    for(int undo=0; undo < OPS; undo++) {
         if (ALU_UNDOES(undo) && if_true == cell(alu(undo, cell(TRUE), cell(TRUE))) &&
             if_false == cell(alu(undo, cell(FALSE), cell(FALSE)))) {
             int of[2] = { flag, flag };
@@ -714,7 +743,7 @@ static int t_made(int op, int a, int b) {
     // them.  So it is made of the two, which regroups it with what either
     // already was: and whether they are the same is whether its two inputs
     // are, or whether it is nothing if it has more.
-    for(int apart=0; ALU_SAME(op) && apart < 16; apart++) {
+    for(int apart=0; ALU_SAME(op) && apart < OPS; apart++) {
         if (!ALU_DIFFERS(apart) || !ALU_REGROUPS(apart)) continue;
         int told = t_made(apart, a, b);
         const term* t = &KNOWN[told];
@@ -762,11 +791,11 @@ typedef struct {
 } named;
 
 static void start(named* m) {
-    for(int idx=0; idx < SLOTS; idx++) { m->DS[idx] = idx; m->RS[idx] = SLOTS + idx; }
+    for(int idx=0; idx < SLOTS; idx++) { m->DS[idx] = DATA_TERM(idx); m->RS[idx] = RETURN_TERM(idx); }
     m->SP = m->RSP = DEEP;
     m->T = m->DS[m->SP - 1];
     m->R = m->RS[m->RSP - 1];
-    m->M = 2 * SLOTS;
+    m->M = MEMORY_TERM;
     m->next = -1;
     m->fetches = m->unsaid = 0;
 }
@@ -950,10 +979,10 @@ typedef struct {
     int8_t stores, fetches;         // and whether it stores, and fetches
 } single;
 
-static single ALU[65536];
+static single ALU[EVERY_WORD];
 static int alus;
-static int alu_at[65536];           // where an instruction is in ALU, or -1
-static int by_names[65536];
+static int alu_at[EVERY_WORD];      // where an instruction is in ALU, or -1
+static int by_names[EVERY_WORD];
 
 // Which they are is asked of the step, and so is how each moves the
 // stacks: every instruction there can be is run, and those are kept that
@@ -961,7 +990,7 @@ static int by_names[65536];
 // can say what they leave.  Nothing here says what the fields are.
 static void list_alu(void) {
     memset(alu_at, -1, sizeof(alu_at));
-    for(int word=0; word < 65536; word++) {
+    for(int word=0; word < EVERY_WORD; word++) {
         uint16_t x = word;
         instruction ins = *(instruction*)&x;
         if (ins.lit.lit_f || ins.alu.op_type != OP_TYPE_ALU) continue;
@@ -974,7 +1003,7 @@ static void list_alu(void) {
         ALU[alus].names = is;
         ALU[alus].d = m.SP - DEEP;
         ALU[alus].r = m.RSP - DEEP;
-        ALU[alus].stores = m.M != 2 * SLOTS;
+        ALU[alus].stores = m.M != MEMORY_TERM;
         ALU[alus].fetches = m.fetches > 0;
         alus++;
     }
@@ -1328,7 +1357,7 @@ static void learn_literals(void) {
     instruction ins = {0};
     ins.lit.lit_v = ~0;
     most = ins.lit.lit_v;
-    for(int word=0; word < 65536; word++) {
+    for(int word=0; word < EVERY_WORD; word++) {
         uint16_t x = word;
         ins = *(instruction*)&x;
         if (!ins.lit.lit_f || ins.lit.lit_v != 1) continue;
@@ -1337,7 +1366,7 @@ static void learn_literals(void) {
         start(&m);
         int top = m.T;
         step_named(&m, x);
-        if (m.unsaid || lost || m.fetches || m.M != 2 * SLOTS) continue;
+        if (m.unsaid || lost || m.fetches || m.M != MEMORY_TERM) continue;
         const term* t = &KNOWN[m.T];
         if (m.SP == DEEP + 1 && t->kind == A_NUMBER && t->number > 0 && m.DS[DEEP - 1] == top) {
             PUSHES[pushes++] = (literal){ x, t->number };
@@ -1353,11 +1382,8 @@ static void learn_literals(void) {
     }
     more_worth(PUSHES, pushes);
     more_worth(ADDS, adds);
-    instruction word[8];                // lookup_word clears as many
-    lookup_word(FORTH_WORDS, "invert", word);
-    INVERTS = *(uint16_t*)word;
-    lookup_word(FORTH_WORDS, "=", word);
-    IS_SAME = *(uint16_t*)word;
+    INVERTS = ins_named("invert");
+    IS_SAME = ins_named("=");
 }
 
 static uint16_t worth(const literal* of, int64_t times) {
@@ -1397,7 +1423,7 @@ static int write_number(int64_t v, int add, uint16_t* out) {
 // The instructions that are basewords and do not return, and those that
 // stand for the rest and do not return.
 static int BASE[1024], bases;
-static int REPS[65536], reps;
+static int REPS[EVERY_WORD], reps;
 
 static void list_tried(void) {
     for(int at=0; at < alus; at++) {
@@ -1501,7 +1527,7 @@ static void place(const uint16_t* pre, int plen, const uint16_t* mid, int mlen, 
     // are wanted; that stores, when memory is wanted as it was; or that
     // fetches, when nothing is to have been fetched.
     int rise_after = rise(suf, slen), rise_between = rise(mid, mlen);
-    int no_store = looked.want.M == 2 * SLOTS, no_fetch = no_store && !looked.want.fetches;
+    int no_store = looked.want.M == MEMORY_TERM, no_fetch = no_store && !looked.want.fetches;
     for(int idx=0; idx < (alus_in == 1 ? reps : bases); idx++) {
         int x = alus_in == 1 ? REPS[idx] : BASE[idx];
         int d = looked.want.SP - at.SP - rise_after - rise_between - ALU[x].d;
@@ -1657,7 +1683,7 @@ static void look_for_run(const uint16_t* run, int len) {
         numbers = numbers_in(on_the_way.T, number, numbers);
     }
     for(int idx=0, had=numbers; idx < had; idx++) {
-        for(int undo=0; undo < 16; undo++) {
+        for(int undo=0; undo < OPS; undo++) {
             if (!ALU_UNDOES(undo)) continue;
             int undone = t_number(alu(undo, number[idx], number[idx]));
             numbers = numbers_in(undone, number, numbers);

@@ -209,12 +209,11 @@ int main(int argc, char *argv[]) {
         return(1);
     }
     get_ready();
-    instruction exit_ins[8];            // lookup_word clears as many
-    if (lookup_word(FORTH_WORDS, "exit", exit_ins) != 1) {
+    EXIT = ins_named("exit");
+    if (!EXIT) {
         fprintf(stderr, "builds_test: exit is not one instruction\n");
         return(1);
     }
-    EXIT = *(uint16_t*)exit_ins;
     cut(&PLAIN, argv[1], argv[2]);
     cut(&BUILT, argv[3], argv[4]);
     long parted = part(&PLAIN, &BUILT);

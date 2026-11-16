@@ -32,10 +32,33 @@
 // and the cells they are left in renamed.
 //
 
-#define FEW_SEEN    (1 << 20)
-#define FEW_LIVE    6                   // the most cells a turn may keep things in, to be run from few numbers
-#define FEW_STORES  32                  // the most stores in what is wanted
-#define FEW_ALIKE   64                  // the most instructions that make the same thing
+// How much is looked at is not the machine's to say: these were chosen.
+#define FEW_SEEN_BITS   20              // the states a search remembers having come to: two to this many
+#define FEW_SEEN        (1 << FEW_SEEN_BITS)
+#define FEW_LIVE        6               // the most cells a turn may keep things in, to be run from few numbers,
+#define FEW_FROM        4               // and the states of fuse.c's that they are given in
+#define FEW_STORES      32              // the most stores in what is wanted
+#define FEW_DEEPER      3               // a line of search goes no more than so many cells deeper than it is to end
+#define FEW_NEVER       INT_MAX         // how many instructions it takes to do what cannot be done
+
+#include <limits.h>
+
+// ---- the cells of the stacks, by their terms (fuse.c says which term is which cell's)
+
+#define DEPTH_OF(cell)        (DEEP - 1 - CELL_OF(cell))        // how far a cell is under the top, at the start
+#define CELL_OF_DATA(depth)   DATA_TERM(DEEP - 1 - (depth))     // the term for a cell of the data stack, by how far
+#define CELL_OF_RETURN(depth) RETURN_TERM(DEEP - 1 - (depth))   // under; and of the return stack
+
+typedef uint64_t cell_set;              // some of the cells: a bit a cell's term
+_Static_assert(CELL_TERMS <= 8 * sizeof(cell_set), "fewer.c: a set of cells has too few bits for the cells there are");
+#define IN_SET(cell)          ((cell_set)1 << (cell))
+
+// The term in a cell of what was left, and the cell given a term.
+static int* cell_left(named* m, int cell) {
+    int idx = CELL_OF(cell);
+    if (OF_DATA(cell)) return(idx == m->SP - 1 ? &m->T : &m->DS[idx]);
+    return(idx == m->RSP - 1 ? &m->R : &m->RS[idx]);
+}
 
 // ---- the instructions of the ALU, by what they make
 
@@ -45,9 +68,9 @@
 // rest only if what it made is worth having.  That they make the same
 // thing is asked of the step when they are listed (makes_as): one that
 // does not is by itself, and is always stepped.
-typedef struct { uint16_t probe; uint16_t member[FEW_ALIKE]; int n; } family;
-#define FEW_FAMILIES (64 + 4096)
-static family FAMILY[FEW_FAMILIES];
+typedef struct { uint16_t probe; int first, n; } family;        // its members are so many of MEMBER, from the first
+static family* FAMILY;
+static uint16_t* MEMBER;
 static int families, alike;             // how many there are; and how many are of instructions that make the same
                                         // thing, which are first: the rest are each one instruction by itself
 
@@ -66,10 +89,9 @@ static int makes_as(uint16_t x, uint16_t probe) {
     start(&m);
     step_named(&m, x);
     if (m.unsaid || lost || m.next >= 0) return(0);
-    for(int cell=0; cell < 2 * SLOTS; cell++) {
-        int data = cell < SLOTS, idx = data ? cell : cell - SLOTS;
-        if (idx >= (data ? m.SP : m.RSP)) continue;
-        int is = data ? (idx == m.SP - 1 ? m.T : m.DS[idx]) : (idx == m.RSP - 1 ? m.R : m.RS[idx]);
+    for(int cell=0; cell < CELL_TERMS; cell++) {
+        if (CELL_OF(cell) >= (OF_DATA(cell) ? m.SP : m.RSP)) continue;
+        int is = *cell_left(&m, cell);
         if (is >= was_known && is != made) return(0);
     }
     for(int mem=m.M; KNOWN[mem].kind == STORED; mem = KNOWN[mem].of[0]) {
@@ -80,47 +102,72 @@ static int makes_as(uint16_t x, uint16_t probe) {
 }
 
 // It is had after kinds.c, and the kinds are listed before this is called.
+// The instructions that do not return are put in order, those of a family
+// together: each is in the family of the first that takes its input
+// through its operation, puts what it makes on top and leaves everything
+// else as it was, if it makes what that one does; and if not it is a
+// family by itself.
 static void fewer_ready(void) {
-    static int family_of[4][16];
-    memset(family_of, -1, sizeof(family_of));
+    static int probe_of[INPUTS][OPS];                   // by input and operation, where in ALU
+    int* family_at = room_for(alus, sizeof(int));       // the family each instruction is in, or less than nothing
+    int* by_probe = room_for(alus, sizeof(int));        // by where a probe is in ALU, its family
+    memset(probe_of, -1, sizeof(probe_of));
+    free(FAMILY);
+    free(MEMBER);
+    FAMILY = room_for(alus, sizeof(family));
+    MEMBER = room_for(alus, sizeof(uint16_t));
     families = 0;
-    for(int idx=0; idx < alus; idx++) {             // the first of each input and operation that puts what it
-        instruction ins = *(instruction*)&ALU[idx].ins;     // makes on top and leaves everything else as it was
+    for(int idx=0; idx < alus; idx++) {
+        instruction ins = *(instruction*)&ALU[idx].ins;
         named m, none;
         forget();
         start(&none);
         if (!names(&ALU[idx].ins, 1, &m) || m.next >= 0 || m.SP != none.SP || m.RSP != none.RSP || m.M != none.M) continue;
         if (memcmp(m.DS, none.DS, sizeof(m.DS)) || memcmp(m.RS, none.RS, sizeof(m.RS)) || m.R != none.R) continue;
-        int* f = &family_of[ins.alu.in_mux][ins.alu.alu_op];
-        if (*f < 0) FAMILY[*f = families++] = (family){ ALU[idx].ins };
+        int* probe = &probe_of[ins.alu.in_mux][ins.alu.alu_op];
+        if (*probe >= 0) continue;
+        *probe = idx;
+        by_probe[idx] = families;
+        FAMILY[families++] = (family){ ALU[idx].ins };
     }
     alike = families;
     for(int idx=0; idx < alus; idx++) {
         instruction ins = *(instruction*)&ALU[idx].ins;
         named m;
         forget();
+        family_at[idx] = -1;
         if (!names(&ALU[idx].ins, 1, &m) || m.next >= 0) continue;      // it returns
-        int f = family_of[ins.alu.in_mux][ins.alu.alu_op];
-        if (f >= 0 && FAMILY[f].n < FEW_ALIKE && makes_as(ALU[idx].ins, FAMILY[f].probe)) {
-            FAMILY[f].member[FAMILY[f].n++] = ALU[idx].ins;
-        } else if (families < FEW_FAMILIES) {
-            FAMILY[families++] = (family){ ALU[idx].ins, { ALU[idx].ins }, 1 };
+        int probe = probe_of[ins.alu.in_mux][ins.alu.alu_op];
+        if (probe >= 0 && makes_as(ALU[idx].ins, ALU[probe].ins)) {
+            family_at[idx] = by_probe[probe];
+        } else {
+            family_at[idx] = families;
+            FAMILY[families++] = (family){ ALU[idx].ins };
         }
+        FAMILY[family_at[idx]].n++;
     }
+    for(int f=0, first=0; f < families; f++) {          // where each one's members start; and none are there yet
+        FAMILY[f].first = first;
+        first += FAMILY[f].n;
+        FAMILY[f].n = 0;
+    }
+    for(int idx=0; idx < alus; idx++) {
+        family* f = family_at[idx] < 0 ? NULL : &FAMILY[family_at[idx]];
+        if (f) MEMBER[f->first + f->n++] = ALU[idx].ins;
+    }
+    free(family_at);
+    free(by_probe);
     forget();
 }
 
 // ---- terms: the cells one is made of, and one with its cells renamed
 
-#define CELL_OF_DATA(depth)   (DEEP - 1 - (depth))            // the term for a cell of the data stack, by how far down
-#define CELL_OF_RETURN(depth) (SLOTS + DEEP - 1 - (depth))    // and of the return stack
-
 // The cells of the stacks, as they were at the start, that a term is made
-// of: a bit a cell.
-static uint64_t cells_in(int t) {
+// of.
+static cell_set cells_in(int t) {
     const term* is = &KNOWN[t];
-    if (is->kind == IN_DATA || is->kind == IN_RETURN) return(t < 2 * SLOTS ? 1ull << t : 0);
-    uint64_t in = 0;
+    if (is->kind == IN_DATA || is->kind == IN_RETURN) return(t < CELL_TERMS ? IN_SET(t) : 0);
+    cell_set in = 0;
     for(int idx=0; idx < is->n; idx++) in |= cells_in(is->of[idx]);
     return(in);
 }
@@ -132,7 +179,7 @@ static int nothing(int t) {
 }
 
 static int not_flag(int flag) {
-    for(int op=0; op < 16; op++) if (ALU_UNDOES(op)) return(t_made(op, flag, flag));
+    for(int op=0; op < OPS; op++) if (ALU_UNDOES(op)) return(t_made(op, flag, flag));
     return(flag);
 }
 
@@ -145,7 +192,7 @@ static int renamed(int t, const int* to) {
     switch (is.kind) {
         case IN_DATA:
         case IN_RETURN:
-            return(t < 2 * SLOTS ? to[t] : t);
+            return(t < CELL_TERMS ? to[t] : t);
         case BY_ALU: {
             int made = renamed(is.of[0], to);
             if (is.n == 1) return(made);
@@ -165,13 +212,6 @@ static int renamed(int t, const int* to) {
     }
 }
 
-// The term in a cell of what was left, and the cell given a term.
-static int* cell_left(named* m, int cell) {
-    int data = cell < SLOTS, idx = data ? cell : cell - SLOTS;
-    if (data) return(idx == m->SP - 1 ? &m->T : &m->DS[idx]);
-    return(idx == m->RSP - 1 ? &m->R : &m->RS[idx]);
-}
-
 // ---- a turn of a loop: the cells it keeps things in, and the same turn with them kept elsewhere
 
 // How many cells at the top of each stack a turn reads or changes.  The
@@ -179,21 +219,20 @@ static int* cell_left(named* m, int cell) {
 // on top.
 static void cells_kept(const named* turn, int* of_data, int* of_return) {
     named left = *turn;
-    uint64_t used = cells_in(left.T);
+    cell_set used = cells_in(left.T);
     for(int mem=left.M; KNOWN[mem].kind == STORED; mem = KNOWN[mem].of[0]) {
         used |= cells_in(KNOWN[mem].of[1]) | cells_in(KNOWN[mem].of[2]);
     }
     for(int idx=0; idx < left.fetches; idx++) used |= cells_in(left.fetched[idx]);
-    for(int cell=0; cell < 2 * SLOTS; cell++) {
-        int data = cell < SLOTS, idx = data ? cell : cell - SLOTS;
-        if (idx >= DEEP) continue;                      // above where the turn started
+    for(int cell=0; cell < CELL_TERMS; cell++) {
+        if (DEPTH_OF(cell) < 0) continue;               // above where the turn started
         int is = *cell_left(&left, cell);
-        if (is != cell) used |= cells_in(is) | 1ull << cell;
+        if (is != cell) used |= cells_in(is) | IN_SET(cell);
     }
     *of_data = *of_return = 0;
     for(int depth=0; depth < DEEP; depth++) {
-        if (used >> CELL_OF_DATA(depth) & 1) *of_data = depth + 1;
-        if (used >> CELL_OF_RETURN(depth) & 1) *of_return = depth + 1;
+        if (used & IN_SET(CELL_OF_DATA(depth))) *of_data = depth + 1;
+        if (used & IN_SET(CELL_OF_RETURN(depth))) *of_return = depth + 1;
     }
 }
 
@@ -208,10 +247,9 @@ static void kept_as(const named* turn, const int* to, named* wanted) {
     wanted->SP = left.SP;
     wanted->RSP = left.RSP;
     wanted->DS[wanted->SP - 1] = wanted->T;             // the cell that was on top is under what the branch asks about
-    for(int cell=0; cell < 2 * SLOTS; cell++) {
+    for(int cell=0; cell < CELL_TERMS; cell++) {
         if (to[cell] == cell && *cell_left(&left, cell) == cell) continue;
-        int idx = cell < SLOTS ? cell : cell - SLOTS;
-        if (idx >= DEEP) continue;
+        if (DEPTH_OF(cell) < 0) continue;               // above where the turn started
         *cell_left(wanted, to[cell]) = renamed(*cell_left(&left, cell), to);
     }
     wanted->T = renamed(left.T, to);
@@ -231,11 +269,12 @@ typedef struct {
     unsigned char needed[ROOM];         // the terms it is made of, and the parts of each
     short stores_to[ROOM];              // for memory as it is after so many of its stores, how many; or less
     int stores;
-    int final[2 * SLOTS], finals;       // the terms its stacks have, each once
-    uint64_t cells;                     // the cells its stacks are made of, and what is asked of the top,
-    uint64_t cells_from[FEW_STORES + 1];        // and those its stores are, after so many of them are made
+    int final[CELL_TERMS], finals;      // the terms its stacks have, each once
+    cell_set cells;                     // the cells its stacks are made of, and what is asked of the top,
+    cell_set cells_from[FEW_STORES + 1];        // and those its stores are, after so many of them are made
     int places[FETCHES], n_places;      // where it fetches from
-    uint16_t pushes[64], adds[64], fetches[FETCHES], stores_var[FETCHES];
+    uint16_t pushes[ROOM], adds[ROOM];  // the instructions for its numbers: no more than the terms there can be,
+    uint16_t fetches[FETCHES], stores_var[FEW_STORES];  // and for its variables: than its places, and its stores
     int n_pushes, n_adds, n_fetches, n_stores_var;
     int nothing_of[ROOM];               // of the terms there were: the flag for whether each is nothing, when asked
 } wanted;
@@ -271,12 +310,12 @@ static int want(wanted* w, const named* left, int fact) {
     for(int mem=left->M; KNOWN[mem].kind == STORED && links < ROOM; mem = KNOWN[mem].of[0]) chain[links++] = mem;
     if (links > FEW_STORES) return(0);
     w->stores = links;
-    w->stores_to[2 * SLOTS] = 0;
+    w->stores_to[MEMORY_TERM] = 0;
     for(int idx=0; idx < links; idx++) w->stores_to[chain[links - 1 - idx]] = idx + 1;
 
     named l = *left;
-    for(int cell=0; cell < 2 * SLOTS; cell++) {
-        int data = cell < SLOTS, idx = data ? cell : cell - SLOTS;
+    for(int cell=0; cell < CELL_TERMS; cell++) {
+        int data = OF_DATA(cell), idx = CELL_OF(cell);
         if (idx >= (data ? l.SP : l.RSP)) continue;
         if (data && idx == l.SP - 1 && fact >= 0) continue;     // the top, which is wanted only for whether it is nothing
         int is = *cell_left(&l, cell), had = 0;
@@ -311,19 +350,19 @@ static int want(wanted* w, const named* left, int fact) {
     for(int t=FIXED; t < known; t++) {
         const numbered* is;
         if (!w->needed[t] || KNOWN[t].kind != A_NUMBER) continue;
-        if ((is = number_among(PUSHING, pushing, KNOWN[t].number)) && w->n_pushes < 64) w->pushes[w->n_pushes++] = is->ins;
-        if (KNOWN[t].number && (is = number_among(ADDING, adding, KNOWN[t].number)) && w->n_adds < 64) w->adds[w->n_adds++] = is->ins;
+        if ((is = numbered_as(PUSHES_IT, KNOWN[t].number))) w->pushes[w->n_pushes++] = is->ins;
+        if ((is = numbered_as(ADDS_IT, KNOWN[t].number))) w->adds[w->n_adds++] = is->ins;
     }
     for(int p=0; p < w->n_places; p++) {
         const numbered* is;
         if (KNOWN[w->places[p]].kind != A_NUMBER) continue;
-        if ((is = number_among(FETCHING, fetching, KNOWN[w->places[p]].number))) w->fetches[w->n_fetches++] = is->ins;
+        if ((is = numbered_as(FETCHES_AT_IT, KNOWN[w->places[p]].number))) w->fetches[w->n_fetches++] = is->ins;
     }
-    for(int idx=0; idx < links && w->n_stores_var < FETCHES; idx++) {
+    for(int idx=0; idx < links; idx++) {
         const numbered* is;
         int at = KNOWN[chain[idx]].of[1];
         if (KNOWN[at].kind != A_NUMBER) continue;
-        if ((is = number_among(STORING, storing, KNOWN[at].number))) w->stores_var[w->n_stores_var++] = is->ins;
+        if ((is = numbered_as(STORES_AT_IT, KNOWN[at].number))) w->stores_var[w->n_stores_var++] = is->ins;
     }
     w->base = known;
     memset(w->nothing_of, -1, sizeof(w->nothing_of));
@@ -382,7 +421,7 @@ static int to_shape(const int* is, int size, const int* to, int to_size, int ext
 static int at_least(wanted* w, const named* m) {
     int d[SLOTS], r[SLOTS], to_d[SLOTS], to_r[SLOTS];
     const named* l = &w->left;
-    uint64_t have = 0;
+    cell_set have = 0;
     memcpy(d, m->DS, (m->SP - 1) * sizeof(int));
     d[m->SP - 1] = m->T;
     memcpy(r, m->RS, (m->RSP - 1) * sizeof(int));
@@ -390,7 +429,7 @@ static int at_least(wanted* w, const named* m) {
     for(int idx=0; idx < m->SP; idx++) have |= cells_in(d[idx]);
     for(int idx=0; idx < m->RSP; idx++) have |= cells_in(r[idx]);
     int made = m->M < ROOM && w->stores_to[m->M] >= 0 ? w->stores_to[m->M] : 0;
-    if ((w->cells | w->cells_from[made]) & ~have) return(99);   // something needed is gone for good
+    if ((w->cells | w->cells_from[made]) & ~have) return(FEW_NEVER);    // something needed is gone for good
     int values = w->stores - made;
     for(int f=0; f < w->finals; f++) values += !on_a_stack(m, w->final[f]);
     if (w->fact >= 0) {
@@ -427,7 +466,7 @@ static uint64_t state_of(const named* m) {
 // Has this been come to before with as many instructions left, or more?
 // It has now.
 static int seen_with(const named* m, int left) {
-    uint64_t state = state_of(m), at = (state * 0x9e3779b97f4a7c15ull) >> 44;
+    uint64_t state = state_of(m), at = (state * 0x9e3779b97f4a7c15ull) >> (64 - FEW_SEEN_BITS);
     while (SEEN_WITH[at].stamp == searching && SEEN_WITH[at].state != state) at = (at + 1) & (FEW_SEEN - 1);
     if (SEEN_WITH[at].stamp == searching && SEEN_WITH[at].left >= left) return(1);
     SEEN_WITH[at] = (was_seen){ state, searching, left };
@@ -456,7 +495,7 @@ static int on(wanted* w, const named* m, uint16_t x, int left, uint16_t* path, i
     named s = *m;
     step_named(&s, x);
     if (s.unsaid || lost || s.next >= 0) { lost = 0; return(0); }
-    if (s.SP > DEEP + 3 || s.RSP > w->left.RSP + 3) return(0);
+    if (s.SP > DEEP + FEW_DEEPER || s.RSP > w->left.RSP + FEW_DEEPER) return(0);
     if (s.M != m->M && (s.M >= ROOM || w->stores_to[s.M] < 0)) return(0);       // a store that is not the next one wanted
     for(int idx=m->fetches; idx < s.fetches; idx++) if (!fetch_is_wanted(w, m, s.fetched[idx])) return(0);
     if (seen_with(&s, left - 1)) return(0);
@@ -480,7 +519,7 @@ static int look(wanted* w, const named* m, int left, uint16_t* path, int at) {
         if (f < alike) step_named(&probe, FAMILY[f].probe);
         if (f >= alike || (!probe.unsaid && !lost && worth_having(w, m, probe.T))) {
             for(int idx=0; idx < FAMILY[f].n; idx++) {
-                if (on(w, m, FAMILY[f].member[idx], left, path, at)) return(1);
+                if (on(w, m, MEMBER[FAMILY[f].first + idx], left, path, at)) return(1);
             }
         }
         lost = 0;
@@ -550,11 +589,14 @@ static int left_by(int which, int len, const state* from, leaving* l) {
     return(1);
 }
 
-// A cell of a state, by its term: the machine starts DEPTH deep, and the
-// terms DEEP.
+// Where in the machine's stack a cell is, by its term: the machine starts
+// DEPTH deep, and the terms DEEP.  And the cell of a state, if the state
+// gives one there.
+static int in_machine(int cell) { return(CELL_OF(cell) - (DEEP - DEPTH)); }
+
 static int64_t* cell_in(state* s, int cell) {
-    int data = cell < SLOTS, idx = (data ? cell : cell - SLOTS) - (DEEP - DEPTH);
-    return(idx < 0 || idx >= FILLED ? NULL : data ? &s->dstack[idx] : &s->rstack[idx]);
+    int idx = in_machine(cell);
+    return(idx < 0 || idx >= FILLED ? NULL : OF_DATA(cell) ? &s->dstack[idx] : &s->rstack[idx]);
 }
 
 // Do two sequences agree from a state, run on vm.c?  The second is run
@@ -568,7 +610,7 @@ static int64_t* cell_in(state* s, int cell) {
 static int agree_from(int alen, int blen, const state* from, const int* to, int tops, int other_way, int over) {
     state with = *from;
     leaving a, b;
-    for(int cell=0; to && cell < 2 * SLOTS; cell++) {
+    for(int cell=0; to && cell < CELL_TERMS; cell++) {
         int64_t* is = cell_in((state*)from, cell);
         int64_t* kept = cell_in(&with, to[cell]);
         if (to[cell] != cell && is && kept) *kept = *is;
@@ -585,8 +627,8 @@ static int agree_from(int alen, int blen, const state* from, const int* to, int 
         return(1);
     }
     state expected = with;
-    for(int cell=0; cell < 2 * SLOTS; cell++) {
-        int data = cell < SLOTS, idx = (data ? cell : cell - SLOTS) - (DEEP - DEPTH);
+    for(int cell=0; cell < CELL_TERMS; cell++) {
+        int data = OF_DATA(cell), idx = in_machine(cell);
         int64_t* kept = cell_in(&expected, to[cell]);
         if (idx < 0 || idx >= DEPTH || !kept) continue;
         if (to[cell] != cell || (data ? a.d[idx] != from->dstack[idx] : a.r[idx] != from->rstack[idx])) {
@@ -630,15 +672,15 @@ static int agree_on_machine(const uint16_t* a, int alen, const uint16_t* b, int 
         if (!is) return(0);
         ran_from += is > 0;
     }
-    static const int64_t FEW[3] = { 0, 1, TRUE };
+    static const int64_t FEW[] = { 0, 1, TRUE };
     int ways = 1;
-    for(int idx=0; idx < n_kept && idx < FEW_LIVE; idx++) ways *= 3;
-    for(int base=0; base < 4 && n_kept; base++) {
+    for(int idx=0; idx < n_kept && idx < FEW_LIVE; idx++) ways *= COUNT(FEW);
+    for(int base=0; base < FEW_FROM && n_kept; base++) {
         for(int way=0; way < ways; way++) {
             state with = STATE[base];
-            for(int idx=0, rest=way; idx < n_kept && idx < FEW_LIVE; idx++, rest /= 3) {
+            for(int idx=0, rest=way; idx < n_kept && idx < FEW_LIVE; idx++, rest /= COUNT(FEW)) {
                 int64_t* given = cell_in(&with, kept[idx]);
-                if (given) *given = cell(FEW[rest % 3]);
+                if (given) *given = cell(FEW[rest % COUNT(FEW)]);
             }
             int is = agree_from(alen, blen, &with, to, tops, other_way, over);
             if (!is) return(0);

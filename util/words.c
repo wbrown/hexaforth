@@ -84,35 +84,46 @@ static int words_of(const uint8_t* image, size_t len, const char* tables, word* 
 
 // The labels for data that the file of names has: a variable or a table
 // that has no header, by its name, with the cell it is of as its place.
-// Returns how many there are.
+// Returns how many there are, whatever there is room for: the first `most`
+// are put in `out`, and with no room they are only counted.
 static int data_of(const char* tables, word* out, int most) {
-    static uint8_t cells[1 << 20];
     FILE* in = fopen(tables, "rb");
     if (!in) return(0);
-    size_t have = fread(cells, CELL_BYTES, sizeof(cells) / CELL_BYTES, in);
+    fseek(in, 0, SEEK_END);
+    long bytes = ftell(in);
+    rewind(in);
+    uint8_t* cells = malloc(bytes > 0 ? bytes : 1);
+    size_t have = cells ? fread(cells, CELL_BYTES, bytes / CELL_BYTES, in) : 0;
     fclose(in);
     size_t at = 2;                                      // past the stamp and the count
     if (have > at) at += 1 + 2 * cell_of(cells, at);    // and the two tables
     if (have > at) at += 1 + 2 * cell_of(cells, at);
     int n = 0;
-    for(uint64_t place = have > at ? cell_of(cells, at) : 0; place && at + place + 2 < have && n < most;
+    for(uint64_t place = have > at ? cell_of(cells, at) : 0; place && at + place + 2 < have;
         place = cell_of(cells, at + place)) {
         uint64_t value = cell_of(cells, at + place + 1);
         if (!(value >> (CELL_BITS - 1))) continue;      // a label for code
-        decode_name(cells + (at + place + 2) * CELL_BYTES, (have - at - place - 2) * CELL_BYTES, out[n].name);
-        out[n].at = (long)(value & ~(1ull << (CELL_BITS - 1)));
-        out[n++].size = 0;
+        if (n < most) {
+            decode_name(cells + (at + place + 2) * CELL_BYTES, (have - at - place - 2) * CELL_BYTES, out[n].name);
+            out[n].at = (long)(value & ~(1ull << (CELL_BITS - 1)));
+            out[n].size = 0;
+        }
+        n++;
     }
+    free(cells);
     return(n);
 }
 
 // The cell a label for data is of, or 0 if the file of names has no such
 // label.
 static uint64_t data_called(const char* tables, const char* name) {
-    static word labels[1 << 12];
-    int n = data_of(tables, labels, 1 << 12);
-    for(int idx=0; idx < n; idx++) if (!strcmp(labels[idx].name, name)) return((uint64_t)labels[idx].at);
-    return(0);
+    int n = data_of(tables, NULL, 0);
+    word* labels = calloc(n ? n : 1, sizeof(word));
+    uint64_t is = 0;
+    if (labels) data_of(tables, labels, n);
+    for(int idx=0; labels && idx < n && !is; idx++) if (!strcmp(labels[idx].name, name)) is = (uint64_t)labels[idx].at;
+    free(labels);
+    return(is);
 }
 
 // Where a word is, or less than nothing if the image has none of that name.

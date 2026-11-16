@@ -24,58 +24,77 @@ typedef struct {
     const char* name;                   // its name, or none
 } kind;
 
-static kind KIND[8192];
+static kind* KIND;                      // as many as there are: no more than the instructions the step says of
 static int kinds;
-static int kind_at[65536];              // the kind an instruction is of, or less than nothing
+static int kind_at[EVERY_WORD];         // the kind an instruction is of, or less than nothing
+
+// Room for so many of something, or it stops: nothing here goes on with
+// less than it asked for.
+static void* room_for(size_t count, size_t size) {
+    void* room = calloc(count ? count : 1, size);
+    if (!room) {
+        fprintf(stderr, "there is no room for %zu of %zu bytes\n", count, size);
+        exit(EXIT_FAILURE);
+    }
+    return(room);
+}
 
 // ---- the instructions that have a number in them
 
-enum { NO_NUMBER, PUSHES_IT, ADDS_IT, FETCHES_AT_IT, STORES_AT_IT };
+enum { NO_NUMBER, PUSHES_IT, ADDS_IT, FETCHES_AT_IT, STORES_AT_IT, DOES_WITH_IT };
 typedef struct { uint16_t ins; int64_t number; } numbered;
 
-#define NUMBERED 16384                  // the most of them that do one of the four
-static numbered PUSHING[NUMBERED], ADDING[NUMBERED], FETCHING[NUMBERED], STORING[NUMBERED];
-static int pushing, adding, fetching, storing;
-static struct { unsigned char does; int64_t number; } NUMBER_IN[65536];    // by instruction
+static numbered* NUMBERED[DOES_WITH_IT];        // those that do each of the four, and how many
+static int numbers[DOES_WITH_IT];
+static struct { unsigned char does; int64_t number; } NUMBER_IN[EVERY_WORD];    // by instruction
 
 // Every instruction is stepped from the start, and what the step left says
 // which of the four it is, if any.
 static void list_numbers(void) {
-    numbered* const lists[] = { NULL, PUSHING, ADDING, FETCHING, STORING };
-    int* const counts[] = { NULL, &pushing, &adding, &fetching, &storing };
-    pushing = adding = fetching = storing = 0;
+    int found[DOES_WITH_IT] = { 0 };
     memset(NUMBER_IN, 0, sizeof(NUMBER_IN));
-    for(int word=0; word < 65536; word++) {
+    for(int word=0; word < EVERY_WORD; word++) {
         uint16_t x = word;
         if (!((instruction*)&x)->lit.lit_f) continue;   // as vm.c's loop takes one to have a number in it
-        named m;
+        named m, none;
         forget();
+        start(&none);
         start(&m);
-        int top = m.T, does = NO_NUMBER, number = -1;
+        int does = NO_NUMBER, number = -1;
         step_named(&m, x);
         if (m.unsaid || lost) continue;
         const term* mem = &KNOWN[m.M];
-        if (m.fetches == 1 && KNOWN[m.fetched[0]].kind == A_NUMBER && m.SP == DEEP + 1) {
+        if (m.fetches == 1 && KNOWN[m.fetched[0]].kind == A_NUMBER && m.SP == none.SP + 1) {
             does = FETCHES_AT_IT, number = m.fetched[0];
-        } else if (mem->kind == STORED && KNOWN[mem->of[1]].kind == A_NUMBER && m.SP == DEEP - 1) {
+        } else if (mem->kind == STORED && KNOWN[mem->of[1]].kind == A_NUMBER && m.SP == none.SP - 1) {
             does = STORES_AT_IT, number = mem->of[1];
-        } else if (m.SP == DEEP + 1 && KNOWN[m.T].kind == A_NUMBER && !m.fetches && m.M == 2 * SLOTS) {
+        } else if (m.SP == none.SP + 1 && KNOWN[m.T].kind == A_NUMBER && !m.fetches && m.M == none.M) {
             does = PUSHES_IT, number = m.T;
-        } else if (m.SP == DEEP && m.T != top && KNOWN[m.T].kind == BY_ALU && KNOWN[m.T].n == 2) {
+        } else if (m.SP == none.SP && m.T != none.T && KNOWN[m.T].kind == BY_ALU && KNOWN[m.T].n == 2) {
             const term* sum = &KNOWN[m.T];              // the top, and a number, made one
-            int other = sum->of[0] == top ? sum->of[1] : sum->of[0];
-            if ((sum->of[0] == top || sum->of[1] == top) && KNOWN[other].kind == A_NUMBER) does = ADDS_IT, number = other;
+            int other = sum->of[0] == none.T ? sum->of[1] : sum->of[0];
+            if ((sum->of[0] == none.T || sum->of[1] == none.T) && KNOWN[other].kind == A_NUMBER) does = ADDS_IT, number = other;
         }
-        if (!does || *counts[does] == NUMBERED) continue;
+        if (!does) continue;
         NUMBER_IN[x].does = does;
         NUMBER_IN[x].number = KNOWN[number].number;
-        lists[does][(*counts[does])++] = (numbered){ x, KNOWN[number].number };
+        found[does]++;
+    }
+    for(int does=NO_NUMBER + 1; does < DOES_WITH_IT; does++) {
+        free(NUMBERED[does]);
+        NUMBERED[does] = room_for(found[does], sizeof(numbered));
+        numbers[does] = 0;
+    }
+    for(int word=0; word < EVERY_WORD; word++) {
+        int does = NUMBER_IN[word].does;
+        if (does) NUMBERED[does][numbers[does]++] = (numbered){ word, NUMBER_IN[word].number };
     }
     forget();
 }
 
-static const numbered* number_among(const numbered* list, int n, int64_t number) {
-    for(int idx=0; idx < n; idx++) if (list[idx].number == number) return(&list[idx]);
+// The instruction that does one of the four with a number, if one does.
+static const numbered* numbered_as(int does, int64_t number) {
+    for(int idx=0; idx < numbers[does]; idx++) if (NUMBERED[does][idx].number == number) return(&NUMBERED[does][idx]);
     return(NULL);
 }
 
@@ -105,11 +124,11 @@ static uint16_t numbered_doing(const uint16_t* seq, int len) {
     if (!names(seq, len, &m)) return(0);
     start(&none);
     if (m.SP == none.SP + 1 && KNOWN[m.T].kind == A_NUMBER) {
-        is = number_among(PUSHING, pushing, KNOWN[m.T].number);
+        is = numbered_as(PUSHES_IT, KNOWN[m.T].number);
     } else if (m.SP == none.SP && KNOWN[m.T].kind == BY_ALU && KNOWN[m.T].n == 2) {
         const term* sum = &KNOWN[m.T];
         int other = sum->of[0] == none.T ? sum->of[1] : sum->of[0];
-        if (KNOWN[other].kind == A_NUMBER) is = number_among(ADDING, adding, KNOWN[other].number);
+        if (KNOWN[other].kind == A_NUMBER) is = numbered_as(ADDS_IT, KNOWN[other].number);
     }
     return(is && same_work(seq, len, is->ins) ? is->ins : 0);
 }
@@ -119,6 +138,8 @@ static uint16_t numbered_doing(const uint16_t* seq, int len) {
 static void list_kinds(void) {
     list_numbers();
     memset(kind_at, -1, sizeof(kind_at));
+    free(KIND);
+    KIND = room_for(alus, sizeof(kind));
     kinds = 0;
     for(int idx=0; idx < alus; idx++) {
         int k = -1;
@@ -140,46 +161,51 @@ static void list_kinds(void) {
 // An instruction with a return folded into it, without the return; and
 // whether it had one.  The return by itself is not one folded in.
 static uint16_t unfolded(uint16_t w, int* returned) {
-    instruction leaves[8], ins = *(instruction*)&w;     // lookup_word clears as many
-    lookup_word(FORTH_WORDS, "exit", leaves);
+    uint16_t exits = ins_named("exit");
+    instruction leaves = *(instruction*)&exits, ins = *(instruction*)&w;
     *returned = !ins.lit.lit_f && ins.alu.op_type == OP_TYPE_ALU && ins.alu.r_eip &&
-                ins.alu.rstack == leaves[0].alu.rstack && w != *(uint16_t*)leaves;
+                ins.alu.rstack == leaves.alu.rstack && w != exits;
     if (*returned) ins.alu.r_eip = 0, ins.alu.rstack = 0;
     return(*(uint16_t*)&ins);
 }
 
-// An instruction, said after what text has: with `numbers`, a number and a
-// variable's cell (its address, in hex) are said, and without they are
-// only said to be one.
-static void say_ins(char* text, uint16_t w, int numbers) {
+// An instruction as it is said, in the room there is for it: with
+// `numbers`, a number and a variable's cell (its address, in hex) are
+// said, and without they are only said to be one.
+static void say_ins(char* text, size_t room, uint16_t w, int numbers) {
     static const char* const with[] = { NULL, "%lld", "%lld +", "[var %llx @]", "[var %llx !]" };
     static const char* const without[] = { NULL, "lit", "lit+", "var@", "var!" };
-    char* at = text + strlen(text);
     if (((instruction*)&w)->lit.lit_f) {
         int does = NUMBER_IN[w].does;
-        if (!does) sprintf(at, "(%04x)", w);            // one the step says nothing of, or that does nothing
-        else if (numbers) sprintf(at, with[does], (long long)NUMBER_IN[w].number);
-        else strcpy(at, without[does]);
+        if (!does) snprintf(text, room, "(%04x)", w);   // one the step says nothing of, or that does nothing
+        else if (numbers) snprintf(text, room, with[does], (long long)NUMBER_IN[w].number);
+        else snprintf(text, room, "%s", without[does]);
         return;
     }
     int returned;
     uint16_t base = unfolded(w, &returned);
     int k = kind_at[base];
     if (k >= 0 && KIND[k].name) {
-        strcpy(at, KIND[k].name);
+        snprintf(text, room, "%s%s", KIND[k].name, returned ? ";" : "");
     } else {
         instruction is = *(instruction*)&base;
-        sprintf(at, "(%s %s %s d%+d r%+d)", INPUT_MUX_REPR[is.alu.in_mux], ALU_OPS_REPR[is.alu.alu_op],
-                OUTPUT_MUX_REPR[is.alu.out_mux], is.alu.dstack, is.alu.rstack);
+        snprintf(text, room, "(%s %s %s d%+d r%+d)%s", INPUT_MUX_REPR[is.alu.in_mux], ALU_OPS_REPR[is.alu.alu_op],
+                 OUTPUT_MUX_REPR[is.alu.out_mux], is.alu.dstack, is.alu.rstack, returned ? ";" : "");
     }
-    if (returned) strcat(at, ";");
 }
 
-// A run of instructions, said with a space between each.
-static void say_run(char* text, const uint16_t* seq, int len, int numbers) {
-    text[0] = '\0';
+// A run of instructions as it is said, with a space between each: the
+// text is made here, as long as it has to be, and is whoever asks's to
+// free.
+static char* run_said(const uint16_t* seq, int len, int numbers) {
+    char* text = room_for(1, 1);
+    size_t had = 0;
     for(int idx=0; idx < len; idx++) {
-        if (idx) strcat(text, " ");
-        say_ins(text, seq[idx], numbers);
+        char one[2 * sizeof(((forth_op*)0)->repr) + 64];        // room for a name or the fields' names, and to spare
+        say_ins(one, sizeof(one), seq[idx], numbers);
+        text = realloc(text, had + strlen(one) + 2);
+        if (!text) { fprintf(stderr, "there is no room for the text of a run\n"); exit(EXIT_FAILURE); }
+        had += sprintf(text + had, "%s%s", idx ? " " : "", one);
     }
+    return(text);
 }

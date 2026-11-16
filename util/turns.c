@@ -24,9 +24,15 @@
 // before the loop, where it is an input of the ALU.  What is found is run
 // on vm.c beside the turn (fewer.c, agree_on_machine) before it is said.
 //
+// How much is looked at is not the machine's to say.  Whoever asks says
+// how many states a search may look at; the rest is here, and was chosen:
+//
 
-#define TURN_KEPT   4                   // the most cells a turn keeps things in, for them to be tried elsewhere
-#define TURN_WAYS   128                 // the most ways of keeping so many
+#define TURN_KEPT       4               // a turn that keeps things in more cells than this is not tried with
+                                        // them elsewhere: the ways of keeping so many are counted (ways_to_keep)
+#define ANYWHERE_SHARE  10              // each way of keeping them elsewhere is given this part of the states,
+#define PARTS_SHARE     4               // and each part of a turn this part;
+#define PART_LONGEST    6               // a part is no more than so many instructions
 
 typedef struct {
     uint16_t code[RUN];                 // the turn as one run,
@@ -43,17 +49,19 @@ typedef struct {
 // step cannot say what it leaves, or it does not leave the data stack one
 // deeper and the return stack as it was.  The terms it is said in are
 // there until the next turn is taken.
-static int take_turn(const turn* t, int how, a_turn* out) {
+static int take_turn(const turn* t, a_turn* out) {
+    named none;
     memset(out, 0, sizeof(a_turn));
     if (t->bodies + t->tests > RUN) return(0);
     memcpy(out->code, t->body, t->bodies * sizeof(uint16_t));
     if (t->tests) memcpy(out->code + t->bodies, t->test, t->tests * sizeof(uint16_t));
     out->len = t->bodies + t->tests;
-    out->now = t->bodies + (how == 1 ? t->tests + 2 : 1);
-    out->at_top = how == 1;
+    out->now = turn_now(t);
+    out->at_top = t->tests_at == TESTS_AT_TOP;
     forget();
+    start(&none);
     if (!names(out->code, out->len, &out->left)) return(0);
-    if (out->left.next >= 0 || out->left.SP != DEEP + 1 || out->left.RSP != DEEP) return(0);
+    if (out->left.next >= 0 || out->left.SP != none.SP + 1 || out->left.RSP != none.RSP) return(0);
     out->base = known;
     cells_kept(&out->left, &out->of_data, &out->of_return);
     for(int depth=0; depth < out->of_data; depth++) out->kept[out->n_kept++] = CELL_OF_DATA(depth);
@@ -63,10 +71,15 @@ static int take_turn(const turn* t, int how, a_turn* out) {
 
 // Every way of keeping what a turn keeps in the top cells of the two
 // stacks, but the way it is kept now: each is, for every cell's term, the
-// cell it is kept in.  How many there are.
-static int ways_to_keep(const a_turn* t, int (*to)[2 * SLOTS], int most) {
-    int n = 0, k = t->n_kept;
+// cell it is kept in.  How many there are, and the list, which is made
+// here: so many cells in every order, with from none to all of them on the
+// data stack.
+static int ways_to_keep(const a_turn* t, int (**list)[CELL_TERMS]) {
+    int n = 0, k = t->n_kept, orders = 1;
+    *list = NULL;
     if (k > TURN_KEPT) return(0);
+    for(int idx=2; idx <= k; idx++) orders *= idx;
+    int (*to)[CELL_TERMS] = room_for((size_t)orders * (k + 1), sizeof(*to));
     for(int of_data=0; of_data <= k; of_data++) {
         int slot[TURN_KEPT], order[TURN_KEPT];
         for(int idx=0; idx < k; idx++) {
@@ -76,8 +89,8 @@ static int ways_to_keep(const a_turn* t, int (*to)[2 * SLOTS], int most) {
         for(;;) {
             int same = 1;
             for(int idx=0; idx < k; idx++) same &= slot[order[idx]] == t->kept[idx];
-            if (!same && n < most) {
-                for(int cell=0; cell < 2 * SLOTS; cell++) to[n][cell] = cell;
+            if (!same) {
+                for(int cell=0; cell < CELL_TERMS; cell++) to[n][cell] = cell;
                 for(int idx=0; idx < k; idx++) to[n][t->kept[idx]] = slot[order[idx]];
                 n++;
             }
@@ -91,26 +104,35 @@ static int ways_to_keep(const a_turn* t, int (*to)[2 * SLOTS], int most) {
             for(int lo=at + 1, hi=k - 1; lo < hi; lo++, hi--) swap = order[lo], order[lo] = order[hi], order[hi] = swap;
         }
     }
+    *list = to;
     return(n);
 }
 
-// A way of keeping, in words.
-static void say_kept(char* text, const a_turn* t, const int* to) {
-    text[0] = '\0';
+// A cell as it is said: T, N and R are the cells the machine has those
+// names for, and any other is its stack and how far under the top it is.
+static void say_cell(char* text, size_t room, int cell) {
+    int data = OF_DATA(cell), depth = DEPTH_OF(cell);
+    if (data && depth == 0) snprintf(text, room, "T");
+    else if (data && depth == 1) snprintf(text, room, "N");
+    else if (!data && depth == 0) snprintf(text, room, "R");
+    else snprintf(text, room, "%s%d", data ? "d" : "r", depth);
+}
+
+// A way of keeping, in words: the text is made here, and is whoever
+// asks's to free.
+static char* kept_said(const a_turn* t, const int* to) {
+    char one[2 * 3 * sizeof(int) + sizeof(", x in x")];  // two cells, each a letter and a number, and what is between
+    char* text = room_for((size_t)t->n_kept + 1, sizeof(one));
     for(int idx=0; idx < t->n_kept; idx++) {
-        int from = t->kept[idx], in = to[from];
-        if (in == from) continue;
-        const int both[2] = { from, in };
-        if (text[0]) strcat(text, ", ");
-        for(int which=0; which < 2; which++) {
-            int data = both[which] < SLOTS, depth = (data ? DEEP - 1 : SLOTS + DEEP - 1) - both[which];
-            if (which) strcat(text, " in ");
-            if (data && depth < 2) strcat(text, depth ? "N" : "T");
-            else if (!data && !depth) strcat(text, "R");
-            else sprintf(text + strlen(text), "%s%d", data ? "d" : "r", depth);
-        }
+        char from[3 * sizeof(int) + 2], in[3 * sizeof(int) + 2];
+        if (to[t->kept[idx]] == t->kept[idx]) continue;
+        say_cell(from, sizeof(from), t->kept[idx]);
+        say_cell(in, sizeof(in), to[t->kept[idx]]);
+        snprintf(one, sizeof(one), "%s%s in %s", text[0] ? ", " : "", from, in);
+        strcat(text, one);
     }
     if (!text[0]) strcpy(text, "as they are");
+    return(text);
 }
 
 // What the top is to be nothing with, for `until` to go round when the
@@ -128,9 +150,9 @@ static wanted WANTED;
 // not.  *given_up says the search stopped before it had looked at
 // everything, or there was no room for what was wanted.
 static int turn_in(a_turn* t, const int* to, int length, long states, uint16_t* found, int* given_up) {
-    int same[2 * SLOTS];
+    int same[CELL_TERMS];
     named left;
-    for(int cell=0; cell < 2 * SLOTS; cell++) same[cell] = cell;
+    for(int cell=0; cell < CELL_TERMS; cell++) same[cell] = cell;
     known = t->base;
     lost = 0;
     kept_as(&t->left, to ? to : same, &left);
@@ -144,12 +166,13 @@ static int turn_in(a_turn* t, const int* to, int length, long states, uint16_t* 
 
 // The same with a number kept on the return stack, put there before the
 // loop: what is found starts with it there and leaves it there.  `puts`
-// is the two instructions that put it there.
+// is the instructions that put it there, and there are PUTS of them.
+#define PUTS 2
 static int turn_with(a_turn* t, int64_t number, const uint16_t* puts, int length, long states,
                      uint16_t* found, int* given_up) {
-    int same[2 * SLOTS];
+    int same[CELL_TERMS];
     named left, from;
-    for(int cell=0; cell < 2 * SLOTS; cell++) same[cell] = cell;
+    for(int cell=0; cell < CELL_TERMS; cell++) same[cell] = cell;
     known = t->base;
     lost = 0;
     kept_as(&t->left, same, &left);
@@ -157,28 +180,29 @@ static int turn_with(a_turn* t, int64_t number, const uint16_t* puts, int length
     left.RSP++;
     left.R = t_number(number);
     start(&from);
-    step_named(&from, puts[0]);
-    step_named(&from, puts[1]);
+    for(int idx=0; idx < PUTS; idx++) step_named(&from, puts[idx]);
     if (lost || from.unsaid || from.R != left.R || !want(&WANTED, &left, round_on(t, left.T))) {
         *given_up = 1;
         return(0);
     }
     if (!exactly(&WANTED, &from, length, states, found, given_up)) return(0);
-    uint16_t whole[RUN + 2] = { puts[0], puts[1] };
-    if (length + 2 > RUN) return(0);
-    memcpy(whole + 2, found, length * sizeof(uint16_t));
-    return(agree_on_machine(t->code, t->len, whole, length + 2, NULL, t->kept, t->n_kept, 1, t->at_top, 1) > 0);
+    uint16_t whole[RUN + PUTS];
+    if (length + PUTS > RUN) return(0);
+    memcpy(whole, puts, PUTS * sizeof(uint16_t));
+    memcpy(whole + PUTS, found, length * sizeof(uint16_t));
+    return(agree_on_machine(t->code, t->len, whole, length + PUTS, NULL, t->kept, t->n_kept, 1, t->at_top, 1) > 0);
 }
 
-// The numbers a turn pushes, each once: how many.
-static int numbers_pushed(const a_turn* t, int64_t* numbers, uint16_t* by, int most) {
+// The numbers a turn pushes, each once: how many.  There is room for as
+// many as the turn has instructions.
+static int numbers_pushed(const a_turn* t, int64_t* pushed, uint16_t* by) {
     int n = 0;
     for(int idx=0; idx < t->len; idx++) {
-        const numbered* is = NULL;
-        for(int p=0; p < pushing && !is; p++) if (PUSHING[p].ins == t->code[idx]) is = &PUSHING[p];
+        uint16_t x = t->code[idx];
         int had = 0;
-        for(int k=0; is && k < n; k++) had |= numbers[k] == is->number;
-        if (is && !had && n < most) numbers[n] = is->number, by[n++] = is->ins;
+        if (NUMBER_IN[x].does != PUSHES_IT) continue;
+        for(int k=0; k < n; k++) had |= pushed[k] == NUMBER_IN[x].number;
+        if (!had) pushed[n] = NUMBER_IN[x].number, by[n++] = x;
     }
     return(n);
 }
@@ -186,7 +210,7 @@ static int numbers_pushed(const a_turn* t, int64_t* numbers, uint16_t* by, int m
 // A turn's test the other way round, if it is one instruction: one that
 // leaves the stacks as it does, and on top what is nothing when the
 // test's is not.  The instruction, or nothing.
-static uint16_t test_turned(const turn* loop_turn) {
+static uint16_t test_turned(const turn* loop_turn, long states) {
     uint16_t found;
     named left;
     int given_up;
@@ -194,7 +218,7 @@ static uint16_t test_turned(const turn* loop_turn) {
     forget();
     if (!names(loop_turn->test, 1, &left)) return(0);
     if (!want(&WANTED, &left, not_flag(nothing(left.T)))) return(0);
-    return(exactly(&WANTED, NULL, 1, 100000, &found, &given_up) ? found : 0);
+    return(exactly(&WANTED, NULL, 1, states, &found, &given_up) ? found : 0);
 }
 
 static int by_parts(uint16_t* code, int len, long states);
@@ -207,14 +231,14 @@ typedef struct {
     int how;                            // which way it was found
     uint16_t code[RUN];                 // the instructions before the branch that goes back,
     int len;                            // and how many
-    int to[2 * SLOTS];                  // KEPT_ANYWHERE: where what the turn keeps is kept
+    int to[CELL_TERMS];                 // KEPT_ANYWHERE: where what the turn keeps is kept
     int64_t number;                     // NUMBER_IN_R: the number
 } way;
 
 typedef struct {
     a_turn turn;
-    way found[4 + RUN];                 // every way that fewer do it, in the order they were looked for
-    int n;
+    way found[NUMBER_IN_R + RUN];       // every way that fewer do it, in the order they were looked for: each of
+    int n;                              // the ways before the last once, and that once for each number pushed
     int fewest;                         // the fewest instructions a turn, with the branch: as many as now, if no fewer
     int gave_up[2];                     // searches given up with what it keeps where it is, and anywhere
 } shortened;
@@ -232,22 +256,25 @@ static way* a_way(shortened* s, int how, const uint16_t* code, int len) {
 // states.  False if the turn cannot be taken (take_turn).  A way that is
 // found is there only if it is fewer than those found before it by the
 // same means: anywhere, only if fewer than where it is.
-static int shorten(const turn* is, int how, long states, shortened* s) {
-    static int to[TURN_WAYS][2 * SLOTS];
+static int shorten(const turn* is, long states, shortened* s) {
     uint16_t found[RUN], known_to[RUN];
     a_turn* t = &s->turn;
+    int at_top = is->tests_at == TESTS_AT_TOP;
     memset(s, 0, sizeof(shortened));
-    if (!take_turn(is, how, t)) return(0);
+    if (!take_turn(is, t)) return(0);
     s->fewest = t->now;
 
     // With what it keeps where it is; and then anywhere, if that is fewer.
-    int ways = ways_to_keep(t, to, TURN_WAYS), most = t->now - 1, here = 0;
+    int (*to)[CELL_TERMS];
+    int ways = ways_to_keep(t, &to), most = t->now - 1, here = 0;
     for(int anywhere=0; anywhere < 2; anywhere++) {
         int length, way_found = -1;
         for(length=1; length < most; length++) {
             for(int w=0; w < (anywhere ? ways : 1) && way_found < 0; w++) {
                 int given_up = 0;
-                if (turn_in(t, anywhere ? to[w] : NULL, length, anywhere ? states / 10 : states, found, &given_up)) way_found = w;
+                if (turn_in(t, anywhere ? to[w] : NULL, length, anywhere ? states / ANYWHERE_SHARE : states, found, &given_up)) {
+                    way_found = w;
+                }
                 s->gave_up[anywhere] += given_up;
             }
             if (way_found >= 0) break;
@@ -261,6 +288,7 @@ static int shorten(const turn* is, int how, long states, shortened* s) {
             memcpy(a_way(s, KEPT_ANYWHERE, found, length)->to, to[way_found], sizeof(to[0]));
         }
     }
+    free(to);
 
     // What is known to do a turn with everything where it is: what was
     // found, or the loop itself with its test at the bottom, the other way
@@ -270,20 +298,20 @@ static int shorten(const turn* is, int how, long states, shortened* s) {
         known_len = here;
         memcpy(known_to, s->found[0].code, here * sizeof(uint16_t));
     } else {
-        uint16_t turned = how == 1 ? test_turned(is) : 0;
+        uint16_t turned = at_top ? test_turned(is, states) : 0;
         memcpy(known_to, is->body, is->bodies * sizeof(uint16_t));
         known_len = is->bodies;
-        if (how == 1 && turned) known_to[known_len++] = turned;
-        if (how == 1 && (!turned || agree_on_machine(t->code, t->len, known_to, known_len, NULL, t->kept, t->n_kept, 1, 1, 0) <= 0)) {
+        if (at_top && turned) known_to[known_len++] = turned;
+        if (at_top && (!turned || agree_on_machine(t->code, t->len, known_to, known_len, NULL, t->kept, t->n_kept, 1, 1, 0) <= 0)) {
             known_len = 0;
-        } else if (how == 1) {
+        } else if (at_top) {
             a_way(s, TEST_AT_BOTTOM, known_to, known_len);
         }
     }
     if (known_len) {
         uint16_t parted[RUN];
         memcpy(parted, known_to, known_len * sizeof(uint16_t));
-        int len = by_parts(parted, known_len, states / 4);
+        int len = by_parts(parted, known_len, states / PARTS_SHARE);
         if (len < known_len && agree_on_machine(t->code, t->len, parted, len, NULL, t->kept, t->n_kept, 1, t->at_top, 0) > 0) {
             a_way(s, A_PART_AT_A_TIME, parted, len);
         }
@@ -291,16 +319,15 @@ static int shorten(const turn* is, int how, long states, shortened* s) {
 
     // A number the turn pushes, kept on the return stack instead.  (The
     // parts forgot the turn's terms, so it is taken again.)
-    instruction to_r[8];                // lookup_word clears as many
-    int64_t numbers[RUN];
-    uint16_t pushed_by[RUN];
-    int pushed = lookup_word(FORTH_WORDS, ">r", to_r) == 1 && take_turn(is, how, t) ? numbers_pushed(t, numbers, pushed_by, RUN) : 0;
-    for(int n=0; n < pushed; n++) {
-        uint16_t puts[2] = { pushed_by[n], *(uint16_t*)to_r };
+    int64_t pushed[RUN];
+    uint16_t pushed_by[RUN], to_r = ins_named(">r");
+    int pushes = to_r && take_turn(is, t) ? numbers_pushed(t, pushed, pushed_by) : 0;
+    for(int n=0; n < pushes; n++) {
+        const uint16_t puts[PUTS] = { pushed_by[n], to_r };
         for(int length=1; length < s->fewest - 1; length++) {
             int given_up = 0;
-            if (turn_with(t, numbers[n], puts, length, states, found, &given_up)) {
-                a_way(s, NUMBER_IN_R, found, length)->number = numbers[n];
+            if (turn_with(t, pushed[n], puts, length, states, found, &given_up)) {
+                a_way(s, NUMBER_IN_R, found, length)->number = pushed[n];
                 break;
             }
             if (given_up) break;
@@ -310,14 +337,14 @@ static int shorten(const turn* is, int how, long states, shortened* s) {
 }
 
 // Shorten a run that ends with what `until` asks about, a part at a time:
-// any run of up to six of its instructions that fewer do the same as, with
+// any run of a few of its instructions that fewer do the same as, with
 // everything where it is.  The last part is wanted, on top, only for
 // whether it is nothing.  What is found is run on vm.c beside the part.
 // How long the run is after.
 static int by_parts(uint16_t* code, int len, long states) {
     for(int again=1; again; ) {
         again = 0;
-        for(int size = len < 6 ? len : 6; size > 1 && !again; size--) {
+        for(int size = len < PART_LONGEST ? len : PART_LONGEST; size > 1 && !again; size--) {
             for(int at=0; at + size <= len && !again; at++) {
                 named left;
                 int last = at + size == len;

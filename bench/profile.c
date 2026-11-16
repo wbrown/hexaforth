@@ -37,9 +37,8 @@
 #include "../util/image.h"
 #include "../util/words.c"
 #include "counting.h"
+#include "files.c"
 #include "work.c"
-
-#define CODE WORKED             // the places the counts are kept of
 
 static const struct { const char* name; const char* does; } DONE[] = {
     {"typing two lines in the Forth window", "'2 3 + .\r' ': sq dup * ; 12 sq .\r'"},
@@ -63,7 +62,7 @@ static const struct { const char* name; const char* does; } DONE[] = {
 static word WORDS[1 << 14];
 static int words;
 static long image_places;       // the instructions the image was built with
-static struct { long from, to; char file[64]; } SPANS[256];
+static span* SPANS;             // the files its code is of (files.c)
 static int spans;
 
 // The word a place is in; or that it is in what was defined at the
@@ -77,37 +76,16 @@ static const char* word_of(long at) {
 // their code in its own, so it is the smallest file's that has the place;
 // and what no file of the system's has is the nucleus's own.
 static const char* file_of(long at) {
-    const char* is = at >= image_places ? "(defined at the prompt)" : "nuc.fs";
-    long least = -1;
-    for(int n=0; n < spans; n++) {
-        long size = SPANS[n].to - SPANS[n].from;
-        if (at >= SPANS[n].from && at < SPANS[n].to && (least < 0 || size < least)) least = size, is = SPANS[n].file;
-    }
-    return(is);
+    const char* is = file_at(SPANS, spans, at);
+    return(is ? is : at >= image_places ? "(defined at the prompt)" : "nuc.fs");
 }
 
-// The image's .sizes: a line a file, with the bytes of code it compiled
-// second and the instruction its code starts at sixth.
-static void files_of(const char* path) {
-    FILE* in = fopen(path, "r");
-    if (in == NULL) {
-        perror(path);
-        exit(EXIT_FAILURE);
-    }
-    char row[256];
-    while (fgets(row, sizeof(row), in) && spans < 256) {
-        long bytes = 0, a, b, c, from = 0;
-        if (sscanf(row, "%63s %ld %ld %ld %ld %ld", SPANS[spans].file, &bytes, &a, &b, &c, &from) != 6) continue;
-        if (SPANS[spans].file[0] == '(' || !bytes) continue;
-        SPANS[spans].from = from, SPANS[spans].to = from + bytes / 2;
-        spans++;
-    }
-    fclose(in);
-}
-
+// The kind of instruction at a place.  One with a number in it is of a
+// variable if its shift is the one vm_opcodes.h names so.
 static const char* kind_of(long at) {
     instruction ins = *(instruction*)&machine.memory[at];
-    if (ins.lit.lit_f) return(ins.lit.lit_shifts == 3 ? "variable fetch or store" : ins.lit.lit_add ? "literal add" : "literal push");
+    bool variable = ins.lit.lit_f && !strcmp(LIT_SHIFT_REPR[ins.lit.lit_shifts], "var");
+    if (ins.lit.lit_f) return(variable ? "variable fetch or store" : ins.lit.lit_add ? "literal add" : "literal push");
     return(ins.jmp.op_type == OP_TYPE_JMP ? "jump" : ins.jmp.op_type == OP_TYPE_CJMP ? "conditional branch" :
            ins.jmp.op_type == OP_TYPE_CALL ? "call" : "ALU");
 }
@@ -115,12 +93,20 @@ static const char* kind_of(long at) {
 // ---- what is counted, by what it is of
 
 typedef struct { const char* of; double much, calls; } share;
-static share SHARES[1 << 14];
-static int shares;
+static share* SHARES;           // as many as there are, and room for more as they are found
+static int shares, shares_room;
 
 static void shared(const char* of, double much, double calls) {
     int n = 0;
     while (n < shares && strcmp(SHARES[n].of, of)) n++;
+    if (n == shares_room) {
+        shares_room = 2 * shares_room + words + 1;
+        SHARES = realloc(SHARES, shares_room * sizeof(share));
+        if (SHARES == NULL) {
+            fprintf(stderr, "there is no room for %d shares\n", shares_room);
+            exit(EXIT_FAILURE);
+        }
+    }
     if (n == shares) SHARES[shares++] = (share){ of, 0, 0 };
     SHARES[n].much += much;
     SHARES[n].calls += calls;
@@ -134,7 +120,7 @@ static int by_most(const void* a, const void* b) {
 // The places' counts by file, word or kind, and the most of them printed.
 static void by(const char* what, const double* counts, const char* (*of)(long), int most, double whole, double each) {
     shares = 0;
-    for(long at=0; at < CODE; at++) {
+    for(long at=0; at < PLACES; at++) {
         if (counts[at] > 0) shared(of(at), counts[at], 0);
     }
     qsort(SHARES, shares, sizeof(share), by_most);
@@ -148,13 +134,13 @@ static void by(const char* what, const double* counts, const char* (*of)(long), 
 
 // ---- the readings
 
-static uint64_t last[CODE];
+static uint64_t last[PLACES];
 static long last_turns;
 
 // What has been run since the last reading, and the turns the loop took.
 static long reading(uint64_t* counts) {
     desk_screen();                      // the machine takes everything that was sent
-    for(long at=0; at < CODE; at++) counts[at] = RAN[at] - last[at], last[at] = RAN[at];
+    for(long at=0; at < PLACES; at++) counts[at] = RAN[at] - last[at], last[at] = RAN[at];
     long turns = deskvm_turns - last_turns;
     last_turns = deskvm_turns;
     return(turns);
@@ -186,7 +172,7 @@ int main(int argc, char *argv[]) {
     size_t len = load_image(argv[1], &image);
     image_places = len / 2;
     words = words_of(image, len, argv[2], WORDS, 1 << 14);
-    files_of(argv[3]);
+    spans = files_of(argv[3], &SPANS);
     tables_are(argv[6]);
 
     desk on = deskvm_start(argv[1], argv[4], argv[5], argv[7], true);
@@ -194,18 +180,18 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "the desktop did not come up with its windows where forth/desk.fs puts them\n");
         return(1);
     }
-    static uint64_t counts[CODE];
-    static double net[CODE], work[CODE], a_turn[CODE];
+    static uint64_t counts[PLACES];
+    static double net[PLACES], work[PLACES], a_turn[PLACES];
     long turns = reading(counts);
     double all = 0;
-    for(long at=0; at < CODE; at++) all += counts[at];
+    for(long at=0; at < PLACES; at++) all += counts[at];
     printf("booting, with the picture dithered: %.0f instructions, %ld turns of the loop\n", all, turns);
 
     // Nothing happening: what a turn of the loop runs.
     desk_turns(200);
     turns = reading(counts);
     all = 0;
-    for(long at=0; at < CODE; at++) a_turn[at] = (double)counts[at] / turns, all += a_turn[at];
+    for(long at=0; at < PLACES; at++) a_turn[at] = (double)counts[at] / turns, all += a_turn[at];
     printf("\na turn of the event loop with nothing happening: %.0f instructions\n", all);
     by("by word: ", a_turn, word_of, 9, all, 1);
 
@@ -215,7 +201,7 @@ int main(int argc, char *argv[]) {
         desk_turns(12);
         turns = reading(counts);
         double total = 0, ran = 0;
-        for(long at=0; at < CODE; at++) {
+        for(long at=0; at < PLACES; at++) {
             net[at] = counts[at] - turns * a_turn[at];
             if (net[at] < 0) net[at] = 0;
             work[at] += net[at];
@@ -229,7 +215,7 @@ int main(int argc, char *argv[]) {
         by("by kind: ", net, kind_of, 9, total, 0);
         if (detail && strstr(DONE[n].name, detail)) {   // each word: its instructions, and its calls
             shares = 0;
-            for(long at=0; at < CODE; at++) {
+            for(long at=0; at < PLACES; at++) {
                 bool first = at < image_places && place_of(WORDS, words, word_of(at)) == at;
                 if (net[at] > 0) shared(word_of(at), net[at], first ? net[at] : 0);
             }
@@ -247,5 +233,5 @@ int main(int argc, char *argv[]) {
 
     char path[512];
     snprintf(path, sizeof(path), "%s/desktop.counts", argv[7]);
-    return(work_written(path, work, a_turn) ? 0 : 1);
+    return(work_written(path, work, a_turn, PLACES) ? 0 : 1);
 }

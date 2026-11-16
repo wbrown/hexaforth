@@ -11,8 +11,8 @@
 // COUNTS is the work by place, as bench/profile.c leaves it
 // (build/profile/desktop.counts; work.c).  ONLY in the environment is
 // words, with commas between, whose loops alone are looked at; NODES is
-// the states a search looks at before it is given up (20,000), and LONGEST
-// the instructions in a turn that is looked at (12).
+// the states a search looks at before it is given up, and LONGEST the
+// instructions in a turn that is looked at.
 //
 // The report is build/shorter.txt if none is named: for each loop, the
 // turn as it is, and each way that fewer do it.  A line a loop is printed
@@ -29,10 +29,14 @@
 #include "../util/turns.c"
 #include "work.c"
 
+// How much is looked at, if the environment does not say: chosen, so that
+// the desktop's loops are done in about a minute.
+#define NODES   20000                   // the states a search looks at before it is given up
+#define LONGEST 12                      // the instructions in a turn that is looked at
+
 static cut_image IMAGE;
-static double work[WORKED];
-static loop LOOPS[4096];
-static int order[4096];
+static double* work;                    // how often each of the image's instructions ran
+static loop* LOOPS;
 
 static double work_in(const loop* l) {
     double is = 0;
@@ -55,15 +59,16 @@ static int named_in(const char* list, const char* name) {
 
 // A way that fewer instructions do a turn, as a line of the report.
 static void say_way(FILE* out, const a_turn* t, const way* w) {
-    char text[1024], where[256];
-    say_run(text, w->code, w->len, 1);
+    char* text = run_said(w->code, w->len, 1);
+    char* where;
     switch (w->how) {
         case KEPT_HERE:
             fprintf(out, "    %d with the values where they are:  begin %s until\n", w->len + 1, text);
             break;
         case KEPT_ANYWHERE:
-            say_kept(where, t, w->to);
+            where = kept_said(t, w->to);
             fprintf(out, "    %d with the values anywhere (%s):  begin %s until\n", w->len + 1, where, text);
+            free(where);
             break;
         case TEST_AT_BOTTOM:
             fprintf(out, "    %d with the test at the bottom:  begin %s until\n", w->len + 1, text);
@@ -76,6 +81,7 @@ static void say_way(FILE* out, const a_turn* t, const way* w) {
                     (long long)w->number, (long long)w->number, text);
             break;
     }
+    free(text);
 }
 
 int main(int argc, char *argv[]) {
@@ -85,60 +91,67 @@ int main(int argc, char *argv[]) {
     }
     const char* report = argc > 4 ? argv[4] : "build/shorter.txt";
     const char* only = getenv("ONLY");
-    long states = getenv("NODES") ? atol(getenv("NODES")) : 20000;
-    int longest = getenv("LONGEST") ? atoi(getenv("LONGEST")) : 12;
+    long states = getenv("NODES") ? atol(getenv("NODES")) : NODES;
+    int longest = getenv("LONGEST") ? atoi(getenv("LONGEST")) : LONGEST;
     get_ready();
     list_kinds();
     fewer_ready();
     cut(&IMAGE, argv[1], argv[2]);
-    if (!work_read(argv[3], work, NULL)) return(1);
+    double* counts;
+    long counted = work_read(argv[3], &counts, NULL), n = IMAGE.instructions;
+    if (!counted) return(1);
+    work = room_for(n, sizeof(double));                 // nothing, for an instruction the counts are not of
+    for(long at=0; at < n && at < counted; at++) work[at] = counts[at];
+    free(counts);
     FILE* out = fopen(report, "w");
     if (!out) { perror(report); return(1); }
 
-    int loops = loops_of(&IMAGE, LOOPS, 4096), ran = 0, looked = 0;
+    int loops = loops_of(&IMAGE, &LOOPS), ran_loops = 0, looked = 0;
+    int* order = room_for(loops, sizeof(int));
     double all = 0, saved = 0;
-    for(long at=0; at < IMAGE.instructions && at < WORKED; at++) all += IMAGE.code[at] ? work[at] : 0;
-    for(int idx=0; idx < loops; idx++) if (LOOPS[idx].tail < WORKED && work[LOOPS[idx].tail] >= 1) order[ran++] = idx;
-    qsort(order, ran, sizeof(int), by_work);
+    for(long at=0; at < n; at++) all += IMAGE.code[at] ? work[at] : 0;
+    for(int idx=0; idx < loops; idx++) if (work[LOOPS[idx].tail] >= 1) order[ran_loops++] = idx;
+    qsort(order, ran_loops, sizeof(int), by_work);
     fprintf(out, "%s: loops that call nothing, by how often they ran.\n\n", argv[1]);
 
-    for(int idx=0; idx < ran; idx++) {
+    for(int idx=0; idx < ran_loops; idx++) {
         const loop* l = &LOOPS[order[idx]];
         int in_word = holding(&IMAGE, l->head);
         const char* word = in_word >= 0 ? IMAGE.words[in_word].name : "?";
         double turns = work[l->tail];
-        char title[256], text[1024];
+        char title[sizeof(IMAGE.words[0].name) + 64];   // a word's name, two places and a count
+        char* text;
         static shortened s;
         turn is;
         if (only && !named_in(only, word)) continue;
         snprintf(title, sizeof(title), "%s  %04lx-%04lx: %.0f turns", word, l->head, l->tail, turns);
-        int how = turn_of(&IMAGE, l, &is);
-        if (!how) {
+        if (!turn_of(&IMAGE, l, &is)) {
             fprintf(out, "%s: not looked at (it calls a word, or branches inside)\n", title);
             continue;
         }
-        int now = is.bodies + (how == 1 ? is.tests + 2 : 1);
-        if (now > longest) {
-            fprintf(out, "%s, %d instructions a turn: not looked at (more than %d)\n", title, now, longest);
+        if (turn_now(&is) > longest) {
+            fprintf(out, "%s, %d instructions a turn: not looked at (more than %d)\n", title, turn_now(&is), longest);
             continue;
         }
-        if (!shorten(&is, how, states, &s)) {
+        if (!shorten(&is, states, &s)) {
             fprintf(out, "%s: not looked at (the step cannot follow a turn)\n", title);
             continue;
         }
         looked++;
         fprintf(out, "%s, %d instructions a turn\n", title, s.turn.now);
         fprintf(out, "    now:  begin ");
-        if (how == 1) {
-            say_run(text, is.test, is.tests, 1);
+        if (is.tests_at == TESTS_AT_TOP) {
+            text = run_said(is.test, is.tests, 1);
             fprintf(out, "%s while ", text);
+            free(text);
         }
-        say_run(text, is.body, is.bodies, 1);
-        fprintf(out, "%s %s\n", text, how == 1 ? "repeat" : "until");
-        static const char* const kept[2] = { "where they are", "anywhere" };
-        for(int anywhere=0; anywhere < 2; anywhere++) {
+        text = run_said(is.body, is.bodies, 1);
+        fprintf(out, "%s %s\n", text, is.tests_at == TESTS_AT_TOP ? "repeat" : "until");
+        free(text);
+        static const char* const kept[] = { "where they are", "anywhere" };
+        for(int anywhere=0; anywhere < COUNT(kept); anywhere++) {
             int found = 0;
-            for(int n=0; n < s.n; n++) found |= s.found[n].how == (anywhere ? KEPT_ANYWHERE : KEPT_HERE);
+            for(int w=0; w < s.n; w++) found |= s.found[w].how == (anywhere ? KEPT_ANYWHERE : KEPT_HERE);
             if (found) continue;
             if (s.gave_up[anywhere]) {
                 fprintf(out, "    (values %s: %d searches were given up, so fewer may do)\n", kept[anywhere], s.gave_up[anywhere]);
@@ -146,7 +159,7 @@ int main(int argc, char *argv[]) {
                 fprintf(out, "    (values %s: no fewer instructions do it)\n", kept[anywhere]);
             }
         }
-        for(int n=0; n < s.n; n++) say_way(out, &s.turn, &s.found[n]);
+        for(int w=0; w < s.n; w++) say_way(out, &s.turn, &s.found[w]);
         if (s.fewest < s.turn.now) saved += (s.turn.now - s.fewest) * turns;
         printf("%s: %d -> %d\n", title, s.turn.now, s.fewest);
         fflush(stdout);
@@ -154,6 +167,6 @@ int main(int argc, char *argv[]) {
     fprintf(out, "\nInstructions that the fewest found would save: %.0f of %.0f.\n", saved, all);
     fclose(out);
     printf("\n%d loops ran, and %d were looked at; the fewest found would save %.0f of %.0f instructions.\nall of it: %s\n",
-           ran, looked, saved, all, report);
-    return(ran ? 0 : 1);
+           ran_loops, looked, saved, all, report);
+    return(ran_loops ? 0 : 1);
 }

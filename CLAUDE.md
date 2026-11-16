@@ -496,7 +496,8 @@ The machine, in C:
   often each place is run: by itself, or as the VM in a test) and
   `weigh.c` (the runs and the rules weighed by that); `profile.sh` and
   `profile.c` (where the desktop's instructions go), with `work.c` (the
-  work by place, as the file the profile leaves), `costs.c` (what the
+  work by place, as the file the profile leaves), `files.c` (the source
+  files an image's code is of, from its `.sizes`), `costs.c` (what the
   work costs: each word with all it calls, the loops, the variables),
   `shorter.c` (the loops that ran, and fewer instructions that do a turn
   of each) and `cycles.h` (the cycles the Verilog takes for an

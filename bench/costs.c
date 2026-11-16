@@ -37,31 +37,31 @@
 //               they are working on in variables, and so can be in use
 //               only once.
 //
-// Cycles are the Verilog CPU's, as cycles.h has them.
+// Cycles are the Verilog CPU's, as cycles.h has them.  What an instruction
+// with a number in it does (pushes it, adds it, fetches or stores the
+// variable at it) is asked of the machine's step (kinds.c).
+//
+// Nothing here has room for only so many of anything: what there is is
+// counted, and room is made for that.
 //
 
 #include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include "../vm.c"
+#include "../util/fuse.c"
 #include "../util/cut.c"
+#include "../util/kinds.c"
 #include "../util/loops.c"
 #include "cycles.h"
+#include "files.c"
 #include "work.c"
 
-#define CODE    WORKED          // the places the counts are of
-#define MOST    (1 << 14)       // the most words, loops or variables
-
-static cut_image IMAGE;         // the image cut into its runs, which says where its loops are
-
-static uint16_t code[CODE];     // the image's instructions,
-static long places;             // and how many it has
-static double work[CODE];       // how often each ran
-static word WORDS[MOST];        // the words, in order of where they are
+static cut_image IMAGE;         // the image, cut into its runs: its instructions, its words, and where its loops are
+static const uint16_t* code;    // its instructions,
+static long places;             // and how many of them the work is of
+static double* work;            // how often each ran
+static const word* WORDS;       // the words, in order of where they are
 static int words;
-static int in_word[CODE];       // the word each place is in, or less than nothing
-static struct { long from, to; char file[64]; } SPANS[256];
+static int* in_word;            // the word each place is in, or less than nothing
+static span* SPANS;             // the files the code is of (files.c)
 static int spans;
 static double all_work, all_cycles;
 static FILE* out;               // the report being written,
@@ -91,71 +91,80 @@ static void report(const char* dir, const char* name, int print) {
 
 static const char* name_of(int w) { return(w < 0 ? "(before any word)" : WORDS[w].name); }
 
-// The source file a place's code is of: the smallest file's that has it,
-// since a file that includes others has their code in its own; and what
-// no file of the system's has is the nucleus's own.
+// The cycles the instruction at a place takes.
+static int cycles_at(long at) { return(cycles_of(ins_of(code[at]), NUMBER_IN[code[at]].does == FETCHES_AT_IT)); }
+
+// The source file a place's code is of; and what no file of the system's
+// has is the nucleus's own.
 static const char* file_of(long at) {
-    const char* is = "nuc.fs";
-    long least = -1;
-    for(int n=0; n < spans; n++) {
-        long size = SPANS[n].to - SPANS[n].from;
-        if (at >= SPANS[n].from && at < SPANS[n].to && (least < 0 || size < least)) least = size, is = SPANS[n].file;
-    }
-    return(is);
+    const char* is = file_at(SPANS, spans, at);
+    return(is ? is : "nuc.fs");
+}
+
+// Is a place the start of a word?
+static bool starts_word(long at) {
+    return(at >= 0 && at < places && in_word[at] >= 0 && WORDS[in_word[at]].at == at);
 }
 
 static void load(const char* hex, const char* tables, const char* sizes, const char* counts) {
-    uint8_t* image;
-    size_t len = load_image(hex, &image);
-    places = len / 2 < CODE ? (long)(len / 2) : CODE;
-    memcpy(code, image, places * 2);
-    words = words_of(image, len, tables, WORDS, MOST);
+    cut(&IMAGE, hex, tables);
+    long counted = work_read(counts, &work, NULL);
+    if (!counted) exit(EXIT_FAILURE);
+    code = IMAGE.code;
+    places = IMAGE.instructions < counted ? IMAGE.instructions : counted;
+    WORDS = IMAGE.words;
+    words = IMAGE.n;
+    in_word = room_for(places, sizeof(int));
     int w = -1;
-    for(long at=0; at < CODE; at++) {
+    for(long at=0; at < places; at++) {
         while (w + 1 < words && WORDS[w + 1].at <= at) w++;
         int first = w;                          // of the names for the same code, the first
         while (first > 0 && WORDS[first - 1].at == WORDS[w].at) first--;
         in_word[at] = w < 0 ? -1 : first;
     }
-    FILE* in = fopen(sizes, "r");
-    char row[256];
-    while (in && fgets(row, sizeof(row), in) && spans < 256) {
-        long bytes = 0, a, b, c, from = 0;
-        if (sscanf(row, "%63s %ld %ld %ld %ld %ld", SPANS[spans].file, &bytes, &a, &b, &c, &from) != 6) continue;
-        if (SPANS[spans].file[0] == '(' || !bytes) continue;
-        SPANS[spans].from = from, SPANS[spans].to = from + bytes / 2;
-        spans++;
-    }
-    if (in) fclose(in);
-    cut(&IMAGE, hex, tables);
-    if (!work_read(counts, work, NULL)) exit(EXIT_FAILURE);
-    for(long at=0; at < CODE; at++) {
-        if (at >= places || !code[at]) work[at] = 0;    // what was defined at the prompt is not the image's
+    spans = files_of(sizes, &SPANS);
+    for(long at=0; at < places; at++) {
+        if (!code[at]) work[at] = 0;            // nothing is there: what ran was put there at the prompt
         all_work += work[at];
-        all_cycles += work[at] * cycles_of(ins_of(code[at]));
+        all_cycles += work[at] * cycles_at(at);
     }
 }
 
 // ---- each word, with all it calls
 
 typedef struct { int from, to; double times; } call;
-static call CALLS[1 << 16];
-static int calls;
-static double own[MOST][2];             // what each word did itself: instructions, and cycles
-static double called[MOST], entered[MOST];
-static bool comes_round[MOST];          // it goes back to its own start, which is then no measure of how often it is entered
-static double whole_of[MOST][2];
-static char state[MOST];                // 0 not worked out, 1 being worked out, 2 worked out
-static int order[MOST];
+static call* CALLS;                     // as many as there are, and room for more as they are found
+static int calls, calls_room;
+static double (*own)[2];                // by word.  What each did itself: instructions, and cycles
+static double* called;
+static double* entered;
+static bool* comes_round;               // it goes back to its own start, which is then no measure of how often it is entered
+static double (*whole_of)[2];
+static char* worked_out;                // 0 not worked out, 1 being worked out, 2 worked out
+static int* order;
+
+// The call from one word to another, which is made if it is not there.
+static call* call_from(int from, int to) {
+    for(int n=0; n < calls; n++) if (CALLS[n].from == from && CALLS[n].to == to) return(&CALLS[n]);
+    if (calls == calls_room) {
+        calls_room = 2 * calls_room + words;
+        CALLS = realloc(CALLS, calls_room * sizeof(call));
+        if (!CALLS) { fprintf(stderr, "there is no room for %d calls\n", calls_room); exit(EXIT_FAILURE); }
+    }
+    CALLS[calls] = (call){ from, to, 0 };
+    return(&CALLS[calls++]);
+}
 
 // The number the instructions before a place push, if they are a push of
-// one: the execution token of a call to another page.  Less than nothing
-// if they are not.
+// one and what is added to it: the execution token of a call to another
+// page.  Less than nothing if they are not.
 static long pushed(long at) {
     long value = 0;
-    for(long k=at - 1; k >= 0 && (pushes_number(code[k], 0) || pushes_number(code[k], 1)); k--) {
-        value += number_in(code[k]);
-        if (pushes_number(code[k], 0)) return(value);
+    for(long k=at - 1; k >= 0; k--) {
+        int does = NUMBER_IN[code[k]].does;
+        if (does != PUSHES_IT && does != ADDS_IT) break;
+        value += NUMBER_IN[code[k]].number;
+        if (does == PUSHES_IT) return(value);
     }
     return(-1);
 }
@@ -163,9 +172,9 @@ static long pushed(long at) {
 // A word and all it calls: instructions, and cycles.  A word that comes
 // round to itself is its own, once.
 static const double* whole(int w) {
-    if (state[w] == 2) return(whole_of[w]);
-    if (state[w] == 1) return(own[w]);
-    state[w] = 1;
+    if (worked_out[w] == 2) return(whole_of[w]);
+    if (worked_out[w] == 1) return(own[w]);
+    worked_out[w] = 1;
     double total[2] = { own[w][0], own[w][1] };
     for(int n=0; n < calls; n++) {
         if (CALLS[n].from != w || !entered[CALLS[n].to]) continue;
@@ -174,7 +183,7 @@ static const double* whole(int w) {
         total[1] += CALLS[n].times * t[1] / entered[CALLS[n].to];
     }
     whole_of[w][0] = total[0], whole_of[w][1] = total[1];
-    state[w] = 2;
+    worked_out[w] = 2;
     return(whole_of[w]);
 }
 
@@ -192,12 +201,19 @@ static int by_much(const void* a, const void* b) {
 static void paths(const char* hex) {
     long execute = place_of(WORDS, words, "execute");
     double unseen = 0;                  // calls by execute of what is not a number
+    own = room_for(words, sizeof(*own));
+    called = room_for(words, sizeof(double));
+    entered = room_for(words, sizeof(double));
+    comes_round = room_for(words, sizeof(bool));
+    whole_of = room_for(words, sizeof(*whole_of));
+    worked_out = room_for(words, sizeof(char));
+    order = room_for(words, sizeof(int));
     for(long at=0; at < places; at++) {
         int w = in_word[at];
         instruction ins = ins_of(code[at]);
         if (w < 0 || !code[at]) continue;
         own[w][0] += work[at];
-        own[w][1] += work[at] * cycles_of(ins);
+        own[w][1] += work[at] * cycles_at(at);
         if (ins.lit.lit_f || ins.alu.op_type == OP_TYPE_ALU) continue;
         long to = goes_to(at, code[at]);
         bool branch = ins.jmp.op_type == OP_TYPE_CJMP;
@@ -208,27 +224,24 @@ static void paths(const char* hex) {
                 continue;
             }
         }
-        if (to < 0 || to >= CODE) continue;
+        if (to < 0 || to >= places) continue;
         if (to == WORDS[w].at) {
             comes_round[w] = true;
-        } else if (!branch && in_word[to] >= 0 && WORDS[in_word[to]].at == to) {
-            int n = 0;                  // a call, or a jump to another word, which is one
-            while (n < calls && (CALLS[n].from != w || CALLS[n].to != in_word[to])) n++;
-            if (n == calls) CALLS[calls++] = (call){ w, in_word[to], 0 };
-            CALLS[n].times += work[at];
+        } else if (!branch && starts_word(to)) {
+            call_from(w, in_word[to])->times += work[at];   // a call, or a jump to another word, which is one
         }
     }
     for(int n=0; n < calls; n++) called[CALLS[n].to] += CALLS[n].times;
     int rows = 0;
     for(int w=0; w < words; w++) {
-        double at_start = WORDS[w].at < CODE ? work[WORDS[w].at] : 0;
+        double at_start = WORDS[w].at < places ? work[WORDS[w].at] : 0;
         entered[w] = comes_round[w] || called[w] > at_start ? called[w] : at_start;
     }
     for(int w=0; w < words; w++) {
         bool has_calls = false;
         for(int n=0; n < calls && !has_calls; n++) has_calls = CALLS[n].from == w;
         whole(w);
-        if (in_word[WORDS[w].at < CODE ? WORDS[w].at : 0] == w && (own[w][0] || has_calls)) order[rows++] = w;
+        if (in_word[WORDS[w].at < places ? WORDS[w].at : 0] == w && (own[w][0] || has_calls)) order[rows++] = w;
     }
     qsort(order, rows, sizeof(int), by_whole);
 
@@ -250,8 +263,8 @@ static void paths(const char* hex) {
     say("Where it goes, for the words that cost most: what the word did itself, and what");
     say("each word it calls was charged to it.");
     say("");
+    charge* parts = room_for(calls + 1, sizeof(charge));        // a word's own, and one for each call
     for(int r=0; r < rows && r < 60; r++) {
-        static charge parts[MOST];
         int w = order[r], n = 0;
         parts[n].much = own[w][0];
         snprintf(parts[n++].what, sizeof(parts[0].what), "itself");
@@ -268,12 +281,13 @@ static void paths(const char* hex) {
             }
         }
     }
+    free(parts);
 
     say("");
     say("Entered more often than any call that can be seen: by execute of a vector, or as a");
     say("task, or from the prompt.  What they cost then is charged to no one above them.");
     say("");
-    static charge hidden[MOST];
+    charge* hidden = room_for(words, sizeof(charge));
     int n = 0;
     for(int w=0; w < words; w++) {
         if (comes_round[w] || !entered[w] || entered[w] <= called[w]) continue;
@@ -285,6 +299,7 @@ static void paths(const char* hex) {
     }
     qsort(hidden, n, sizeof(charge), by_much);
     for(int h=0; h < n; h++) say("    %s", hidden[h].what);
+    free(hidden);
     say("");
     say("Calls by execute of what is not a number in the code: %.0f", unseen);
 }
@@ -292,8 +307,6 @@ static void paths(const char* hex) {
 // ---- the loops
 
 typedef struct { long head, tail; double cycles, ran, turns; bool inner; int calls; } ran_loop;
-static ran_loop LOOPS[MOST];
-static int loops;
 
 static int by_cycles(const void* a, const void* b) {
     double x = ((const ran_loop*)a)->cycles, y = ((const ran_loop*)b)->cycles;
@@ -301,16 +314,17 @@ static int by_cycles(const void* a, const void* b) {
 }
 
 static void the_loops(const char* hex) {
-    static loop back[MOST];             // the image's loops (loops.c), of which those that ran are kept
-    int backs = loops_of(&IMAGE, back, MOST);
+    loop* back;                         // the image's loops (loops.c), of which those that ran are kept
+    int backs = loops_of(&IMAGE, &back), loops = 0;
+    ran_loop* LOOPS = room_for(backs, sizeof(ran_loop));
     for(int b=0; b < backs; b++) {
-        if (back[b].tail >= CODE) continue;
+        if (back[b].tail >= places) continue;
         ran_loop l = { back[b].head, back[b].tail, 0, 0, work[back[b].tail], true, 0 };
         if (l.turns < 1) continue;
         for(long a=l.head; a <= l.tail; a++) {
             instruction ins = ins_of(code[a]);
             l.ran += work[a];
-            l.cycles += work[a] * cycles_of(ins);
+            l.cycles += work[a] * cycles_at(a);
             if (!ins.lit.lit_f && ins.jmp.op_type == OP_TYPE_CALL && work[a] >= l.turns / 2) l.calls++;
         }
         for(int o=0; o < backs; o++) if (loop_within(&back[o], &back[b])) l.inner = false;
@@ -329,8 +343,6 @@ static void the_loops(const char* hex) {
             l->inner ? "" : "  (has a loop inside)");
     }
     shown = 0;
-    static word_node opcodes[1024];
-    init_opcodes(opcodes);
     for(int n=0; n < loops; n++) {
         const ran_loop* l = &LOOPS[n];
         say("");
@@ -342,38 +354,55 @@ static void the_loops(const char* hex) {
             char is[256];
             if (!ins.lit.lit_f && ins.alu.op_type != OP_TYPE_ALU) {
                 long to = goes_to(a, code[a]);
-                bool named = to >= 0 && to < CODE && in_word[to] >= 0 && WORDS[in_word[to]].at == to;
                 const char* how = ins.jmp.op_type == OP_TYPE_CALL ? "call" : ins.jmp.op_type == OP_TYPE_CJMP ? "0branch" : "jump";
-                if (named) snprintf(is, sizeof(is), "%s %s", how, WORDS[in_word[to]].name);
+                if (starts_word(to)) snprintf(is, sizeof(is), "%s %s", how, WORDS[in_word[to]].name);
                 else snprintf(is, sizeof(is), "%s %04lx", how, to);
             } else {
-                decode_instruction(is, ins, opcodes);
+                decode_instruction(is, ins, FORTH_WORDS);
             }
             say("    %04lx %04x %12.0f  %s", a, code[a], work[a], is);
         }
     }
+    free(LOOPS);
+    free(back);
 }
 
 // ---- the variables
 
-static word DATA[MOST];         // the names of cells: of each label for data, and of each word that only pushes one
-static int data;
+static word* LABELS;            // the names of cells: of each label for data, and of each word that only pushes one
+static int labels;
 typedef struct { const char* name; double fetched, stored; int users, user; } variable;
-static variable VARS[MOST];
-static int vars;
+static variable* VARS;          // those that are fetched or stored, and room for more as they are found
+static int vars, vars_room;
+typedef struct { long cell; char name[24]; } unnamed;
+static unnamed** UNNAMED;       // the cells that have no name, each said by its number
+static int unnameds;
 
-static const char* cell_name(long cell) {
-    static char numbered[MOST][24];
-    static int next;
-    for(int n=0; n < data; n++) if (DATA[n].at == cell) return(DATA[n].name);
-    snprintf(numbered[next % MOST], sizeof(numbered[0]), "cell %lx", cell);
-    return(numbered[next++ % MOST]);
+// More room, if there is not room for one more of something.
+static void* room_for_more(void* list, int count, int* room, size_t size) {
+    if (count < *room) return(list);
+    *room = 2 * *room + labels + 1;
+    list = realloc(list, *room * size);
+    if (!list) { fprintf(stderr, "there is no room for %d more\n", *room); exit(EXIT_FAILURE); }
+    return(list);
 }
 
-static variable* var_of(const char* name) {
-    for(int n=0; n < vars; n++) if (!strcmp(VARS[n].name, name)) return(&VARS[n]);
+static const char* cell_name(long cell) {
+    static int room;
+    for(int n=0; n < labels; n++) if (LABELS[n].at == cell) return(LABELS[n].name);
+    for(int n=0; n < unnameds; n++) if (UNNAMED[n]->cell == cell) return(UNNAMED[n]->name);
+    UNNAMED = room_for_more(UNNAMED, unnameds, &room, sizeof(unnamed*));
+    UNNAMED[unnameds] = room_for(1, sizeof(unnamed));
+    UNNAMED[unnameds]->cell = cell;
+    snprintf(UNNAMED[unnameds]->name, sizeof(UNNAMED[0]->name), "cell %lx", cell);
+    return(UNNAMED[unnameds++]->name);
+}
+
+static int var_of(const char* name) {
+    for(int n=0; n < vars; n++) if (!strcmp(VARS[n].name, name)) return(n);
+    VARS = room_for_more(VARS, vars, &vars_room, sizeof(variable));
     VARS[vars] = (variable){ name, 0, 0, 0, -1 };
-    return(&VARS[vars++]);
+    return(vars++);
 }
 
 static void used_by(variable* v, int w) {
@@ -388,41 +417,63 @@ static int by_use(const void* a, const void* b) {
     return(p < q ? 1 : p > q ? -1 : 0);
 }
 
-static bool is_fetch(instruction ins) { return(ins.lit.lit_f && ins.lit.lit_shifts == 3 && !ins.lit.lit_add); }
-static bool is_store(instruction ins) { return(ins.lit.lit_f && ins.lit.lit_shifts == 3 && ins.lit.lit_add); }
+// What an instruction does with a variable, as the step says (kinds.c);
+// and which variable it is of, as where the one that stores to it is among
+// those that store, or less than nothing if it is of none.
+static bool is_fetch(uint16_t w) { return(NUMBER_IN[w].does == FETCHES_AT_IT); }
+static bool is_store(uint16_t w) { return(NUMBER_IN[w].does == STORES_AT_IT); }
 
-static bool wanted(long at, char** files, int count) {
+static int variable_at(uint16_t w) {
+    const numbered* stores = is_fetch(w) || is_store(w) ? numbered_as(STORES_AT_IT, NUMBER_IN[w].number) : NULL;
+    return(stores ? (int)(stores - NUMBERED[STORES_AT_IT]) : -1);
+}
+
+static bool in_files(long at, char** files, int count) {
     for(int n=0; n < count; n++) if (!strcmp(file_of(at), files[n])) return(true);
     return(!count);
+}
+
+// A name more in what a word keeps things in, if it is not there.
+static void also_in(char** kept_in, const char* name) {
+    size_t had = *kept_in ? strlen(*kept_in) : 0;
+    if (had && strstr(*kept_in, name)) return;
+    *kept_in = realloc(*kept_in, had + strlen(name) + 2);
+    if (!*kept_in) { fprintf(stderr, "there is no room for a name\n"); exit(EXIT_FAILURE); }
+    sprintf(*kept_in + had, " %s", name);
 }
 
 static void variables(const char* hex, const char* tables, char** files, int count) {
     // A label for data is the name of its cell; and a word that only
     // pushes a number is a name for the cell of that number.
-    instruction leaves[8];
-    lookup_word(FORTH_WORDS, "exit", leaves);
-    data = data_of(tables, DATA, MOST);
+    uint16_t leaves = ins_named("exit");
+    if (!leaves) {
+        fprintf(stderr, "costs: exit is not one instruction\n");
+        exit(EXIT_FAILURE);
+    }
+    int for_data = data_of(tables, NULL, 0);
+    LABELS = room_for(for_data + words, sizeof(word));
+    labels = data_of(tables, LABELS, for_data);
     long port = (long)data_called(tables, "gstate"), port_end = -1;
-    for(int n=0; n < data && port; n++) {       // the port's cells are from there to the next label
-        if (DATA[n].at > port && (port_end < 0 || DATA[n].at < port_end)) port_end = DATA[n].at;
+    for(int n=0; n < labels && port; n++) {     // the port's cells are from there to the next label
+        if (LABELS[n].at > port && (port_end < 0 || LABELS[n].at < port_end)) port_end = LABELS[n].at;
     }
-    static struct { long from, to; } aside[64]; // from a word named ...-state up to the one named ...-end
-    int asides = 0;
-    for(int w=0; w < words && data < MOST; w++) {
+    for(int w=0; w < words; w++) {
         long at = WORDS[w].at, value = 0;
-        if (at >= places || !pushes_number(code[at], 0)) continue;
-        value = number_in(code[at++]);
-        while (at < places && pushes_number(code[at], 1)) value += number_in(code[at++]);
-        if (at >= places || code[at] != *(uint16_t*)leaves) continue;
-        DATA[data] = WORDS[w], DATA[data++].at = value;
+        if (at >= places || NUMBER_IN[code[at]].does != PUSHES_IT) continue;
+        value = NUMBER_IN[code[at++]].number;
+        while (at < places && NUMBER_IN[code[at]].does == ADDS_IT) value += NUMBER_IN[code[at++]].number;
+        if (at >= places || code[at] != leaves) continue;
+        LABELS[labels] = WORDS[w], LABELS[labels++].at = value;
     }
-    for(int n=0; n < data && asides < 64; n++) {
-        size_t len = strlen(DATA[n].name);
-        if (len < 6 || strcmp(DATA[n].name + len - 6, "-state")) continue;
-        for(int e=0; e < data; e++) {
-            if (strlen(DATA[e].name) == len - 2 && !strncmp(DATA[e].name, DATA[n].name, len - 6) &&
-                !strcmp(DATA[e].name + len - 6, "-end")) {
-                aside[asides].from = DATA[n].at, aside[asides++].to = DATA[e].at;
+    struct { long from, to; }* aside = room_for(labels, sizeof(*aside));    // from a word named ...-state up to the
+    int asides = 0;                                                          // one named ...-end
+    for(int n=0; n < labels; n++) {
+        size_t len = strlen(LABELS[n].name);
+        if (len < 6 || strcmp(LABELS[n].name + len - 6, "-state")) continue;
+        for(int e=0; e < labels && asides < labels; e++) {
+            if (strlen(LABELS[e].name) == len - 2 && !strncmp(LABELS[e].name, LABELS[n].name, len - 6) &&
+                !strcmp(LABELS[e].name + len - 6, "-end")) {
+                aside[asides].from = LABELS[n].at, aside[asides++].to = LABELS[e].at;
             }
         }
     }
@@ -434,50 +485,47 @@ static void variables(const char* hex, const char* tables, char** files, int cou
     // run while it is running (draw-text, copy-bits), nor the ...-busy
     // that says it is running.  A cell nothing here stores to is a number,
     // not something kept.  This is of the code as it is, not of what ran.
-    bool* written = calloc((size_t)1 << LIT_BITS, 1);   // of each cell an instruction reaches
-    static bool keeps[MOST], counted[MOST];
-    static char kept_in[MOST][400];
+    bool* written = room_for(numbers[STORES_AT_IT], sizeof(bool));     // of each variable an instruction stores to
+    bool* keeps = room_for(words, sizeof(bool));
+    bool* counted = room_for(words, sizeof(bool));
+    char** kept_in = room_for(words, sizeof(char*));
     int every = 0, keeping = 0;
     for(long at=0; at < places; at++) {
-        instruction ins = ins_of(code[at]);
-        if (code[at] && wanted(at, files, count) && is_store(ins)) written[ins.lit.lit_v] = true;
+        if (code[at] && in_files(at, files, count) && is_store(code[at])) written[variable_at(code[at])] = true;
     }
     for(long at=0; at < places; at++) {
-        instruction ins = ins_of(code[at]);
-        int w = in_word[at];
-        if (!code[at] || w < 0 || !wanted(at, files, count)) continue;
+        int w = in_word[at], var = variable_at(code[at]);
+        if (!code[at] || w < 0 || !in_files(at, files, count)) continue;
         if (!counted[w]) counted[w] = true, every++;
-        if (!ins.lit.lit_f || ins.lit.lit_shifts != 3 || !written[ins.lit.lit_v]) continue;
-        long cell = VAR_BASE + ins.lit.lit_v;
+        if (var < 0 || !written[var]) continue;
+        long cell = NUMBER_IN[code[at]].number;
         const char* name = cell_name(cell);
         size_t len = strlen(name);
         bool set_aside = false;
         for(int n=0; n < asides; n++) set_aside = set_aside || (cell >= aside[n].from && cell < aside[n].to);
         if ((port && cell >= port && cell < port_end) || set_aside || (len >= 5 && !strcmp(name + len - 5, "-busy"))) continue;
         if (!keeps[w]) keeps[w] = true, keeping++;
-        if (!strstr(kept_in[w], name) && strlen(kept_in[w]) + len + 2 < sizeof(kept_in[0])) {
-            strcat(kept_in[w], " ");
-            strcat(kept_in[w], name);
-        }
+        also_in(&kept_in[w], name);
     }
 
     // What ran.
-    static double word_all[MOST], word_fetched[MOST], word_stored[MOST];
+    double* word_all = room_for(words, sizeof(double));
+    double* word_fetched = room_for(words, sizeof(double));
+    double* word_stored = room_for(words, sizeof(double));
     double total = 0, fetched = 0, stored = 0, joined = 0;
     for(long at=0; at < places; at++) {
-        instruction ins = ins_of(code[at]);
         int w = in_word[at];
-        if (!code[at] || !work[at] || w < 0 || !wanted(at, files, count)) continue;
+        if (!code[at] || !work[at] || w < 0 || !in_files(at, files, count)) continue;
         total += work[at];
         word_all[w] += work[at];
-        if (!is_fetch(ins) && !is_store(ins)) continue;
-        variable* v = var_of(cell_name(VAR_BASE + ins.lit.lit_v));
-        used_by(v, w);
-        if (is_store(ins)) {
-            stored += work[at], v->stored += work[at], word_stored[w] += work[at];
+        if (!is_fetch(code[at]) && !is_store(code[at])) continue;
+        int v = var_of(cell_name(NUMBER_IN[code[at]].number));
+        used_by(&VARS[v], w);
+        if (is_store(code[at])) {
+            stored += work[at], VARS[v].stored += work[at], word_stored[w] += work[at];
             continue;
         }
-        fetched += work[at], v->fetched += work[at], word_fetched[w] += work[at];
+        fetched += work[at], VARS[v].fetched += work[at], word_fetched[w] += work[at];
         // An operation on what was fetched and the cell under it, that
         // leaves one result: T->IN, an operation of two, to T, the data
         // stack one shorter, and no return.
@@ -515,7 +563,7 @@ static void variables(const char* hex, const char* tables, char** files, int cou
     say("");
     say("The words, by what they spend on variables: all they run, fetches and stores.");
     say("");
-    static int by[MOST];
+    int* by = room_for(words, sizeof(int));
     int spenders = 0;
     for(int w=0; w < words; w++) if (word_fetched[w] + word_stored[w] > 0) by[spenders++] = w;
     for(int a=0; a < spenders; a++) {           // the most first: there are few
@@ -544,6 +592,8 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Usage: %s IMAGE.hex IMAGE.tables IMAGE.sizes COUNTS OUT [FILE.fs ...]\n", argv[0]);
         return(1);
     }
+    get_ready();
+    list_kinds();
     load(argv[1], argv[2], argv[3], argv[4]);
     if (all_work <= 0) {
         fprintf(stderr, "%s: nothing ran\n", argv[4]);

@@ -68,7 +68,7 @@ static int folds(uint16_t ins) {
     forget();
     start(&m);
     step_named(&m, ins);
-    if (m.unsaid || lost || m.next >= 0 || m.fetches || m.M != 2 * SLOTS) return(0);
+    if (m.unsaid || lost || m.next >= 0 || m.fetches || m.M != MEMORY_TERM) return(0);
     if (m.RSP != DEEP || m.R != SLOTS + DEEP - 1) return(0);
     for(int idx=0; idx < DEEP - 1; idx++) if (m.RS[idx] != SLOTS + idx) return(0);
     int of = DEEP + 1 - m.SP;
@@ -125,7 +125,7 @@ static int of_alu(uint16_t x) {
 }
 
 static int right_for_all(uint16_t across, uint16_t mask, uint16_t is, uint16_t change) {
-    for(int word=0; word < 65536; word++) {
+    for(int word=0; word < EVERY_WORD; word++) {
         if (!of_alu(word) || (word & mask) != is) continue;
         if (alu_at[word] < 0 || !crosses(across, word, word ^ change)) return(0);
     }
@@ -175,12 +175,11 @@ int main(int argc, char *argv[]) {
     }
     get_ready();
     list_named();
-    instruction dup[8];                 // lookup_word clears as many
-    if (lookup_word(FORTH_WORDS, "dup", dup) != 1) {
+    uint16_t across = ins_named("dup");
+    if (!across) {
         fprintf(stderr, "joins: dup is not one instruction\n");
         return(1);
     }
-    uint16_t across = *(uint16_t*)dup;
     find_rules(across);
 
     uint16_t of_one[MOST], of_two[MOST];
