@@ -252,9 +252,18 @@ variable fmid
 \ the 4,096 cells from var-base: the machine has one instruction for each,
 \ a literal instruction with a shift field of 3 and the cell's place in its
 \ twelve bits.  Its add flag makes it the store.
+\
+\ Where var-base is more than twelve bits say, the address is a push and an
+\ add.  Then this is tried before the rules that have a literal in them
+\ (fuse-lit), not after: such a rule joins what is before the address to
+\ the fetch or store and keeps the address, both instructions of it, so
+\ `r> blk !` was three instructions where it is two.  Where the address is
+\ one instruction the rule leaves as many as this does, and what it leaves
+\ can end a word, so it is still tried first.
 variable fv-n
 variable fv-a
 variable fv-base    -1 fv-base !            \ var-base, once the machine file has been read
+variable fv-least   1 fv-least !            \ the fewest instructions the address is to be
 : fold-var ( insn -- insn false | true )
     dup h# 6800 <> over h# 6308 <> and if false exit then
     0 fv-a !  0 fv-n !
@@ -266,6 +275,7 @@ variable fv-base    -1 fv-base !            \ var-base, once the machine file ha
         dup h# fff and over 12 rshift 3 and 12 * lshift fv-a +!
         lkind h# 8000 =
     until
+    fv-n @ fv-least @ < if false exit then
     fv-n @ fusable? 0= if false exit then
     fv-a @ fv-base @ -
     dup #4096 u< 0= if drop false exit then
@@ -273,6 +283,9 @@ variable fv-base    -1 fv-base !            \ var-base, once the machine file ha
     fv-n @ retract
     (tcode,)
     true
+;
+: fold-var-long ( insn -- insn false | true ) \ where the address is more than one instruction
+    2 fv-least !  fold-var  1 fv-least !
 ;
 
 \ Which instruction does the work of two or of three (the first is nothing
@@ -317,6 +330,7 @@ defer fuse-lit ( insn -- insn false | true )
 :noname ( insn -- )
     peephole @ if
         fold-exit   if exit then
+        fold-var-long if exit then
         fuse-lit    if exit then
         fold-lit+   if exit then
         fold-lit-lit if exit then
@@ -375,9 +389,46 @@ variable page-min   \ the first page past page 1, in bytes: code-base, once the 
 
 wordlist constant target-wordlist
 : add-order ( wid -- ) >r get-order r> swap 1+ set-order ;
-: :: get-current >r target-wordlist set-current : r> set-current ;
+
+\ A macro and a word of the program are in the one wordlist, and a name has
+\ one case, here as on the machine: a word named line takes the name of the
+\ macro LINE from every file after it, which goes on compiling with the
+\ word where it wrote the macro.  So the macros are kept in a list, and
+\ after each file every one of them is looked up again.  The basewords are
+\ not in the list: the nucleus gives each that it needs a body, under the
+\ baseword's own name, so that it can be called.
+variable macros  0 macros !             \ each is a link, its xt, and its name with its length before it
+variable listing  false listing !       \ true while what is defined is put in the list
+
+: macro, ( "name" -- a ) \ a place in the list for the macro that is about to be named
+    >in @  parse-name  rot >in !                ( c-addr u )
+    align here >r  macros @ ,  0 ,  dup ,  here swap dup allot move
+    r> dup macros !
+;
+: :: ( "name" -- )
+    listing @ if macro, else 0 then >r
+    get-current >r target-wordlist set-current : r> set-current
+    r> ?dup if latestxt swap cell+ ! then
+;
+: macro? ( xt -- f )
+    macros @ begin dup while 2dup cell+ @ = if 2drop true exit then @ repeat nip
+;
+: macro-name ( a -- c-addr u ) 2 cells + dup cell+ swap @ ;
+: ?macros ( c-addr u -- ) \ after the file named: each macro's name still finds a macro
+    macros @ begin dup while
+        dup macro-name target-wordlist search-wordlist
+        0= abort" a macro's name finds nothing"
+        macro? 0= if
+            cr macro-name type ."  is a macro, and " type ."  has named a word of its own that" abort
+        then
+        @
+    repeat
+    drop 2drop
+;
+: included-whole ( c-addr u -- ) 2dup 2>r included 2r> ?macros ;
 
 next-arg included       \ include the machine.fs
+true listing !
 
 ( The machine's sizes                                                 )
 
@@ -544,7 +595,7 @@ variable sizes      0 sizes !
 :: include
     parse-name save-mem { a u }
     tcp @ tdp @ thp @ + tbp @ + hdr-bytes @ lbl-bytes @ { c d h l }
-    a u included
+    a u included-whole
     a u  tcp @ c -  tdp @ thp @ + tbp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  c 2/  size-line
 ;
 
@@ -576,7 +627,7 @@ variable sizes      0 sizes !
     lofty if tdp @ thi !  hsave @ tdp ! else bulky if tdp @ tbp !  bsave @ tdp ! then then
     bulk-fits
 ;
-:: included     included ;
+:: included     included-whole ;
 :: marker       marker ;
 :: [if]         postpone [if] ;
 :: [else]       postpone [else] ;
@@ -1665,6 +1716,19 @@ warnings on
 :: VARS       var-base literal ;                \ the first cell one instruction can fetch
 :: forth      var-base literal ;                \ which holds the newest header's address
 :: HDR-BASE   hdr-base literal ;                \ where headers start
+\ A block of source is BLOCK-LINES lines of LINE-CHARS characters;
+\ LINE-SHIFT is the shift that multiplies by LINE-CHARS, and LAST-COLUMN
+\ and LAST-LINE are the last of each, counted from nothing.
+:: LINE-CHARS  disk-line literal ;
+:: BLOCK-LINES disk-block disk-line / literal ;
+:: LINE-SHIFT  0 begin 1 over lshift disk-line < while 1+ repeat literal ;
+:: LAST-COLUMN disk-line 1- literal ;
+:: LAST-LINE   disk-block disk-line / 1- literal ;
+:: BLOCK-CHARS disk-block literal ;
+\ What \ makes of >in in a block, which is two past the \: this added and
+\ then that kept is where the line the \ is in ends.
+:: LINE-ROUND  disk-line 2 - literal ;
+:: LINE-MASK   disk-line negate literal ;
 :: PICTURE-BLK disk-picture-block literal ;     \ what is where on the disk: vm_constants.h
 :: NAMES-BLK   disk-names-block literal ;
 :: CANVAS-BLK  disk-canvas-block literal ;

@@ -9,10 +9,9 @@
 // the dither is described, and the two are to make the same bitmap, every
 // cell of it.
 //
-// The machine is vm.c, which is built into this for the size of machine
-// the image is for, and the image is the nucleus.  For each test the
-// machine is started again, a picture's bytes are put in the memory it is
-// about to give out, and what dithers it is typed at the prompt: image-is,
+// The machine is the nucleus on vm.c, typed at (nucleus.h).  For each test
+// the machine is started again, a picture's bytes are put in the memory it
+// is about to give out, and what dithers it is typed at the prompt: image-is,
 // and then atkinson, or dither-part or dither-half and dither-row.  What
 // the typing leaves on the data stack says where the bitmap is, and the
 // bitmap is read out of the machine's memory.
@@ -29,14 +28,12 @@
 // It fails if either is none: then it found nothing to test.
 //
 
-#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include "../vm.h"
-#include "../util/image.h"
+#include "nucleus.h"
 #include "dither.h"
 
 #define BITS    CELL_BITS
@@ -109,23 +106,7 @@ static dither_test TESTS[] = {
     {.label = "at half its size, one sample, a row over", .a = {2 * BITS + 2 * BYTES, 7, 1}, .half = true},
     {.label = ""}};
 
-static context machine;         // too big for the stack: it has the machine's memory
-static uint8_t* nucleus;        // the image, as cross.fs wrote it,
-static size_t nucleus_len;      // and how many bytes it is
-static int stop_at;             // an instruction that is nothing: the machine stops at one
 static uint64_t room;           // the cell the machine gives out first
-static char said[1 << 16];      // what the machine printed
-static char typed[1 << 12];     // what is typed at it,
-static size_t typed_len;        // and how much that is
-
-// A cell as a number that is not negative.
-static uint64_t ucell(int64_t x) {
-#if CELL_BITS == 64
-    return((uint64_t)x);
-#else
-    return((uint64_t)x & ((1ull << CELL_BITS) - 1));
-#endif
-}
 
 // Bytes by chance, the same every time.
 static uint64_t seed;
@@ -134,71 +115,6 @@ static uint8_t chance(void) {
     seed ^= seed >> 7;
     seed ^= seed << 17;
     return(seed >> 32);
-}
-
-// Start the machine from its image.
-static void start(void) {
-    memset(&machine, 0, sizeof(machine));
-    memcpy(machine.memory, nucleus, nucleus_len);
-    typed_len = 0;
-}
-
-// A line to type at the machine.
-static void line(const char* format, ...) {
-    va_list args;
-    va_start(args, format);
-    typed_len += vsnprintf(typed + typed_len, sizeof(typed) - typed_len, format, args);
-    va_end(args);
-    if (typed_len + 2 > sizeof(typed)) {
-        fprintf(stderr, "dither_test: too much to type\n");
-        exit(EXIT_FAILURE);
-    }
-    typed[typed_len++] = '\n';
-    typed[typed_len] = '\0';
-}
-
-// Type the lines at the machine's prompt and run it until it stops, which
-// is where the last line sends it.  What is then on its data stack is what
-// the lines left there.
-static void type(void) {
-    line("%d execute", stop_at);
-    memset(said, 0, sizeof(said));
-    machine.IN = fmemopen(typed, typed_len, "r");
-    machine.OUT = fmemopen(said, sizeof(said) - 1, "w");
-    vm(&machine);
-    fclose(machine.IN);
-    fclose(machine.OUT);
-}
-
-// The nth cell down from the top of what was left on the data stack.
-static uint64_t left(int n) {
-    return(ucell(machine.DSTACK[machine.SP - 1 - n]));
-}
-
-// Whether cells from an address are all in the machine's memory.
-static bool in_memory(uint64_t addr, uint64_t cells) {
-    return(addr <= (1ull << ADDR_BITS) && cells <= (1ull << ADDR_BITS) - addr);
-}
-
-static uint8_t* cell_at(uint64_t addr) {
-    return((uint8_t*)machine.memory + addr * CELL_BYTES);
-}
-
-static uint64_t fetch(uint64_t addr) {
-    uint64_t v = 0;
-    memcpy(&v, cell_at(addr), CELL_BYTES);
-    return(v);
-}
-
-// The machine stops at an instruction that is nothing, and the kernel's
-// ROM, which nothing stores into, has some after the kernel.
-static int nothing_at(void) {
-    const uint16_t* code = (const uint16_t*)nucleus;
-    for(int idx=0; idx < KROM_BYTES / 2; idx++) {
-        if (!code[idx]) return(idx);
-    }
-    fprintf(stderr, "dither_test: the kernel's ROM is full, and there is nowhere to stop\n");
-    exit(EXIT_FAILURE);
 }
 
 // The cells a bitmap should be: of a picture's bytes, dithered whole or at
@@ -331,12 +247,7 @@ int main(int argc, char *argv[]) {
     if (!seed) seed = 1;        // nothing comes of nothing
     alarm(600);                 // a machine that does not stop is stopped
 
-    nucleus_len = load_image(argv[1], &nucleus);
-    if (nucleus_len > sizeof(machine.memory)) {
-        fprintf(stderr, "%s is %d bytes, more than this machine's memory\n", argv[1], (int)nucleus_len);
-        return(1);
-    }
-    stop_at = nothing_at();
+    nucleus_is(argv[1]);
 
     // What the machine gives out first is where it puts a picture, and is
     // the same every time it is started.

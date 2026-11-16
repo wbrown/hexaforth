@@ -59,9 +59,33 @@ header block
 header update
 : update ( -- ) true blk-dirty ! ;
 
+\ A block of source is read as one thing, all its characters, a word at a
+\ time, and blk says which block it is: so a comment in brackets may end
+\ lines after it began, and \ is what knows that a block has lines.  The
+\ block is asked for again before each word, since the word before may
+\ have put another in the buffer: it may have read the disk, or loaded a
+\ block itself.  What was being read is what is read again when the block
+\ is done, and so it is when something in the block throws, which is then
+\ thrown on.  Nothing of this is on the data stack while the block is
+\ read, which may leave there whatever it likes.
+: reading ( -- ) \ interpret the block that blk says
+    begin
+        blk @ block drop
+        parse-name dup
+    while
+        interpret1
+    repeat
+    2drop
+;
+
 header load
 : load ( blk# -- ) \ interpret a block of source
-    block d# 1024 tevaluate
+    blk @ >r  >in @ >r  source >r >r  source-id >r
+    dup blk !  d# -1 sourceid !
+    block BLOCK-CHARS source!
+    ['] reading catch
+    r> sourceid !  r> r> source!  r> >in !  r> blk !
+    throw
 ;
 
 \ Whoever reads more of the disk than a block at a time reads whole blocks,

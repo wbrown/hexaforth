@@ -7,7 +7,8 @@
 # says what each is), each with a display and each stopping at a fetch or
 # store outside memory (STRICT),
 # and on each runs the tests that type at the prompt of the reference VM:
-# the nucleus; the desktop, its windows worked with keys and a pointer and
+# the nucleus; comments, and a block of a disk read as source; the desktop,
+# its windows worked with keys and a pointer and
 # its screen looked at; the drawing words against a model of them; regions
 # a cell at a time against the one form of their pixels; the dither
 # against a dither a pixel at a time; and the TIFF reader.  The same
@@ -42,10 +43,19 @@ while read C A W H BASE <&3; do
     fi
     mv build/hexaforth-$C-$A $OUT/vm-$C
     mv build/dither-test-$C-$A $OUT/dither-test-$C
+    mv build/source-test-$C-$A $OUT/source-test-$C
     mv build/nuc-$C-$A.hex $OUT/nuc-$C.hex
     rm -f $OUT/nuc-$C.tables                # the names that go with the image, if it has any
     [ -f build/nuc-$C-$A.tables ] && mv build/nuc-$C-$A.tables $OUT/nuc-$C.tables
     run prompt-$C python3 test/prompt_test.py $OUT/vm-$C $OUT/nuc-$C.hex $C
+    # Comments, and a block read as source: the block is a file that is
+    # there for this, laid down as a disk's source is.
+    if $MKDISK $PICTURE $OUT/source-$C.img test/source.fs > $OUT/source-disk-$C.log 2>&1; then
+        run source-$C $OUT/source-test-$C $OUT/nuc-$C.hex $OUT/source-$C.img
+    else
+        printf 'FAIL %-18s %s\n' "source-disk-$C" "$(tail -1 $OUT/source-disk-$C.log | cut -c1-110)"
+        fail=1
+    fi
     # The desktop, with a disk made as QEMU's is: block 1 for the editor, the
     # Mandrill, and the tables of names that go with this image, if it has any.
     T=

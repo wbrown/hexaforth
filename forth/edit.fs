@@ -1,4 +1,6 @@
-\ edit.fs - a block editor: one 1024-byte block as 16 lines of 64
+\ edit.fs - a block editor: one 1024-byte block as 16 lines of 64, which is
+\ what \ takes a line of a block to be (LINE-CHARS and BLOCK-LINES:
+\ vm_constants.h says how long a line is)
 \
 \ Typing overwrites.  The cursor keys move, PgUp and PgDn change block,
 \ ^S writes the block to disk, and ^L writes it and then loads it as Forth.
@@ -19,15 +21,15 @@ create t-keys ," ^S save  ^L load  PgUp PgDn"
     ewin @ win-inval
 ;
 
-: eaddr ( -- a ) eblk @ block ecy @ d# 6 lshift + ecx @ + ;
+: eaddr ( -- a ) eblk @ block ecy @ LINE-SHIFT lshift + ecx @ + ;
 
 header edit-draw : edit-draw ( win -- )
     drop
     d# 0 ei !
     begin
-        ei @ d# 16 <
+        ei @ BLOCK-LINES <
     while
-        eblk @ cblock  ei @ d# 6 lshift  d# 64     \ a line is 64 characters on from the last
+        eblk @ cblock  ei @ LINE-SHIFT lshift  LINE-CHARS
         d# 2  d# 2 ei @ d# 4 lshift +  draw-chars
         d# 1 ei +!
     repeat
@@ -47,14 +49,14 @@ header edit-draw : edit-draw ( win -- )
 
 : ekey ( c -- ) \ a key that changes no more than where the cursor is
     dup d# 128 = if drop ecy @ 1- d# 0 max ecy ! exit then
-    dup d# 129 = if drop ecy @ 1+ d# 15 min ecy ! exit then
+    dup d# 129 = if drop ecy @ 1+ LAST-LINE min ecy ! exit then
     dup d# 130 = if drop ecx @ 1- d# 0 max ecx ! exit then
-    dup d# 131 = if drop ecx @ 1+ d# 63 min ecx ! exit then
+    dup d# 131 = if drop ecx @ 1+ LAST-COLUMN min ecx ! exit then
     dup d# 19 = if drop flush exit then
     dup d# 13 = if
         drop
         d# 0 ecx !
-        ecy @ 1+ d# 15 min ecy !
+        ecy @ 1+ LAST-LINE min ecy !
         exit
     then
     dup d# 8 = if
@@ -64,7 +66,7 @@ header edit-draw : edit-draw ( win -- )
     then
     dup d# 32 < over d# 126 > or if drop exit then
     eaddr c! update
-    ecx @ 1+ d# 63 min ecx !
+    ecx @ 1+ LAST-COLUMN min ecx !
 ;
 
 header edit-key : edit-key ( c win -- )

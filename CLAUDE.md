@@ -172,6 +172,11 @@ and print a summary from that; do not cut or head the results.
 - A word that another file uses has a header (`header name : name`), so
   that it can be typed at the prompt. A word used only in its own file has
   none, and `cross.fs` keeps its name as a label
+- A name has one case, on the machine and in `cross.fs`: `LINE` and
+  `line` are one name. A macro (`::`) and a word are looked up in the
+  same place, so a word that took a macro's name would take it from every
+  file after: `cross.fs` stops at the file that does. A baseword is the
+  one macro a word may be named for, since that is how it is given a body
 - Nothing draws when something changes: it says what is out of date
   (`inval-rect`, `win-inval`) and the event loop paints it. Everything
   that draws takes coordinates in the port, and nothing outside
@@ -265,9 +270,10 @@ After a change, run what covers it, and after anything in `cross.fs`,
 - `hexaforth_test`: each test of `test/tests.h` compiled by the C compiler
   and by `cross.fs` and the instructions compared, then run on the VM
 - `sh test/sizes.sh [SEEDS]`: the machine with cells of 64, 32 and 16
-  bits, each with a display and `STRICT`: the prompt, the desktop, the
-  drawing words, regions, the dither and the TIFF reader. Nothing is
-  cell-size safe that it has not run
+  bits, each with a display and `STRICT`: the prompt, comments and a
+  block read as source, the desktop, the drawing words, regions, the
+  dither and the TIFF reader. Nothing is cell-size safe that it has not
+  run
 - `make -C baremetal test` (and `KERNEL=hexaforth-fast`): each AArch64
   kernel against `vm.c`
 - `make -C baremetal demo-test` (and `STRICT=1`, `KERNEL=`): the desktop
@@ -310,11 +316,14 @@ The machine, in C:
   machine's step on terms, and each answer then run on `vm.c`; what it
   trusts and why is said at its top)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
-  `vm_test.c`, `main.c`, `generate_test_cases.c`; `dither_test.c` (the
-  dither against a dither a pixel at a time: it runs the nucleus on
-  `vm.c`, types at its prompt and reads the bitmap out of its memory);
-  `dither.c` (that dither a pixel at a time, which the test and the
-  benchmarks share)
+  `vm_test.c`, `main.c`, `generate_test_cases.c`; `nucleus.c` (the
+  nucleus on `vm.c`, typed at its prompt, and what that left on its stack
+  and in its memory: a test that does that is built with it);
+  `dither_test.c` (the dither against a dither a pixel at a time, read
+  out of the machine's memory); `dither.c` (that dither a pixel at a
+  time, which the test and the benchmarks share); `source_test.c` and
+  `source.fs` (comments, at the prompt and in a block of a disk that
+  `mkdisk` made of that file)
 - `bench/`: `bench.sh` (the benchmarks, and what each is); `draw.fs` and
   `dither.fs` (the work, as it is typed); `disk.c`, `check.c` and `tiff.c`
   (the disk the picture is read from, and what looks at a bitmap);

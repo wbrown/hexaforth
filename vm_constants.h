@@ -37,6 +37,7 @@
 // the one it is given, by block.  The Forth has these from here, through
 // basewords.fs, and so has what makes a disk (util/mkdisk.c).
 #define DISK_BLOCK          1024
+#define DISK_LINE           64      // a block of source is lines of this many characters
 #define DISK_SOURCE_BLOCK   1       // Forth source, which the editor opens at
 #define DISK_PICTURE_BLOCK  16      // a TIFF, for the viewer
 #define DISK_NAMES_BLOCK    1024    // the names that go with the image

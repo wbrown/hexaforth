@@ -13,6 +13,8 @@
 #0 constant disp-bank-step
 
 \ what is where on the disk, from vm_constants.h
+#1024 constant disk-block
+#64 constant disk-line
 #1 constant disk-source-block
 #16 constant disk-picture-block
 #1024 constant disk-names-block

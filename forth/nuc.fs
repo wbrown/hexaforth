@@ -201,6 +201,7 @@ create thisxt   0 ,
 create syncpt   0 ,
 create state    0 ,
 create delim    0 ,
+header blk create blk 0 ,   \ the block that is being read as source, or nothing
 create rO       0 ,
 create leaves   0 ,
 create tib $80 allot
@@ -815,6 +816,27 @@ header parse
     unparsed  over -rot
     ['] isnotdelim xt-skip
     parsed
+;
+
+\ Comments.  What is between ( and the next ) is not read: in a block that
+\ may be lines on, and what was typed ends where it does.  Nor is what is
+\ after \ on its line.  A line is what was typed, or a line of the block
+\ that is being read (blk), which has nothing to end it: there >in is two
+\ past the \, which are the \ and the blank after it, and the line ends at
+\ the next whole number of lines after the \ itself.
+header-imm \
+:noname ( -- )
+    blk @ if
+        >in @ LINE-ROUND + LINE-MASK and
+    else
+        source nip
+    then
+    >in !
+;
+
+header-imm (
+:noname ( -- )
+    [char] ) parse 2drop
 ;
 
 
@@ -1541,13 +1563,18 @@ header-imm postpone
     jmp doubleAlso,             \      0       2       number
     jmp execute                 \      1       2       immediate
 
+header interpret1
+: interpret1 ( c-addr u -- ) \ a word of the source: it is done, or compiled
+    sfind
+    state @ +
+    1+ dispatch             \ table index in words, one jmp each
+;
+
 : interpret
     begin
         parse-name dup
     while
-        sfind
-        state @ +
-        1+ dispatch         \ table index in words, one jmp each
+        interpret1
     repeat
     2drop
 ;
@@ -1619,12 +1646,14 @@ header refill
 
 header evaluate
 : tevaluate
+    blk @ >r  d# 0 blk !                    \ a string is not a block, whoever has it read
     >in @ >r  source >r >r                  \ what was being read, and how far it had been
     source-id >r d# -1 sourceid !
     source!
     interpret
     r> sourceid !
     r> r> source!  r> >in !
+    r> blk !
 ;
 
 header quit
