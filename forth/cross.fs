@@ -64,12 +64,14 @@ variable tcp    0 tcp !         \ Code pointer
 \             offered again, so fusions cascade.  Three that are not one but
 \             do what two do are replaced by the two, each offered again.
 \             Which instruction, or which two, the machine is asked
-\             (machine-fuse, machine-two): util/fuse.c runs them on vm.c.
+\             (machine-fuse, machine-two): util/fuse.c has the machine's
+\             step and says what leaves the same.
 \   n +       after a literal or another n + of the same shift is added to
 \             it, if the sum still fits: `1+ 1+` is one instruction.
 \   @ and !   after the address of a variable are one instruction with it.
-\
-\ The rules that have a literal in them are a table still (litrules.fs).
+\   a run     that has numbers pushed or added in it, or variables fetched,
+\             is given to the machine too (machine-lit), which gives a
+\             shorter run that does the same if it finds one.
 \
 \ Two things stop a fusion:
 \   tfence   the most recent address a branch or call can land on.  The
@@ -158,23 +160,6 @@ defer tcode,
 
 : label     settle  tcp @ tfence ! ;
 
-s" litrules.fs" included
-
-\ A table is in order of what it matches, so it is searched by halving.
-variable fmid
-: fuse-lookup { key table n -- value true | false }
-    0 n
-    begin
-        2dup <
-    while
-        2dup + 2/ fmid !
-        table fmid @ 2* cells + @
-        dup key = if drop 2drop  table fmid @ 2* cells + cell+ @  true exit then
-        key u< if nip fmid @ 1+ swap else drop fmid @ then
-    repeat
-    2drop false
-;
-
 : (tcode,)
     tcp @ $1fff and $1ffe = abort" code page full"
     tcp @ tw! tcell tcp +! ;
@@ -251,20 +236,21 @@ variable fmid
 \ A fetch or a store straight after a literal that is the address of one of
 \ the 4,096 cells from var-base: the machine has one instruction for each,
 \ a literal instruction with a shift field of 3 and the cell's place in its
-\ twelve bits.  Its add flag makes it the store.
+\ twelve bits.  Its add flag makes it the store.  The literal is taken back
+\ and the instruction being compiled is then that one: it is not compiled
+\ here, so that it is offered to what comes after as any other is.
 \
-\ Where var-base is more than twelve bits say, the address is a push and an
-\ add.  Then this is tried before the rules that have a literal in them
-\ (fuse-lit), not after: such a rule joins what is before the address to
-\ the fetch or store and keeps the address, both instructions of it, so
-\ `r> blk !` was three instructions where it is two.  Where the address is
-\ one instruction the rule leaves as many as this does, and what it leaves
-\ can end a word, so it is still tried first.
+\ This is tried before the machine is asked about a run (fuse-lit),
+\ whether the address is one instruction or a push and an add: what the
+\ machine gives for the run before it would keep the address, and `r> blk
+\ !` would be three instructions where it is two.  A variable's
+\ instruction cannot end a word, where an instruction of the ALU that
+\ fetches or stores can have the exit folded into it: so the machine is
+\ asked again with the variable's instruction in the run, and at an exit.
 variable fv-n
 variable fv-a
 variable fv-base    -1 fv-base !            \ var-base, once the machine file has been read
-variable fv-least   1 fv-least !            \ the fewest instructions the address is to be
-: fold-var ( insn -- insn false | true )
+: fold-var ( insn -- insn' false )
     dup h# 6800 <> over h# 6308 <> and if false exit then
     0 fv-a !  0 fv-n !
     begin                                   \ back over the adds to the push
@@ -275,17 +261,12 @@ variable fv-least   1 fv-least !            \ the fewest instructions the addres
         dup h# fff and over 12 rshift 3 and 12 * lshift fv-a +!
         lkind h# 8000 =
     until
-    fv-n @ fv-least @ < if false exit then
     fv-n @ fusable? 0= if false exit then
     fv-a @ fv-base @ -
     dup #4096 u< 0= if drop false exit then
     swap h# 6308 = if h# f000 else h# b000 then or
     fv-n @ retract
-    (tcode,)
-    true
-;
-: fold-var-long ( insn -- insn false | true ) \ where the address is more than one instruction
-    2 fv-least !  fold-var  1 fv-least !
+    false
 ;
 
 \ Which instruction does the work of two or of three (the first is nothing
@@ -294,6 +275,12 @@ variable fv-least   1 fv-least !            \ the fewest instructions the addres
 \ once its sizes are known (below).
 defer machine-fuse ( first second third -- one | 0 )
 defer machine-two ( first second third -- two | 0 )
+\ And what shorter run does the work of a run of instructions that has
+\ numbers in it: the run and what is given are instructions of 16 bits one
+\ after another, at an address here.  How many are given, or less than
+\ nothing.  Before a conditional branch (branch? is 1) what is given leaves
+\ the same but for the top, which is nothing when the run's is.
+defer machine-lit ( run n branch? out -- m | -1 )
 
 : fuse-pair ( insn -- insn false | true )
     1 fusable? if
@@ -330,11 +317,10 @@ defer fuse-lit ( insn -- insn false | true )
 :noname ( insn -- )
     peephole @ if
         fold-exit   if exit then
-        fold-var-long if exit then
-        fuse-lit    if exit then
-        fold-lit+   if exit then
+        fold-var    if exit then                \ (it never is: the instruction goes on, as a variable's)
+        fuse-lit    if exit then                \ after a variable's instruction has been made,
+        fold-lit+   if exit then                \ and before a number is folded into one before it
         fold-lit-lit if exit then
-        fold-var    if exit then
         dup h# e000 and h# 6000 = if
             fuse-pair   if exit then
             fuse-triple if exit then
@@ -455,8 +441,10 @@ s" #include " s\" \"" s+  here-is s+  s\" /../util/fuse.c\"" s+ save-c-prefix-li
 s" m" add-lib
 c-function (machine-fuse) fuse_one n n n -- n
 c-function (machine-two) fuse_two n n n -- n
+c-function (machine-lit) fuse_lit a n n a -- n
 ' (machine-fuse) is machine-fuse
 ' (machine-two) is machine-two
+' (machine-lit) is machine-lit
 cell-bytes 2 = [if] 1 [else] cell-bytes 4 = [if] 2 [else] 3 [then] [then] constant byte-shift
 var-base byte-shift lshift constant data-base       \ the byte of the image the data starts at
 
@@ -698,17 +686,17 @@ variable sizes      0 sizes !
 
 \ ---- the peephole and literals
 \
-\ What the machine is asked is about ALU instructions next to each other.
-\ litrules.fs (generated by util/litrules.py) is about what has a literal
-\ in it.
+\ What the machine joins by twos and threes is ALU instructions next to
+\ each other.  A number between them, or before them, stops that: so a run
+\ that has one in it is given to the machine whole (machine-lit).
 \ There the code is tokens: an ALU instruction; a push of a number, which
 \ is a push instruction, the adds after it, and the invert that makes it
 \ negative; an add of a number to the top of the stack, which is add
 \ instructions; and the fetch of a variable, which is the one instruction
-\ that does it.  A rule is a shape, of up to four tokens and the one
-\ being compiled, and what does the same: tokens again, with its literal's
-\ value made from those of the shape (lit-fn).  A rule is used when what
-\ it gives is shorter, which depends on the value.
+\ that does it.  A run is up to four tokens and the one being compiled,
+\ and it is asked about with four before, then three, and so on, so that
+\ it starts where a token does.  What the machine gives is instructions,
+\ fewer than the run has, and they are compiled in its place.
 \
 \ The one being compiled may be a conditional branch.  It asks only whether
 \ the top of the stack is zero, so what is before it may be replaced by
@@ -739,8 +727,8 @@ variable sizes      0 sizes !
 : push? ( q -- f ) dup 0> if 2 - t@ lkind h# 8000 = else drop false then ;
 
 \ The token that ends at p: where it starts, its kind (0 none, 1 an ALU
-\ instruction, 2 a push, 3 an add, 4 the fetch of a variable) and its
-\ instruction or value.
+\ instruction, 2 a push, 3 an add, 4 the fetch of a variable or the store
+\ to one) and its instruction or value.
 : tok ( p -- p' kind val )
     dup >r adds                                     ( q sum )
     over push? if
@@ -756,7 +744,7 @@ variable sizes      0 sizes !
     then
     over r@ <> if 3 swap  rdrop exit then           \ adds alone
     drop rdrop
-    dup 2 >= if dup 2 - t@ h# f000 and h# b000 = else false then if
+    dup 2 >= if dup 2 - t@ h# b000 and h# b000 = else false then if     \ a literal with a shift field of 3
         2 -  dup t@  4 swap exit
     then
     dup 2 >= if dup 2 - t@ alu-tok? else false then if
@@ -782,106 +770,56 @@ variable tk-n
     drop
 ;
 
-: lit-fn ( k j id -- v )
-    dup 9 / 1- >r  dup 3 / 3 mod 1- >r  3 mod 1-    ( k j c )
-    swap r> * +  swap r> * +
+variable fl-n       \ how many tokens of the run are before the one being compiled
+variable fl-trig    \ that one: 0 an instruction of the ALU, 1 an add, 2 a conditional branch,
+                    \ 3 an instruction of a variable
+variable fl-insn    \ and the instruction
+
+#32 constant fl-room                            \ the most instructions in a run that is asked about
+create fl-run fl-room 2* allot                  \ the run, as the machine is given it,
+create fl-out fl-room 2* allot                  \ and what the machine gives for it
+variable fl-run#
+
+: fl-take ( -- ) \ the fl-n tokens before, and the one being compiled unless it is a branch
+    0 fl-run# !
+    tcp @  tk-at fl-n @ 1- cells + @  ?do
+        i t@  fl-run fl-run# @ 2* + w!  1 fl-run# +!
+    2 +loop
+    fl-trig @ 2 <> if  fl-insn @  fl-run fl-run# @ 2* + w!  1 fl-run# +!  then
 ;
 
-variable fl-n       \ how many tokens of the shape are before the one being compiled
-variable fl-trig    \ that one: 0 an instruction, 1 an add, 2 a conditional branch
-variable fl-x       \ and its instruction, or the number it adds
-variable fl-k
-variable fl-j
-variable fl-v
-variable fl-va      \ the variables the shape fetches, in order
-variable fl-vb
-variable fl-rule
-
-: fl-key ( -- key ) \ 0 if the shape has more than three instructions
-    fl-trig @ 12 lshift
-    fl-n @ 0 do  tk-kind i cells + @  i 3 * lshift or  loop    ( shape )
-    0 0                                             ( shape alus n )
-    fl-n @ 0 do
-        fl-n @ 1- i - cells                         \ the furthest first
-        dup tk-kind + @ 1 = if tk-val + @  rot 16 lshift or  swap 1+ else drop then
-    loop
-    fl-trig @ 0= if swap 16 lshift fl-x @ or swap 1+ then
-    dup 3 > if drop 2drop 0 exit then
-    3 swap - 16 * lshift                            \ three places, the first highest
-    swap 48 lshift or
+\ Instructions of the ALU and nothing else, with one more being compiled,
+\ are the machine's to join by twos and threes: they are not asked about
+\ here.
+: fl-plain? ( -- f )
+    fl-trig @ if false exit then
+    fl-n @ 0 do  tk-kind i cells + @ 1 <> if false unloop exit then  loop
+    true
 ;
 
-: fl-values ( -- ) \ the shape's literals, in order, and its variables
-    0 fl-k !  0 fl-j !  0 fl-va !  0 fl-vb !  0 0   ( literals variables )
-    fl-n @ 0 do
-        fl-n @ 1- i - cells >r
-        r@ tk-kind + @ dup 2 = swap 3 = or if
-            swap  r@ tk-val + @  over if fl-j ! else fl-k ! then  1+ swap
-        then
-        r@ tk-kind + @ 4 = if
-            r@ tk-val + @  over if fl-vb ! else fl-va ! then  1+
-        then
-        rdrop
-    loop
-    drop
-    fl-trig @ 1 = if fl-x @  over if fl-j ! else fl-k ! then then
-    drop
-;
-
-: fl-cost ( -- cost | -1 ) \ of what the rule gives; -1 if it cannot be written
-    0  fl-rule @ 40 rshift
-    begin
-        dup
-    while
-        dup 7 and
-        dup 3 = if fl-v @ litcost else
-        dup 4 = if fl-v @ 0< if 2drop drop -1 exit then  fl-v @ chunks# else
-        1 then then
-        nip rot + swap 3 rshift
-    repeat
-    drop
-;
-
-\ Compiling what a rule gives offers each instruction to the peephole, which
-\ may come back here: so the rule and the value are not left in variables.
-: fl-emit { rule v va vb -- }
-    rule 40 rshift
-    begin
-        dup
-    while
-        dup 7 and
-        dup 1 = if rule 16 rshift h# ffff and tcode, then
-        dup 2 = if rule h# ffff and tcode, then
-        dup 3 = if v literal then
-        dup 4 = if v false chunks then
-        dup 5 = if va tcode, then
-        6 = if vb tcode, then
-        3 rshift
-    repeat
-    drop
-;
-
-: fl-try ( -- f ) \ the rule for the fl-n tokens and the one being compiled, if it is shorter
+\ Compiling what the machine gives offers each instruction to the peephole,
+\ which may come back here: so they are taken out of fl-out first.
+: fl-try ( -- f ) \ what the machine gives for the fl-n tokens and the one being compiled, if anything
+    fl-plain? if false exit then
     tcp @  tk-at fl-n @ 1- cells + @  -  2/         ( instructions before )
-    dup fusable? 0= if drop false exit then
-    fl-key ?dup 0= if drop false exit then
-    fuseL #fuseL fuse-lookup 0= if drop false exit then
-    fl-rule !
-    fl-values
-    fl-k @ fl-j @  fl-rule @ 32 rshift h# ff and  lit-fn  fl-v !
-    fl-v @ abs 35 rshift if drop false exit then
-    fl-cost  dup 0< if 2drop false exit then        ( before cost )
-    over  fl-trig @ 2 <> if 1+ then  < 0= if drop false exit then   \ a branch is not replaced
-    retract
-    fl-rule @ fl-v @ fl-va @ fl-vb @ fl-emit
+    dup fusable? 0=  over fl-room 2 - > or  if drop false exit then
+    fl-take
+    fl-run fl-run# @  fl-trig @ 2 = 1 and  fl-out  machine-lit     ( before m )
+    dup 0< if 2drop false exit then
+    swap retract
+    dup 0 ?do  dup 1- i - 2* fl-out + uw@  swap  loop       ( the last of them ... the first m )
+    0 ?do tcode, loop
     true
 ;
 
 :noname ( insn -- insn false | true )
-    dup alu-tok? if 0 fl-trig !  dup fl-x ! else
-    dup lkind h# c000 = if 1 fl-trig !  dup lval fl-x ! else
+    dup fl-insn !
+    dup h# e000 and h# 6000 = if 0 fl-trig ! else   \ of the ALU: an exit too, which no fetch or store
+                                                    \ of a variable can have folded into it
+    dup h# b000 and h# b000 = if 3 fl-trig ! else   \ the fetch of a variable, or the store to one
+    dup lkind h# c000 = if 1 fl-trig ! else
     dup h# e000 and h# 2000 = if 2 fl-trig ! else
-    false exit then then then
+    false exit then then then then
     toks
     tk-n @ 0= if false exit then
     tk-kind @ 2 = if                                \ a push that has a shorter form

@@ -7,7 +7,7 @@
 \ the one instruction they are together.  join-rules, in the kernel,
 \ is told where they are and how many.  They are all on one page.
 
-meta $584 table-room  tcp @ 2/ t' join-rules tvar! target
+meta $5fc table-room  tcp @ 2/ t' join-rules tvar! target
 $0000 i, $6000 i, $600c i, $600c i,   \ drop dup , drop
 $0000 i, $6000 i, $6020 i, $6000 i,   \ drop dup , swap
 $0000 i, $6000 i, $642c i, $600c i,   \ drop dup , nip
@@ -42,9 +42,9 @@ $0000 i, $6014 i, $6020 i, $6014 i,   \ swap dup , swap
 $0000 i, $6014 i, $612d i, $6111 i,   \ swap dup , swap>r
 $0000 i, $6014 i, $642c i, $6020 i,   \ swap dup , nip
 $0000 i, $6014 i, $650d i, $6111 i,   \ swap dup , >r
-$0000 i, $6014 i, $6d08 i, $642c i,   \ swap dup , 2drop
+$0000 i, $6014 i, $6d08 i, $640c i,   \ swap dup , 2drop
 $0000 i, $6020 i, $6004 i, $6414 i,   \ swap , over
-$0000 i, $6020 i, $600c i, $642c i,   \ swap , drop
+$0000 i, $6020 i, $600c i, $640c i,   \ swap , drop
 $0000 i, $6020 i, $612d i, $650d i,   \ swap , swap>r
 $0000 i, $6020 i, $6308 i, $6718 i,   \ swap , !
 $0000 i, $6020 i, $6404 i, $6014 i,   \ swap , dup
@@ -68,7 +68,7 @@ $0000 i, $6024 i, $612d i, $6511 i,   \ tuck swap , swap>r
 $0000 i, $6024 i, $6308 i, $671c i,   \ tuck swap , !
 $0000 i, $6024 i, $642c i, $6020 i,   \ tuck swap , nip
 $0000 i, $6024 i, $650d i, $6121 i,   \ tuck swap , >r
-$0000 i, $6024 i, $6d08 i, $642c i,   \ tuck swap , 2drop
+$0000 i, $6024 i, $6d08 i, $640c i,   \ tuck swap , 2drop
 $0000 i, $6084 i, $6480 i, $6004 i,   \ over invert , invert
 $0000 i, $6084 i, $6d08 i, $600c i,   \ over invert , 2drop
 $0000 i, $60c0 i, $650d i, $61cd i,   \ over swap rshift , >r
@@ -78,7 +78,6 @@ $0000 i, $60dc i, $600c i, $6d08 i,   \ lshift , drop
 $0000 i, $60dc i, $642c i, $60d8 i,   \ lshift , nip
 $0000 i, $60dc i, $650d i, $61d9 i,   \ lshift , >r
 $0000 i, $60e4 i, $6403 i, $60e7 i,   \ over@ , rdrop
-$0000 i, $60e4 i, $6718 i, $63ec i,   \ over@ , swap !
 $0000 i, $6101 i, $6020 i, $6111 i,   \ over >r , swap
 $0000 i, $6101 i, $6404 i, $6105 i,   \ over >r , dup
 $0000 i, $6101 i, $642c i, $612d i,   \ over >r , nip
@@ -115,7 +114,7 @@ $0000 i, $6121 i, $6c07 i, $6024 i,   \ swap >r dup , r>
 $0000 i, $6121 i, $6c17 i, $6024 i,   \ swap >r dup , swapr>
 $0000 i, $6121 i, $6d08 i, $6109 i,   \ swap >r dup , 2drop
 $0000 i, $612d i, $600c i, $6109 i,   \ swap>r , drop
-$0000 i, $612d i, $6403 i, $642c i,   \ swap>r , rdrop
+$0000 i, $612d i, $6403 i, $640c i,   \ swap>r , rdrop
 $0000 i, $612d i, $6404 i, $6121 i,   \ swap>r , dup
 $0000 i, $612d i, $6c04 i, $6111 i,   \ swap>r , r@
 $0000 i, $612d i, $6c07 i, $6020 i,   \ swap>r , r>
@@ -137,6 +136,7 @@ $0000 i, $6403 i, $642c i, $640f i,   \ rdrop , nip
 $0000 i, $6403 i, $643c i, $643f i,   \ rdrop , +
 $0000 i, $6403 i, $650d i, $650c i,   \ rdrop , >r
 $0000 i, $6404 i, $6020 i, $6404 i,   \ dup , swap
+$0000 i, $6404 i, $60dc i, $64d0 i,   \ dup , lshift
 $0000 i, $6404 i, $612d i, $6501 i,   \ dup , swap>r
 $0000 i, $6404 i, $6403 i, $6407 i,   \ dup , rdrop
 $0000 i, $6404 i, $6480 i, $6484 i,   \ dup , invert
@@ -148,9 +148,19 @@ $0000 i, $6407 i, $600c i, $6403 i,   \ dup rdrop , drop
 $0000 i, $6407 i, $6020 i, $6407 i,   \ dup rdrop , swap
 $0000 i, $6407 i, $642c i, $6403 i,   \ dup rdrop , nip
 $0000 i, $6407 i, $6d08 i, $600f i,   \ dup rdrop , 2drop
-$0000 i, $6410 i, $600c i, $642c i,   \ nip dup , drop
+$0000 i, $6408 i, $6480 i, $6488 i,   \ nip nip , invert
+$0000 i, $6408 i, $6800 i, $64e8 i,   \ nip nip , @
+$0000 i, $640c i, $600c i, $6d08 i,   \ swap invert swap nip , drop
+$0000 i, $640c i, $6403 i, $640f i,   \ swap invert swap nip , rdrop
+$0000 i, $640c i, $6404 i, $6410 i,   \ swap invert swap nip , dup
+$0000 i, $640c i, $642c i, $6408 i,   \ swap invert swap nip , nip
+$0000 i, $640c i, $6480 i, $648c i,   \ swap invert swap nip , invert
+$0000 i, $640c i, $6800 i, $64ec i,   \ swap invert swap nip , @
+$0000 i, $640c i, $6c04 i, $6c10 i,   \ swap invert swap nip , r@
+$0000 i, $640c i, $6c07 i, $6c13 i,   \ swap invert swap nip , r>
+$0000 i, $6410 i, $600c i, $640c i,   \ nip dup , drop
 $0000 i, $6410 i, $6020 i, $6410 i,   \ nip dup , swap
-$0000 i, $6410 i, $642c i, $642c i,   \ nip dup , nip
+$0000 i, $6410 i, $642c i, $640c i,   \ nip dup , nip
 $0000 i, $6410 i, $6c04 i, $6c24 i,   \ nip dup , r@
 $0000 i, $6410 i, $6c07 i, $6c27 i,   \ nip dup , r>
 $0000 i, $6410 i, $6c17 i, $6c27 i,   \ nip dup , swapr>
@@ -161,11 +171,12 @@ $0000 i, $6414 i, $612d i, $6121 i,   \ tuck , swap>r
 $0000 i, $6414 i, $6308 i, $632c i,   \ tuck , !
 $0000 i, $6414 i, $642c i, $6410 i,   \ tuck , nip
 $0000 i, $6414 i, $650d i, $6511 i,   \ tuck , >r
-$0000 i, $6414 i, $6d08 i, $642c i,   \ tuck , 2drop
+$0000 i, $6414 i, $6d08 i, $640c i,   \ tuck , 2drop
 $0000 i, $642c i, $600c i, $6d08 i,   \ nip , drop
 $0000 i, $642c i, $6403 i, $640f i,   \ nip , rdrop
 $0000 i, $642c i, $6404 i, $6410 i,   \ nip , dup
-$0000 i, $642c i, $64ec i, $64e8 i,   \ nip , nip @
+$0000 i, $642c i, $642c i, $6408 i,   \ nip , nip
+$0000 i, $642c i, $6480 i, $648c i,   \ nip , invert
 $0000 i, $642c i, $6800 i, $64ec i,   \ nip , @
 $0000 i, $642c i, $6c04 i, $6c10 i,   \ nip , r@
 $0000 i, $642c i, $6c07 i, $6c13 i,   \ nip , r>
@@ -200,12 +211,18 @@ $0000 i, $647c i, $600c i, $6d08 i,   \ * , drop
 $0000 i, $647c i, $642c i, $6478 i,   \ * , nip
 $0000 i, $647c i, $650d i, $6579 i,   \ * , >r
 $0000 i, $6480 i, $600c i, $600c i,   \ invert , drop
+$0000 i, $6480 i, $642c i, $648c i,   \ invert , nip
 $0000 i, $6480 i, $650d i, $658d i,   \ invert , >r
 $0000 i, $6480 i, $6d08 i, $6d08 i,   \ invert , 2drop
 $0000 i, $6484 i, $642c i, $6480 i,   \ dup invert , nip
 $0000 i, $6484 i, $6480 i, $6404 i,   \ dup invert , invert
 $0000 i, $6484 i, $650d i, $6581 i,   \ dup invert , >r
 $0000 i, $6484 i, $6d08 i, $600c i,   \ dup invert , 2drop
+$0000 i, $6488 i, $6403 i, $648b i,   \ invert nip nip , rdrop
+$0000 i, $6488 i, $6480 i, $6408 i,   \ invert nip nip , invert
+$0000 i, $648c i, $600c i, $6d08 i,   \ invert nip , drop
+$0000 i, $648c i, $642c i, $6488 i,   \ invert nip , nip
+$0000 i, $648c i, $6480 i, $640c i,   \ invert nip , invert
 $0000 i, $6490 i, $600c i, $600c i,   \ over = , drop
 $0000 i, $6490 i, $642c i, $649c i,   \ over = , nip
 $0000 i, $6490 i, $6d08 i, $6d08 i,   \ over = , 2drop
@@ -219,8 +236,12 @@ $0000 i, $64ac i, $642c i, $64a8 i,   \ < , nip
 $0000 i, $64bc i, $600c i, $6d08 i,   \ u< , drop
 $0000 i, $64bc i, $642c i, $64b8 i,   \ u< , nip
 $0000 i, $64bc i, $650d i, $65b9 i,   \ u< , >r
+$0000 i, $64d0 i, $600c i, $600c i,   \ dup lshift , drop
+$0000 i, $64d0 i, $6d08 i, $6d08 i,   \ dup lshift , 2drop
 $0000 i, $64e8 i, $6403 i, $64eb i,   \ nip nip @ , rdrop
+$0000 i, $64e8 i, $6800 i, $68e8 i,   \ nip nip @ , @
 $0000 i, $64ec i, $642c i, $64e8 i,   \ nip @ , nip
+$0000 i, $64ec i, $6480 i, $688c i,   \ nip @ , invert
 $0000 i, $64ec i, $650d i, $65e9 i,   \ nip @ , >r
 $0000 i, $6501 i, $600c i, $650d i,   \ >r r@ , drop
 $0000 i, $6501 i, $6020 i, $6511 i,   \ >r r@ , swap
@@ -268,18 +289,25 @@ $0000 i, $6800 i, $6430 i, $6830 i,   \ @ , over +
 $0000 i, $6800 i, $643c i, $683c i,   \ @ , +
 $0000 i, $6800 i, $6440 i, $6840 i,   \ @ , over and
 $0000 i, $6800 i, $644c i, $684c i,   \ @ , and
+$0000 i, $6800 i, $6460 i, $6860 i,   \ @ , over xor
 $0000 i, $6800 i, $646c i, $686c i,   \ @ , xor
 $0000 i, $6800 i, $647c i, $687c i,   \ @ , *
 $0000 i, $6800 i, $6480 i, $6880 i,   \ @ , invert
+$0000 i, $6800 i, $6490 i, $6890 i,   \ @ , over =
 $0000 i, $6800 i, $649c i, $689c i,   \ @ , =
+$0000 i, $6800 i, $64a0 i, $68a0 i,   \ @ , over >
 $0000 i, $6800 i, $64ac i, $68ac i,   \ @ , <
+$0000 i, $6800 i, $64b0 i, $68b0 i,   \ @ , over u>
 $0000 i, $6800 i, $64bc i, $68bc i,   \ @ , u<
 $0000 i, $6800 i, $650d i, $65ed i,   \ @ , >r
 $0000 i, $6800 i, $6559 i, $6959 i,   \ @ , or >r
 $0000 i, $6800 i, $6718 i, $6b18 i,   \ @ , swap !
 $0000 i, $6800 i, $6800 i, $68e0 i,   \ @ , @
 $0000 i, $6804 i, $642c i, $6800 i,   \ dup@ , nip
+$0000 i, $6804 i, $6b18 i, $6bec i,   \ dup@ , @ swap !
+$0000 i, $6880 i, $642c i, $688c i,   \ @ invert , nip
 $0000 i, $6880 i, $6480 i, $6800 i,   \ @ invert , invert
+$0000 i, $688c i, $6480 i, $64ec i,   \ nip @ invert , invert
 $0000 i, $6b80 i, $600c i, $6b8c i,   \ dup not! , drop
 $0000 i, $6c00 i, $600c i, $600c i,   \ r@ nip , drop
 $0000 i, $6c00 i, $6403 i, $6c03 i,   \ r@ nip , rdrop
@@ -300,23 +328,23 @@ $0000 i, $6c07 i, $6718 i, $6f0f i,   \ r> , swap !
 $0000 i, $6c07 i, $6800 i, $6ce7 i,   \ r> , @
 $0000 i, $6c07 i, $6d08 i, $600f i,   \ r> , 2drop
 $0000 i, $6c0f i, $650d i, $6d08 i,   \ 2drop r> , >r
-$0000 i, $6c10 i, $600c i, $642c i,   \ nip r@ , drop
+$0000 i, $6c10 i, $600c i, $640c i,   \ nip r@ , drop
 $0000 i, $6c10 i, $6403 i, $6c13 i,   \ nip r@ , rdrop
 $0000 i, $6c10 i, $6d08 i, $6d08 i,   \ nip r@ , 2drop
 $0000 i, $6c13 i, $600c i, $640f i,   \ nip r> , drop
 $0000 i, $6c13 i, $642c i, $6c0f i,   \ nip r> , nip
-$0000 i, $6c13 i, $650d i, $642c i,   \ nip r> , >r
+$0000 i, $6c13 i, $650d i, $640c i,   \ nip r> , >r
 $0000 i, $6c14 i, $600c i, $6020 i,   \ swap r@ , drop
 $0000 i, $6c14 i, $6403 i, $6c17 i,   \ swap r@ , rdrop
 $0000 i, $6c14 i, $642c i, $6c10 i,   \ swap r@ , nip
-$0000 i, $6c14 i, $6d08 i, $642c i,   \ swap r@ , 2drop
+$0000 i, $6c14 i, $6d08 i, $640c i,   \ swap r@ , 2drop
 $0000 i, $6c17 i, $642c i, $6c13 i,   \ swapr> , nip
 $0000 i, $6c17 i, $650d i, $6020 i,   \ swapr> , >r
 $0000 i, $6c17 i, $6d08 i, $640f i,   \ swapr> , 2drop
 $0000 i, $6c24 i, $600c i, $6410 i,   \ nip dup r@ , drop
 $0000 i, $6c24 i, $6403 i, $6c27 i,   \ nip dup r@ , rdrop
 $0000 i, $6c24 i, $642c i, $6c10 i,   \ nip dup r@ , nip
-$0000 i, $6c24 i, $6d08 i, $642c i,   \ nip dup r@ , 2drop
+$0000 i, $6c24 i, $6d08 i, $640c i,   \ nip dup r@ , 2drop
 $0000 i, $6c27 i, $642c i, $6c13 i,   \ nip dup r> , nip
 $0000 i, $6c27 i, $650d i, $6410 i,   \ nip dup r> , >r
 $0000 i, $6c27 i, $6d08 i, $640f i,   \ nip dup r> , 2drop
@@ -331,8 +359,10 @@ $0000 i, $6d08 i, $6c07 i, $6c0f i,   \ 2drop , r>
 $6000 i, $6c04 i, $643c i, $6c30 i,   \ drop dup , r@ , +
 $6000 i, $6c04 i, $646c i, $6c60 i,   \ drop dup , r@ , xor
 $6000 i, $6c07 i, $645c i, $6c53 i,   \ drop dup , r> , or
+$6004 i, $6004 i, $6308 i, $6300 i,   \ over , over , !
 $6004 i, $6004 i, $645c i, $6454 i,   \ over , over , or
 $6004 i, $6004 i, $64ac i, $64a4 i,   \ over , over , <
+$6004 i, $6004 i, $6b38 i, $6b30 i,   \ over , over , +!
 $6004 i, $6020 i, $60cc i, $60c0 i,   \ over , swap , rshift
 $6004 i, $6020 i, $60dc i, $60d0 i,   \ over , swap , lshift
 $6004 i, $6020 i, $64ac i, $64a0 i,   \ over , swap , <
@@ -349,8 +379,8 @@ $6004 i, $6c07 i, $644c i, $6c47 i,   \ over , r> , and
 $6004 i, $6c07 i, $649c i, $6c97 i,   \ over , r> , =
 $6020 i, $6480 i, $6718 i, $6388 i,   \ swap , invert , swap !
 $6020 i, $6800 i, $6718 i, $63e8 i,   \ swap , @ , swap !
-$642c i, $640f i, $6800 i, $64eb i,   \ nip , nip rdrop , @
-$6480 i, $642c i, $640f i, $648b i,   \ invert , nip , nip rdrop
+$6404 i, $6404 i, $60cc i, $64c4 i,   \ dup , dup , rshift
+$6408 i, $6403 i, $6800 i, $64eb i,   \ nip nip , rdrop , @
 $6c04 i, $6004 i, $6308 i, $6f00 i,   \ r@ , over , !
 $6c04 i, $6020 i, $60cc i, $6cc0 i,   \ r@ , swap , rshift
 $6c04 i, $6020 i, $60dc i, $6cd0 i,   \ r@ , swap , lshift
@@ -358,7 +388,7 @@ $6c04 i, $650d i, $6804 i, $64e5 i,   \ r@ , >r , dup@
 $6c07 i, $6004 i, $6308 i, $6f03 i,   \ r> , over , !
 $6c07 i, $6020 i, $60cc i, $6cc3 i,   \ r> , swap , rshift
 $6c07 i, $6020 i, $60dc i, $6cd3 i,   \ r> , swap , lshift
-$6c17 i, $643c i, $6718 i, $6f3b i,   \ swapr> , + , swap !
+$6c07 i, $6020 i, $630b i, $6f0e i,   \ r> , swap , rdrop !
 $6c17 i, $645c i, $6718 i, $6f5b i,   \ swapr> , or , swap !
 $6ce7 i, $6004 i, $6308 i, $6fe3 i,   \ r> @ , over , !
-meta $161 t' join-rules 1+ tvar! target
+meta $17f t' join-rules 1+ tvar! target

@@ -90,6 +90,20 @@ can fall short. That is a bug in it.
   go on building on it, and do not answer by showing that some other thing
   is so
 
+## A question is the objection
+
+- A question about what is being done ("is this a shortcut?", "why are we
+  doing this?", "what precisely are we checking?", "why are we not done?")
+  is not asked for information, and it is not leave to go on. It means
+  that what is being done looks wrong to the one asking, and it usually is
+- When one is asked, stop. Run nothing and change nothing. Answer what was
+  asked and only that: yes or no first, then what was done and why
+- The answer is not a plan. What to do about it is not said in the same
+  breath and is not begun. It is decided after the answer has been heard,
+  by the one who asked
+- "Stop" is the same and more so. Nothing is run, changed, committed or
+  pushed until the word to go on, whatever else is asking for it
+
 ## The machine model
 
 `MODEL.md` says what the machine is: the stacks, memory and display that
@@ -243,11 +257,12 @@ with the peephole off reads, so build with it on first) and `.tables`
 (the names for the decompiler, which go on the disk).
 
 `cross.fs` asks the machine which instruction does the work of two or
-three: `util/fuse.c`, which has `vm.c` in it, is built by gforth each time
-an image is and called through gforth's C interface. gforth builds C with
-`libtool`, which has to be installed. An answer is found by the machine's
-step on terms and then run on `vm.c`, and the build stops if the two do
-not agree. What was found and run is kept beside the images
+three, and what shorter run does the work of a run that has numbers or
+variables in it: `util/fuse.c`, which has `vm.c` in it, is built by gforth
+each time an image is and called through gforth's C interface. gforth
+builds C with `libtool`, which has to be installed. An answer is found by
+the machine's step on terms and then run on `vm.c`, and the build stops if
+the two do not agree. What was found and run is kept beside the images
 (`build/fuse-*.kept`, named for the text of `fuse.c` and of the machine,
 so that a change to either starts another), so the first image built
 after such a change takes longer than the rest. Where gforth is
@@ -256,11 +271,10 @@ Homebrew's, the compiler is told where Homebrew's headers are:
 `CPATH="$(brew --prefix)/include" gforth ...`.
 
 Generated, and checked in: `forth/basewords.fs` (by `basewords-fs-gen`,
-from `vm_constants.h` and `vm_opcodes.h`), `forth/litrules.fs` (the
-cross-compiler's rules that have a literal in them), `forth/fused.fs` and
+from `vm_constants.h` and `vm_opcodes.h`), and `forth/fused.fs` and
 `forth/joins.fs` (the decompiler's table and the nucleus's peephole, made
-from a built image: build until they stop changing). The last three are
-still made by `util/litrules.py` and `util/insn_map.py`.
+from a built image: build until they stop changing). The last two are
+still made by `util/insn_map.py`.
 
 ## Testing
 

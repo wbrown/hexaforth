@@ -46,25 +46,39 @@ static inline uint64_t ucell(int64_t x) {
 // Such a VM can also be told to run so many instructions and no more
 // (strict_steps; none is until it halts), so that what is run is what was
 // meant to be and not what happens to come after it.
+//
+// A machine may be given cells that are not in its memory: FAR_CELL says
+// where the cell of an address is, or that it has none.  What runs a small
+// machine to try what a run of instructions does gives it the cells the
+// run names, wherever they are (util/fuse.c).  Such a cell is fetched from
+// and stored to; nothing is run from it.
+#ifndef FAR_CELL
+#define FAR_CELL(addr) ((uint8_t *)0)
+#endif
 #ifdef STRICT_ALIGN
 static int64_t strict_pc;
 static uint64_t strict_steps;
-static void strict(const char *what, int64_t addr) {
-    if (ucell(addr) >> ADDR_BITS) {
+static void strict_at(const char *what, int64_t addr, int far_too) {
+    if (ucell(addr) >> ADDR_BITS && !(far_too && FAR_CELL(addr))) {
         fprintf(stderr, "\n%s outside memory, at %llx, by the instruction at %llx\n", what,
                 (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
         exit(3);
     }
 }
-#define strict_run(pc) strict("execution", (int64_t)((uint64_t)(pc) / (CELL_BYTES / 2)))
+#define strict(what, addr) strict_at(what, addr, 1)
+#define strict_run(pc) strict_at("execution", (int64_t)((uint64_t)(pc) / (CELL_BYTES / 2)), 0)
 #else
 #define strict(what, addr)
 #define strict_run(pc) ((void)0)
 #endif
 
 // Where a cell is.  An address is the number of a cell; one outside memory
-// is undefined, and here it wraps.
+// is undefined, and here it wraps, unless the machine has a cell for it.
 static inline uint8_t *cell_at(context *ctx, int64_t addr) {
+    if (ucell(addr) >> ADDR_BITS) {
+        uint8_t *far = FAR_CELL(addr);
+        if (far) return far;
+    }
     return (uint8_t *)ctx->memory + (ucell(addr) & ((1ull << ADDR_BITS) - 1)) * CELL_BYTES;
 }
 
@@ -281,10 +295,19 @@ static inline int64_t alu(int op, int64_t a, int64_t b) {
 // it and does not run it (util/fuse.c, which also tries each on the
 // machine): the operations whose two inputs may be exchanged; those of
 // which a run may be regrouped as well, since the cell they make is the
-// same; and the one that done twice gives back the cell it was given.
+// same, and for each of those the number that, as one input, leaves the
+// other a cell as it was; the operation that done twice gives back the
+// cell it was given; those that leave a flag, which is TRUE or FALSE and
+// nothing else; the one whose flag is whether two cells are the same; and
+// the one that makes nothing of two cells when they are the same, and of
+// no others.
 #define ALU_REGROUPS(op)    ((op) == ALU_ADD || (op) == ALU_AND || (op) == ALU_OR || (op) == ALU_XOR || (op) == ALU_MUL)
+#define ALU_NOTHING(op)     ((op) == ALU_AND ? TRUE : (op) == ALU_MUL ? 1 : 0)
 #define ALU_EITHER_WAY(op)  (ALU_REGROUPS(op) || (op) == ALU_EQ)
 #define ALU_UNDOES(op)      ((op) == ALU_INVERT)
+#define ALU_FLAGS(op)       ((op) == ALU_EQ || (op) == ALU_GT || (op) == ALU_U_GT)
+#define ALU_SAME(op)        ((op) == ALU_EQ)
+#define ALU_DIFFERS(op)     ((op) == ALU_XOR)
 
 // The step on cells (vm_step.h says what each of these is).
 #define VALUE           int64_t
