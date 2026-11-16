@@ -258,6 +258,74 @@ static inline int64_t branch(int64_t next_pc, uint16_t target) {
     return target;
 }
 
+// The arithmetic: what an operation makes of its two inputs, and of nothing
+// else.  Which two they are is the step's to say (vm_step.h).
+static inline int64_t alu(int op, int64_t a, int64_t b) {
+    switch (op) {
+        case ALU_ADD:    return a + b;
+        case ALU_AND:    return a & b;
+        case ALU_OR:     return a | b;
+        case ALU_XOR:    return a ^ b;
+        case ALU_MUL:    return a * b;
+        case ALU_INVERT: return ~a;
+        case ALU_EQ:     return a == b ? TRUE : FALSE;
+        case ALU_GT:     return b < a ? TRUE : FALSE;
+        case ALU_U_GT:   return ucell(b) < ucell(a) ? TRUE : FALSE;
+        case ALU_RSHIFT: return ucell(a) >> (b & 63);       // from the cell width up, the result is 0
+        case ALU_LSHIFT: return ucell(a) << (b & 63);
+        default:         return 0;
+    }
+}
+
+// What is so of the arithmetic whatever its inputs, for what reasons about
+// it and does not run it (util/fuse.c, which also tries each on the
+// machine): the operations whose two inputs may be exchanged; those of
+// which a run may be regrouped as well, since the cell they make is the
+// same; and the one that done twice gives back the cell it was given.
+#define ALU_REGROUPS(op)    ((op) == ALU_ADD || (op) == ALU_AND || (op) == ALU_OR || (op) == ALU_XOR || (op) == ALU_MUL)
+#define ALU_EITHER_WAY(op)  (ALU_REGROUPS(op) || (op) == ALU_EQ)
+#define ALU_UNDOES(op)      ((op) == ALU_INVERT)
+
+// The step on cells (vm_step.h says what each of these is).
+#define VALUE           int64_t
+#define DS(i)           ctx->DSTACK[i]
+#define RS(i)           ctx->RSTACK[i]
+#define NUMBER(n)       cell(n)
+#define WHOLE(x)        cell(x)
+#define ALU(op, a, b)   alu(op, a, b)
+#define FETCH(a)        mem_load(ctx, a)
+#define STORE(a, x)     mem_store(ctx, a, x)
+#define RETURN(r)       EIP = ucell(r)
+#define IO_IN(port)     ((port) == IO_SP ? SP : (port) == IO_RSP ? RSP : io_read_handler(ctx, port))
+#define IO_OUT() \
+    if (T == IO_SP) { \
+        if (ins.alu.dstack >= 0) ctx->DSTACK[SP - 1] = T; \
+        SP = OUT; \
+        T = ctx->DSTACK[SP - 1]; \
+        goto resolve_rstack; \
+    } \
+    if (T == IO_RSP) { \
+        if (ins.alu.rstack >= 0) ctx->RSTACK[RSP - 1] = R; \
+        RSP = OUT; \
+        R = ctx->RSTACK[RSP - 1]; \
+        goto resolve_dstack; \
+    } \
+    ctx->SP = SP; \
+    ctx->RSP = RSP; \
+    ctx->EIP = EIP; \
+    io_write_handler(ctx, T, OUT); \
+    goto resolve_dstack
+#ifdef STRICT_STACK
+#define DEPTHS() \
+    if (SP < 0 || SP > STACK_CELLS || RSP < 0 || RSP > STACK_CELLS) { \
+        fprintf(stderr, "\nstack out of range (data %d, return %d) at %llx\n", \
+                SP, RSP, (unsigned long long)EIP - 1); \
+        exit(3); \
+    }
+#else
+#define DEPTHS()
+#endif
+
 int vm(context *ctx) {
     register int64_t EIP = ctx->EIP;        // EIP = execution pointer
     register int16_t SP = 0;                // SP = data stack pointer
@@ -285,30 +353,9 @@ int vm(context *ctx) {
 #ifdef STRICT_ALIGN
         strict_pc = EIP;
 #endif
-        // == MSB set is an instruction literal.
-        if (ins.lit.lit_f) {
-            if (ins.lit.lit_shifts == 3) {      // a variable: fetch it, or store T in it
-                int64_t addr = VAR_BASE + ins.lit.lit_v;
-                if (!ins.lit.lit_add) {
-                    ctx->DSTACK[SP-1] = T;
-                    SP++;
-                    T = mem_load(ctx, addr);
-                } else {
-                    mem_store(ctx, addr, T);
-                    SP--;
-                    T = ctx->DSTACK[SP-1];
-                }
-                continue;
-            }
-            int64_t lit = (uint64_t)ins.lit.lit_v <<
-                              (ins.lit.lit_shifts * LIT_BITS);
-            if (!ins.lit.lit_add) {
-                ctx->DSTACK[SP-1] = T;
-                SP++;
-                T = cell(lit);
-            } else {
-                T = cell(T + lit);
-            }
+        // A literal (the MSB is set) or an instruction of the ALU: the step.
+        if (ins.lit.lit_f || ins.alu.op_type == OP_TYPE_ALU) {
+#include "vm_step.h"
             continue;
         }
         switch (ins.alu.op_type) {
@@ -335,175 +382,7 @@ int vm(context *ctx) {
                 RSP++;
                 EIP = branch(EIP, ins.jmp.target);
                 break;
-            case OP_TYPE_ALU: {
-                N = ctx->DSTACK[SP-2];
-                switch (ins.alu.in_mux) {
-                    // Pick which data source for our input `I`:
-                    case INPUT_N:
-                        // `N->IN`
-                        IN = N;
-                        break;
-                    case INPUT_T:
-                        // `T->IN`
-                        IN = T;
-                        break;
-                    case INPUT_LOAD_T: {
-                        IN = mem_load(ctx, T);
-                        break;
-                    }
-                    case INPUT_R:
-                        // `R->IN`
-                        IN = R;
-                        break;
-                    default:
-                        break;
-                }
-                // Perform our ALU op
-                switch (ins.alu.alu_op) {
-                    case ALU_IN:
-                        // `IN->OUT` -- passthrough to `out_mux`
-                        OUT = IN;
-                        break;
-                    case ALU_ADD:
-                        // `(IN+N)->OUT`
-                        OUT = IN + N;
-                        break;
-                    case ALU_T_N:
-                        // `T->N, IN->OUT`
-                        ctx->DSTACK[SP - 2] = T;
-                        OUT = IN;
-                        break;
-                    case ALU_SWAP_IN:
-                        // 'T<->N, IN->OUT'
-                        OUT = ctx->DSTACK[SP - 2];
-                        ctx->DSTACK[SP - 2] = T;
-                        T = OUT;
-                        OUT = IN;
-                        break;
-                    case ALU_AND:
-                        // `(IN&N)->OUT`
-                        OUT = IN & N;
-                        break;
-                    case ALU_OR:
-                        // `(IN|N)>OUT`
-                        OUT = IN | N;
-                        break;
-                    case ALU_XOR:
-                        // `(IN^N)->OUT`
-                        OUT = IN ^ N;
-                        break;
-                    case ALU_INVERT:
-                        // `~IN->OUT`
-                        OUT = ~IN;
-                        break;
-                    case ALU_EQ:
-                        // `(IN==N)->OUT`
-                        OUT = IN == N ? TRUE : FALSE;
-                        break;
-                    case ALU_GT:
-                        // `(N<IN)->OUT`
-                        OUT = N < IN ? TRUE : FALSE;
-                        break;
-                    case ALU_RSHIFT:
-                        // `(IN>>T)->OUT`
-                        OUT = ucell(IN) >> (T & 63);        // from the cell width up, the result is 0
-                        break;
-                    case ALU_LSHIFT:
-                        // `(IN<<T)->OUT`
-                        OUT = ucell(IN) << (T & 63);
-                        break;
-                    case ALU_MUL:
-                        // `(N*IN)->OUT`
-                        OUT = IN * N;
-                        break;
-                    case ALU_LOAD: {
-                        OUT = mem_load(ctx, IN);
-                        break;
-                    }
-                    case ALU_IO_READ:
-                        // `io[IN]->OUT`
-                        if (IN == IO_SP) OUT = SP;
-                        else if (IN == IO_RSP) OUT = RSP;
-                        else OUT = io_read_handler(ctx, IN);
-                        break;
-                    case ALU_U_GT: {
-                        // `(Nu<INu)->OUT`
-                        OUT = ucell(N) < ucell(IN) ? TRUE : FALSE;
-                        break;
-                    }
-                    default:
-                        break;
-                };
-                OUT = cell(OUT);
-                // R->EIP flag
-                if (ins.alu.r_eip) EIP = ucell(R);
-                // Adjust stack depths
-                SP += ins.alu.dstack;
-                RSP += ins.alu.rstack;
-#ifdef STRICT_STACK
-                if (SP < 0 || SP > STACK_CELLS || RSP < 0 || RSP > STACK_CELLS) {
-                    fprintf(stderr, "\nstack out of range (data %d, return %d) at %llx\n",
-                            SP, RSP, (unsigned long long)EIP - 1);
-                    exit(3);
-                }
-#endif
-                // Update NOS (Next On Stack) if stack size was incremented
-                if (ins.alu.dstack > 0) {
-                    ctx->DSTACK[SP - 2] = T;
-                }
-                if (ins.alu.rstack > 0) {
-                    ctx->RSTACK[RSP - 2] = R;
-                }
-                // == Where does `OUT` go?
-                switch (ins.alu.out_mux) {
-                    // `OUT->T`
-                    case OUTPUT_T:
-                        T = OUT;
-                        goto resolve_rstack;
-                    // `OUT->R`
-                    case OUTPUT_R:
-                        R = OUT;
-                        if (ins.alu.dstack < 0) {
-                            T = ctx->DSTACK[SP - 1];
-                        }
-                        break;
-                    // `OUT->io[T]` IO write op.
-                    case OUTPUT_IO_T:
-                        if (T == IO_SP) {
-                            if (ins.alu.dstack >= 0) ctx->DSTACK[SP - 1] = T;
-                            SP = OUT;
-                            T = ctx->DSTACK[SP - 1];
-                            goto resolve_rstack;
-                        }
-                        if (T == IO_RSP) {
-                            if (ins.alu.rstack >= 0) ctx->RSTACK[RSP - 1] = R;
-                            RSP = OUT;
-                            R = ctx->RSTACK[RSP - 1];
-                            goto resolve_dstack;
-                        }
-                        ctx->SP = SP;
-                        ctx->RSP = RSP;
-                        ctx->EIP = EIP;
-                        io_write_handler(ctx, T, OUT);
-                        goto resolve_dstack;
-                    // `OUT->memory[T]` -- memory write
-                    case OUTPUT_MEM_T:
-                        mem_store(ctx, T, OUT);
-                    default:
-                    resolve_dstack:
-                        if (ins.alu.dstack < 0) {
-                            T = ctx->DSTACK[SP -1];
-                        }
-                    resolve_rstack:
-                        if (ins.alu.rstack < 0) {
-                            R = ctx->RSTACK[RSP - 1];
-                        }
-                        break;
-                }
-                break;
-            }
-            // This should never happen.
-            default:
+            default:                // of the ALU, which the step did
                 break;
         }
         // print_stack(SP,T, ctx, false);
@@ -520,3 +399,17 @@ int vm(context *ctx) {
     fflush(ctx->OUT);
     return 1;
 }
+
+// What has the step again, on something else, says these again.
+#undef VALUE
+#undef DS
+#undef RS
+#undef NUMBER
+#undef WHOLE
+#undef ALU
+#undef FETCH
+#undef STORE
+#undef RETURN
+#undef IO_IN
+#undef IO_OUT
+#undef DEPTHS

@@ -2,38 +2,47 @@
 // fuse.c - which instruction does the work of two or of three, and which
 // two do the work of three, asked of the machine.
 //
-// A sequence of instructions is run on vm.c from a number of states, and
-// what it leaves is noted: the depths, the stacks, every cell of data, and
-// where it goes next.  Two sequences that leave the same from every state
-// are taken to do the same.  Nothing here says what an instruction does:
-// the machine is run.
+// Nothing here says what an instruction does.  The machine's step is said
+// once (vm_step.h), and it is had here twice: in vm.c, which runs it on
+// cells, and on terms.
+//
+// On terms it says what a sequence leaves in every cell, as the name of
+// what is there and not a number: what was in some cell when it started,
+// or what an operation made of two such.  Two sequences that leave the
+// same terms leave the same from every state there is, and that is how an
+// answer is found (fuse_one, fuse_two).  It is so because the step is the
+// machine's own, and because of what is said beside the arithmetic in
+// vm.c: which operations take their inputs in either order, which may be
+// regrouped, and which is undone by being done again.  Two sequences that
+// do the same only by something else that is so of numbers are not found.
+//
+// On cells it is a test of that, made otherwise.  Every answer the terms
+// give is run on vm.c against what it is the answer to, from a number of
+// states, and what each leaves is compared: the depths, the stacks, every
+// cell of data, and where it goes next (same).  If they leave something
+// else the build stops: the step on terms is wrong, or what is said of the
+// arithmetic is, or the states are.
 //
 // A state is cells of numbers of the kinds a program has: addresses of
 // data, small numbers, flags, and anything.  Taken by chance alone they
 // would not tell what a sequence does with what it has made itself: the
 // xor of two cells is like nothing else in a state, so `xor =` would never
 // be seen to say yes, and would pass for an instruction that leaves
-// nothing.  So an answer found from the states is tried again from states
-// made for it: what the sequences make from a state is put, a value and a
-// place at a time, where they may next look for it (same_from).  Nor would
-// they tell two sequences apart that ask different things of the cells
-// they are given, when the answer to both is nearly always no: so the two
-// are also run from every way of giving those cells a few numbers
-// (same_from_few).  A state may also lead a sequence to fetch the cell it
-// is itself in: so two that are compared are both in memory while either
-// runs.
+// nothing.  So the two are run again from states made for them: what they
+// make from a state is put, a value and a place at a time, where they may
+// next look for it (same_from).  Nor would they tell two sequences apart
+// that ask different things of the cells they are given, when the answer
+// to both is nearly always no: so the two are also run from every way of
+// giving those cells a few numbers (same_from_few).  A state may also lead
+// a sequence to fetch the cell it is itself in: so the two are both in
+// memory while either runs.  This was once all there was, and it gave a
+// wrong answer: running is a test, and no number of states makes it more.
 //
-// This is a test and not a proof: two sequences are said to do the same
-// when nothing here could tell them apart.  What it says is checked by
-// what is made otherwise, the comparison of an image built with the
-// peephole and one built without (CLAUDE.md, Testing), and a wrong answer
-// found there is a kind of state that is missing here.
-//
-// The machine is the strict one (STRICT_ALIGN, ROM_BYTES), which stops at
-// a fetch, a store or a return outside memory and at a store into its ROM:
-// what those do is not defined (MODEL.md).  A state that stops a sequence
-// says nothing of it but that it stopped, and a sequence that few states
-// run to the end of is not known well enough to be given an answer.  The
+// The machine that is run is the strict one (STRICT_ALIGN, ROM_BYTES),
+// which stops at a fetch, a store or a return outside memory and at a
+// store into its ROM: what those do is not defined (MODEL.md).  A state
+// that stops a sequence says nothing of it but that it stopped, and of a
+// sequence that few states run to the end of the test says nothing.  The
 // machine runs the sequence and no more (strict_steps), so one that
 // returns is run as any other is, and where it returns to is part of what
 // it leaves.  Memory is 256 cells, so that all of it can be looked at
@@ -73,7 +82,6 @@
 #define DEPTH       8               // of each stack, when the sequence starts
 #define FILLED      16              // cells of each stack that a state gives
 #define STATES      96
-#define FEW         4               // the states tried first
 #define ENOUGH      8               // a sequence that runs to its end from fewer
                                     // states than this is not known well enough
 #define TRIED       16              // the states that more are made from,
@@ -266,17 +274,6 @@ static uint64_t left(int which, int len, const state* from) {
     int on = machine.EIP == after[0] || machine.EIP == after[1];
     h = mix(h, on ? -1 : machine.EIP);
     return(h | 2);
-}
-
-// A number for what a sequence leaves from the states `from` up to `to`,
-// carrying on from h, with no other sequence in memory.  The sequences are
-// kept in order of this, to find those that may do the same: it is `same`
-// that says whether they do.
-static uint64_t leaves(const uint16_t* seq, int len, int from, int to, uint64_t h) {
-    lay(0, seq, len);
-    lay(1, NULL, 0);
-    for(int s=from; s < to; s++) h = mix(h, left(0, len, &STATE[s]));
-    return(h);
 }
 
 // Was a value there before the sequence ran: in a stack, in the data, or
@@ -474,13 +471,13 @@ static int same_from_few(int alen, int blen) {
     return(1);
 }
 
-// Do two sequences do the same?  Both are put in memory, and each is run
-// from every state: they must leave the same.  If the first runs to its
-// end from too few, states it does run from are looked for, and they must
-// leave the same from those; and if there are still too few, nothing is
-// known.  Then they are run from states made for them (same_from), and
-// from every way of giving the cells they read a few numbers
-// (same_from_few).
+// Do two sequences do the same, as far as running them can tell?  Both are
+// put in memory, and each is run from every state: they must leave the
+// same.  If the first runs to its end from too few, states it does run
+// from are looked for, and they must leave the same from those; and if
+// there are still too few, nothing is known, which is less than nothing
+// here.  Then they are run from states made for them (same_from), and from
+// every way of giving the cells they read a few numbers (same_from_few).
 static int same(const uint16_t* a, int alen, const uint16_t* b, int blen) {
     lay(0, a, alen);
     lay(1, b, blen);
@@ -500,27 +497,277 @@ static int same(const uint16_t* a, int alen, const uint16_t* b, int blen) {
             if (first != left(1, blen, &FOUND[idx])) return(0);
             ran = so_far;
         }
-        if (ran < ENOUGH) return(0);
+        if (ran < ENOUGH) return(-1);
     }
     for(int s=0; s < TRIED; s++) if (!same_from(alen, blen, &STATE[s])) return(0);
     for(int idx=0; idx < founds; idx++) if (!same_from(alen, blen, &FOUND[idx])) return(0);
     return(same_from_few(alen, blen));
 }
 
+// ---- The step on terms
+//
+// A term is the name of what is in a cell: what was in a cell of a stack
+// when the sequence started, a number, what an operation made of two
+// terms, what was fetched from memory at a term; and memory is a term too,
+// as it was or with a term stored in it at a term.  The same term is the
+// same number whatever the state, so two sequences that leave the same
+// terms leave the same from every state.  A term is made once and is found
+// again by what it is made of, so that to be the same term is to be at the
+// same place here.
+//
+// What is taken to be so of a state: every cell of a stack and of memory
+// holds a cell's width and no more, so that to make a cell of what was in
+// one changes nothing.  The machine puts nothing else there: not the
+// step, and not a call, whose return address is made a cell (vm.c).
+enum { IN_DATA, IN_RETURN, A_NUMBER, BY_ALU, FETCHED, MEMORY_WAS, STORED };
+
+#define OPERANDS 8                  // the most terms a term is made of
+#define SLOTS    (2 * DEPTH)        // cells of each stack that have a name
+#define FIXED    (2 * SLOTS + 1)    // the terms there always are: those cells, and memory
+#define ROOM     256
+#define FETCHES  8
+
+typedef struct {
+    int kind, op, n;
+    int of[OPERANDS];               // the terms it is made of
+    int64_t number;                 // of a number, and which cell a cell is
+    uint64_t is;                    // a number for all of it, the same wherever it is made
+} term;
+
+static term KNOWN[ROOM];
+static int known;
+static int lost;                    // there was no room for a term: nothing is known
+
+static int term_of(int kind, int op, int64_t number, int n, const int* of) {
+    uint64_t is = mix(mix(mix(mix(0x7465726d, kind), op), number), n);
+    for(int idx=0; idx < n; idx++) is = mix(is, KNOWN[of[idx]].is);
+    for(int at=0; at < known; at++) {
+        const term* t = &KNOWN[at];
+        if (t->is == is && t->kind == kind && t->op == op && t->number == number && t->n == n &&
+            !memcmp(t->of, of, n * sizeof(int))) return(at);
+    }
+    if (known == ROOM) { lost = 1; return(0); }
+    term* t = &KNOWN[known];
+    t->kind = kind; t->op = op; t->number = number; t->n = n; t->is = is;
+    memcpy(t->of, of, n * sizeof(int));
+    return(known++);
+}
+
+// The terms there always are, in their places; and back to only those.
+static void name_cells(void) {
+    for(int idx=0; idx < SLOTS; idx++) term_of(IN_DATA, 0, idx, 0, NULL);
+    for(int idx=0; idx < SLOTS; idx++) term_of(IN_RETURN, 0, idx, 0, NULL);
+    term_of(MEMORY_WAS, 0, 0, 0, NULL);
+}
+
+static void forget(void) {
+    known = FIXED;
+    lost = 0;
+}
+
+static void in_order(int* of, int n) {      // by the number for each, which is the same every time
+    for(int i=1; i < n; i++) {
+        for(int j=i; j > 0 && KNOWN[of[j]].is < KNOWN[of[j - 1]].is; j--) {
+            int t = of[j]; of[j] = of[j - 1]; of[j - 1] = t;
+        }
+    }
+}
+
+static int t_number(int64_t n) {
+    return(term_of(A_NUMBER, 0, cell(n), 0, NULL));
+}
+
+static int t_whole(int x) {         // a term is a cell already
+    return(x);
+}
+
+// What an operation makes of two terms, as a cell.  Of two numbers it is
+// the number the machine's arithmetic makes.  What is so of the arithmetic
+// (vm.c) gives one term to what is the same cell: the inputs in one order,
+// a run of an operation as one term of all its inputs with the numbers
+// among them made one, and what was done twice undone.
+static int t_made(int op, int a, int b) {
+    const term* x = &KNOWN[a];
+    const term* y = &KNOWN[b];
+    if (x->kind == A_NUMBER && y->kind == A_NUMBER) return(t_number(alu(op, x->number, y->number)));
+    if (ALU_UNDOES(op) && x->kind == BY_ALU && x->op == op) return(t_whole(x->of[0]));
+    int of[2 * OPERANDS], n = 0;
+    if (ALU_REGROUPS(op)) {
+        const int both[2] = { a, b };
+        int numbers = 0;
+        int64_t number = 0;
+        for(int which=0; which < 2; which++) {
+            const term* t = &KNOWN[both[which]];
+            int run = t->kind == BY_ALU && t->op == op;
+            for(int idx=0; idx < (run ? t->n : 1); idx++) {
+                int o = run ? t->of[idx] : both[which];
+                if (KNOWN[o].kind != A_NUMBER) of[n++] = o;
+                else number = cell(numbers++ ? alu(op, number, KNOWN[o].number) : KNOWN[o].number);
+            }
+        }
+        if (numbers) of[n++] = t_number(number);
+        if (n > OPERANDS) { lost = 1; return(0); }
+        in_order(of, n);
+    } else {
+        of[n++] = a;
+        of[n++] = b;
+        if (ALU_EITHER_WAY(op)) in_order(of, n);
+    }
+    return(term_of(BY_ALU, op, 0, n, of));
+}
+
+// The machine, of terms.  Its stacks are as vm.c's are: T and R are the
+// top cells, and the cells of DS and RS below the depths are the rest.
+typedef struct {
+    int DS[SLOTS], RS[SLOTS], T, R, SP, RSP;
+    int M;                          // memory
+    int next;                       // where it returned to, or less than nothing: it went on
+    int fetched[FETCHES], fetches;  // where it fetched from
+    int unsaid;                     // it did what nothing is said of: IO, a jump, a call
+} named;
+
+static void start(named* m) {
+    for(int idx=0; idx < SLOTS; idx++) { m->DS[idx] = idx; m->RS[idx] = SLOTS + idx; }
+    m->SP = m->RSP = DEPTH;
+    m->T = m->DS[m->SP - 1];
+    m->R = m->RS[m->RSP - 1];
+    m->M = 2 * SLOTS;
+    m->next = -1;
+    m->fetches = m->unsaid = 0;
+}
+
+// A fetch of what the last store put there is what was stored.
+static int t_fetch(named* m, int at) {
+    at = t_whole(at);
+    if (m->fetches == FETCHES) { lost = 1; return(0); }
+    m->fetched[m->fetches++] = at;
+    const term* mem = &KNOWN[m->M];
+    if (mem->kind == STORED && mem->of[1] == at) return(mem->of[2]);
+    int of[2] = { m->M, at };
+    return(term_of(FETCHED, 0, 0, 2, of));
+}
+
+// A store where the last store was takes its place.
+static void t_store(named* m, int at, int x) {
+    at = t_whole(at);
+    const term* mem = &KNOWN[m->M];
+    int of[3] = { mem->kind == STORED && mem->of[1] == at ? mem->of[0] : m->M, at, t_whole(x) };
+    m->M = term_of(STORED, 0, 0, 3, of);
+}
+
+// One instruction: the machine's step (vm_step.h), on terms.
+static void step_named(named* m, uint16_t x) {
+    instruction ins = *(instruction*)&x;
+    if ((!ins.lit.lit_f && ins.alu.op_type != OP_TYPE_ALU) ||
+        m->SP < 4 || m->SP > SLOTS - 2 || m->RSP < 4 || m->RSP > SLOTS - 2) {
+        m->unsaid = 1;
+        return;
+    }
+    int T = m->T, R = m->R, IN = 0, N = 0, OUT = 0, SP = m->SP, RSP = m->RSP;
+#define VALUE           int
+#define DS(i)           m->DS[i]
+#define RS(i)           m->RS[i]
+#define NUMBER(n)       t_number(n)
+#define WHOLE(x)        t_whole(x)
+#define ALU(op, a, b)   t_made(op, a, b)
+#define FETCH(a)        t_fetch(m, a)
+#define STORE(a, x)     t_store(m, a, x)
+#define RETURN(r)       m->next = t_whole(r)
+#define IO_IN(port)     (m->unsaid = 1, (port))
+#define IO_OUT()        m->unsaid = 1; goto resolve_dstack
+#define DEPTHS()
+#include "../vm_step.h"
+#undef VALUE
+#undef DS
+#undef RS
+#undef NUMBER
+#undef WHOLE
+#undef ALU
+#undef FETCH
+#undef STORE
+#undef RETURN
+#undef IO_IN
+#undef IO_OUT
+#undef DEPTHS
+    m->T = T; m->R = R; m->SP = SP; m->RSP = RSP;
+}
+
+// Where a sequence fetched from, each place once and in order.  A place it
+// also stored to is left out: where the store does not stop the machine,
+// the fetch does not.
+static int fetched_from(const named* m, int* out) {
+    int n = 0;
+    for(int idx=0; idx < m->fetches; idx++) {
+        int at = m->fetched[idx], has = 0;
+        for(int had=0; had < n; had++) has |= out[had] == at;
+        for(int mem=m->M; KNOWN[mem].kind == STORED; mem = KNOWN[mem].of[0]) has |= KNOWN[mem].of[1] == at;
+        if (!has) out[n++] = at;
+    }
+    in_order(out, n);
+    return(n);
+}
+
+// A number for what a sequence left: the depths, the cells of the stacks,
+// memory, where it goes next, and where it fetched from, so that two with
+// the same number stop from the same states too.  Nothing, if nothing can
+// be said of it.
+static uint64_t left_named(const named* m) {
+    if (m->unsaid || lost) return(0);
+    uint64_t h = mix(mix(mix(mix(mix(1, m->SP), m->RSP), KNOWN[m->T].is), KNOWN[m->R].is), KNOWN[m->M].is);
+    h = mix(h, m->next < 0 ? 0 : KNOWN[m->next].is);
+    for(int idx=0; idx < m->SP - 1; idx++) h = mix(h, KNOWN[m->DS[idx]].is);
+    for(int idx=0; idx < m->RSP - 1; idx++) h = mix(h, KNOWN[m->RS[idx]].is);
+    int from[FETCHES];
+    int n = fetched_from(m, from);
+    for(int idx=0; idx < n; idx++) h = mix(h, KNOWN[from[idx]].is);
+    return(h | 1);
+}
+
+// Did two leave the same terms?  Both were run with no forgetting between.
+static int same_named(const named* a, const named* b) {
+    if (a->unsaid || b->unsaid || lost) return(0);
+    if (a->SP != b->SP || a->RSP != b->RSP || a->T != b->T || a->R != b->R || a->M != b->M || a->next != b->next) return(0);
+    if (memcmp(a->DS, b->DS, (a->SP - 1) * sizeof(int)) || memcmp(a->RS, b->RS, (a->RSP - 1) * sizeof(int))) return(0);
+    int x[FETCHES], y[FETCHES];
+    int n = fetched_from(a, x);
+    return(n == fetched_from(b, y) && !memcmp(x, y, n * sizeof(int)));
+}
+
+// Run a sequence on terms from the start; the number for what it left.
+static uint64_t names(const uint16_t* seq, int len, named* m) {
+    start(m);
+    for(int idx=0; idx < len; idx++) step_named(m, seq[idx]);
+    return(left_named(m));
+}
+
+// What the terms say is so from every state, if the step and what is said
+// of the arithmetic are right.  So it is tried on the machine as well, from
+// the states there are here, which is a thing made otherwise: if the
+// machine, run, leaves something else, one of the two is wrong, and
+// nothing is built on either.
+static void tried(const uint16_t* a, int alen, const uint16_t* b, int blen) {
+    if (same(a, alen, b, blen)) return;
+    fprintf(stderr, "\nfuse.c: by their terms");
+    for(int idx=0; idx < alen; idx++) fprintf(stderr, " %04x", a[idx]);
+    fprintf(stderr, " and");
+    for(int idx=0; idx < blen; idx++) fprintf(stderr, " %04x", b[idx]);
+    fprintf(stderr, " do the same, and run on vm.c they do not\n");
+    exit(1);
+}
+
 // The instructions asked about: those of the ALU that do no IO.  Each has
-// what it leaves, from the first few states and from all of them, and the
-// one that stands for all that do the same, which is a baseword if any of
-// them is.
+// the number for what it leaves, and the one that stands for all that
+// leave the same, which is a baseword if any of them is.
 typedef struct {
     uint16_t ins;
-    uint64_t few, all;
+    uint64_t names;
     uint16_t stands;
 } single;
 
 static single ALU[8192];
 static int alus;
 static int alu_at[65536];           // where an instruction is in ALU, or -1
-static int by_few[8192], by_all[8192];
+static int by_names[8192];
 
 static void list_alu(void) {
     memset(alu_at, -1, sizeof(alu_at));
@@ -540,21 +787,17 @@ static void list_alu(void) {
         ins.alu.dstack = d;
         ins.alu.rstack = r;
         uint16_t x = *(uint16_t*)&ins;
+        named m;
+        forget();
         alu_at[x] = alus;
         ALU[alus].ins = x;
-        ALU[alus].few = leaves(&x, 1, 0, FEW, 0);
-        ALU[alus].all = leaves(&x, 1, FEW, STATES, ALU[alus].few);
+        ALU[alus].names = names(&x, 1, &m);
         alus++;
     }
 }
 
-static int few_order(const void* a, const void* b) {
-    uint64_t x = ALU[*(const int*)a].few, y = ALU[*(const int*)b].few;
-    return(x < y ? -1 : x > y);
-}
-
-static int all_order(const void* a, const void* b) {
-    uint64_t x = ALU[*(const int*)a].all, y = ALU[*(const int*)b].all;
+static int names_order(const void* a, const void* b) {
+    uint64_t x = ALU[*(const int*)a].names, y = ALU[*(const int*)b].names;
     if (x != y) return(x < y ? -1 : 1);
     return(*(const int*)a - *(const int*)b);
 }
@@ -569,29 +812,27 @@ static int is_word(uint16_t ins) {
 // In order of what they leave, to be found by halving; and for those that
 // leave the same, the one that stands for them.
 static void sort_alu(void) {
-    for(int idx=0; idx < alus; idx++) by_few[idx] = by_all[idx] = idx;
-    qsort(by_few, alus, sizeof(int), few_order);
-    qsort(by_all, alus, sizeof(int), all_order);
+    for(int idx=0; idx < alus; idx++) by_names[idx] = idx;
+    qsort(by_names, alus, sizeof(int), names_order);
     for(int from=0; from < alus; ) {
-        int to = from, stands = by_all[from];
-        while (to < alus && ALU[by_all[to]].all == ALU[by_all[from]].all) to++;
+        int to = from, stands = by_names[from];
+        while (to < alus && ALU[by_names[to]].names == ALU[by_names[from]].names) to++;
         for(int idx=to - 1; idx >= from; idx--) {
-            if (is_word(ALU[by_all[idx]].ins)) stands = by_all[idx];
+            if (is_word(ALU[by_names[idx]].ins)) stands = by_names[idx];
         }
-        for(int idx=from; idx < to; idx++) ALU[by_all[idx]].stands = ALU[stands].ins;
+        for(int idx=from; idx < to; idx++) ALU[by_names[idx]].stands = ALU[stands].ins;
         from = to;
     }
 }
 
-static int find(const int* order, int all, uint64_t h) {
+// An instruction that leaves what has this number, or less than nothing.
+static int find(uint64_t names) {
     int lo = 0, hi = alus;
     while (lo < hi) {
         int mid = (lo + hi) / 2;
-        uint64_t at = all ? ALU[order[mid]].all : ALU[order[mid]].few;
-        if (at < h) lo = mid + 1; else hi = mid;
+        if (ALU[by_names[mid]].names < names) lo = mid + 1; else hi = mid;
     }
-    if (lo == alus) return(-1);
-    return((all ? ALU[order[lo]].all : ALU[order[lo]].few) == h ? order[lo] : -1);
+    return(lo < alus && ALU[by_names[lo]].names == names ? by_names[lo] : -1);
 }
 
 // Finding an answer is slow, and it is the same answer until the machine,
@@ -601,7 +842,7 @@ static int find(const int* order, int all, uint64_t h) {
 // another file.  A line is the sequence, with a bit to say whether one
 // instruction was asked for or two, and what was found, or nothing.
 static const char* TEXTS[] = {
-    "fuse.c", "stack.c", "../vm.c", "../vm.h", "../vm_opcodes.c", "../vm_opcodes.h",
+    "fuse.c", "stack.c", "../vm.c", "../vm_step.h", "../vm.h", "../vm_opcodes.c", "../vm_opcodes.h",
     "../vm_instruction.h", "../vm_constants.h",
 };
 static uint64_t written;            // the number for the texts,
@@ -668,6 +909,7 @@ static void get_ready(void) {
     make_states();
     list_give();
     lay_leads();
+    name_cells();
     list_alu();
     sort_alu();
     read_texts();
@@ -694,26 +936,29 @@ long fuse_one(long first, long second, long third) {
     seq[len++] = second;
     seq[len++] = third;
     if (!asked(seq, len)) return(0);
-    uint64_t h = leaves(seq, len, 0, FEW, 0);
-    if (find(by_few, 0, h) < 0) return(0);
-    int found = find(by_all, 1, leaves(seq, len, FEW, STATES, h));
+    // What leaves the same terms is cheap to find, and is found each time;
+    // that it was tried on the machine is what is kept.
+    named a, b;
+    forget();
+    int found = find(names(seq, len, &a));
     if (found < 0) return(0);
+    uint16_t one = ALU[found].stands;
+    names(&one, 1, &b);
+    if (!same_named(&a, &b)) return(0);
     uint64_t was_asked = FOR_ONE | (uint64_t)first << 32 | (uint64_t)second << 16 | third;
     long* answer = kept(was_asked);
-    if (*answer >= 0) return(*answer);
-    uint16_t one = ALU[found].stands;
-    return(keep(answer, was_asked, same(seq, len, &one, 1) ? one : 0));
+    if (*answer == one) return(one);
+    tried(seq, len, &one, 1);
+    return(keep(answer, was_asked, one));
 }
 
 // The pairs that may do the work of three: every two of the instructions
-// that do not return and stand for the rest, with what the pair leaves
-// from the first few states, and in order of that.  They are made the
-// first time they are asked for.
+// that do not return and stand for the rest, with the number for what the
+// pair leaves, and in order of that.  They are made the first time they
+// are asked for.
 typedef struct {
-    uint64_t few;
-    uint64_t all;                   // from every state, once it has been wanted
+    uint64_t names;
     uint16_t seq[2];
-    uint16_t known;
 } pair;
 
 static pair* PAIRS;
@@ -722,7 +967,7 @@ static long pairs;
 static int pair_order(const void* a, const void* b) {
     const pair* x = a;
     const pair* y = b;
-    if (x->few != y->few) return(x->few < y->few ? -1 : 1);
+    if (x->names != y->names) return(x->names < y->names ? -1 : 1);
     if (x->seq[0] != y->seq[0]) return((int)x->seq[0] - (int)y->seq[0]);
     return((int)x->seq[1] - (int)y->seq[1]);
 }
@@ -737,13 +982,22 @@ static void list_pairs(void) {
     PAIRS = malloc(each * each * sizeof(pair));
     for(int a=0; a < alus; a++) {
         if (!stands_alone(a)) continue;
+        named first;
+        forget();
+        start(&first);
+        step_named(&first, ALU[a].ins);
+        int after_first = known;
         for(int b=0; b < alus; b++) {
             if (!stands_alone(b)) continue;
-            pair* p = &PAIRS[pairs++];
+            named both = first;
+            known = after_first;
+            step_named(&both, ALU[b].ins);
+            pair* p = &PAIRS[pairs];
             p->seq[0] = ALU[a].ins;
             p->seq[1] = ALU[b].ins;
-            p->known = 0;
-            p->few = leaves(p->seq, 2, 0, FEW, 0);
+            p->names = left_named(&both);
+            if (p->names) pairs++;
+            lost = 0;
         }
     }
     qsort(PAIRS, pairs, sizeof(pair), pair_order);
@@ -770,59 +1024,38 @@ static long look_for_two(const uint16_t* seq) {
     if (!PAIRS) list_pairs();
     int ret = returns(seq[SEQ - 1]);
     uint16_t plain[SEQ] = { seq[0], seq[1], returning(seq[2], 0) };
-
-    ran = 0;
-    uint64_t few = leaves(plain, SEQ, 0, FEW, 0);
+    named three, pair_of;
+    forget();
+    uint64_t is = names(plain, SEQ, &three);
+    if (!is) return(0);
     long lo = 0, hi = pairs;
     while (lo < hi) {
         long mid = (lo + hi) / 2;
-        if (PAIRS[mid].few < few) lo = mid + 1; else hi = mid;
-    }
-    if (lo == pairs || PAIRS[lo].few != few) return(0);
-    uint64_t all = leaves(plain, SEQ, FEW, STATES, few);
-
-    // If the three run from too few of the states, a great many pairs leave
-    // the same from them, having stopped as often.  States the three do run
-    // from are looked for, and a pair is one that leaves the same from
-    // those too.
-    static state more[TRIED];
-    int mores = 0;
-    uint64_t from_more = 0;
-    if (ran < ENOUGH) {
-        find_states(0, SEQ);
-        if (!founds) return(0);
-        mores = founds;
-        memcpy(more, FOUND, sizeof(more));
-        for(int idx=0; idx < mores; idx++) from_more = mix(from_more, left(0, SEQ, &more[idx]));
+        if (PAIRS[mid].names < is) lo = mid + 1; else hi = mid;
     }
 
-    // Of the pairs that do the same, the one that moves the stacks least.
-    long best = 0;
+    // Of the pairs that leave the same terms, the one that moves the stacks
+    // least.
+    uint16_t best[2] = { 0, 0 };
     int least = 0;
-    for(; lo < pairs && PAIRS[lo].few == few; lo++) {
-        pair* p = &PAIRS[lo];
-        if (!p->known) {
-            p->all = leaves(p->seq, 2, FEW, STATES, few);
-            p->known = 1;
-        }
-        if (p->all != all) continue;
-        if (mores) {
-            uint64_t h = 0;
-            lay(0, p->seq, 2);
-            lay(1, NULL, 0);
-            for(int idx=0; idx < mores; idx++) h = mix(h, left(0, 2, &more[idx]));
-            if (h != from_more) continue;
-        }
+    for(; lo < pairs && PAIRS[lo].names == is; lo++) {
+        const pair* p = &PAIRS[lo];
         int moved = 0;
         for(int idx=0; idx < 2; idx++) {
             instruction ins = *(instruction*)&p->seq[idx];
             moved += abs(ins.alu.dstack) + 4 * abs(ins.alu.rstack);
         }
-        if (best && moved >= least) continue;
+        if (best[0] && moved >= least) continue;
         uint16_t two[2] = { p->seq[0], returning(p->seq[1], ret) };
-        if (!same(seq, SEQ, two, 2)) continue;
-        best = (long)two[0] << 16 | two[1];
+        forget();
+        names(seq, SEQ, &three);
+        names(two, 2, &pair_of);
+        if (!same_named(&three, &pair_of)) continue;
+        best[0] = two[0];
+        best[1] = two[1];
         least = moved;
     }
-    return(best);
+    if (!best[0]) return(0);
+    tried(seq, SEQ, best, 2);
+    return((long)best[0] << 16 | best[1]);
 }

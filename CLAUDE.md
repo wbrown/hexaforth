@@ -240,14 +240,14 @@ with the peephole off reads, so build with it on first) and `.tables`
 `cross.fs` asks the machine which instruction does the work of two or
 three: `util/fuse.c`, which has `vm.c` in it, is built by gforth each time
 an image is and called through gforth's C interface. gforth builds C with
-`libtool`, which has to be installed. Which two instructions do the work
-of three is slow to find, so what is found is kept beside the images
+`libtool`, which has to be installed. An answer is found by the machine's
+step on terms and then run on `vm.c`, and the build stops if the two do
+not agree. What was found and run is kept beside the images
 (`build/fuse-*.kept`, named for the text of `fuse.c` and of the machine,
-so that a change to either starts another): the first image built after
-one takes some twenty seconds, and the rest a few. Where gforth is
-Homebrew's, the
-compiler is told where Homebrew's headers are: `CMakeLists.txt` and
-`build-machine.sh` do, and by hand it is
+so that a change to either starts another), so the first image built
+after such a change takes longer than the rest. Where gforth is
+Homebrew's, the compiler is told where Homebrew's headers are:
+`CMakeLists.txt` and `build-machine.sh` do, and by hand it is
 `CPATH="$(brew --prefix)/include" gforth ...`.
 
 Generated, and checked in: `forth/basewords.fs` (by `basewords-fs-gen`,
@@ -298,14 +298,17 @@ The machine, in C:
   size, and what is where on the disk. `vm_instruction.h`: the fields of
   an instruction. `vm_opcodes.h`: the fields' names, the basewords
   (`FORTH_OPS`), and the codes of a name (`NAME_CODES_REPR`)
-- `vm.c`: the machine. `main.c`: loads an image and runs it.
+- `vm.c`: the machine. `vm_step.h`: what a literal or an instruction of
+  the ALU does, said once: `vm.c` runs it on cells, and `util/fuse.c` on
+  terms. `main.c`: loads an image and runs it.
   `vm_debug.c`: the trace. `vm_opcodes.c`: makes instructions of the
   definitions, and reads an image's dictionary (`read_header`)
 - `util/`: `baseword_fs_gen.c` (writes `basewords.fs`), `disasm_hex.c`,
   `hex2bin.c` and `memimage.c` (an image as bytes for the kernels, and as
   what the Verilog loads; `image.c` reads one), `mkdisk.c` (a disk),
-  `fuse.c` (which instruction does the work of others, by running them on
-  `vm.c`: what it trusts and why is said at its top)
+  `fuse.c` (which instruction does the work of others: found by the
+  machine's step on terms, and each answer then run on `vm.c`; what it
+  trusts and why is said at its top)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `dither_test.c` (the
   dither against a dither a pixel at a time: it runs the nucleus on

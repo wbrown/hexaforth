@@ -69,7 +69,7 @@ $(B)/tb_soc: soc.v hexaforth.v hf_mem.v tb_soc.cpp $(MEMIMAGE) $(HEX)
 	    --build -j 4 > $(B)/build.log 2>&1 || (cat $(B)/build.log; false)
 
 # Cases from the reference VM built for this cell width.
-$(CASES): $(TOP)/baremetal/difftest_dump.c $(TOP)/vm.c
+$(CASES): $(TOP)/baremetal/difftest_dump.c $(TOP)/vm.c $(TOP)/vm_step.h
 	@mkdir -p $(B)
 	gcc -O1 -w -fcommon -DCELL_BITS=$(W) -o $(B)/dump $(TOP)/baremetal/difftest_dump.c \
 	    $(TOP)/vm.c $(TOP)/vm_opcodes.c $(TOP)/vm_debug.c $(TOP)/util/stack.c \
