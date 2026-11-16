@@ -308,9 +308,9 @@ and `util/reach.c` (what reaches each word).
 
 The C is built with CMake (`CMakeLists.txt`): `hexaforth` (the reference
 VM), `hexaforth-debug` (with a trace of every instruction),
-`hexaforth_test`, `kernel_test`, `basewords-fs-gen`,
-`generate-test-cases`, and the target `tests`, which runs `hexaforth_test`
-and then `kernel_test` on the image.
+`hexaforth_test`, `kernel_test`, `fewer_test`, `basewords-fs-gen`,
+`generate-test-cases`, and the target `tests`, which runs `hexaforth_test`,
+then `kernel_test` on the image, and then `fewer_test`.
 
 An image is built by `gforth` from the Forth:
 
@@ -373,6 +373,10 @@ below, and prints a line for each.
 - `kernel_test`: nothing is in the kernel that nothing comes to
   (`util/reach.c`). CMake builds it and the target `tests` runs it, for
   the default machine
+- `fewer_test`: the search for the fewest instructions that do the work
+  of a run, and of a turn of a loop (`util/fewer.c`, `util/turns.c`),
+  held to runs whose fewest is known, and each answer run on `vm.c`. The
+  target `tests` runs it
 - `sh test/sizes.sh [SEEDS]`: the machine with cells of 64, 32 and 16
   bits, each with a display and `STRICT`: the prompt, comments and a
   block read as source, the desktop, the drawing words, regions, the
@@ -409,7 +413,9 @@ shortest run, whether `cross.fs` makes one instruction of it, and whether
 each name means what it means in gforth. The profile ends with the
 encoding laid out against the work (`util/survey.c`): the instructions
 the image uses, and the runs that fewer would do, which are what
-`cross.fs` left.
+`cross.fs` left; and then with the loops that ran (`bench/shorter.c`):
+for each that calls nothing, the fewest instructions found that do a turn
+of it, wherever its values are kept, which the peephole cannot find.
 
 ## Where things are
 
@@ -437,8 +443,13 @@ The machine, in C:
   that read an image), `cut.c` (two builds of an image cut into the same
   straight-line runs), `reach.c` (what reaches each word of an image:
   calls and jumps, its place pushed or kept in a cell, the word before
-  running into it), `both-builds.sh` (the image with the peephole and
-  without)
+  running into it), `kinds.c` (the instructions by what they leave, those
+  with a number in them, and an instruction as it is said), `loops.c`
+  (an image's loops, and the turn of one), `fewer.c` (the fewest
+  instructions that leave what is wanted: a search on the step's terms,
+  each answer run on `vm.c`), `turns.c` (a turn of a loop looked at the
+  ways fewer could do it), `both-builds.sh` (the image with the peephole
+  and without)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `nucleus.c` (the
   nucleus on `vm.c`, typed at its prompt, once or again as it was left,
@@ -452,7 +463,9 @@ The machine, in C:
   prompt: its compiler, its arithmetic, variables, tasks and names, each
   a check that is what is typed and what that is to leave);
   `kernel_test.c` (the kernel's words and what comes to each: it has
-  `reach.c` in it); `region_test.c` (regions
+  `reach.c` in it); `fewer_test.c` (the search for fewer instructions:
+  runs and turns as words, and the fewest that is to be found for each);
+  `region_test.c` (regions
   against their pixels: what is typed is done to a plane of pixels too,
   and every cell of every region compared with the one form of them);
   `display_test.c` (the drawing words: what is typed is drawn a pixel at
@@ -482,9 +495,12 @@ The machine, in C:
   what it made of them), `counting.c` (the reference VM, counting how
   often each place is run: by itself, or as the VM in a test) and
   `weigh.c` (the runs and the rules weighed by that); `profile.sh` and
-  `profile.c` (where the desktop's instructions go), with `costs.c` (what
-  the work costs: each word with all it calls, the loops, the variables)
-  and `cycles.h` (the cycles the Verilog takes for an instruction)
+  `profile.c` (where the desktop's instructions go), with `work.c` (the
+  work by place, as the file the profile leaves), `costs.c` (what the
+  work costs: each word with all it calls, the loops, the variables),
+  `shorter.c` (the loops that ran, and fewer instructions that do a turn
+  of each) and `cycles.h` (the cycles the Verilog takes for an
+  instruction)
 
 The toolchain and the nucleus, in Forth (`forth/`):
 

@@ -16,6 +16,8 @@
 //      image that one instruction, or two, would do the work of, by how
 //      many instructions that would save when the program runs.  cross.fs
 //      has joined what it joins already: these are what it left
+//   4. every instruction, and the one that stands for all that leave what
+//      it leaves
 //
 // What an instruction does, and whether a run does the work of one, is
 // asked of the machine: the step on terms (fuse.c), as cross.fs asks it.
@@ -30,96 +32,16 @@
 
 #include "fuse.c"
 #include "cut.c"
+#include "kinds.c"
+#include "../bench/work.c"
 
 #define LONGEST 6                       // instructions in a run that is tried
-#define CODE    0x10000                 // the places the counts are of
 
-// An instruction that stands for all that leave what it leaves: one that
-// has a name if any has, or else the lowest.
-typedef struct {
-    uint16_t ins;
-    uint64_t leaves;
-    const char* name;
-    long places;
-    double runs, turn;
-} kind;
-static kind KIND[8192];
-static int kinds;
-static int kind_at[65536];              // the kind an instruction is of, or less than nothing
-
-static const char* name_of_ins(uint16_t ins) {
-    for(word_node* w = FORTH_WORDS; w->repr && strlen(w->repr); w++) {
-        if (w->num_ins == 1 && *(uint16_t*)&w->ins[0] == ins) return(w->repr);
-    }
-    return(NULL);
-}
-
-static int same_work(const uint16_t* code, int len, uint16_t ins) {
-    named a, b;
-    forget();
-    uint64_t left = names(code, len, &a);
-    return(left && names(&ins, 1, &b) == left && same_named(&a, &b));
-}
-
-static void list_kinds(void) {
-    memset(kind_at, -1, sizeof(kind_at));
-    for(int idx=0; idx < alus; idx++) {
-        int k = -1;
-        for(int n=0; n < kinds && k < 0; n++) {
-            if (KIND[n].leaves == ALU[idx].names && same_work(&ALU[idx].ins, 1, KIND[n].ins)) k = n;
-        }
-        const char* name = name_of_ins(ALU[idx].ins);
-        if (k < 0) {
-            k = kinds;
-            KIND[kinds++] = (kind){ ALU[idx].ins, ALU[idx].names, name };
-        } else if (name && !KIND[k].name) {
-            KIND[k].ins = ALU[idx].ins, KIND[k].name = name;
-        }
-        kind_at[ALU[idx].ins] = k;
-    }
-}
-
-// An instruction with a return folded into it (cross.fs, fold-exit) is the
-// instruction and then exit: the instruction, and whether it returns.
-static uint16_t exit_ins;
-static uint16_t unfold(uint16_t w, int* returned) {
-    instruction ins = ins_of(w), leaves = ins_of(exit_ins);
-    *returned = !ins.lit.lit_f && ins.alu.op_type == OP_TYPE_ALU && ins.alu.r_eip &&
-                ins.alu.rstack == leaves.alu.rstack && w != exit_ins;
-    if (*returned) ins.alu.r_eip = 0, ins.alu.rstack = 0;
-    return(*(uint16_t*)&ins);
-}
+// What the image does with each kind of instruction (kinds.c): the places
+// it has one, how often those ran as work, and in a turn of the idle loop.
+static struct { long places; double runs, turn; } USES[8192];
 
 static word_node shown[1024];
-
-// An instruction as it is said in the lists of runs: its name, or what it
-// is of a number or a variable, or its fields.
-static void say_ins(char* text, uint16_t w) {
-    instruction ins = ins_of(w);
-    if (ins.lit.lit_f) {
-        strcat(text, ins.lit.lit_shifts == 3 ? (ins.lit.lit_add ? "var!" : "var@") : ins.lit.lit_add ? "lit+" : "lit");
-        return;
-    }
-    int returned;
-    uint16_t base = unfold(w, &returned);
-    int k = kind_at[base];
-    if (k >= 0 && KIND[k].name) {
-        strcat(text, KIND[k].name);
-    } else {
-        instruction is = ins_of(base);
-        sprintf(text + strlen(text), "(%s %s %s d%+d r%+d)", INPUT_MUX_REPR[is.alu.in_mux], ALU_OPS_REPR[is.alu.alu_op],
-                OUTPUT_MUX_REPR[is.alu.out_mux], is.alu.dstack, is.alu.rstack);
-    }
-    if (returned) strcat(text, ";");
-}
-
-static void say_run(char* text, const uint16_t* seq, int len) {
-    text[0] = '\0';
-    for(int idx=0; idx < len; idx++) {
-        if (idx) strcat(text, " ");
-        say_ins(text, seq[idx]);
-    }
-}
 
 // ---- every two instructions, by what they leave
 
@@ -169,23 +91,8 @@ static int by_saved(const void* a, const void* b) {
 }
 
 static int by_runs(const void* a, const void* b) {
-    double x = KIND[*(const int*)a].runs, y = KIND[*(const int*)b].runs;
+    double x = USES[*(const int*)a].runs, y = USES[*(const int*)b].runs;
     return(x < y ? 1 : x > y ? -1 : 0);
-}
-
-// A run of numbers that one number would do: a push, and what is added to
-// it, that come to what one instruction pushes.
-static int one_number(const uint16_t* seq, int len) {
-    long value = 0;
-    if (!pushes_number(seq[0], 0)) return(0);
-    for(int idx=0; idx < len; idx++) {
-        if (idx && !pushes_number(seq[idx], 1)) return(0);
-        value += number_in(seq[idx]);
-    }
-    for(int shift=0; shift < 3; shift++) {
-        if (!(value & ~((long)((1 << LIT_BITS) - 1) << (shift * LIT_BITS)))) return(1);
-    }
-    return(0);
 }
 
 static cut_image IMAGE;
@@ -198,24 +105,17 @@ int main(int argc, char *argv[]) {
     const char* report = argc > 4 ? argv[4] : "build/survey.txt";
     get_ready();
     init_opcodes(shown);
-    instruction leaves[8], takes[8];
-    lookup_word(FORTH_WORDS, "exit", leaves);
+    instruction takes[8];               // lookup_word clears as many
     lookup_word(FORTH_WORDS, "r>", takes);
-    exit_ins = *(uint16_t*)leaves;
     list_kinds();
     cut(&IMAGE, argv[1], argv[2]);
     const uint16_t* code = IMAGE.code;
-    long n = IMAGE.instructions < CODE ? IMAGE.instructions : CODE;
+    long n = IMAGE.instructions < WORKED ? IMAGE.instructions : WORKED;
 
-    static double work[CODE], idle[CODE];
+    static double work[WORKED], idle[WORKED];
     const char* unit = "places";
     if (argc > 3) {
-        FILE* in = fopen(argv[3], "rb");
-        if (!in || fread(work, sizeof(double), CODE, in) != CODE || fread(idle, sizeof(double), CODE, in) != CODE) {
-            perror(argv[3]);
-            return(1);
-        }
-        fclose(in);
+        if (!work_read(argv[3], work, idle)) return(1);
         unit = "runs";
     } else {
         for(long at=0; at < n; at++) work[at] = code[at] ? 1 : 0;
@@ -231,19 +131,19 @@ int main(int argc, char *argv[]) {
         instructions++;
         total_runs += work[at];
         if (ins.lit.lit_f || ins.alu.op_type != OP_TYPE_ALU) continue;
-        int returned, k = kind_at[unfold(code[at], &returned)];
+        int returned, k = kind_at[unfolded(code[at], &returned)];
         if (k < 0) continue;
         folded += returned ? work[at] : 0;
-        KIND[k].places++;
-        KIND[k].runs += work[at];
-        KIND[k].turn += idle[at];
+        USES[k].places++;
+        USES[k].runs += work[at];
+        USES[k].turn += idle[at];
         total_alu += work[at];
     }
     for(int k=0; k < kinds; k++) {
         with_name += KIND[k].name != NULL;
-        used += KIND[k].places > 0;
-        used_unnamed += KIND[k].places > 0 && !KIND[k].name;
-        if (!KIND[k].name) unnamed += KIND[k].runs;
+        used += USES[k].places > 0;
+        used_unnamed += USES[k].places > 0 && !KIND[k].name;
+        if (!KIND[k].name) unnamed += USES[k].runs;
     }
 
     // What is not used and could be.  The instruction after a call of a
@@ -278,8 +178,8 @@ int main(int argc, char *argv[]) {
                     made = 1, with[0] = ALU[found].stands;
                 } else if (left && length > 2 && (pair = two_leaving(left)) != NULL) {
                     made = 2, with[0] = pair->first, with[1] = pair->second;
-                } else if (one_number(seq, length)) {
-                    made = 1, with[0] = 0;
+                } else if ((with[0] = numbered_doing(seq, length)) != 0) {
+                    made = 1;                   // one instruction with a number in it: a push, or an add
                 } else {
                     continue;
                 }
@@ -290,8 +190,8 @@ int main(int argc, char *argv[]) {
                 continue;
             }
             fewer f = { "", "", 0, 0, 0 };
-            say_run(f.run, code + it->at + i, best);
-            if (does[0]) say_run(f.does, does, best_does); else strcpy(f.does, "lit");
+            say_run(f.run, code + it->at + i, best, 0);
+            say_run(f.does, does, best_does, 0);
             int at = 0;
             while (at < fewers && (strcmp(FEWER[at].run, f.run) || strcmp(FEWER[at].does, f.does))) at++;
             if (at == fewers && fewers < (1 << 14)) FEWER[fewers++] = f;
@@ -329,8 +229,8 @@ int main(int argc, char *argv[]) {
         instruction ins = ins_of(KIND[k].ins);
         cell[ins.alu.in_mux][ins.alu.alu_op][ins.alu.out_mux].all++;
         cell[ins.alu.in_mux][ins.alu.alu_op][ins.alu.out_mux].named += KIND[k].name != NULL;
-        cell[ins.alu.in_mux][ins.alu.alu_op][ins.alu.out_mux].used += KIND[k].places > 0;
-        cell[ins.alu.in_mux][ins.alu.alu_op][ins.alu.out_mux].runs += KIND[k].runs;
+        cell[ins.alu.in_mux][ins.alu.alu_op][ins.alu.out_mux].used += USES[k].places > 0;
+        cell[ins.alu.in_mux][ins.alu.alu_op][ins.alu.out_mux].runs += USES[k].runs;
     }
     char row[512];
     snprintf(row, sizeof(row), "%22s", "");
@@ -359,14 +259,15 @@ int main(int argc, char *argv[]) {
     SAY("   %6s %14s %7s  instruction", "places", unit, "idle");
     static int order[8192];
     int listed = 0;
-    for(int k=0; k < kinds; k++) if (KIND[k].places) order[listed++] = k;
+    for(int k=0; k < kinds; k++) if (USES[k].places) order[listed++] = k;
     qsort(order, listed, sizeof(int), by_runs);
     for(int idx=0; idx < listed; idx++) {
         const kind* k = &KIND[order[idx]];
         char is[256];
         decode_instruction(is, ins_of(k->ins), shown);
         printing = idx < 30;
-        SAY(" %s %6ld %14.0f %7.1f  %-9s %s", k->name ? " " : "*", k->places, k->runs, k->turn, k->name ? k->name : "", is);
+        SAY(" %s %6ld %14.0f %7.1f  %-9s %s", k->name ? " " : "*", USES[order[idx]].places, USES[order[idx]].runs,
+            USES[order[idx]].turn, k->name ? k->name : "", is);
     }
 
     // 3. What could be used.
@@ -379,6 +280,18 @@ int main(int argc, char *argv[]) {
     for(int idx=0; idx < fewers; idx++) {
         printing = idx < 40;
         SAY("   %6ld %14.0f %7.1f  %s  ->  %s", FEWER[idx].places, FEWER[idx].saved, FEWER[idx].turn, FEWER[idx].run, FEWER[idx].does);
+    }
+
+    // 4. Every instruction.
+    printing = 0;
+    SAY("%s", "");
+    SAY("4. Every instruction of the ALU that does no IO, and the one that stands for all that leave what it leaves.");
+    SAY("%s", "");
+    for(int idx=0; idx < alus; idx++) {
+        const kind* k = &KIND[kind_at[ALU[idx].ins]];
+        char is[256];
+        decode_instruction(is, ins_of(ALU[idx].ins), shown);
+        SAY("   %04x  %s  as %04x %s", ALU[idx].ins, is, k->ins, k->name ? k->name : "");
     }
     fclose(out);
     printf("\nall of it: %s\n", report);

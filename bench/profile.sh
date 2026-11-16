@@ -20,12 +20,14 @@
 # Last, the instruction encoding is laid out against the work
 # (util/survey.c): which instructions the image uses and how often they
 # run, and the runs of them that fewer would do, which are what cross.fs
-# left.
+# left; and the loops that ran are each looked at for fewer instructions
+# that do a turn (shorter.c), which the peephole cannot find, since it
+# keeps every value where the source put it.
 #
 # Everything is kept in build/profile/: what profile prints is
 # build/profile/profile.txt, build/profile/desktop.counts is the work by
-# place, paths.txt, loops.txt and vars.txt are the three, and survey.txt
-# the encoding; the first lines of each are printed.
+# place, paths.txt, loops.txt and vars.txt are the three, survey.txt the
+# encoding, and shorter.txt the loops; the first lines of each are printed.
 cd "$(dirname "$0")/.."
 OUT=build/profile
 mkdir -p $OUT
@@ -68,3 +70,10 @@ gcc -O2 -w -fcommon -Iutil -DCELL_BITS=$C -o $OUT/survey util/survey.c util/imag
 echo
 $OUT/survey $IMAGE.hex $IMAGE.tables $OUT/desktop.counts $OUT/survey.txt 2> $OUT/survey.log \
     || stop "the survey" $OUT/survey.log
+
+# The loops of that work, and the fewest instructions found that do a turn
+# of each, wherever its values are kept (shorter.c).
+gcc -O2 -w -fcommon -Iutil -DCELL_BITS=$C -o $OUT/shorter bench/shorter.c util/image.c -lm || exit 1
+echo
+$OUT/shorter $IMAGE.hex $IMAGE.tables $OUT/desktop.counts $OUT/shorter.txt 2> $OUT/shorter.log \
+    || stop "the loops" $OUT/shorter.log

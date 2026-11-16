@@ -8,12 +8,16 @@
 // instruction, and so is `over @ swap !`.  For every instruction of the
 // ALU that some run of up to three of the machine's words does the work
 // of (LONGEST=4 in the environment for four, which takes much longer),
-// this finds the shortest such run: the phrase to write.
+// this finds the shortest such run: the phrase to write.  Where other runs
+// as short do the same, a few of them are said beside it, if they are of
+// three words or fewer.
 //
 // Whether a run of words is an instruction is asked of the machine: the
 // step on terms says what each leaves (fuse.c), and they are the
 // instruction if they leave the same.  Nothing here says what an
-// instruction does.
+// instruction does.  Each phrase is then run on vm.c beside its
+// instruction (fuse.c, tried), and this stops if the two do not leave the
+// same there.
 //
 // It then asks two things.
 //
@@ -32,12 +36,15 @@
 //
 
 #include "fuse.c"
+#include "kinds.c"
 #include "image.h"
 
 #define VOCAB   256
 #define MOST    4                       // the most words a phrase is
+#define WAYS    4                       // the most phrases said for an instruction
+#define ALL     3                       // every run of so many words is looked at for them
 #define LONG    48                      // the most instructions a phrase is
-#define ROOM    16                      // instructions kept for a phrase when it is compiled
+#define HELD    16                      // instructions kept for a phrase when it is compiled
 #define BATCH   200                     // phrases compiled at a time
 #define STACKS  36                      // the stacks a word is tried on
 
@@ -50,35 +57,26 @@ typedef struct {
 static vocable TYPED[VOCAB];
 static int vocab;
 
-// An instruction that stands for all that leave what it leaves: one that
-// has a name if any has, or else the lowest.
+// What is found of a kind of instruction (kinds.c): of each kind that does
+// not return.
 typedef struct {
-    uint16_t ins;
-    uint64_t leaves;
-    const char* name;                   // the machine's name for it, or none
-    int phrase[MOST], said;             // the phrase for it: words, and how many; none if 0
-    int compiled;                       // the instructions cross.fs made of the phrase, or 0: not compiled
+    const kind* is;
+    int phrase[WAYS][MOST];             // the phrases for it, as words: the first found, and others as short;
+    int said, ways;                     // how many words each is, none if 0; and how many phrases
+    int compiled;                       // the instructions cross.fs made of the first, or 0: not compiled
     int stack_only;
     int64_t result[STACKS][FILLED];     // what it leaves of each stack, run on vm.c,
     int depth[STACKS];                  // and how deep
-} kind;
-static kind KIND[8192];
-static int kinds;
+} entry;
+static entry ENTRY[8192];
+static int entries;
+static entry* entry_of[8192];           // by kind
 
-static const char* name_of_ins(uint16_t ins) {
-    for(word_node* w = FORTH_WORDS; w->repr && strlen(w->repr); w++) {
-        if (w->num_ins == 1 && *(uint16_t*)&w->ins[0] == ins) return(w->repr);
-    }
-    return(NULL);
-}
-
-static kind* kind_leaving(uint64_t leaves) {
-    for(int lo=0, hi=kinds - 1; lo <= hi; ) {
-        int mid = (lo + hi) / 2;
-        if (KIND[mid].leaves == leaves) return(&KIND[mid]);
-        if (KIND[mid].leaves < leaves) lo = mid + 1; else hi = mid - 1;
-    }
-    return(NULL);
+// What is found of the kind that leaves this, if one does.
+static entry* entry_leaving(uint64_t leaves) {
+    int found = find(leaves);
+    int k = found >= 0 ? kind_at[ALU[found].ins] : -1;
+    return(k >= 0 ? entry_of[k] : NULL);
 }
 
 // Does the step say a run uses the data stack alone: the return stack and
@@ -90,13 +88,6 @@ static int only_data(const uint16_t* code, int len) {
     start(&none);
     return(m.RSP == none.RSP && m.R == none.R && m.M == none.M && !m.fetches && m.next < 0 &&
            !memcmp(m.RS, none.RS, sizeof(m.RS)));
-}
-
-static int same_work(const uint16_t* code, int len, uint16_t ins) {
-    named a, b;
-    forget();
-    uint64_t left = names(code, len, &a);
-    return(left && names(&ins, 1, &b) == left && same_named(&a, &b));
 }
 
 // ---- the phrases
@@ -136,10 +127,12 @@ static void find_phrases(int longest) {
                 forget();
                 uint64_t leaves = names(r.code, r.len, &m);
                 if (!leaves) continue;
-                kind* k = kind_leaving(leaves);
-                if (k && !k->said && same_work(r.code, r.len, k->ins)) {
-                    memcpy(k->phrase, r.phrase, sizeof(r.phrase));
+                entry* k = entry_leaving(leaves);
+                if (k && !k->said && same_work(r.code, r.len, k->is->ins)) {
+                    tried(r.code, r.len, &k->is->ins, 1);
+                    memcpy(k->phrase[0], r.phrase, sizeof(r.phrase));
                     k->said = r.n;
+                    k->ways = 1;
                     found++;
                 }
                 if (depth < longest && !seen_before(leaves)) next[nexts++] = r;
@@ -153,13 +146,54 @@ static void find_phrases(int longest) {
     }
 }
 
-static void say_phrase(char* text, const kind* k) {
-    text[0] = '\0';
+// The other phrases as short as the one found: every run of so many words
+// is looked at, since the runs above are only those that left something
+// new.  Each is run on vm.c beside its instruction as the first was.
+static void find_others(int longest) {
+    int at[MOST] = { 0 };
+    for(int words=1; words <= longest; ) {
+        uint16_t code[LONG];
+        int len = 0;
+        for(int n=0; n < words && len >= 0; n++) {
+            if (len + TYPED[at[n]].len > LONG) { len = -1; break; }
+            memcpy(code + len, TYPED[at[n]].code, TYPED[at[n]].len * sizeof(uint16_t));
+            len += TYPED[at[n]].len;
+        }
+        named m;
+        forget();
+        uint64_t leaves = len > 0 ? names(code, len, &m) : 0;
+        entry* k = leaves ? entry_leaving(leaves) : NULL;
+        if (k && k->said == words && k->ways < WAYS && memcmp(k->phrase[0], at, words * sizeof(int)) &&
+            same_work(code, len, k->is->ins)) {
+            tried(code, len, &k->is->ins, 1);
+            memcpy(k->phrase[k->ways++], at, sizeof(at));
+        }
+        int n = words - 1;                              // the next run of as many words, or the first of one more
+        while (n >= 0 && ++at[n] == vocab) at[n--] = 0;
+        if (n < 0) words++;
+    }
+}
+
+static void say_way(char* text, const entry* k, int way) {
     for(int n=0; n < k->said; n++) {
         if (n) strcat(text, " ");
-        strcat(text, TYPED[k->phrase[n]].name);
+        strcat(text, TYPED[k->phrase[way][n]].name);
     }
+}
+
+// The phrase for an instruction; and all that were found for it.
+static void say_phrase(char* text, const entry* k) {
+    text[0] = '\0';
+    say_way(text, k, 0);
     if (!k->said) strcpy(text, "(no phrase)");
+}
+
+static void say_phrases(char* text, const entry* k) {
+    text[0] = '\0';
+    for(int way=0; way < k->ways; way++) {
+        if (way) strcat(text, "  |  ");
+        say_way(text, k, way);
+    }
 }
 
 // ---- each phrase, compiled by cross.fs
@@ -167,7 +201,7 @@ static void say_phrase(char* text, const kind* k) {
 // A batch of phrases, each a definition where there is room kept for it;
 // and how many instructions each came to.  An exit that did not fold is
 // not the phrase's.
-static void compile(kind** batch, int count) {
+static void compile(entry** batch, int count) {
     instruction leaves[8];
     lookup_word(FORTH_WORDS, "exit", leaves);
     FILE* source = fopen("phrasetest.fs", "w");
@@ -176,7 +210,7 @@ static void compile(kind** batch, int count) {
     for(int n=0; n < count; n++) {
         char phrase[256];
         say_phrase(phrase, batch[n]);
-        fprintf(source, "meta $%x org target : p%d %s ;\n", 0x2000 + 2 * ROOM * n, n, phrase);
+        fprintf(source, "meta $%x org target : p%d %s ;\n", 0x2000 + 2 * HELD * n, n, phrase);
     }
     fprintf(source, "meta $1000 org target\nheader main : main halt ;\nheader quit : quit halt ;\n");
     fclose(source);
@@ -184,15 +218,15 @@ static void compile(kind** batch, int count) {
     remove("phrasetest.fs");
     uint8_t* image;
     size_t len = built ? load_image("../build/phrasetest.hex", &image) : 0;
-    if (len / 2 < (size_t)0x1000 + ROOM * count) {
+    if (len / 2 < (size_t)0x1000 + HELD * count) {
         printf("    a batch of phrases did not build: see build/phrasetest.log\n");
         return;
     }
     const uint16_t* code = (const uint16_t*)image;
     for(int n=0; n < count; n++) {
         int size = 0, last = 0;
-        for(int idx=0; idx < ROOM; idx++) {
-            if (code[0x1000 + ROOM * n + idx]) size++, last = code[0x1000 + ROOM * n + idx];
+        for(int idx=0; idx < HELD; idx++) {
+            if (code[0x1000 + HELD * n + idx]) size++, last = code[0x1000 + HELD * n + idx];
         }
         if (size && last == *(uint16_t*)leaves) size--;
         batch[n]->compiled = size ? size : 1;
@@ -318,21 +352,16 @@ static const struct { const char* name; const char* is; } OTHERS[] = {
     {"over+", "over +"}, {"overand", "over and"}, {"over=", "over ="}, {"swap<", "swap <"},
     {"bic", "invert and"}, {NULL}};
 
-static int by_leaves(const void* a, const void* b) {
-    uint64_t x = ((const kind*)a)->leaves, y = ((const kind*)b)->leaves;
-    return(x < y ? -1 : x > y ? 1 : 0);
-}
-
 static int by_ins(const void* a, const void* b) {
-    return((int)(*(kind* const*)a)->ins - (int)(*(kind* const*)b)->ins);
+    return((int)(*(entry* const*)a)->is->ins - (int)(*(entry* const*)b)->is->ins);
 }
 
 static int by_length(const void* a, const void* b) {
-    const kind* x = *(kind* const*)a;
-    const kind* y = *(kind* const*)b;
+    const entry* x = *(entry* const*)a;
+    const entry* y = *(entry* const*)b;
     if (x->said != y->said) return(x->said - y->said);
     if (x->compiled != y->compiled) return(x->compiled - y->compiled);
-    return((int)x->ins - (int)y->ins);
+    return((int)x->is->ins - (int)y->is->ins);
 }
 
 int main(int argc, char *argv[]) {
@@ -344,26 +373,18 @@ int main(int argc, char *argv[]) {
     static word_node shown[1024];
     init_opcodes(shown);
 
-    // The instructions that do different things, not counting those that
-    // also return: of each that leave the same, one stands for them.
-    for(int idx=0; idx < alus; idx++) {
-        instruction ins = *(instruction*)&ALU[idx].ins;
-        if (ins.alu.r_eip) continue;
-        kind* k = NULL;
-        for(int n=0; n < kinds && !k; n++) {
-            if (KIND[n].leaves == ALU[idx].names && same_work(&ALU[idx].ins, 1, KIND[n].ins)) k = &KIND[n];
-        }
-        const char* name = name_of_ins(ALU[idx].ins);
-        if (!k) {
-            KIND[kinds] = (kind){ ALU[idx].ins, ALU[idx].names, name };
-            kinds++;
-        } else if (name && !k->name) {
-            k->ins = ALU[idx].ins, k->name = name;
-        }
-    }
-    qsort(KIND, kinds, sizeof(kind), by_leaves);
+    // The instructions that do different things (kinds.c), not counting
+    // those that also return: which the step says.
+    list_kinds();
     int have_name = 0;
-    for(int n=0; n < kinds; n++) have_name += KIND[n].name != NULL;
+    for(int k=0; k < kinds; k++) {
+        named m;
+        forget();
+        if (!names(&KIND[k].ins, 1, &m) || m.next >= 0) continue;
+        entry_of[k] = &ENTRY[entries];
+        ENTRY[entries++].is = &KIND[k];
+        have_name += KIND[k].name != NULL;
+    }
 
     // The words that may be written: those of vm_opcodes.h that the step
     // says of.
@@ -387,9 +408,10 @@ int main(int argc, char *argv[]) {
 
     printf("phrases of up to %d of %d words:\n", longest, vocab);
     find_phrases(longest);
-    static kind* said[8192];
+    find_others(longest < ALL ? longest : ALL);
+    static entry* said[8192];
     int phrased = 0;
-    for(int n=0; n < kinds; n++) if (KIND[n].said) said[phrased++] = &KIND[n];
+    for(int n=0; n < entries; n++) if (ENTRY[n].said) said[phrased++] = &ENTRY[n];
 
     printf("compiling each phrase:\n");
     for(int from=0; from < phrased; from += BATCH) compile(said + from, phrased - from < BATCH ? phrased - from : BATCH);
@@ -413,8 +435,10 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    SAY("%d instructions that do different things, not counting those that also return; %d have a name.", kinds, have_name);
-    SAY("%d are what some run of up to %d of the machine's %d words does; %d are not.", phrased, longest, vocab, kinds - phrased);
+    SAY("%d instructions of the ALU that do no IO, and %d that do different things, not counting those that also return; %d have a name.",
+        alus, entries, have_name);
+    SAY("%d are what some run of up to %d of the machine's %d words does, and each run does the same on vm.c; %d are not.",
+        phrased, longest, vocab, entries - phrased);
     SAY("cross.fs makes one instruction of %d of the %d phrases it was given, and more than one of %d.",
         compiled - longer, compiled, longer);
     SAY("of the machine's words that only use the data stack, gforth has %d and %d mean the same there; "
@@ -424,9 +448,9 @@ int main(int argc, char *argv[]) {
     // What each instruction with no name leaves of the stacks, for those
     // that use the data stack alone; and the words of other Forths that
     // leave the same.
-    for(int n=0; n < kinds; n++) {
-        kind* k = &KIND[n];
-        k->stack_only = !k->name && only_data(&k->ins, 1) && on_machine(&k->ins, 1, k->result, k->depth);
+    for(int n=0; n < entries; n++) {
+        entry* k = &ENTRY[n];
+        k->stack_only = !k->is->name && only_data(&k->is->ins, 1) && on_machine(&k->is->ins, 1, k->result, k->depth);
     }
     SAY("%s", "");
     SAY("Words other Forths have, that are one instruction here and have no name here:");
@@ -435,39 +459,39 @@ int main(int argc, char *argv[]) {
         if (lookup_word(FORTH_WORDS, (char*)OTHERS[o].name, has)) continue;    // the machine has the name
         const char* said = gforth_has(OTHERS[o].name) ? OTHERS[o].name : OTHERS[o].is;
         if (!said || !in_gforth(said, theirs, their_depth)) continue;
-        for(int n=0; n < kinds; n++) {
-            kind* k = &KIND[n];
+        for(int n=0; n < entries; n++) {
+            entry* k = &ENTRY[n];
             char is[256], phrase[256];
             if (!k->stack_only || !same_results(k->result, k->depth, theirs, their_depth)) continue;
-            decode_instruction(is, *(instruction*)&k->ins, shown);
+            decode_instruction(is, *(instruction*)&k->is->ins, shown);
             say_phrase(phrase, k);
-            SAY("    %-8s %04x  %s = %s", OTHERS[o].name, k->ins, is, phrase);
+            SAY("    %-8s %04x  %s = %s", OTHERS[o].name, k->is->ins, is, phrase);
         }
     }
 
     SAY("%s", "");
     SAY("Phrases cross.fs does not make one instruction of:");
-    static kind* order[8192];
+    static entry* order[8192];
     int listed = 0;
     for(int n=0; n < phrased; n++) if (said[n]->compiled > 1) order[listed++] = said[n];
-    qsort(order, listed, sizeof(kind*), by_length);
+    qsort(order, listed, sizeof(entry*), by_length);
     for(int n=0; n < listed; n++) {
         char is[256], phrase[256];
-        decode_instruction(is, *(instruction*)&order[n]->ins, shown);
+        decode_instruction(is, *(instruction*)&order[n]->is->ins, shown);
         say_phrase(phrase, order[n]);
         printing = n < 24;
-        SAY("    %04x  %s = %-28s %d instructions", order[n]->ins, is, phrase, order[n]->compiled);
+        SAY("    %04x  %s = %-28s %d instructions", order[n]->is->ins, is, phrase, order[n]->compiled);
     }
     printing = 0;
 
     SAY("%s", "");
-    SAY("Every instruction a phrase gives, and the phrase:");
-    qsort(said, phrased, sizeof(kind*), by_ins);
+    SAY("Every instruction a phrase gives, and the phrase; and other phrases as short, if there are any:");
+    qsort(said, phrased, sizeof(entry*), by_ins);
     for(int n=0; n < phrased; n++) {
-        char is[256], phrase[256];
-        decode_instruction(is, *(instruction*)&said[n]->ins, shown);
-        say_phrase(phrase, said[n]);
-        SAY("    %04x  %-9s %s = %s", said[n]->ins, said[n]->name ? said[n]->name : "", is, phrase);
+        char is[256], phrase[1024];
+        decode_instruction(is, *(instruction*)&said[n]->is->ins, shown);
+        say_phrases(phrase, said[n]);
+        SAY("    %04x  %-9s %s = %s", said[n]->is->ins, said[n]->is->name ? said[n]->is->name : "", is, phrase);
     }
     fclose(out);
     printf("...\nall of it: %s\n", report);

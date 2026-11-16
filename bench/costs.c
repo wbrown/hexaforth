@@ -46,10 +46,14 @@
 #include <string.h>
 #include "../vm.c"
 #include "../util/cut.c"
+#include "../util/loops.c"
 #include "cycles.h"
+#include "work.c"
 
-#define CODE    0x10000         // the places the counts are of
+#define CODE    WORKED          // the places the counts are of
 #define MOST    (1 << 14)       // the most words, loops or variables
+
+static cut_image IMAGE;         // the image cut into its runs, which says where its loops are
 
 static uint16_t code[CODE];     // the image's instructions,
 static long places;             // and how many it has
@@ -123,12 +127,8 @@ static void load(const char* hex, const char* tables, const char* sizes, const c
         spans++;
     }
     if (in) fclose(in);
-    in = fopen(counts, "rb");
-    if (in == NULL || fread(work, sizeof(double), CODE, in) != CODE) {
-        perror(counts);
-        exit(EXIT_FAILURE);
-    }
-    fclose(in);
+    cut(&IMAGE, hex, tables);
+    if (!work_read(counts, work, NULL)) exit(EXIT_FAILURE);
     for(long at=0; at < CODE; at++) {
         if (at >= places || !code[at]) work[at] = 0;    // what was defined at the prompt is not the image's
         all_work += work[at];
@@ -291,32 +291,21 @@ static void paths(const char* hex) {
 
 // ---- the loops
 
-typedef struct { long head, tail; double cycles, ran, turns; bool inner; int calls; } loop;
-static loop LOOPS[MOST];
+typedef struct { long head, tail; double cycles, ran, turns; bool inner; int calls; } ran_loop;
+static ran_loop LOOPS[MOST];
 static int loops;
 
 static int by_cycles(const void* a, const void* b) {
-    double x = ((const loop*)a)->cycles, y = ((const loop*)b)->cycles;
+    double x = ((const ran_loop*)a)->cycles, y = ((const ran_loop*)b)->cycles;
     return(x < y ? 1 : x > y ? -1 : 0);
 }
 
 static void the_loops(const char* hex) {
-    // Every branch that goes back, within a word.  A jump back to the
-    // start of a word, or into another, is a call that will not come back
-    // and no loop.
-    static struct { long head, tail; } back[MOST];
-    int backs = 0;
-    for(long at=0; at < places && backs < MOST; at++) {
-        instruction ins = ins_of(code[at]);
-        if (!code[at] || ins.lit.lit_f || ins.alu.op_type == OP_TYPE_ALU || ins.jmp.op_type == OP_TYPE_CALL) continue;
-        long head = goes_to(at, code[at]);
-        if (head < 0 || head > at) continue;
-        bool starts = false;
-        for(long a=head; a <= at && !starts; a++) starts = in_word[a] >= 0 && WORDS[in_word[a]].at == a;
-        if (!starts) back[backs].head = head, back[backs++].tail = at;
-    }
+    static loop back[MOST];             // the image's loops (loops.c), of which those that ran are kept
+    int backs = loops_of(&IMAGE, back, MOST);
     for(int b=0; b < backs; b++) {
-        loop l = { back[b].head, back[b].tail, 0, 0, work[back[b].tail], true, 0 };
+        if (back[b].tail >= CODE) continue;
+        ran_loop l = { back[b].head, back[b].tail, 0, 0, work[back[b].tail], true, 0 };
         if (l.turns < 1) continue;
         for(long a=l.head; a <= l.tail; a++) {
             instruction ins = ins_of(code[a]);
@@ -324,19 +313,17 @@ static void the_loops(const char* hex) {
             l.cycles += work[a] * cycles_of(ins);
             if (!ins.lit.lit_f && ins.jmp.op_type == OP_TYPE_CALL && work[a] >= l.turns / 2) l.calls++;
         }
-        for(int o=0; o < backs; o++) {
-            if (o != b && back[o].head >= l.head && back[o].tail <= l.tail) l.inner = false;
-        }
+        for(int o=0; o < backs; o++) if (loop_within(&back[o], &back[b])) l.inner = false;
         LOOPS[loops++] = l;
     }
-    qsort(LOOPS, loops, sizeof(loop), by_cycles);
+    qsort(LOOPS, loops, sizeof(ran_loop), by_cycles);
 
     say("%s: %.0f instructions of work, %.0f cycles; %d loops ran.", hex, all_work, all_cycles, loops);
     say("A loop with another inside it has that one's cost in its own.");
     say("");
     say("%12s %6s %11s %8s %8s %5s  %-16s where", "cycles", "of all", "turns", "ins/turn", "cyc/turn", "calls", "word");
     for(int n=0; n < loops; n++) {
-        const loop* l = &LOOPS[n];
+        const ran_loop* l = &LOOPS[n];
         say("%12.0f %5.1f%% %11.0f %8.1f %8.1f %5d  %-16s %04lx-%04lx%s", l->cycles, 100 * l->cycles / all_cycles,
             l->turns, l->ran / l->turns, l->cycles / l->turns, l->calls, name_of(in_word[l->head]), l->head, l->tail,
             l->inner ? "" : "  (has a loop inside)");
@@ -345,7 +332,7 @@ static void the_loops(const char* hex) {
     static word_node opcodes[1024];
     init_opcodes(opcodes);
     for(int n=0; n < loops; n++) {
-        const loop* l = &LOOPS[n];
+        const ran_loop* l = &LOOPS[n];
         say("");
         say("%s  %04lx-%04lx: %.0f turns, %.1f instructions and %.1f cycles a turn, %.1f%% of all cycles",
             name_of(in_word[l->head]), l->head, l->tail, l->turns, l->ran / l->turns, l->cycles / l->turns,

@@ -162,15 +162,26 @@ add_executable(kernel_test
 target_compile_options(kernel_test PRIVATE -UDEBUG -w)
 target_link_libraries(kernel_test m)
 
+# The search for the fewest instructions that do the work of a run, and of
+# a turn of a loop (util/fewer.c, util/turns.c), held to runs whose fewest
+# is known.  It has fuse.c in it, which has the machine.
+add_executable(fewer_test
+        test/fewer_test.c
+        util/image.c)
+target_compile_options(fewer_test PRIVATE -UDEBUG -w)
+target_link_libraries(fewer_test m)
+
 # (They read build/test_cases.hex and the nucleus's image, from where the
 # source is.)
 add_custom_target(tests
         ALL
         COMMAND           ${CMAKE_BINARY_DIR}/hexaforth_test 2> ${CMAKE_BINARY_DIR}/hexaforth_test.debug
         COMMAND           ${CMAKE_BINARY_DIR}/kernel_test build/nuc.hex build/nuc.tables
+        COMMAND           ${CMAKE_BINARY_DIR}/fewer_test
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         DEPENDS           hexaforth_test
                           kernel_test
+                          fewer_test
                           build/test_cases.hex
                           build/nuc.hex)
 

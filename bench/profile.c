@@ -23,9 +23,8 @@
 // instructions to a call.  Then, of each stack, the cells that were ever
 // used: every task has a part of each.
 //
-// It leaves OUT/desktop.counts: for each of the first CODE places, the
-// work of all the activities, and then what a turn with nothing happening
-// runs, each a number of 64 bits with a fraction.
+// It leaves OUT/desktop.counts: the work of all the activities by place,
+// and what a turn with nothing happening runs (work.c says the file).
 //
 
 #include <stdio.h>
@@ -38,8 +37,9 @@
 #include "../util/image.h"
 #include "../util/words.c"
 #include "counting.h"
+#include "work.c"
 
-#define CODE 0x10000            // the places the counts are kept of
+#define CODE WORKED             // the places the counts are kept of
 
 static const struct { const char* name; const char* does; } DONE[] = {
     {"typing two lines in the Forth window", "'2 3 + .\r' ': sq dup * ; 12 sq .\r'"},
@@ -247,13 +247,5 @@ int main(int argc, char *argv[]) {
 
     char path[512];
     snprintf(path, sizeof(path), "%s/desktop.counts", argv[7]);
-    FILE* out = fopen(path, "wb");
-    if (out == NULL) {
-        perror(path);
-        return(1);
-    }
-    fwrite(work, sizeof(double), CODE, out);
-    fwrite(a_turn, sizeof(double), CODE, out);
-    fclose(out);
-    return(0);
+    return(work_written(path, work, a_turn) ? 0 : 1);
 }
