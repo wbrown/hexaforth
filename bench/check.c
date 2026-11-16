@@ -65,8 +65,7 @@ static int displays(const char* one, const char* other) {
     uint8_t* b = (uint8_t*)read_all(other, &other_len);
     int across = DISP_W / CELL_BITS, total = 0, differ = 0, drawn = 0;
     for(int y=0; y < DISP_H; y++) {
-        size_t row = ((size_t)DISP_BASE + (y % DISP_BANKS) * DISP_BANK_STEP
-                      + (y / DISP_BANKS) * DISP_STRIDE) * CELL_BYTES;
+        size_t row = (size_t)DISP_ROW(y) * CELL_BYTES;
         if (row + across * CELL_BYTES > len || row + across * CELL_BYTES > other_len) break;
         for(int idx=0; idx < across * CELL_BYTES; idx++) {
             if (a[row + idx] != b[row + idx]) differ++;

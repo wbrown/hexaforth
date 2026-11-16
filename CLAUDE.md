@@ -376,6 +376,9 @@ The machine, in C:
   what is typed and what that is to leave); `region_test.c` (regions
   against their pixels: what is typed is done to a plane of pixels too,
   and every cell of every region compared with the one form of them);
+  `display_test.c` (the drawing words: what is typed is drawn a pixel at
+  a time too, with the fonts and patterns read from the Forth that says
+  them, and every pixel compared after every step);
   `tiff_test.c` (the TIFF reader: files that are only a header and a
   directory, on a disk of bytes by chance, dithered by the machine and a
   pixel at a time);

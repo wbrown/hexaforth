@@ -85,6 +85,8 @@
 #ifndef DISP_BANK_STEP
 #define DISP_BANK_STEP 0
 #endif
+// The cell where row y of the bitmap starts.
+#define DISP_ROW(y) (DISP_BASE + ((y) % DISP_BANKS) * DISP_BANK_STEP + ((y) / DISP_BANKS) * DISP_STRIDE)
 
 // A display has to suit the cell it is drawn with.  cross.fs makes the
 // same checks, with the same wording, on the definition it is given.

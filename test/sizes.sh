@@ -47,6 +47,7 @@ while read C A W H BASE <&3; do
     mv build/prompt-test-$C-$A $OUT/prompt-test-$C
     mv build/region-test-$C-$A $OUT/region-test-$C
     mv build/tiff-test-$C-$A $OUT/tiff-test-$C
+    mv build/display-test-$C-$A $OUT/display-test-$C
     mv build/nuc-$C-$A.hex $OUT/nuc-$C.hex
     rm -f $OUT/nuc-$C.tables                # the names that go with the image, if it has any
     [ -f build/nuc-$C-$A.tables ] && mv build/nuc-$C-$A.tables $OUT/nuc-$C.tables
@@ -72,7 +73,7 @@ while read C A W H BASE <&3; do
         fail=1
     fi
     for s in $SEEDS; do
-        run display-$C-$s python3 test/display_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s 150 $C $W $H
+        run display-$C-$s $OUT/display-test-$C $OUT/nuc-$C.hex forth $s
         run regions-$C-$s $OUT/region-test-$C $OUT/nuc-$C.hex $s
         run dither-$C-$s $OUT/dither-test-$C $OUT/nuc-$C.hex $s
         run tiff-$C-$s $OUT/tiff-test-$C $OUT/nuc-$C.hex $s
