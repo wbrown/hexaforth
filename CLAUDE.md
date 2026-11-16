@@ -378,7 +378,10 @@ It then says what that work costs, three ways (`bench/costs.c`):
 `paths.txt`, each word charged with all it calls, which is what to read
 before saying what a change will save; `loops.txt`, the loops by what
 they cost; and `vars.txt`, what the variables cost, of the files named
-to it or of all.
+to it or of all. `sh util/phrases.sh` is the phrase book: for every
+instruction some run of the machine's words does the work of, the
+shortest run, whether `cross.fs` makes one instruction of it, and whether
+each name means what it means in gforth.
 
 ## Where things are
 
@@ -400,6 +403,7 @@ The machine, in C:
   machine's step on terms, and each answer then run on `vm.c`; what it
   trusts and why is said at its top), `joins.c` and `fused.c` (the two
   generators that have it in them), `tables.sh` (which runs them),
+  `phrases.c` and `phrases.sh` (the phrase book, which has it in it too),
   `words.c` (an image's words, by header and by label, for the tools
   that read an image), `cut.c` (two builds of an image cut into the same
   straight-line runs), `both-builds.sh` (the image with the peephole and

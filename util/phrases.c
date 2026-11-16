@@ -1,0 +1,475 @@
+//
+// phrases [REPORT]
+//
+// What to write to get each instruction: a phrase book.
+//
+// An instruction is a control word.  Few have a name, and the rest are
+// reached by writing words the peephole joins: `over +` is one
+// instruction, and so is `over @ swap !`.  For every instruction of the
+// ALU that some run of up to three of the machine's words does the work
+// of (LONGEST=4 in the environment for four, which takes much longer),
+// this finds the shortest such run: the phrase to write.
+//
+// Whether a run of words is an instruction is asked of the machine: the
+// step on terms says what each leaves (fuse.c), and they are the
+// instruction if they leave the same.  Nothing here says what an
+// instruction does.
+//
+// It then asks two things.
+//
+// Does cross.fs make one instruction of each phrase?  Every phrase is
+// compiled, as a word of its own, and those that come out longer are
+// places the peephole does not reach.
+//
+// Is a name standard?  The machine's words that use the data stack alone
+// are run on vm.c and in gforth on the same stacks, to see that a name
+// means here what it means there; and words that ANS Forth, gforth and
+// the older Forths have, and this machine has no name for, are run in
+// gforth to see which are a single instruction here.
+//
+// It is run where the Forth is (forth/), since cross.fs is.  The report is
+// ../build/phrases.txt if none is named, and its first part is printed.
+//
+
+#include "fuse.c"
+#include "image.h"
+
+#define VOCAB   256
+#define MOST    4                       // the most words a phrase is
+#define LONG    48                      // the most instructions a phrase is
+#define ROOM    16                      // instructions kept for a phrase when it is compiled
+#define BATCH   200                     // phrases compiled at a time
+#define STACKS  36                      // the stacks a word is tried on
+
+typedef struct {
+    const char* name;
+    uint16_t code[32];
+    int len;
+    int stack_only;                     // the step says it uses the data stack and nothing else
+} vocable;
+static vocable TYPED[VOCAB];
+static int vocab;
+
+// An instruction that stands for all that leave what it leaves: one that
+// has a name if any has, or else the lowest.
+typedef struct {
+    uint16_t ins;
+    uint64_t leaves;
+    const char* name;                   // the machine's name for it, or none
+    int phrase[MOST], said;             // the phrase for it: words, and how many; none if 0
+    int compiled;                       // the instructions cross.fs made of the phrase, or 0: not compiled
+    int stack_only;
+    int64_t result[STACKS][FILLED];     // what it leaves of each stack, run on vm.c,
+    int depth[STACKS];                  // and how deep
+} kind;
+static kind KIND[8192];
+static int kinds;
+
+static const char* name_of_ins(uint16_t ins) {
+    for(word_node* w = FORTH_WORDS; w->repr && strlen(w->repr); w++) {
+        if (w->num_ins == 1 && *(uint16_t*)&w->ins[0] == ins) return(w->repr);
+    }
+    return(NULL);
+}
+
+static kind* kind_leaving(uint64_t leaves) {
+    for(int lo=0, hi=kinds - 1; lo <= hi; ) {
+        int mid = (lo + hi) / 2;
+        if (KIND[mid].leaves == leaves) return(&KIND[mid]);
+        if (KIND[mid].leaves < leaves) lo = mid + 1; else hi = mid - 1;
+    }
+    return(NULL);
+}
+
+// Does the step say a run uses the data stack alone: the return stack and
+// memory as they were, nothing fetched, and no return?
+static int only_data(const uint16_t* code, int len) {
+    named m, none;
+    forget();
+    if (!names(code, len, &m)) return(0);
+    start(&none);
+    return(m.RSP == none.RSP && m.R == none.R && m.M == none.M && !m.fetches && m.next < 0 &&
+           !memcmp(m.RS, none.RS, sizeof(m.RS)));
+}
+
+static int same_work(const uint16_t* code, int len, uint16_t ins) {
+    named a, b;
+    forget();
+    uint64_t left = names(code, len, &a);
+    return(left && names(&ins, 1, &b) == left && same_named(&a, &b));
+}
+
+// ---- the phrases
+
+typedef struct { int phrase[MOST]; int n; uint16_t code[LONG]; int len; } reached;
+
+#define SEEN (1 << 24)
+static uint64_t* SEEN_BEFORE;
+
+static int seen_before(uint64_t leaves) {       // has something that leaves this been reached?  It has now.
+    uint64_t at = (leaves * 0x9e3779b97f4a7c15ull) >> 40;
+    while (SEEN_BEFORE[at] && SEEN_BEFORE[at] != leaves) at = (at + 1) & (SEEN - 1);
+    if (SEEN_BEFORE[at]) return(1);
+    SEEN_BEFORE[at] = leaves;
+    return(0);
+}
+
+// The shortest run of words for each instruction that a run of up to so
+// many gives: the runs of one word, then each that left something new
+// with one word more.  Nothing is built on the longest.
+static void find_phrases(int longest) {
+    reached* frontier = calloc(1, sizeof(reached));
+    long fronts = 1;
+    int found = 0;
+    SEEN_BEFORE = calloc(SEEN, sizeof(uint64_t));
+    for(int depth=1; depth <= longest; depth++) {
+        reached* next = depth < longest ? malloc(sizeof(reached) * (fronts * vocab + 1)) : NULL;
+        long nexts = 0;
+        for(long f=0; f < fronts; f++) {
+            for(int w=0; w < vocab; w++) {
+                reached r = frontier[f];
+                if (r.len + TYPED[w].len > LONG) continue;
+                r.phrase[r.n++] = w;
+                memcpy(r.code + r.len, TYPED[w].code, TYPED[w].len * sizeof(uint16_t));
+                r.len += TYPED[w].len;
+                named m;
+                forget();
+                uint64_t leaves = names(r.code, r.len, &m);
+                if (!leaves) continue;
+                kind* k = kind_leaving(leaves);
+                if (k && !k->said && same_work(r.code, r.len, k->ins)) {
+                    memcpy(k->phrase, r.phrase, sizeof(r.phrase));
+                    k->said = r.n;
+                    found++;
+                }
+                if (depth < longest && !seen_before(leaves)) next[nexts++] = r;
+            }
+        }
+        free(frontier);
+        frontier = next;
+        fronts = nexts;
+        printf("  %d words: %5d instructions have a phrase\n", depth, found);
+        fflush(stdout);
+    }
+}
+
+static void say_phrase(char* text, const kind* k) {
+    text[0] = '\0';
+    for(int n=0; n < k->said; n++) {
+        if (n) strcat(text, " ");
+        strcat(text, TYPED[k->phrase[n]].name);
+    }
+    if (!k->said) strcpy(text, "(no phrase)");
+}
+
+// ---- each phrase, compiled by cross.fs
+
+// A batch of phrases, each a definition where there is room kept for it;
+// and how many instructions each came to.  An exit that did not fold is
+// not the phrase's.
+static void compile(kind** batch, int count) {
+    instruction leaves[8];
+    lookup_word(FORTH_WORDS, "exit", leaves);
+    FILE* source = fopen("phrasetest.fs", "w");
+    if (!source) { perror("phrasetest.fs"); exit(1); }
+    fprintf(source, "meta 4 org target\nheader execute : execute >r ;\n");
+    for(int n=0; n < count; n++) {
+        char phrase[256];
+        say_phrase(phrase, batch[n]);
+        fprintf(source, "meta $%x org target : p%d %s ;\n", 0x2000 + 2 * ROOM * n, n, phrase);
+    }
+    fprintf(source, "meta $1000 org target\nheader main : main halt ;\nheader quit : quit halt ;\n");
+    fclose(source);
+    int built = !system("gforth ./cross.fs ./basewords.fs ./phrasetest.fs > ../build/phrasetest.log 2>&1");
+    remove("phrasetest.fs");
+    uint8_t* image;
+    size_t len = built ? load_image("../build/phrasetest.hex", &image) : 0;
+    if (len / 2 < (size_t)0x1000 + ROOM * count) {
+        printf("    a batch of phrases did not build: see build/phrasetest.log\n");
+        return;
+    }
+    const uint16_t* code = (const uint16_t*)image;
+    for(int n=0; n < count; n++) {
+        int size = 0, last = 0;
+        for(int idx=0; idx < ROOM; idx++) {
+            if (code[0x1000 + ROOM * n + idx]) size++, last = code[0x1000 + ROOM * n + idx];
+        }
+        if (size && last == *(uint16_t*)leaves) size--;
+        batch[n]->compiled = size ? size : 1;
+    }
+    free(image);
+}
+
+// ---- names, against gforth
+
+// Stacks to try a word on: few different numbers, so that two of a stack
+// are often the same, and nothing and less than nothing are often on top.
+static int64_t TRY[STACKS][DEPTH];
+
+static void make_stacks(void) {
+    static const int64_t FEW[] = { 0, 1, -1, 2, 3, -7, 5, 62, 1ll << 40, -(1ll << 62) };
+    uint64_t seed = 1984;
+    for(int s=0; s < STACKS; s++) {
+        for(int idx=0; idx < DEPTH; idx++) {
+            seed ^= seed << 13, seed ^= seed >> 7, seed ^= seed << 17;
+            TRY[s][idx] = FEW[(seed >> 32) % 10];
+        }
+        if (s >= 24 && s < 30) TRY[s][DEPTH - 1] = TRY[s][DEPTH - 2];  // the top two the same
+        if (s >= 30) TRY[s][DEPTH - 1] = TRY[s][DEPTH - 3];            // the top and the third
+    }
+}
+
+// What a run leaves of each stack, run on vm.c.  Returns whether it ran to
+// its end from all of them, and left the same whatever was on the return
+// stack: a run that does not is not of the data stack alone, whatever it
+// leaves the return stack as.
+static int on_machine(const uint16_t* code, int len, int64_t result[STACKS][FILLED], int* depth) {
+    lay(0, code, len);
+    for(int s=0; s < STACKS; s++) {
+        for(int other=0; other < 3; other++) {
+            state from = STATE[0];
+            memset(from.dstack, 0, sizeof(from.dstack));
+            memcpy(from.dstack, TRY[s], sizeof(TRY[s]));
+            if (other) from.rstack[DEPTH - 1] = TRY[s][DEPTH - other];  // the top of it is the top of the data stack, or the cell under
+            if (!run(0, len, &from) || machine.SP < 0 || machine.SP > FILLED) return(0);
+            if (other && (machine.SP != depth[s] || memcmp(result[s], machine.DSTACK, machine.SP * sizeof(int64_t)))) return(0);
+            depth[s] = machine.SP;
+            memcpy(result[s], machine.DSTACK, machine.SP * sizeof(int64_t));
+        }
+    }
+    return(1);
+}
+
+// Does gforth have a word?  It is asked, of one word at a time, and never
+// given a word it has not: what it does then is not to be waited for.
+static int gforth_has(const char* name) {
+    FILE* script = fopen("../build/phrases.ask", "w");
+    if (!script) { perror("../build/phrases.ask"); exit(1); }
+    fprintf(script, ": t parse-name find-name 0<> . cr ;\nt %s\nbye\n", name);
+    fclose(script);
+    FILE* answer = popen("gforth ../build/phrases.ask < /dev/null", "r");
+    int has = 0;
+    if (!answer || fscanf(answer, "%d", &has) != 1) {
+        fprintf(stderr, "phrases: gforth did not say whether it has %s\n", name);
+        exit(1);
+    }
+    pclose(answer);
+    return(has != 0);
+}
+
+// What gforth leaves of each stack when it is given some text, which is
+// words it has; or nothing, if it does not say.
+static int in_gforth(const char* text, int64_t result[STACKS][FILLED], int* depth) {
+    FILE* script = fopen("../build/phrases.ask", "w");
+    if (!script) { perror("../build/phrases.ask"); exit(1); }
+    fprintf(script, "%d maxdepth-.s !\n", FILLED);      // .s is to say all of a stack, and not its top few
+    for(int s=0; s < STACKS; s++) {
+        for(int idx=0; idx < DEPTH; idx++) fprintf(script, "%lld ", (long long)TRY[s][idx]);
+        fprintf(script, "%s .s clearstack cr\n", text);
+    }
+    fprintf(script, "bye\n");
+    fclose(script);
+    FILE* answers = popen("gforth ../build/phrases.ask < /dev/null 2>&1", "r");
+    char row[4096];
+    int s = 0, known = answers != NULL;
+    while (known && fgets(row, sizeof(row), answers)) {
+        int deep = 0, used = 0;
+        if (sscanf(row, " <%d>%n", &deep, &used) != 1 || deep > FILLED || s == STACKS) { known = 0; break; }
+        const char* at = row + used;
+        for(int idx=0; idx < deep; idx++) {
+            char* end;
+            result[s][idx] = strtoll(at, &end, 10);     // gforth says a cell as a number with a sign
+            at = end;
+        }
+        depth[s++] = deep;
+    }
+    if (answers) pclose(answers);
+    remove("../build/phrases.ask");
+    return(known && s == STACKS);
+}
+
+// Are two sets of what was left the same?  The cell at the bottom of each
+// stack is not looked at: what sets the machine's depths before a run
+// (fuse.c's lead) leaves a number of its own there, and no word here
+// reaches as far down.
+static int same_results(int64_t a[STACKS][FILLED], const int* da, int64_t b[STACKS][FILLED], const int* db) {
+    for(int s=0; s < STACKS; s++) {
+        if (da[s] != db[s] || da[s] < 1 || memcmp(a[s] + 1, b[s] + 1, (da[s] - 1) * sizeof(int64_t))) return(0);
+    }
+    return(1);
+}
+
+// Words other Forths have that work on the data stack alone.  Each is run
+// in gforth if gforth has it; a definition is for one it has not, and
+// says what the word does in the Forth it comes from.
+static const struct { const char* name; const char* is; } OTHERS[] = {
+    // ANS and gforth
+    {"third"}, {"fourth"}, {"under+"}, {"2nip"}, {"2tuck"}, {"2rot"}, {"0<="}, {"0>="}, {"<="}, {">="},
+    {"u<="}, {"u>="}, {"umin"}, {"umax"}, {"min"}, {"max"}, {"abs"}, {"within"}, {"cell+"}, {"cell-"},
+    {"cells"}, {"char+"}, {"chars"}, {"d>s"}, {"s>d"}, {"2*"}, {"2/"}, {"1+"}, {"1-"}, {"true"}, {"false"},
+    {"bounds"}, {"-rot"}, {"nip"}, {"tuck"}, {"2dup"}, {"2drop"}, {"2swap"}, {"2over"}, {"rot"}, {"negate"},
+    {"invert"}, {"0="}, {"0<"}, {"0>"}, {"0<>"}, {"="}, {"<>"}, {"<"}, {">"}, {"u<"}, {"u>"}, {"+"}, {"-"},
+    {"*"}, {"and"}, {"or"}, {"xor"}, {"lshift"}, {"rshift"}, {"dup"}, {"drop"}, {"swap"}, {"over"},
+    // fig-Forth, F83 and others, by what they are in words gforth has
+    {"2+", "2 +"}, {"2-", "2 -"}, {"not", "0="}, {"minus", "negate"}, {"-dup"}, {"swap-", "swap -"},
+    {"over-", "over -"}, {"tuck+", "tuck +"}, {"under", "swap over"}, {"nand", "and invert"},
+    {"nor", "or invert"}, {"andn", "invert and"}, {"orn", "invert or"}, {"xnor", "xor invert"},
+    {"3dup", "third third third"}, {"2dup=", "2dup ="}, {"2dup+", "2dup +"}, {"dup+", "dup +"},
+    {"over+", "over +"}, {"overand", "over and"}, {"over=", "over ="}, {"swap<", "swap <"},
+    {"bic", "invert and"}, {NULL}};
+
+static int by_leaves(const void* a, const void* b) {
+    uint64_t x = ((const kind*)a)->leaves, y = ((const kind*)b)->leaves;
+    return(x < y ? -1 : x > y ? 1 : 0);
+}
+
+static int by_ins(const void* a, const void* b) {
+    return((int)(*(kind* const*)a)->ins - (int)(*(kind* const*)b)->ins);
+}
+
+static int by_length(const void* a, const void* b) {
+    const kind* x = *(kind* const*)a;
+    const kind* y = *(kind* const*)b;
+    if (x->said != y->said) return(x->said - y->said);
+    if (x->compiled != y->compiled) return(x->compiled - y->compiled);
+    return((int)x->ins - (int)y->ins);
+}
+
+int main(int argc, char *argv[]) {
+    const char* report = argc > 1 ? argv[1] : "../build/phrases.txt";
+    int longest = getenv("LONGEST") ? atoi(getenv("LONGEST")) : 3;
+    if (longest < 1 || longest > MOST) longest = 3;
+    get_ready();
+    make_stacks();
+    static word_node shown[1024];
+    init_opcodes(shown);
+
+    // The instructions that do different things, not counting those that
+    // also return: of each that leave the same, one stands for them.
+    for(int idx=0; idx < alus; idx++) {
+        instruction ins = *(instruction*)&ALU[idx].ins;
+        if (ins.alu.r_eip) continue;
+        kind* k = NULL;
+        for(int n=0; n < kinds && !k; n++) {
+            if (KIND[n].leaves == ALU[idx].names && same_work(&ALU[idx].ins, 1, KIND[n].ins)) k = &KIND[n];
+        }
+        const char* name = name_of_ins(ALU[idx].ins);
+        if (!k) {
+            KIND[kinds] = (kind){ ALU[idx].ins, ALU[idx].names, name };
+            kinds++;
+        } else if (name && !k->name) {
+            k->ins = ALU[idx].ins, k->name = name;
+        }
+    }
+    qsort(KIND, kinds, sizeof(kind), by_leaves);
+    int have_name = 0;
+    for(int n=0; n < kinds; n++) have_name += KIND[n].name != NULL;
+
+    // The words that may be written: those of vm_opcodes.h that the step
+    // says of.
+    for(word_node* w = FORTH_WORDS; w->repr && strlen(w->repr) && vocab < VOCAB; w++) {
+        if (!w->num_ins || w->num_ins > 32) continue;
+        if (!strcmp(w->repr, "noop") || !strcmp(w->repr, "halt") || !strcmp(w->repr, "exit") || !strcmp(w->repr, "r@;")) continue;
+        named m;
+        forget();
+        if (!names((const uint16_t*)w->ins, w->num_ins, &m)) continue;
+        TYPED[vocab].name = w->repr;
+        TYPED[vocab].len = w->num_ins;
+        memcpy(TYPED[vocab].code, w->ins, w->num_ins * sizeof(uint16_t));
+        TYPED[vocab].stack_only = only_data(TYPED[vocab].code, TYPED[vocab].len);
+        vocab++;
+    }
+
+    FILE* out = fopen(report, "w");
+    if (!out) { perror(report); return(1); }
+#define SAY(...) do { fprintf(out, __VA_ARGS__); fprintf(out, "\n"); if (printing) { printf(__VA_ARGS__); printf("\n"); } } while (0)
+    int printing = 1;
+
+    printf("phrases of up to %d of %d words:\n", longest, vocab);
+    find_phrases(longest);
+    static kind* said[8192];
+    int phrased = 0;
+    for(int n=0; n < kinds; n++) if (KIND[n].said) said[phrased++] = &KIND[n];
+
+    printf("compiling each phrase:\n");
+    for(int from=0; from < phrased; from += BATCH) compile(said + from, phrased - from < BATCH ? phrased - from : BATCH);
+    int compiled = 0, longer = 0;
+    for(int n=0; n < phrased; n++) compiled += said[n]->compiled > 0, longer += said[n]->compiled > 1;
+
+    printf("names, against gforth:\n");
+    static int64_t theirs[STACKS][FILLED], ours[STACKS][FILLED];
+    int their_depth[STACKS], our_depth[STACKS], agree = 0, differ = 0, absent = 0;
+    char differing[2048] = "", lacking[4096] = "";
+    for(int w=0; w < vocab; w++) {
+        if (!TYPED[w].stack_only || !on_machine(TYPED[w].code, TYPED[w].len, ours, our_depth)) continue;
+        if (!gforth_has(TYPED[w].name) || !in_gforth(TYPED[w].name, theirs, their_depth)) {
+            absent++;
+            snprintf(lacking + strlen(lacking), sizeof(lacking) - strlen(lacking), " %s", TYPED[w].name);
+        } else if (same_results(ours, our_depth, theirs, their_depth)) {
+            agree++;
+        } else {
+            differ++;
+            snprintf(differing + strlen(differing), sizeof(differing) - strlen(differing), " %s", TYPED[w].name);
+        }
+    }
+
+    SAY("%d instructions that do different things, not counting those that also return; %d have a name.", kinds, have_name);
+    SAY("%d are what some run of up to %d of the machine's %d words does; %d are not.", phrased, longest, vocab, kinds - phrased);
+    SAY("cross.fs makes one instruction of %d of the %d phrases it was given, and more than one of %d.",
+        compiled - longer, compiled, longer);
+    SAY("of the machine's words that only use the data stack, gforth has %d and %d mean the same there; "
+        "%d it has not:%s", agree + differ, agree, absent, lacking);
+    if (differ) SAY("NOT THE SAME IN GFORTH:%s", differing);
+
+    // What each instruction with no name leaves of the stacks, for those
+    // that use the data stack alone; and the words of other Forths that
+    // leave the same.
+    for(int n=0; n < kinds; n++) {
+        kind* k = &KIND[n];
+        k->stack_only = !k->name && only_data(&k->ins, 1) && on_machine(&k->ins, 1, k->result, k->depth);
+    }
+    SAY("%s", "");
+    SAY("Words other Forths have, that are one instruction here and have no name here:");
+    for(int o=0; OTHERS[o].name; o++) {
+        instruction has[8];
+        if (lookup_word(FORTH_WORDS, (char*)OTHERS[o].name, has)) continue;    // the machine has the name
+        const char* said = gforth_has(OTHERS[o].name) ? OTHERS[o].name : OTHERS[o].is;
+        if (!said || !in_gforth(said, theirs, their_depth)) continue;
+        for(int n=0; n < kinds; n++) {
+            kind* k = &KIND[n];
+            char is[256], phrase[256];
+            if (!k->stack_only || !same_results(k->result, k->depth, theirs, their_depth)) continue;
+            decode_instruction(is, *(instruction*)&k->ins, shown);
+            say_phrase(phrase, k);
+            SAY("    %-8s %04x  %s = %s", OTHERS[o].name, k->ins, is, phrase);
+        }
+    }
+
+    SAY("%s", "");
+    SAY("Phrases cross.fs does not make one instruction of:");
+    static kind* order[8192];
+    int listed = 0;
+    for(int n=0; n < phrased; n++) if (said[n]->compiled > 1) order[listed++] = said[n];
+    qsort(order, listed, sizeof(kind*), by_length);
+    for(int n=0; n < listed; n++) {
+        char is[256], phrase[256];
+        decode_instruction(is, *(instruction*)&order[n]->ins, shown);
+        say_phrase(phrase, order[n]);
+        printing = n < 24;
+        SAY("    %04x  %s = %-28s %d instructions", order[n]->ins, is, phrase, order[n]->compiled);
+    }
+    printing = 0;
+
+    SAY("%s", "");
+    SAY("Every instruction a phrase gives, and the phrase:");
+    qsort(said, phrased, sizeof(kind*), by_ins);
+    for(int n=0; n < phrased; n++) {
+        char is[256], phrase[256];
+        decode_instruction(is, *(instruction*)&said[n]->ins, shown);
+        say_phrase(phrase, said[n]);
+        SAY("    %04x  %-9s %s = %s", said[n]->ins, said[n]->name ? said[n]->name : "", is, phrase);
+    }
+    fclose(out);
+    printf("...\nall of it: %s\n", report);
+    return(phrased && compiled ? 0 : 1);
+}
