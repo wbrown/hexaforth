@@ -150,13 +150,29 @@ target_compile_definitions(hexaforth_test
         TEST
         DEBUG)
 
-# (It reads build/test_cases.hex, from where the source is.)
+# What reaches each word of the kernel (util/reach.c): nothing of it is to
+# be there that nothing comes to.  It has the machine in it, and is built
+# without the trace.
+add_executable(kernel_test
+        test/kernel_test.c
+        vm_opcodes.c
+        vm_debug.c
+        util/stack.c
+        util/image.c)
+target_compile_options(kernel_test PRIVATE -UDEBUG -w)
+target_link_libraries(kernel_test m)
+
+# (They read build/test_cases.hex and the nucleus's image, from where the
+# source is.)
 add_custom_target(tests
         ALL
         COMMAND           ${CMAKE_BINARY_DIR}/hexaforth_test 2> ${CMAKE_BINARY_DIR}/hexaforth_test.debug
+        COMMAND           ${CMAKE_BINARY_DIR}/kernel_test build/nuc.hex build/nuc.tables
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         DEPENDS           hexaforth_test
-                          build/test_cases.hex)
+                          kernel_test
+                          build/test_cases.hex
+                          build/nuc.hex)
 
 # Main executable
 add_executable(hexaforth

@@ -14,21 +14,24 @@ target
 \ and changing task is saving two depths and setting two others.  Tasks
 \ take turns: one runs until it says pause.
 \
-\ A task is a record of thirteen cells.  The first four are the next task
-\ round the ring, the two depths it stopped at, and the word it runs.  The
-\ rest are the variables each task has its own of, which are words that
-\ find the cell in the record of the task that is running, `up`.
+\ A task is a record of eleven cells.  The first three are the next task
+\ round the ring, the depth of the return stack it stopped at, and the
+\ word it runs.  The rest are the variables each task has its own of, which
+\ are words that find the cell in the record of the task that is running,
+\ `up`.  What else a task has when it stops, the depth of its data stack
+\ and the loop offset, it leaves on its return stack, which is its own
+\ (pause): so the record has no cell for either.
 
-create main-task 0 , 0 , 0 , 0 ,   0 , 0 , $a , 0 ,   0 , 0 , 0 , 0 ,   0 ,
+create main-task 0 , 0 , 0 ,   0 , 0 , $a , 0 ,   0 , 0 , 0 , 0 ,
 header up create up 0 ,
 
-header sbase    : sbase    up @ c# 4 + ;    \ where its data stack starts
-: handler                  up @ c# 5 + ;    \ the catch that a throw goes to
-header base     : base     up @ c# 6 + ;
-header 'emit    : 'emit    up @ c# 7 + ;    \ where its output goes
-header sourceid : sourceid up @ c# 8 + ;
-header >in      : >in      up @ c# 9 + ;
-: sourceC                  up @ c# 10 + ;   \ two cells: the text being interpreted
+header sbase    : sbase    up @ c# 3 + ;    \ where its data stack starts
+: handler                  up @ c# 4 + ;    \ the catch that a throw goes to
+header base     : base     up @ c# 5 + ;
+header 'emit    : 'emit    up @ c# 6 + ;    \ where its output goes
+header sourceid : sourceid up @ c# 7 + ;
+header >in      : >in      up @ c# 8 + ;
+: sourceC                  up @ c# 9 + ;    \ two cells: the text being interpreted
 
 header 1-       : 1-        d# -1 + ;
 
@@ -174,14 +177,13 @@ header field! : field! ( x c-addr mask -- )
     r> !
 ;
 
-\ c@ is field@ with its mask written in, and not a call of it: every
-\ character that is read is read with this.
+\ c@ is field@ with a character's mask.  Written out in full, with the
+\ mask in it and no call, it reads a character a few instructions sooner,
+\ and is most of field@ said twice: the kernel is short before it is
+\ quick.  What reads with this is the interpreter and type.  Text that is
+\ drawn is not read a character at a time (char@, display.fs).
 header c@
-: c@ ( c-addr -- c )
-    dup (c>) @
-    swap OFFSET-MASK and d# 3 lshift rshift
-    h# ff and
-;
+: c@ ( c-addr -- c ) h# ff field@ ;
 
 header c!
 : c! ( c c-addr -- ) h# ff field! ;
@@ -250,17 +252,23 @@ header adepth : adepth ( -- n ) IO-SP io@ 1- ;            \ less the port number
 header depth    : depth     adepth sbase @ - ;
 
 \ pause gives the other tasks a turn.  It comes back when they have each
-\ had one.  The loop offset is the one thing kept outside the record,
-\ since loops use it all the time.
+\ had one.
+\
+\ A task that stops puts the loop offset and the depth of its data stack
+\ on its return stack, and its record keeps only how deep that then is.
+\ The task whose turn it is has its own two on top of its return stack, as
+\ it left them, and takes them off.  That is shorter than a cell of the
+\ record for each, which has to be found from `up` to be stored and again
+\ to be fetched.  spawn leaves a new task's return stack as this leaves
+\ one.  (The loop offset is one variable, and not a cell of every record,
+\ since loops use it all the time.)
 header pause
 : pause ( -- )
-    rO @ up @ c# 12 + !
-    adepth up @ CELL + !
-    IO-RSP io@ up @ CELL2 + !
+    rO @ >r  adepth >r
+    IO-RSP io@ up @ CELL + !
     up @ @ up !
-    up @ c# 12 + @ rO !
-    up @ CELL2 + @ IO-RSP io!
-    up @ CELL + @ IO-SP io!
+    up @ CELL + @ IO-RSP io!
+    r> IO-SP io!  r> rO !
 ;
 
 \ Waiting for a key gives the other tasks their turns.
@@ -285,12 +293,9 @@ header d+
     rot + >r                      ( augend addend) 
     over+                         ( augend sum) 
     swap over swap                ( sum sum augend)
-    u< if                         ( sum) 
-        r> 1+ 
-    else 
-        r> 
-    then                          ( sum . ) 
-; 
+    u<                            ( sum carry )     \ less than nothing, if the low cells went round:
+    negate r> +                   ( sum . )         \ that is one more, added and not branched on
+;
 
 header dnegate
 : dnegate 
@@ -375,12 +380,27 @@ header d2/
     or r> 2/
 ;
 
-create scratch 0 ,
+\ Two cells multiplied into two.  The ALU's * gives the low cell alone, so
+\ this is a step for every bit of a cell: each DOUBLE runs what follows
+\ twice, so four of them are 16 steps, five 32 and six 64.
+\
+\ The product is made in the two cells that the multiplier starts in the
+\ top one of.  A step moves the two up a place, and if the bit that came
+\ off the top was set the multiplicand is added in.  When the multiplier
+\ has all gone off the top, what is left is the product: the two never
+\ meet, since what is made after so many steps is no more bits than a cell
+\ and that many.
+\
+\ This is the short way and not the quick one.  The two cells go up a
+\ place by being added to themselves (d2*), and something is added at
+\ every step, the multiplicand or nothing.  A step that shifts the two
+\ itself, and adds only for a bit that is set, is a good deal quicker,
+\ and longer.  Little multiplies this way: a number being read, once it is
+\ past half a cell (ud*), and the pointer's place where a cell is 16 bits
+\ (wm.fs).  A program that does it a great deal can have a um* of its own;
+\ time one by typing a loop of them with a mark each side (rtl/tb.cpp).
 
-\ One step per bit of a cell.  Each DOUBLE runs what follows twice, so four
-\ of them are 16 steps, five 32 and six 64.
-
-: mulstep ( ud u1 -- ud u1 )
+: mulstep ( ud u -- ud u ) \ ud: the product, and above it what is left of the multiplier; u: the multiplicand
 W64? [if]
     DOUBLE
 [then]
@@ -389,32 +409,30 @@ W32+? [if]
 [then]
     DOUBLE DOUBLE DOUBLE DOUBLE
     >r
-    d# 1 lshift over TOPBIT rshift + swap d# 1 lshift swap
-    r@ d# 0 < if 
-        scratch @ d# 0 d+ 
-    then 
-    r> d# 1 lshift
+    dup 0< r@ and >r                    \ what is to be added: by the bit about to come off the top
+    d2*
+    r> d# 0 d+
+    r>
 ;
 
 header um*
-: um*  ( u1 u2 -- ud ) 
-    scratch ! 
-    d# 0. rot
+: um*  ( u1 u2 -- ud )
+    d# 0 -rot
     mulstep
-    drop 
-; 
+    drop
+;
 
 header *        :noname     *        ;
 
 \ see Hacker's Delight (2nd ed) 9-4 "Unsigned Long Division"
 
-\ One step per bit.  The DOUBLEs nest, so entering part-way down runs fewer
-\ steps: div32 and div16 are for dividends already shifted to the top of y.
+\ One step per bit of a cell, as multiplying is.  The DOUBLEs nest, so
+\ coming in part-way down them runs fewer steps: div16 is for a dividend
+\ already moved to the top of y.
 
 : divstep  \ ( y x z )   a step for every bit of a cell
 W64? [if]
     DOUBLE
-: div32                  \ 32 steps
 [then]
 W32+? [if]
     DOUBLE
@@ -437,28 +455,31 @@ header um/mod
     drop swap 
 ; 
 
-\ Single-cell divide.  A dividend that fits in 16 or 32 bits is shifted to
-\ the top of the cell first, so only that many steps are needed.
+\ Single-cell divide: the dividend with nothing above it.
+\
+\ Where a cell is wider than 16 bits, a dividend that fits in 16 is moved
+\ to the top of its cell and given 16 steps, and any other has a step for
+\ every bit.  That one way in is a test and a few instructions, and it is
+\ kept for what it is felt in: a number is printed with this, a division a
+\ digit ((.)), and the decompiler and the calculator print whenever they
+\ draw, so without it the desktop's work in those windows is a good deal
+\ more where cells are 64 bits (bench/profile.sh says).  A second way in,
+\ for a dividend that fits in 32 bits where cells are 64, would be as
+\ much again for numbers that are seldom printed.  HexaPaint divides too,
+\ once a row of an oval.  A program that divides a great deal of what is
+\ larger can have a u/mod of its own; time one as um* is timed.
 header u/mod : u/mod ( u1 u2 -- rem quot )
-    >r
 W32+? [if]
+    >r
     dup d# 16 rshift if
-W64? [if]
-        dup d# 32 rshift if
-            d# 0 r> divstep
-        else
-            d# 32 lshift d# 0 r> div32
-        then
-[else]
         d# 0 r> divstep
-[then]
     else
         TOP16 lshift d# 0 r> div16
     then
-[else]
-    d# 0 r> divstep
-[then]
     drop swap
+[else]
+    d# 0 swap um/mod
+[then]
 ;
 
 \ Unicode-friendly ACCEPT contibuted by Matthias Koch
@@ -504,18 +525,6 @@ header accept
 : 3rd   >r over r> swap ;
 header 3dup : 3dup  3rd 3rd 3rd ;
 
-header caligned
-: caligned
-    1+ d# -2 and
-;
-
-header calign
-: calign
-    dp @
-    caligned
-    dp !
-;
-
 \ A dictionary header is cells: a link, an xt whose top bit marks an
 \ immediate word, then the name, five bits a character and as many to a
 \ cell as a cell holds, with the top bit of its last cell set (cross.fs
@@ -556,8 +565,14 @@ header cells-fill
 \ Fields are packed into cells in two places, and it is one thing: codes
 \ of five bits into the key when a name is looked up, and characters of
 \ eight into text when a name is shown.  A field goes into the cell in
-\ hand where the last one ended, with or!; when the cell is full the next
-\ is in hand, and is made empty.
+\ hand where the last one ended, with or!.
+\
+\ A cell that is full is left when the next field comes, and not when the
+\ field that filled it went in.  So the cell in hand is always the last
+\ that has a field in it, whether or not it is full, and whoever packs
+\ has nothing to put right at the end: a key's last cell is the cell in
+\ hand, and a text is as long as the cells before it and how far along it
+\ is.
 create pto 0 ,              \ the cell in hand,
 create psh 0 ,              \ how far along it the next field goes,
 create pw 0 ,               \ how many bits a field is,
@@ -569,12 +584,11 @@ create pfull 0 ,            \ and how many bits of a cell fields have
 ;
 
 : pack, ( x -- ) \ the next field
-    psh @ lshift  pto @ or!
-    psh @ pw @ +
-    dup pfull @ = if                        \ the cell is full: on to the next, which is empty
-        drop  d# 1 pto +!  d# 0 pto @ !  d# 0
+    psh @ pfull @ = if                      \ the cell is full: on to the next, which is empty
+        d# 1 pto +!  d# 0 pto @ !  d# 0 psh !
     then
-    psh !
+    psh @ lshift  pto @ or!
+    pw @ psh +!
 ;
 
 create skey #96 allot       \ room for 63 characters that are two codes each, and a cell
@@ -599,8 +613,7 @@ create kcode codes-of-chars,    \ what each of the 128 characters is in a name: 
         1+
     repeat
     2drop
-    psh @ 0=  pto @ skey <> and  pto +!     \ the last code filled its cell: that cell is the last
-    d# 1 TOPBIT lshift  pto @ or!
+    d# 1 TOPBIT lshift  pto @ or!           \ the cell in hand is the last (pack,)
     pto @ skey - 1+
 ;
 
@@ -645,13 +658,17 @@ header sfind
 \ The characters are packed into the buffer's cells as the codes were into
 \ the key's (pack,).  A cell of the name is gone through for as long as
 \ there is anything left of it: no code is nothing, so what is left after
-\ its last is the padding.  Nine characters in ten are letters, and a
-\ letter is its code and 96.
+\ its last is the padding.
+\
+\ Every code is looked up in kchar, a letter as any other.  Nine characters
+\ in ten are letters, and a letter is its code and 96: a test for one in
+\ front of the look-up makes a name sooner, and is longer.  What makes
+\ names is `words` and the decompiler.
 create nbuf #64 allot           \ the characters, packed into cells as text is
 create kpg 0 ,                  \ which lot of the rest the next code is one of: 32 or 64, or nothing
 create kchar chars-of-codes,    \ what each code is: the plain ones, and then the two lots of the rest
 
-: code> ( code -- ) \ a code that is not simply a letter: a character, or which lot the next one is of
+: code> ( code -- ) \ a code: a character, or which lot the next one is of
     kpg @ ?dup 0= if
         dup d# 29 > if  d# 29 - d# 5 lshift kpg !  exit then
         d# 0                                \ a plain one: it is not one of a lot
@@ -669,8 +686,7 @@ header name>
         begin
             dup
         while
-            dup d# 31 and
-            dup d# 27 <  kpg @ 0= and if d# 96 + pack, else code> then
+            dup d# 31 and code>
             d# 5 rshift
         repeat
         drop
@@ -965,9 +981,17 @@ header i!
     cp @ CODE-BASE - CODE-SIZE u< 0= d# 8 -throw
 ;
 
+\ What a branch or a call says to reach an instruction: one in the kernel
+\ is its own number, and one on the page the branch is on is where it is
+\ on that page, marked.  It is said here and nowhere else: whatever lays
+\ down a branch, a call or a jump asks.
+: near ( ia -- field )
+    dup d# 12 rshift if h# fff and h# 1000 or then
+;
+
 : target ( -- field ) \ branch target field for the code about to be compiled
     cp @ dup syncpt !       \ a branch lands here: nothing may be joined across it
-    dup d# 12 rshift if h# fff and h# 1000 or then
+    near
 ;
 
 : attach
@@ -1036,7 +1060,7 @@ header :
 header :noname
 :noname
     newpage?
-    calign cp @
+    cp @
     dup thisxt !
     d# 0 lastword !
     sync
@@ -1047,6 +1071,16 @@ header inline: : inline: \ copy the instruction after the call, and skip it
     r>
     dup i@ code,
     1+ >r
+;
+inline-operand
+
+\ The same for a word that has nothing to do after: it copies the
+\ instruction and does not come back to after it, but goes back to whoever
+\ called the word.  So such a word is a call of this and the instruction,
+\ with no exit of its own, and ends in ;fallthru: nothing runs on into
+\ what is next.
+: inline; ( -- )
+    r> i@ code,
 ;
 inline-operand
 
@@ -1061,21 +1095,24 @@ inline-operand
 
 \ Literals: 12-bit immediates with a shift selector (0/12/24 bits) and an
 \ add flag.  The first non-zero segment pushes, later ones add.
+\
+\ What is carried from one segment to the next is the literal itself with
+\ nothing in its twelve bits: h# 8000 pushes and h# c000 adds, and h# 1000
+\ more is the next place up.  A segment is laid down by or-ing it into
+\ that, and once one has been, what is carried adds.  So there is no count
+\ of the place to shift and no flag kept beside it.
 
-: segs, ( u36 addflag -- ) \ addflag: h# 4000 to add to T, 0 to push
-    >r d# 0
-    begin ( u shift )
+: segs, ( u36 insn -- ) \ insn: h# 8000 to push, h# c000 to add to T
+    begin ( u insn )
         over h# fff and ?dup if
-            over d# 12 lshift or
-            r> or h# 8000 or code,
-            h# 4000 >r
+            over or code,
+            h# 4000 or                  \ what comes after one is added to it
         then
-        1+ swap d# 12 rshift swap
+        h# 1000 + swap d# 12 rshift swap    \ the twelve bits above
         over
     while
     repeat
-    2drop
-    r> if exit then
+    nip h# 4000 and if exit then
     h# 8000 code,               \ nothing emitted: push zero
 ;
 
@@ -1086,18 +1123,20 @@ header-imm literal
 : tliteral
     dup 0< if
         invert tliteral
-        inline: invert
-        exit
+        inline; invert                  \ and that is all: inline; does not come back
     then
+W64? [if]                               \ a cell of 32 bits or of 16 holds nothing wider: a shift
+                                        \ by 36 leaves nothing there, and this would never be run
     dup d# 36 rshift ?dup if \ wider than 36 bits: high part, shift, add the rest
         tliteral
         d# 36 tliteral
         inline: lshift
         d# 28 lshift d# 28 rshift
-        h# 4000 segs,
+        h# c000 segs,
         exit
     then
-    d# 0 segs,
+[then]
+    h# 8000 segs,
 ;
 
 \ Where the most recent created word's exit is.  The literal in front of it
@@ -1107,7 +1146,7 @@ create doesexit 0 ,
 \ Runs inside a defining word: the rest of that word becomes the behaviour
 \ of the word just created.  Its exit is replaced by a jump to the code after
 \ does>, and the defining word returns to its own caller.
-: exit, ( -- ) inline: exit ;            \ compile an exit
+: exit, ( -- ) inline; exit ;fallthru    \ compile an exit
 
 header does>
 : (does>)
@@ -1123,9 +1162,8 @@ header does>
             inline: >r
             exit,  exit
         then
-        h# fff and h# 1000 or           \ on the created word's page
     then
-    doesexit @ i!
+    near doesexit @ i!                  \ in the kernel, or on the created word's page
 ;
 
 \ May ; turn this call into a jump?  Not for words that take their own
@@ -1208,44 +1246,6 @@ header-imm repeat
     tagain tthen
 ;
 
-: isreturn ( opcode -- f ) \ ALU instruction with RET set
-    h# f000 and
-    h# 7000 =
-;
-
-: isliteral ( xt -- f) \ a literal followed by exit
-    dup i@ h# 8000 and 0<>
-    swap 1+ i@ h# 7403 = and
-;
-
-\ @ or ! straight after a literal that is the address of one of the 4,096
-\ cells from VARS: the machine has one instruction for the two together.
-\ The literal is one instruction, or a push and an add.  Nothing is joined
-\ across a place a branch lands on.
-: lval ( insn -- n ) dup h# fff and swap d# 12 rshift d# 3 and d# 12 * lshift ;
-
-\ Is it a literal of this kind: h# 8000 for a push, h# c000 for an add?
-: lit? ( insn kind -- f ) over h# c000 and =  swap h# 3000 and h# 3000 <>  and ;
-
-: var, ( insn -- )
-    >r
-    prev i@ dup h# 8000 lit? if
-        lval d# 1
-    else
-        dup h# c000 lit?  prev 1- i@ h# 8000 lit?  and if
-            lval prev 1- i@ lval + d# 2
-        else
-            drop r> code, exit
-        then
-    then                                        ( address instructions )
-    cp @ over - syncpt @ <
-    rot VARS - dup d# 4095 u> rot or if         ( instructions place )
-        2drop r> code, exit
-    then
-    swap negate cp +!
-    r> h# 6308 = if h# f000 else h# b000 then or code,
-;
-
 \ compile, goes through a vector: the build sets it to pcompile, in join.fs,
 \ which joins instructions as they are compiled and comes here for the rest.
 create 'compile 0 ,
@@ -1256,27 +1256,21 @@ create 'compile 0 ,
 \ the fourth where the count of each rule's uses is.
 header join-rules create join-rules 0 , 0 , 0 , 0 ,
 
+\ A call to a word, and nothing else.  Whatever can be compiled in place (a
+\ word that is one instruction, or a number, or a few instructions that
+\ leave the return stack alone) pcompile, compiles in place itself, and
+\ never brings here.  What it brings is the word that is still being made,
+\ and a word it has found is not small: so there is no case here for an
+\ instruction or for a number, since none would ever be handed one.  A
+\ word that is nothing but its exit is not small either, and is called.
 : (compile,) ( xt -- )
-    dup i@ isreturn if
-        i@ h# effc and      \ single-instruction word: inline it without RET r-1
-        dup h# 6800 = over h# 6308 = or if var, exit then
-        code, exit
-    then
-    dup isliteral if
-        i@ code, exit
-    then
-    dup i@ h# 8000 and 0<>  over 1+ isliteral  and if
-        dup i@ code,  1+ i@ code,       \ a literal of two instructions: an address
-        exit                            \ too far up for one, which @ or ! may join
-    then
     dup d# 12 rshift if
-        dup cp @ xor d# 12 rshift if    \ another page: go by xt
+        dup cp @ xor d# 12 rshift if    \ another page: its xt, and a call of execute
             tliteral
-            ['] execute h# 4000 or code, exit
+            ['] execute
         then
-        h# fff and h# 5000 or code, exit    \ this page
     then
-    h# 4000 or code,                    \ kernel: reachable from anywhere
+    near h# 4000 or code,               \ the kernel, or this page
 ;
 
 header compile,
@@ -1330,8 +1324,8 @@ header-imm do
     leaves @ d# 0 leaves !
     ['] (do) compile,
     tbegin
-    inline: >r
-;
+    inline; >r
+;fallthru
 
 \ Finish compiling DO..LOOP
 \ resolve each LEAVE by walking the chain starting at 'leaves'
@@ -1362,16 +1356,17 @@ header-imm loop
     resolveleaves
 ;
 
+\ The count goes up to nothing, or down past it.  Going up, the loop is
+\ finished when the count has gone round, so that what it was is more
+\ than what it is; going down it is the other way about, and what is
+\ added is never nothing there, so the one test serves both, turned over
+\ by which way it is going.
 : (+loopnext) ( inc R -- R finished )
-    over 0< if
-        dup>r +
-        r> over ( R old new )
-        u<
-    else
-        dup>r +
-        r> over ( R old new )
-        u>
-    then
+    over 0< >r
+    dup>r +
+    r> over ( R old new )
+    u>
+    r> xor
 ;
 
 header-imm +loop
@@ -1402,8 +1397,8 @@ header-imm ?do
         leaf,
     tthen
     tbegin
-    inline: >r
-;
+    inline; >r
+;fallthru
 
 header i
 : i
@@ -1460,20 +1455,19 @@ header io@      :noname     io@      ;
 header rshift   :noname     rshift   ;
 header lshift   :noname     lshift   ;
 header 1+       :noname     1+       ;
-header-imm >r   :noname     inline: >r ;
-header-imm r>   :noname     inline: r> ;
-header-imm r@   :noname     inline: r@ noop ;
+\ A word that moves the return stack cannot be called: it is immediate, and
+\ lays its one instruction down where it is written (inline;).
+header-imm >r   :noname     inline; >r ;fallthru
+header-imm r>   :noname     inline; r> ;fallthru
+header-imm r@   :noname     inline; r@ ;fallthru
 \ Words the image's fused instructions are made of, which the decompiler
 \ shows by their headers (fused.fs).
 header dup@     :noname     dup@     ;
 header over@    :noname     over@    ;
-header-imm rdrop  :noname   inline: rdrop ;
-header-imm @r     :noname   inline: @r noop ;
-header-imm swap>r :noname   inline: swap>r ;
-header-imm swapr> :noname   inline: swapr> ;
-
-: jumptable ( u -- ) \ add u to the return address
-    r> + >r ;
+header-imm rdrop  :noname   inline; rdrop ;fallthru
+header-imm @r     :noname   inline; @r ;fallthru
+header-imm swap>r :noname   inline; swap>r ;fallthru
+header-imm swapr> :noname   inline; swapr> ;fallthru
 
 \   (doubleAlso) ( c-addr u -- x 1 | x x 2 )
 \               If the string is legal, give a single or double cell number
@@ -1558,10 +1552,6 @@ header variable
     ((doubleAlso))
 ;
 
-: doubleAlso
-    (doubleAlso) drop
-;
-
 header-imm postpone
 :noname
     parse-name sfind
@@ -1573,26 +1563,19 @@ header-imm postpone
     compile,
 ;
 
-: doubleAlso,
-    (doubleAlso)
-    execute
-;
-
-: dispatch
-    jumptable ;fallthru
-    jmp execute                 \      -1      0       non-immediate
-    jmp doubleAlso              \      0       0       number
-    jmp execute                 \      1       0       immediate
-
-    jmp compile,                \      -1      2       non-immediate
-    jmp doubleAlso,             \      0       2       number
-    jmp execute                 \      1       2       immediate
-
+\ Two things are asked of a word of the source, each with an if: whether it
+\ is a word or a number, and whether compiling is what is being done.  (A
+\ table of jumps, one for each answer and gone into by what sfind says
+\ added to the state, does the same and is longer.)
 header interpret1
 : interpret1 ( c-addr u -- ) \ a word of the source: it is done, or compiled
-    sfind
-    state @ +
-    1+ dispatch             \ table index in words, one jmp each
+    sfind ?dup if                               \ a word: compiled, if that is what is being
+        0< state @ and if compile, exit then    \ done and it is not immediate; if not, done
+        execute exit
+    then
+    (doubleAlso)                                \ a number, and the word that compiles one:
+    state @ if execute exit then                \ which is done, if that is what is being done
+    drop
 ;
 
 : interpret
@@ -1623,29 +1606,33 @@ header catch
 : idle ;
 : (task) ( -- )
     begin
-        up @ c# 3 + @ catch
-        ?dup if [char] ? emit .  ['] idle up @ c# 3 + ! then
+        up @ c# 2 + @ catch
+        ?dup if [char] ? emit .  ['] idle up @ c# 2 + ! then
         pause
     again
 ;
 
 \ spawn starts a task.  It is given the word to run, the depths at which
-\ its parts of the two stacks start, and thirteen cells for its record.
-\ Its return stack is given one cell, the task loop, for its first turn to
-\ return to.  Its output goes where the output of the task that started
-\ it goes.  Nothing stops a task that runs past its part of a stack.
+\ its parts of the two stacks start, and eleven cells for its record.
+\ Its return stack is given what pause leaves on one: the task loop, for
+\ its first turn to return to, a loop offset of nothing, and the depth its
+\ data stack starts at.  Its output goes where the output of the task that
+\ started it goes.  Nothing stops a task that runs past its part of a
+\ stack.
 header spawn
 : spawn ( xt dbase rbase task -- )
     >r
-    IO-RSP io@ swap                 ( xt dbase mine rbase )
-    dup IO-RSP io!  ['] (task) >r   \ on its return stack, not this one
-    1+ swap IO-RSP io!              ( xt dbase rdepth )
-    r@ CELL2 + !
-    dup r@ CELL + !  r@ c# 4 + !
+    over swap                       ( xt dbase dbase rbase )
+    IO-RSP io@ swap                 ( xt dbase dbase mine rbase )
+    dup IO-RSP io!                  \ on its return stack, not this one,
+    ['] (task) >r  d# 0 >r  rot >r  \ what pause leaves   ( xt dbase mine rbase )
+    d# 3 + swap IO-RSP io!          ( xt dbase rdepth )
+    r@ CELL + !
     r@ c# 3 + !
-    d# 0 r@ c# 5 + d# 8 cells-fill          \ nothing in the rest of it, but for
-    d# 10 r@ c# 6 + !                       \ its base
-    'emit @ r@ c# 7 + !                     \ and where its output goes
+    r@ c# 2 + !
+    d# 0 r@ c# 4 + d# 7 cells-fill          \ nothing in the rest of it, but for
+    d# 10 r@ c# 5 + !                       \ its base
+    'emit @ r@ c# 6 + !                     \ and where its output goes
     up @ @ r@ !  r> up @ !          \ next after this one
 ;
 

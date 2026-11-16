@@ -55,6 +55,88 @@ static check CHECKS[] = {
     {"and one less than nothing",
      ": big 81985529216486895 ; : neg -81985529216486895 ; neg big +", 1, {0}, NULL, 64},
 
+    // The kernel's arithmetic of two cells is a step for every bit of a
+    // cell (nuc.fs): two cells added, with the carry from the low one; a
+    // cell by a cell into two; two cells divided by one, and one by one.
+    // -1 is a cell with every bit set, whatever the cell, so these go over
+    // the top of a cell on any machine, and divide by what has its top bit.
+    {"two cells added, with a carry and without",
+     "1 2 3 4 d+  -1 0 1 0 d+  -1 -1 1 0 d+  -1 5 -1 6 d+", 8, {4, 6, 0, 1, 0, 0, -2, 12}},
+    {"a cell by a cell", "3 5 um*  100 200 um*  0 -1 um*  -1 1 um*", 8, {15, 0, 20000, 0, 0, 0, -1, 0}},
+    {"a cell by a cell, into both cells",
+     "-1 -1 um*  -1 2 um*  2 -1 um*  -2 -1 um*", 8, {1, -2, -2, 1, -2, 1, 2, -3}},
+    {"two cells by one",
+     "7 0 3 um/mod  -1 1 2 um/mod  0 1 -1 um/mod  -1 -2 -1 um/mod", 8, {1, 2, 1, -1, 1, 1, -2, -1}},
+    {"a cell by a cell, divided",
+     "100 7 u/mod  12345 100 u/mod  -1 -1 u/mod  -2 -1 u/mod", 8, {2, 14, 45, 123, 0, 1, -2, 0}},
+    {"and a cell of every bit divided",
+     "-1 1 u/mod  -1 10 u/mod drop  -1 2 u/mod 2* 1+  0 5 u/mod", 7, {0, -1, 5, 1, -1, 0, 0}},
+    {"the largest and the least numbers printed", "32767 . -32768 . 0 .", 0, {0}, "32767 -32768 0  ok"},
+    // A loop that counts by more than one, up and down, and one that lands
+    // on its end.
+    {"+loop up, down, and onto its end",
+     ": lu 0 20 0 do i + 3 +loop ; : ld 0 0 20 do i + -3 +loop ; : le 0 10 0 do i + 5 +loop ; lu ld le",
+     3, {63, 77, 5}},
+    // A word that is nothing but its exit is called, as any word that is
+    // not compiled in place is: a call, the number and the exit.
+    {"a word that is nothing", ": nil ;  cp @ : t nil 5 ; cp @ swap -  t", 2, {3, 5}},
+    // What can be compiled in place is: a constant is its number and a
+    // word of one instruction is the instruction, each with the exit.
+    {"a constant is compiled in place", "7 constant seven  cp @ : t seven ; cp @ swap -  t", 2, {2, 7}},
+    {"and a word of one instruction", ": w1 dup ;  cp @ : t w1 ; cp @ swap -  5 t", 3, {2, 5, 5}},
+
+    // What the compiler's own words make: loops that are left, loops in
+    // loops, words that make words, postpone, an exit in the middle, and a
+    // word that calls itself last, which must not use the return stack up.
+    {"a loop left early, and one unlooped",
+     ": tl 0 10 0 do i 4 = if leave then 1+ loop ; : tu 10 0 do i 6 = if i unloop exit then loop 99 ; tl tu", 2, {4, 6}},
+    {"a loop in a loop, and one that does not turn",
+     ": tn 0 3 0 do 4 0 do j i + + loop loop ; : tq 0 swap 0 ?do i + loop ; tn  0 tq  5 tq", 3, {30, 0, 10}},
+    {"a word that makes words", ": mk create , does> @ 1+ ; 41 mk fortytwo  9 mk ten  fortytwo ten", 2, {42, 10}},
+    {"and one whose words do no more", ": mk create , does> ; 5 mk five  five @", 1, {5}},
+    {"postpone, of a word and of an immediate one",
+     ": p1 postpone dup ; immediate  : p2 5 p1 + ;\n"
+     ": p3 postpone if 7 postpone literal postpone then ; immediate  : p4 p3 ;  p2  1 p4", 2, {10, 7}},
+    {"an exit in the middle, and a word that calls itself last",
+     ": e1 dup 3 = if drop 33 exit then dup 4 = if drop 44 exit then drop 0 ;\n"
+     ": tr dup if 1- recurse exit then ;  3 e1 4 e1 9 e1  3000 tr", 4, {33, 44, 0, 0}},
+    {"the return stack's words", ": rs >r 1 r@ + r> + ; : rr 1 2 >r >r r> r> ; : rd 5 >r 7 rdrop ; 5 rs rr rd", 4, {11, 1, 2, 7}},
+    {"a word with no name", ":noname 5 ; execute  1 allot :noname 6 ; execute", 2, {5, 6}},
+    {"catch and throw", ": t1 5 throw ; : t2 1 2 3 9 throw ; : t3 ['] t2 catch ;  ' t1 catch  t3  7 ' dup catch",
+     5, {5, 9, 7, 7, 0}},
+    {"a throw out of a loop leaves the loop it comes back to as it was",
+     ": t4 10 0 do i 3 = if 7 throw then loop ; : t5 0 5 0 do ['] t4 catch + i + loop ; t5", 1, {45}},
+    {"finding a word, and whether it is immediate",
+     ": imm? parse-name sfind nip ;  imm? dup  imm? if  ' dup 0=  ' if 0=", 4, {-1, 1, 0, 0}},
+    {"a string interpreted",
+     "create src 51 c, 32 c, 52 c, 32 c, 43 c, align  src >c 5 evaluate  : ev src >c 5 evaluate 2* ; ev", 2, {7, 14}},
+
+    // Numbers as they may be typed, and what is typed taken back: a
+    // character, a tab that is a space, and a character of two bytes whole.
+    {"numbers said other ways", "$ff #10 %101 'a' -7 $-ff", 6, {255, 10, 5, 97, -7, -255}},
+    {"numbers of two cells", "5. -5. $ff.", 6, {5, 0, -5, -1, 255, 0}},
+    {"what is typed taken back", "12\b3  1\t2 +  123\x7f\x7f  9 9\xc3\xa9\b +", 4, {13, 3, 1, 18}},
+
+    // The kernel's words for cells, for two cells and for characters.
+    {"smaller, larger, without the sign and halved", "3 5 min 5 3 min -3 5 max -7 abs 7 2/ -8 2/ 5 negate",
+     7, {3, 3, 5, 7, 3, -4, -5}},
+    {"the halves of 32 bits", "305419896 hi16 305419896 lo16", 2, {4660, 22136}, NULL, 32},
+    {"three cells turned", "1 2 3 rot  1 2 3 -rot", 6, {2, 3, 1, 3, 1, 2}},
+    {"two pairs changed over, and one copied", "1 2 3 4 2swap", 4, {3, 4, 1, 2}},
+    {"a pair copied over a pair", "1 2 3 4 2over", 6, {1, 2, 3, 4, 1, 2}},
+    {"three pairs turned", "1 2 3 4 5 6 2rot", 6, {3, 4, 5, 6, 1, 2}},
+    {"two cells compared", "1 2 3 4 d<  3 4 1 2 d<  1 2 1 2 d=  -1 0 0 1 du<  5 0 d0=  0 0 d0=  5 -1 d0<",
+     7, {-1, 0, -1, -1, 0, -1, -1}},
+    {"two cells halved, made less than nothing and more", "-8 -1 d2/  5 0 dnegate  -5 -1 dabs  5 s>d",
+     8, {-4, -1, -5, -1, 5, 0, 5, 0}},
+    {"characters stored and fetched",
+     "create buf 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,  buf >c 16 65 fill  66 buf >c c!\n"
+     "buf >c c@  buf >c 5 + c@  buf >c count nip  4660 buf >c 2 + w!  buf >c 2 + uw@", 4, {66, 65, 66, 4660}},
+    {"characters moved, and moved over themselves",
+     "create buf 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,  66 buf >c c!  67 buf >c 1+ c!  68 buf >c 2 + c!\n"
+     "buf >c buf >c 8 + 3 cmove  buf >c 8 + c@  buf >c 10 + c@\n"
+     "buf >c buf >c 1+ 3 cmove>  buf >c c@  buf >c 1+ c@  buf >c 2 + c@  buf >c 3 + c@", 6, {66, 68, 66, 66, 67, 68}},
+
     // A variable is in the cells that one instruction fetches and stores,
     // and the compiler uses that instruction: `5 x ! x @` is a push, a
     // store, a fetch and the exit.
@@ -110,8 +192,10 @@ static check CHECKS[] = {
      "copy-state @  copy-end 1- @  copied?", 6, {77, 77, -1, 77, 77, -1}, NULL, 64},
 
     // Tasks: one that counts, and a loop that keeps its index across pauses.
+    // The record is the eleven cells a task's is, with what is counted
+    // straight after it: a spawn that went past its record would be seen.
     {"a task that counts, and a loop that pauses",
-     "create rec 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,\n"
+     "create rec 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,\n"
      "create n 0 ,\n"
      ":noname 1 n +! ; 128 128 rec spawn pause pause pause n @\n"
      ": lp 3 0 do i pause loop ; lp n @", 5, {3, 0, 1, 2, 6}},

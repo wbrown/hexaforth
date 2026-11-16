@@ -113,11 +113,29 @@ static int same_one_way(const uint16_t* a, int alen, const uint16_t* b, int blen
     return(same_in_pieces(a, alen, b, blen, branch));
 }
 
+// Is a number one that a run pushes?
+static int pushed_in(const uint16_t* run, int len, long number) {
+    for(int at=0; at < len; ) {
+        int end = at + 1;
+        if (pushes_number(run[at], 0)) {
+            while (end < len && pushes_number(run[end], 1)) end++;
+            long pushed = 0;
+            for(int idx=at; idx < end; idx++) pushed += number_in(run[idx]);
+            if (pushed == number) return(1);
+        }
+        at = end;
+    }
+    return(0);
+}
+
 // The numbers of a plain run that are places in the plain image: where
-// each is in the run, and the place it would be in the other image.
+// each is in the run, and the place it would be in the other image.  If
+// the other run is given, only those whose place there is a number that
+// run pushes: a number that is a place is that place there, and one that
+// only happens to be a place's number is itself there.
 typedef struct { int from, upto; long there; } spot;
 
-static int places_in(const uint16_t* run, int len, spot* out) {
+static int places_in(const uint16_t* run, int len, const uint16_t* other, int other_len, spot* out) {
     int n = 0;
     for(int at=0; at < len && n < NUMBERS; ) {
         int end = at + 1;
@@ -126,7 +144,8 @@ static int places_in(const uint16_t* run, int len, spot* out) {
             long pushed = 0;
             for(int idx=at; idx < end; idx++) pushed += number_in(run[idx]);
             long is = pushed ? item_at(&PLAIN, pushed) : -1;
-            if (is >= 0 && BUILT.items[is].at != pushed) {
+            if (is >= 0 && BUILT.items[is].at != pushed &&
+                (!other || pushed_in(other, other_len, BUILT.items[is].at))) {
                 out[n].from = at; out[n].upto = end; out[n].there = BUILT.items[is].at;
                 n++;
             }
@@ -151,14 +170,23 @@ static int with_places(const uint16_t* run, int len, const spot* places, int n, 
 }
 
 // Do two runs leave the same?  And was it found a piece at a time?
+//
+// A run of a great many numbers (one that sets a table of variables) has
+// more that happen to be a place's number than are tried every way, and
+// the one that is a place may come after them all.  So where the first
+// that are found are as many as are tried, the ones the other run has the
+// place of are tried too.
 static int runs_leave_the_same(const uint16_t* plain, int plen, const uint16_t* built, int blen, int branch, int* pieces) {
     if (same_one_way(plain, plen, built, blen, branch, pieces)) return(1);
     spot places[NUMBERS];
-    int n = places_in(plain, plen, places);
     static uint16_t tried[LONGEST * 2];
-    for(unsigned which=1; which < 1u << n; which++) {
-        int len = with_places(plain, plen, places, n, which, tried);
-        if (same_one_way(tried, len, built, blen, branch, pieces)) return(1);
+    for(int likely=0; likely < 2; likely++) {
+        int n = likely ? places_in(plain, plen, built, blen, places) : places_in(plain, plen, NULL, 0, places);
+        for(unsigned which=1; which < 1u << n; which++) {
+            int len = with_places(plain, plen, places, n, which, tried);
+            if (same_one_way(tried, len, built, blen, branch, pieces)) return(1);
+        }
+        if (n < NUMBERS) break;             // every one of them was tried
     }
     return(0);
 }

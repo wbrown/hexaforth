@@ -20,6 +20,10 @@ cd "$(dirname "$0")/.."
 OUT=$1
 [ -n "$OUT" ] || { echo "usage: util/both-builds.sh OUT"; exit 1; }
 mkdir -p $OUT
+if command -v brew > /dev/null 2>&1; then       # as build-machine.sh: where Homebrew's headers are
+    CPATH="$(brew --prefix)/include${CPATH:+:$CPATH}"
+    export CPATH
+fi
 set -- $(grep -v '^#' util/machines | head -1)
 C=$1 A=$2
 echo "$*" > $OUT/machine

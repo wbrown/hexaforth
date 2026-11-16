@@ -38,7 +38,7 @@
 
 create vw 0 ,           \ the viewer in hand: its record
 
-$19 constant VIEW-CELLS
+$17 constant VIEW-CELLS
 
 : bm     ( -- a ) vw @ ;                \ the bitmap, and the cells in a row of it: two cells
 : bmh    ( -- a ) vw @ CELL2 + ;        \ rows of the picture that are dithered,
@@ -51,7 +51,7 @@ $19 constant VIEW-CELLS
 : vkw    ( -- a ) vw @ c# 9 + ;         \ and the bitmap's width and height in pixels
 : vkh    ( -- a ) vw @ c# 10 + ;
 : vhalf  ( -- a ) vw @ c# 11 + ;        \ true if the picture is shown at half its size
-: vtask  ( -- a ) vw @ c# 12 + ;        \ its task: thirteen cells
+: vtask  ( -- a ) vw @ c# 12 + ;        \ its task: eleven cells
 
 create vparts 3 ,       \ the parts of the stacks that no task has: a bit each
 

@@ -85,6 +85,37 @@ create jn 0 ,           \ the instruction being compiled
 
 : join, ( insn -- ) jn !  begin join1 0= until  jn @ code, ;
 
+\ @ or ! straight after a literal that is the address of one of the 4,096
+\ cells from VARS: the machine has one instruction for the two together.
+\ The literal is one instruction, or a push and an add.  Nothing is joined
+\ across a place a branch lands on.
+\
+\ These three are here and not in the kernel because only this file calls
+\ them: the kernel's own (compile,) compiles a call and nothing else.
+: lval ( insn -- n ) dup h# fff and swap d# 12 rshift d# 3 and d# 12 * lshift ;
+
+\ Is it a literal of this kind: h# 8000 for a push, h# c000 for an add?
+: lit? ( insn kind -- f ) over h# c000 and =  swap h# 3000 and h# 3000 <>  and ;
+
+: var, ( insn -- )
+    >r
+    prev i@ dup h# 8000 lit? if
+        lval d# 1
+    else
+        dup h# c000 lit?  prev 1- i@ h# 8000 lit?  and if
+            lval prev 1- i@ lval + d# 2
+        else
+            drop r> code, exit
+        then
+    then                                        ( address instructions )
+    cp @ over - syncpt @ <
+    rot VARS - dup d# 4095 u> rot or if         ( instructions place )
+        2drop r> code, exit
+    then
+    swap negate cp +!
+    r> h# 6308 = if h# f000 else h# b000 then or code,
+;
+
 \ Numbers.  Most of what is typed has a number in it, and nothing is joined
 \ to a number by a rule.  But the nucleus is on the machine: what some
 \ instructions make of numbers it finds by running them, and compiles the
@@ -198,7 +229,7 @@ create jn 0 ,           \ the instruction being compiled
             jn @ h# 643c = if                       \ a number that + comes after is added;
                 cp @ number-at ?dup if
                     dup cp @ number@                ( s n )
-                    dup d# 36 rshift 0= if  swap cp !  h# 4000 segs,  exit  then
+                    dup d# 36 rshift 0= if  swap cp !  h# c000 segs,  exit  then
                     2drop
                 then
             then

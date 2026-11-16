@@ -112,7 +112,7 @@ create lcells #80 allot
 : line ( -- a ) lcells >c ;
 create llen 0 ,
 create lready 0 ,       \ true while a line is waiting or running
-create rtask  0 , 0 , 0 , 0 ,  0 , 0 , 0 , 0 ,  0 , 0 , 0 , 0 ,  0 ,
+create rtask  0 , 0 , 0 ,  0 , 0 , 0 , 0 ,  0 , 0 , 0 , 0 ,
 create rgoing 0 ,       \ true once the task has been started
 
 \ The prompt: ok, and a new line to type on.  The window opens with one.

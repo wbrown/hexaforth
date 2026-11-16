@@ -162,6 +162,13 @@ The shell is for what has no tool: building, running the suites,
 measuring, and git. When a suite is run, keep all of its output in a file
 and print a summary from that; do not cut or head the results.
 
+That is not leave to write a script for whatever else has no tool. What
+is written to look into something, to measure it or to compare two things
+is not a script, in the tree or out of it. If it is worth writing it is a
+function of the tree's C, which a test or a tool has in it
+(`util/words.c`, `util/cut.c`, `util/reach.c`, `test/nucleus.c`), and a
+test is CMake's to build and run.
+
 ## Writing Forth here
 
 - An address is the number of a cell, and `@` and `!` fetch and store one
@@ -207,6 +214,13 @@ and print a summary from that; do not cut or head the results.
   cell size; the VM says how long it is when it loads an image (`CODE=`).
   When it does not fit, look in it for what is written twice before moving
   a word out of it
+- The kernel is short before it is quick. `um*` takes a step for every
+  bit of a cell whatever the numbers are, `u/mod` has one way in for a
+  small dividend and no more, `c@` goes through `field@`, and a name is
+  made into text a code at a time. The comment at each says what the
+  quicker way is and what it is felt in. A program that multiplies,
+  divides or reads characters a great deal has a word of its own for it,
+  and what one costs is timed, not judged
 - A baseword of two instructions is in line wherever it is written. In
   the kernel one can be made `callable` instead: a call wherever the
   peephole does not join it to its neighbours. The top of `nuc.fs` says
@@ -250,15 +264,18 @@ and print a summary from that; do not cut or head the results.
 What is in the kernel, and what a change to it saves, is asked of the
 image and not of the source, on every size of machine: the peephole, and
 the small words compiled in place of calls to them, make a count from
-the source wrong. A tool that asks has `util/words.c` in it (an image's
-words, and how long each is) and `util/cut.c` (its calls, jumps and
-branches, and where each goes).
+the source wrong. What asks is functions of the tree's C, which a test or
+a tool has in it: `util/words.c` (an image's words, and how long each
+is), `util/cut.c` (its calls, jumps and branches, and where each goes)
+and `util/reach.c` (what reaches each word).
 
-- Before a word is made shorter, find what reaches it: the calls and
-  jumps to it from the kernel and from every other page, its place pushed
-  as a number, and the word before it running into it. A word with a
-  header that nothing reaches can still be typed: whether it stays is not
-  the count's to say
+- Before a word is made shorter, find what reaches it (`util/reach.c`):
+  the calls and jumps to it from the kernel and from every other page,
+  its place pushed as a number or kept in a cell of data, and the word
+  before it running into it. `kernel_test`, which the target `tests`
+  runs, fails if a word of the kernel that has no header has nothing that
+  comes to it, and with `typed` says which words that have one are there
+  only to be typed. Whether one of those stays is not the count's to say
 - A word that is reached only through another is handed only what that
   one lets through: `pcompile,` stands before the kernel's `(compile,)`,
   and compiles in place itself whatever is small. Put the first one's
@@ -271,24 +288,29 @@ branches, and where each goes).
 - A change is tried by itself, in a copy of the tree, and built for every
   size: what it saves is how much shorter the kernel is. Changes are built
   together before what they save is added up
-- The kernel as it was is what a changed one is compared with. The same
-  lines are typed at the prompt of each, and what each says is compared
-  (`test/nucleus.c` types at one). The lines run every word the change
-  touches: numbers at the ends of a cell as well as small ones, a name
-  that fills its cells exactly, a line that is an error. A change that is
-  to behave as before makes it say the same, but for the places of the
-  kernel's own words, which have moved
+- A change that is to behave as before is held to checks in the tree
+  (`test/prompt_test.c`): each is what is typed and what that is to leave.
+  A word that nothing in the tree types is given its checks before it is
+  changed, and the kernel as it was passes them: numbers at the ends of a
+  cell as well as small ones, a name that fills its cells exactly, what
+  is typed and taken back
 - What a change costs in time is asked of work that runs what it changes.
   Where the benchmarks do not run it, a file that does is typed the same
   way, with a mark round each piece (`rtl/tb.cpp`), at the kernel as it
   was and at the changed one
+- Why a word of the kernel is written as it is, where another way would
+  be the first thought of, is said in the comment at the word: what the
+  other way is, and what it would cost or save. Read it before writing the
+  word another way, and when a word is changed for its size, say it there.
+  The figures are in the commit that made the change
 
 ## Building
 
 The C is built with CMake (`CMakeLists.txt`): `hexaforth` (the reference
 VM), `hexaforth-debug` (with a trace of every instruction),
-`hexaforth_test`, `basewords-fs-gen`, `generate-test-cases`, and the
-target `tests`, which runs `hexaforth_test`.
+`hexaforth_test`, `kernel_test`, `basewords-fs-gen`,
+`generate-test-cases`, and the target `tests`, which runs `hexaforth_test`
+and then `kernel_test` on the image.
 
 An image is built by `gforth` from the Forth:
 
@@ -348,6 +370,9 @@ below, and prints a line for each.
 
 - `hexaforth_test`: each test of `test/tests.h` compiled by the C compiler
   and by `cross.fs` and the instructions compared, then run on the VM
+- `kernel_test`: nothing is in the kernel that nothing comes to
+  (`util/reach.c`). CMake builds it and the target `tests` runs it, for
+  the default machine
 - `sh test/sizes.sh [SEEDS]`: the machine with cells of 64, 32 and 16
   bits, each with a display and `STRICT`: the prompt, comments and a
   block read as source, the desktop, the drawing words, regions, the
@@ -410,7 +435,9 @@ The machine, in C:
   `survey.c` (the encoding against a profile, which has it too),
   `words.c` (an image's words, by header and by label, for the tools
   that read an image), `cut.c` (two builds of an image cut into the same
-  straight-line runs), `both-builds.sh` (the image with the peephole and
+  straight-line runs), `reach.c` (what reaches each word of an image:
+  calls and jumps, its place pushed or kept in a cell, the word before
+  running into it), `both-builds.sh` (the image with the peephole and
   without)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `nucleus.c` (the
@@ -422,8 +449,10 @@ The machine, in C:
   time, which the test and the benchmarks share); `source_test.c` and
   `source.fs` (comments, at the prompt and in a block of a disk that
   `mkdisk` made of that file); `prompt_test.c` (the nucleus at its
-  prompt: its compiler, variables, tasks and names, each a check that is
-  what is typed and what that is to leave); `region_test.c` (regions
+  prompt: its compiler, its arithmetic, variables, tasks and names, each
+  a check that is what is typed and what that is to leave);
+  `kernel_test.c` (the kernel's words and what comes to each: it has
+  `reach.c` in it); `region_test.c` (regions
   against their pixels: what is typed is done to a plane of pixels too,
   and every cell of every region compared with the one form of them);
   `display_test.c` (the drawing words: what is typed is drawn a pixel at
@@ -468,8 +497,11 @@ The toolchain and the nucleus, in Forth (`forth/`):
   compiler, the dictionary, tasks (`spawn`, `pause`). It includes
   `system.fs`, or with no display `join.fs` alone
 - `join.fs`: the nucleus's own peephole, for what is typed at the prompt
-  and for source read from blocks: the rules (`joins.fs`), and numbers,
-  which it works out by running the instruction (`folds.fs`)
+  and for source read from blocks: the rules (`joins.fs`), numbers, which
+  it works out by running the instruction (`folds.fs`), and the one
+  instruction that fetches or stores a variable (`var,`). Whatever can be
+  compiled in place it compiles in place, and the kernel's `(compile,)`
+  is left with a call
 
 The system (`forth/system.fs` includes it, and says where each code page
 starts):
