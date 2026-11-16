@@ -18,11 +18,9 @@ image. One definition, said once, and everything else made from it.
 
 - Do not write Python. Not a test, not a generator, not a tool, not a
   model of the machine. None is to be added to this repository
-- The Python that is here is to be removed, all of it: `util/*.py`,
-  `test/*.py`, `baremetal/*.py`. The generators go first. Until a file is
-  gone it is not somewhere to add to and not a pattern to follow, and what
-  this document says of those tools is of what is being taken out
-- What replaces it is not Python written in C. Read `test/main.c`,
+- There was Python here, generators and tests and tools, and all of it has
+  been taken out. None of it is to come back
+- What replaced it is not Python written in C. Read `test/main.c`,
   `test/compiler.c`, `test/vm_test.c` and `util/baseword_fs_gen.c` before
   writing any, and write as they are written. What is Forth's to do is
   done in Forth: `cross.fs` already compiles and joins the image
@@ -270,7 +268,9 @@ is), `util/cut.c` (its calls, jumps and branches, and where each goes),
 `util/reach.c` (what reaches each word) and `util/layout.c` (its pages of
 code, and what each source file has of them). The target `examine`
 prints what the last finds of the nucleus's image: how long the kernel
-is, what is on each page, and each file's words, code and tables.
+is, what is on each page, and each file's words, code and tables; and
+`examine-16`, `examine-32` and `examine-64` the same of each machine of
+`util/machines`.
 
 - Before a word is made shorter, find what reaches it (`util/reach.c`):
   the calls and jumps to it from the kernel and from every other page,
@@ -346,7 +346,7 @@ tested on the machine `vm_constants.h` gives each size of cell when
 nothing else is said (`build/default-32/`). None of that is built until
 a target wants it: `check`, which builds every test and runs them; the
 reports, `profile`, `subtracts`, `peephole`, `hits`, `phrases` and
-`tables`; `bench`
+`tables`, and `examine-16` and the like; `bench`
 and `gates`; `run`, `demo`, `demo-test`, `demo-time` and `size`, of the
 kernel that `KERNEL`, `STRICT`, `SCALE`, `MIPS` and `DISK` say
 (`cmake -DMIPS=5 build/cmake`); and `synth`.
@@ -612,7 +612,8 @@ The other two machines:
   shows the display on QEMU; `difftest_dump.c`, the cases they and the
   Verilog are run against, and `difftest.c`, which runs a kernel on them;
   `symbols.c` (where a kernel's own symbols are, for the tools that are
-  told); `size.c` (how big a kernel is); `qemu.c` (QEMU as a machine the
+  told); `size.c` (how big a kernel is, and each part of it from one label
+  to the next); `qemu.c` (QEMU as a machine the
   desktop's checks can be run on: told keys and the pointer, and its
   screen dumped), `guitest.c` (those checks run on it) and `desktime.c`
   (when the desktop is ready and its picture made, watched and not

@@ -25,7 +25,8 @@ which they reach the toolchain and the other implementations.
 
 Where this file says a thing is undefined, implementations may differ, and a
 program that does it is wrong. The strict builds stop at the first such
-thing: `-DSTRICT` for `vm.c`, `make STRICT=1` for the small AArch64 kernel.
+thing: `-DSTRICT` for `vm.c`, and for the small AArch64 kernel `STRICT` said
+to CMake (`cmake -DSTRICT=ON build/cmake`).
 
 ## Stacks
 
@@ -63,7 +64,7 @@ set the depth to that position, push or pop, and set the depth back.
 
 So a machine with 16-bit cells can have 65,536 of them, which is 128KB.
 
-Text is a convention of the Forth system, not of the machine. Characters
+Text is a convention of the Forth system. Characters
 are packed into cells from the low end. Words that deal with whole strings
 can work a cell at a time, as the dictionary search, the glyphs and the
 image viewer do; words that deal with characters fetch a cell and shift.
@@ -109,6 +110,9 @@ number wider than 36 bits is made with a shift.
 5. An execution token is kept in 16 bits, so code is the first 65,536
    instructions of memory. With 16-bit cells the top bit of that cell is
    the flag for an immediate word, so code is the first 32,768.
+6. The first 2,048 instructions of page 0 (`KROM_BYTES`, which is 4,096
+   bytes) are the kernel's code, and a machine may have them as a ROM. A
+   store there is undefined.
 
 A machine's layout is in whole pages, since code must start on a page
 boundary; data and the display may lie between pages of code. With 16-bit
@@ -120,7 +124,7 @@ with such cells, which has 65,536 of them, is:
 
 | Page | Cells | Use |
 |---|---|---|
-| 0 | `0x0000`-`0x0FFF` | kernel code |
+| 0 | `0x0000`-`0x0FFF` | kernel code in the first 2,048, which are its ROM, and system code after it |
 | 1 | `0x1000`-`0x1FFF` | system code |
 | 2 | `0x2000`-`0x2FFF` | data: the 4,096 cells from `VAR_BASE` |
 | 3 | `0x3000`-`0x3FFF` | dictionary headers |
@@ -145,7 +149,7 @@ a row; a smaller machine takes a size to suit, such as 384 by 288.  On the
 hosted machine pixel x of a row is bit x of its cell, so the leftmost pixel
 is the lowest bit, and a set bit is black, so memory that is all zero is a
 blank page.  A machine built around an existing display takes that
-display's order and polarity instead of converting on the way out.
+display's order and polarity.
 
 A row starts on a cell and is `DISP_STRIDE` cells long.  Rows are dealt in
 turn into `DISP_BANKS` banks, so row y is in bank y mod `DISP_BANKS`, and is
@@ -159,7 +163,7 @@ A Hercules card has four banks: with 16-bit cells its rows are 45 cells and
 its banks are 4,096 cells apart.
 
 The Forth system does not assume an order, a polarity or a row layout.  The
-toolchain takes them from the machine definition: the font is generated
+toolchain takes them from the machine definition: the font is laid down
 with its pixels in the machine's order, and three words are defined to
 suit, on which all drawing is built: the address of a row, the mask for a
 pixel, and setting or clearing ink.  No drawing code steps from one row to
