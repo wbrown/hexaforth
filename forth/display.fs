@@ -1023,7 +1023,7 @@ create m1x 0 ,          \ the cell it ends in,
 create m1 0 ,           \ and its
 create gn 0 ,           \ how many glyphs will be seen
 create gw 0 ,           \ how wide the one in hand is
-create trn 0 ,          \ how many rows of the glyph in hand are drawn
+create rend 0 ,         \ where the rows of the glyph in hand that are drawn end
 create ttrim 0 ,        \ true if the clip rectangle was trimmed to the region's one run
 create tcx0 0 ,         \ and what its sides were
 create tcx1 0 ,
@@ -1178,8 +1178,8 @@ INK-BLACK? [if] [else]
 
 INK-BLACK? [if] BANKED? [if] [else]
 
-: or-plain ( rows dst -- ) \ trn rows of a glyph, hi pixels along, all of them drawn
-    >r trn @ bounds                                 ( end rows ) ( R: dst )
+: or-plain ( rows dst -- ) \ the rows of a glyph up to rend, hi pixels along, all of them drawn
+    >r rend @ swap                                  ( end rows ) ( R: dst )
     begin
         2dupxor
     while
@@ -1191,7 +1191,7 @@ INK-BLACK? [if] BANKED? [if] [else]
 ;
 
 : or-right ( rows dst -- ) \ the same, of which only the pixels of tcm are drawn
-    >r trn @ bounds
+    >r rend @ swap
     begin
         2dupxor
     while
@@ -1203,7 +1203,7 @@ INK-BLACK? [if] BANKED? [if] [else]
 ;
 
 : or-left ( rows dst -- ) \ the part of a glyph that runs over into the next cell
-    >r trn @ bounds
+    >r rend @ swap
     begin
         2dupxor
     while
@@ -1215,11 +1215,14 @@ INK-BLACK? [if] BANKED? [if] [else]
 ;
 
 : glyph-or ( glyph -- ) \ the rows of a glyph that have black in them and are drawn, at pen
+    \ The rows are from a first to a last, and the loops that draw them go
+    \ from one place to another: so how many there are is never worked
+    \ out, which would be a subtraction here and an addition in each loop.
     dup CELL2 + @ r0 @ max                          ( glyph first )
-    over c# 3 + @ r1 @ min  over -                  ( glyph first rows )
-    dup 0> 0= if drop 2drop exit then
-    trn !
-    swap @ over +  swap                             ( rows first )
+    over c# 3 + @ r1 @ min                          ( glyph first last )
+    2dup< 0= if drop 2drop exit then                \ none of them is drawn
+    rot @ tuck + rend !                             ( first where-its-rows-are )
+    over +  swap                                    ( rows first )
     pen @ PXMASK invert and cx !  pen @ PXMASK and hi !
     ty @ + row  pen @ PXSHIFT rshift +              ( rows dst )
     colmask
