@@ -134,11 +134,6 @@ static check CHECKS[] = {
 
 static int checks, compared, failed;
 
-// A number as a cell of this machine holds it, which is how left() gives one.
-static uint64_t as_cell(int64_t x) {
-    return(CELL_BITS == 64 ? (uint64_t)x : (uint64_t)x & ((1ull << CELL_BITS) - 1));
-}
-
 static void run(const check* test) {
     start();
     line("%d constant var-base", (int)VAR_BASE);

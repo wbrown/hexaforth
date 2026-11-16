@@ -15,11 +15,11 @@ char said[1 << 16];
 static uint8_t* nucleus;        // the image, as cross.fs wrote it,
 static size_t nucleus_len;      // and how many bytes it is
 static int stop_at;             // an instruction that is nothing: the machine stops at one
+static int prompt_at;           // where the machine is at its prompt: quit, as the machine says
 static char typed[1 << 12];     // what is typed at it,
 static size_t typed_len;        // and how much that is
 
-// A cell as a number that is not negative.
-static uint64_t ucell(int64_t x) {
+uint64_t as_cell(int64_t x) {
 #if CELL_BITS == 64
     return((uint64_t)x);
 #else
@@ -45,6 +45,14 @@ void nucleus_is(const char* path) {
         exit(EXIT_FAILURE);
     }
     stop_at = nothing_at();
+    start();
+    line("' quit");
+    type();
+    if (machine.SP != 1) {
+        fprintf(stderr, "%s did not say where its prompt is.  It said:\n%s\n", path, said);
+        exit(EXIT_FAILURE);
+    }
+    prompt_at = (int)left(0);
 }
 
 void start(void) {
@@ -67,6 +75,7 @@ void line(const char* format, ...) {
 }
 
 // What is then on the machine's data stack is what the lines left there.
+// The lines have been typed: what is said next is typed after.
 void type(void) {
     line("%d execute", stop_at);
     memset(said, 0, sizeof(said));
@@ -75,10 +84,16 @@ void type(void) {
     vm(&machine);
     fclose(machine.IN);
     fclose(machine.OUT);
+    typed_len = 0;
+}
+
+void type_more(void) {
+    machine.EIP = prompt_at;
+    type();
 }
 
 uint64_t left(int n) {
-    return(ucell(machine.DSTACK[machine.SP - 1 - n]));
+    return(as_cell(machine.DSTACK[machine.SP - 1 - n]));
 }
 
 bool in_memory(uint64_t addr, uint64_t cells) {

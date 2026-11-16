@@ -364,15 +364,19 @@ The machine, in C:
   without)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `nucleus.c` (the
-  nucleus on `vm.c`, typed at its prompt, and what that left on its stack
-  and in its memory: a test that does that is built with it);
+  nucleus on `vm.c`, typed at its prompt, once or again as it was left,
+  and what that left on its stack and in its memory: a test that does
+  that is built with it);
   `dither_test.c` (the dither against a dither a pixel at a time, read
   out of the machine's memory); `dither.c` (that dither a pixel at a
   time, which the test and the benchmarks share); `source_test.c` and
   `source.fs` (comments, at the prompt and in a block of a disk that
   `mkdisk` made of that file); `prompt_test.c` (the nucleus at its
   prompt: its compiler, variables, tasks and names, each a check that is
-  what is typed and what that is to leave); `builds_test.c` (the two
+  what is typed and what that is to leave); `region_test.c` (regions
+  against their pixels: what is typed is done to a plane of pixels too,
+  and every cell of every region compared with the one form of them);
+  `builds_test.c` (the two
   builds, run for run: it has `fuse.c` in it, and asks the machine)
 - `bench/`: `bench.sh` (the benchmarks, and what each is); `draw.fs` and
   `dither.fs` (the work, as it is typed); `disk.c`, `check.c` and `tiff.c`

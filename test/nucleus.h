@@ -32,8 +32,17 @@ void line(const char* format, ...);
 // is where the last line sends it.
 void type(void);
 
+// Type the lines at the machine as it was left when it was last typed at.
+// It is at its prompt again, as it is after anything that throws: its
+// stacks are empty, and its memory and its dictionary are as they were.
+void type_more(void);
+
 // The nth cell down from the top of what was left on the data stack.
 uint64_t left(int n);
+
+// A number as a cell of this machine holds it, which is how left() and
+// fetch() give one.
+uint64_t as_cell(int64_t x);
 
 // Whether cells from an address are all in the machine's memory, where a
 // cell is, and what is in it.
