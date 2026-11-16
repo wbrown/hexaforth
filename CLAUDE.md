@@ -186,6 +186,11 @@ and print a summary from that; do not cut or head the results.
 - A word that another file uses has a header (`header name : name`), so
   that it can be typed at the prompt. A word used only in its own file has
   none, and `cross.fs` keeps its name as a label
+- A small word is compiled in place of a call to it only where what is
+  left is no longer than the call. Where a place is run so often that the
+  call and its return cost, `in-place` before the call keeps the word
+  there (`in-place -`). It is said after measuring how often the place is
+  run and what the work costs with it and without, and not before
 - A name has one case, on the machine and in `cross.fs`: `LINE` and
   `line` are one name. A macro (`::`) and a word are looked up in the
   same place, so a word that took a macro's name would take it from every

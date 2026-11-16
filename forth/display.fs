@@ -320,7 +320,7 @@ header rgn-clip! : rgn-clip! ( rgn|0 -- ) clip-rgn !  reclip ;
         exit
     then
     ?dup if                                         \ the cell it starts part of the way into
-        tuck PXCELL - +                             ( b n ) \ what is left after that cell
+        tuck PXCELL in-place - +                    ( b n ) \ what is left after that cell
         swap d# -1 swap PIXR
         r> swap r@ under! 1+ >r
     then
@@ -719,7 +719,7 @@ header copy-end create copy-end
         exit
     then
     ?dup if
-        tuck PXCELL - +
+        tuck PXCELL in-place - +
         swap d# -1 swap PIXR
         r> swap r@ move! 1+ >r
     then
@@ -747,7 +747,7 @@ header copy-end create copy-end
     2swap
     ssx @ bdx @ - +  PXSHIFT rshift
     swap ssy @ + src-row +                          ( b a from )
-    over -  swap  r> -rot                           ( b n dist a )
+    over in-place -  swap  r> -rot                  ( b n dist a )
     move-row
 ;
 
@@ -927,7 +927,7 @@ create kg 0 ,           \ its cells in what is opened out
 \ What is asked of the font is asked of the port's font each time, and
 \ nothing is kept of it between.
 : glyph ( c -- a ) \ a character's four cells: its rows, its width, and the rows with black in
-    font @ CELL + @ -
+    font @ CELL + @ in-place -
     dup font @ CELL2 + @ u< 0= if drop d# 0 then
     d# 2 lshift font @ c# 4 + @ +
 ;
@@ -1283,13 +1283,13 @@ BANKED? [if] [else]
     while
         dup @  dup CELL + @ gw !  @                 ( the glyph's rows )
         styled @ if srows then
-        r0 @ + tband - gd !
+        r0 @ + tband in-place - gd !
         +rows
         hi @ gw @ +
         dup PXCELL < if
             hi !
         else
-            PXCELL -                                ( pixels over )
+            PXCELL in-place -                       ( pixels over )
             tflush
             ?dup if dup hi !  gw @ swap - >rows then
         then

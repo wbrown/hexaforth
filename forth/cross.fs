@@ -96,8 +96,17 @@ s" PEEPHOLE" getenv s" off" compare 0= [if] false peephole !  true plain ! [then
 \ a branch lands on.  A push of a number is not what comes next but part
 \ of it (`- 100 +`), so the word waits past up to three of those, and they
 \ are compiled again after the call if it comes to that.  A word of one instruction or none stays whatever
-\ happens, being no longer than the call.  In the kernel, which has to fit
-\ its ROM, a word stays only if what is left is no longer than the call.
+\ happens, being no longer than the call.  Any other stays only if what
+\ is left of it, and of the pushes it waited past, is no longer than the
+\ call and they would be; where the word being compiled ends, the call
+\ would be a jump and the exit gone, and it is that it must not be longer
+\ than.
+\
+\ That is what is smallest, and a call and its return are not free: where
+\ a place is run so often that they cost, `in-place` before the call says
+\ that the word is compiled there whatever is joined.  Measure before
+\ saying it: how often the place is run, and what the work costs with it
+\ and without.
 \
 \ Every call compiled has a number, and inl-map says which were compiled
 \ in place.  A build with the peephole off cannot tell, so it reads the
@@ -117,6 +126,8 @@ variable pend-xn    0 pend-xn !                 \ pushes compiled since
 create pend-x 3 cells allot
 variable 'ptcode                                \ compiles an instruction, by way of the peephole
 variable cur        false cur !                 \ true while a small word is being compiled in place
+variable stays      false stays !               \ true from `in-place` to the call it is said of
+variable ending     false ending !              \ true while the exit that ends a word is compiled
 variable cur-tcp0
 create cur-save 12 cells allot
 defer call,     ( body -- )                     \ compile a call to a word
@@ -342,8 +353,8 @@ ptcode, 'ptcode !
     then
     false pend !
     dup ptcode, execute
-    unchanged?                                  \ nothing joined it,
-    kernel? if tcp @ pend-tcp0 @ - 4 > or then  \ or what is left is longer than a call and it
+    unchanged?                                  \ nothing joined it, or what is left is longer
+    tcp @ pend-tcp0 @ -  pend-xn @ 2*  ending @ if 2 else 4 then +  >  or   \ than the call, the pushes and it
     if
         (backout)
         cur @ if tcp @ cur-tcp0 !  tcp @ cur-save snap then
@@ -1073,16 +1084,14 @@ variable in-depth
     >r
     dup 2 cells + @ 1-                          ( body m )
     dup 2 <  over 0= kernel? 0= or  and if      \ no longer than the call (in the kernel a call
-        drop inline,  1 inl-map r> + c!  exit   \ before an exit is a jump, which is shorter)
+        drop inline,  1 inl-map r> + c!         \ before an exit is a jump, which is shorter)
+        false stays !  exit
     then
     tcp @ cur-tcp0 !  tcp @ cur-save snap  true cur !
     over inline,
     false cur !
-    kernel? if
-        drop  tcp @ cur-tcp0 @ - 2 > 0=         \ one instruction is left, or none
-    else
-        cur-tcp0 @ 2/ +  tcp @ 2/ >             \ something was joined
-    then
+    drop  tcp @ cur-tcp0 @ - 2 > 0=             \ one instruction is left, or none: no more than the call
+    stays @ or  false stays !                   \ or it was said to stay
     if
         drop  1 inl-map r> + c!
     else
@@ -1117,10 +1126,17 @@ variable in-depth
     true indef !
     does>   call# @  1 call# +!                 ( body ord )
             plain @ if
+                false stays !
                 inl-map + c@ if plain-inline, else call, then
                 exit
             then
-            over 2 cells + @  peephole @ and if try-inline else drop call, then
+            over 2 cells + @  peephole @ and if try-inline exit then
+            stays @ abort" in-place is said of a word that is not small"
+            drop call,
+;
+
+:: in-place ( -- ) \ the call that comes next is compiled in place whatever is joined
+    true stays !
 ;
 
 :noname ( body -- )
@@ -1484,8 +1500,9 @@ variable ntf#  0 ntf# !
     \ A small word tried in place at the end: the exit settles it.  If the
     \ exit was joined to it that is the end; if not, the word is called
     \ after all, and the call may be made a jump as any other is.
+    stays @ abort" in-place with no call after it"
     pend @ if
-        h# 7403 tcode,
+        true ending !  h# 7403 tcode,  false ending !
         tcp @ 2 - t@ h# 7403 = if 1 retract end-word then
     else
         end-word
