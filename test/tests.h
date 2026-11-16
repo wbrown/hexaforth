@@ -244,6 +244,19 @@ static hexaforth_test TESTS[] = {
               "16 r@ +! r@ @ ",
      .dstack = "12 28",
      .rstack = "0"},
+    // The fetch and the add are one instruction.  So a cell that holds
+    // what is to be taken away, negated, is a subtraction in one; and a
+    // number that is negative, added to a cell, takes it away there.
+    {.label = "@+ ( n addr -- n+[addr] )",
+     .init = "8 -5",
+     .input = "4 0 @+ "
+              "12 1 @+ "
+              "-12 1 @+ ",
+     .dstack = "12 7 -17"},
+    {.label = "+! ( n addr -- ), taking away",
+     .init = "8",
+     .input = "-5 0 +! 0 @",
+     .dstack = "3"},
     {.label = "or! ( bits addr -- )",
      .init = "9",
      .input = "0 >r "

@@ -705,9 +705,10 @@ set(PROFILE_FILES "" CACHE STRING "the source files whose variables the profile 
 stepping_tool(costs ${FIRST} bench/costs.c util/image.c)
 stepping_tool(survey ${FIRST} util/survey.c util/image.c)
 stepping_tool(shorter ${FIRST} bench/shorter.c util/image.c)
+set(PROFILED profile-${FIRST} ${NUC} ${TABLES} ${SIZES} ${OF}/disk.img ${PICTURE} forth)    # and where it leaves the work
 add_custom_target(profile
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${PROFILE}
-        COMMAND           profile-${FIRST} ${NUC} ${TABLES} ${SIZES} ${OF}/disk.img ${PICTURE} forth ${PROFILE}
+        COMMAND           ${PROFILED} ${PROFILE}
                             > ${PROFILE}/profile.txt 2> ${PROFILE}/profile.log
         COMMAND           ${CMAKE_COMMAND} -E cat ${PROFILE}/profile.txt
         COMMAND           costs-${FIRST} ${NUC} ${TABLES} ${SIZES} ${PROFILE}/desktop.counts ${PROFILE} ${PROFILE_FILES}
@@ -719,6 +720,32 @@ add_custom_target(profile
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The desktop's work, by place (${PROFILE}/profile.log says what went wrong, if anything did)")
 add_dependencies(profile machine-${FIRST})
+
+# `subtracts`: where the desktop's work takes one number from another, how
+# often, and what is taken away (bench/uses.c, which says how it finds a
+# word that was compiled in place of a call to it).  The machine has no
+# instruction that subtracts: `-` is negate and +, three instructions, and
+# 1- is two and a +.  But a fetch and an add are one instruction, and so
+# are R and an add: what is taken away costs one where its negation is
+# kept in a cell or on the return stack.  This says which of the work's
+# subtractions are of something that could be.  The work is counted once
+# for an image and kept (build/uses/), and the report is
+# build/uses/subtracts.txt.
+set(USES ${BUILD}/uses)
+stepping_tool(uses ${FIRST} bench/uses.c util/image.c)
+add_custom_command(
+        OUTPUT            ${USES}/desktop.counts
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${USES}
+        COMMAND           ${PROFILED} ${USES} > ${USES}/profile.txt 2> ${USES}/profile.log
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT           "The desktop's work, counted (${USES}/profile.log says what went wrong, if anything did)"
+        DEPENDS           profile-${FIRST} machine-${FIRST} ${NUC} ${OF}/disk.img)
+add_custom_target(subtracts
+        COMMAND           uses-${FIRST} ${OF}/plain/nuc.hex ${OF}/plain/nuc.tables ${NUC} ${TABLES} ${USES}/desktop.counts
+                            - 1- negate > ${USES}/subtracts.txt
+        COMMAND           ${CMAKE_COMMAND} -E cat ${USES}/subtracts.txt
+        DEPENDS           ${USES}/desktop.counts)
+add_dependencies(subtracts machine-${FIRST} plain-${FIRST})
 
 # `peephole`: what the nucleus's compiler is worth (forth/join.fs).  The
 # nucleus compiles what is typed and what is read from blocks, and cross.fs

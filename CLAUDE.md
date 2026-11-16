@@ -345,7 +345,8 @@ are made in `build/kernel/`; the Verilog is made in `build/rtl/`, and
 tested on the machine `vm_constants.h` gives each size of cell when
 nothing else is said (`build/default-32/`). None of that is built until
 a target wants it: `check`, which builds every test and runs them; the
-reports, `profile`, `peephole`, `hits`, `phrases` and `tables`; `bench`
+reports, `profile`, `subtracts`, `peephole`, `hits`, `phrases` and
+`tables`; `bench`
 and `gates`; `run`, `demo`, `demo-test`, `demo-time` and `size`, of the
 kernel that `KERNEL`, `STRICT`, `SCALE`, `MIPS` and `DISK` say
 (`cmake -DMIPS=5 build/cmake`); and `synth`.
@@ -559,8 +560,10 @@ The machine, in C:
   that file), `costs.c` (what the
   work costs: each word with all it calls, the loops, the variables),
   `shorter.c` (the loops that ran, and fewer instructions that do a turn
-  of each) and `cycles.h` (the cycles the Verilog takes for an
-  instruction)
+  of each), `uses.c` (where the work uses a small word, called or
+  compiled in place, how often, and what it is given: the target
+  `subtracts` asks it of `-`, `1-` and `negate`) and `cycles.h` (the
+  cycles the Verilog takes for an instruction)
 
 The toolchain and the nucleus, in Forth (`forth/`):
 
