@@ -1,122 +1,160 @@
 # hexaforth
 
-Work-in-progress experiments in unencoded instructions for performant stack machines; incomplete.
+A stack machine whose instructions are not encoded, a Forth operating system
+with windows, a pointer and menus that runs on it, and the Verilog to build
+it from.
 
-# Why?
+The CPU with cells of 16 bits is fewer gates than a Z80.  At 1.2 MHz it runs
+about a million instructions a second, and at that speed the desktop is
+pleasant to use.
 
-Traditionally, many p-code VMs are implemented as bytecode. I wanted to investigate how encoded instructions such as implemented by [Novix NC4016](https://users.ece.cmu.edu/~koopman/stack_computers/sec4_4.html) or the [J1 Forth CPU](https://excamera.com/files/j1.pdf) used perform on modern architectures with a VM.
+## What it is here to show
 
-# What?
+- **How much a small machine can do.**  What about 7,500 gates give, at the
+  clock a machine of 1979 could have had
+- **What could have been.**  The desktops of the 1980s that ran at one to
+  five megahertz were admired and were slow.  This is one that is not, on a
+  machine that could have been built before any of them
+- **A Forth operating system with a desktop.**  Overlapping windows, regions,
+  a menu, a pointer, proportional text, and programs: the Forth prompt in a
+  window, a block editor, a picture viewer that reads a TIFF and dithers it,
+  a calculator, a paint program, a decompiler
+- **The instruction set.**  An instruction is a control word: where the ALU's
+  input comes from, the operation, where the result goes, how each stack
+  moves.  There are no opcodes
+- **How little code it takes.**  The kernel is a 4KB ROM with room left.
+  The paint program is a little over 2KB
 
-The instruction encoding draws heavily from the J1b Forth CPU described at [swapforth/j1b/basewords.fs](https://github.com/jamesbowman/swapforth/blob/master/j1b/basewords.fs).  There are some notable differences, as I wanted to implement a 64-bit VM rather than a 16-bit VM, specifically how literals are handled.
+It is meant to be built: as TTL, on an FPGA, or as a tile of silicon.
 
-## Literal Handling
+## The machine
 
-```c
-        struct {
-            bool  lit_f: 1;
-            bool  lit_add: 1;       // add
-            BYTE  lit_shifts: 2;    // 0-3 shifts
-            WORD  lit_v: 12;
-        } lit;
-```
+Two stacks, a memory of cells, and ports for devices.  A cell is 16, 32 or 64
+bits and an instruction is always 16.  `MODEL.md` says exactly what the
+machine is.
 
-If the first bit of the instruciton is on, it's a literal.  The literal is a 12-bit unsigned number, in `lit_v`.  Of particular interest is the `lit_shifts` field, which tells the VM to shift the `lit_v` number left by `lit_shifts * 12` bits.  This allows us to express 48 bits of magnitude in a 12-bit literal instruction.
+An instruction of the ALU is seven fields, and every setting of them is an
+instruction the machine carries out:
 
-The `lit_add` flag determines if the literal should be added to `T`, the top element of the stack, and has the following characteristics:
-* `true` -- add shifted `lit_v` value to `T`, and do *not* advance the `SP`; we are working with the existing value in place.
-* `false` -- advance the `SP` and set the new `T` to the shifted `lit_v` value.
+    15   14 13   12    11 10    9 8      7 6 5 4    3 2      1 0
+     0    1  1   ret   input    output   operation  d-stack  r-stack
 
-An astute reader might have noted that the stack is 64-bit signed, but that our literals are unsigned.  This is taken care of by the literal encoder, inserting an instruction to invert the number on the stack.
+- **input**: the top of the stack, the cell under it, the cell of memory the
+  top points at, or the top of the return stack
+- **operation**: one of sixteen.  Pass the input through, two that also
+  write the cell under the top, add, and, or, xor, multiply, complement,
+  three comparisons, two shifts, fetch, and read a port
+- **output**: the top of the stack, the top of the return stack, the cell of
+  memory the top points at, or a port
+- **the stacks**: each moves up one, down one or two, or stays
+- **ret**: return as well
 
-A bonus characteristic of this literal implementation is that the literal instruction can be used as an in-line increment instruction for numbers up to `4096`, without having to push the value onto the stack, doing in one VM cycle what would normally take three.
+So fetching is a choice of input and storing is a choice of output, and an
+operation can be done on memory where it lies.  `+!` is one instruction:
+memory in, add, memory out.  So is OR-ing a mask into a cell of the display,
+which is what drawing a glyph is made of.  There is no subtract and no
+decrement: a complement and an add do it, and the value complemented can come
+from any of the four inputs.
 
-Some examples of the literal encoding, such as for `-20`.  As it is less than `4096`, we encode it as a single literal, and then we negate it with the following `invert` opcode call.
+The other instructions are a jump, a conditional jump, a call, and a literal
+of twelve bits that is pushed or added to the top of the stack, or that
+fetches or stores one of 4,096 variables.
 
-```
-COMPILE_LITERAL: -20
-HERE[0]: 0x0141 => lit: {lit_f=1, lit_add=0, shifts=0, lit.lit_v=20 => 20}
-HERE[1]: 0x0036 => alu: {alu_op: 3, op: ~T, DSTACK: 0 RSTACK: 0, N->[T]: 0} => invert
-```
+A word of Forth is a name for one of these instructions or for a run of
+them.  The compiler joins a run into one instruction wherever one does the
+same work, and it finds that out by asking the machine.
 
-An example of how we leverage the `lit_add` field is the number `-24923`.  It's turned into an *unsigned* `24923`, the rightmost 12-bits are encoded as `347`, and then the next 12-bits are encoded as `24576` with the `lit_add` flag set to `1`.  Then we `invert`.
+## What it comes to
 
-```
-COMPILE_LITERAL: -24923
-HERE[11]: 0x15b1 => lit: {lit_f=1, lit_add=0, shifts=0, lit.lit_v=347 => 347}
-HERE[12]: 0x0067 => lit: {lit_f=1, lit_add=1, shifts=1, lit.lit_v=6 => 24576}
-HERE[13]: 0x0036 => alu: {alu_op: 3, op: ~T, DSTACK: 0 RSTACK: 0, N->[T]: 0} => invert
-```
+These are what the tree's own targets print, and each is named so that it can
+be asked again.  They are of the tree as it was when this was written.
 
-The literal compiler is smart enough not to bother encoding 12-bit segments that are `0`, skipping over them such as for `32768`.  This makes the literal encoding perfect for memory offset calculations up to 48-bits.
+| | | target |
+|---|---|---|
+| The CPU, cells of 16 bits | 7,458 gates | `gates` |
+| The same without its multiplier | 6,449 gates | `gates` |
+| A Z80 (tv80), counted the same way | 9,443 gates | `gates` |
+| A 68000 (fx68k), counted the same way | 22,948 gates | `gates` |
+| The CPU, cells of 32 and of 64 bits | 15,650 and 39,964 gates | `gates` |
+| Clocks to an instruction, drawing | 1.06 to 1.36 | `bench-draw` |
+| The kernel's code, in a ROM of 4,096 bytes | 3,332 bytes at 16 bits, 3,382 at 64 | `examine` |
+| The whole system: kernel, desktop, programs | 844 words, 27,372 bytes of code | `examine` |
+| The window manager | 2,350 bytes | `examine` |
+| All drawing: fills, copying, text | 4,896 bytes | `examine` |
+| The paint program | 2,334 bytes | `examine` |
 
-```
-COMPILE_LITERAL: 32768
-HERE[14]: Skipping LIT instruction as lit_v == 0, shift=0
-HERE[14]: 0x0085 => lit: {lit_f=1, lit_add=0, shifts=1, lit.lit_v=8 => 32768}
-```
+A gate is a NAND, a NOT or a flip-flop as Yosys counts them, with memories
+left out, and the Z80 and the 68000 are other people's Verilog put through
+the same count.  The clocks are of the Verilog CPU with cells of 16 bits and
+memory that answers in one cycle.  The system's sizes are of the image with
+cells of 64 bits.
 
-## ALU Instructions
+## What is in the kernel
 
-ALU instrucitons are roughly divided into two sections.  When `op_type` is `OP_TYPE_ALU`, we use `alu_op` for the actual operation and `mem_op` for 'what to do with the result of the ALU op'.  We also have fields for whether we should adjust the data stack or return stack, and whether we should write to memory.
+The kernel is page 0: the part that would be in ROM, and all that is needed
+to type Forth at the machine and have it compiled.
 
-```c
-        struct {
-            bool    lit_f: 1;
-            BYTE    op_type: 2;
-            BYTE    alu_op: 4;
-            BYTE    mem_op: 3;
-            bool    __unused: 1;
-            BYTE    dstack: 2;
-            BYTE    rstack: 2;
-            bool    ram_write: 1;
-        } alu;
-```
+- **The stack and arithmetic words** of standard Forth, with `min`, `max`,
+  `abs` and the comparisons
+- **Double-cell arithmetic**: `d+ d- dnegate dabs d= d< du< d0= d0< d2* d2/
+  s>d d>s 2@ 2!`, and `um* * um/mod u/mod`
+- **Memory**: `@ ! +! or! and! xor! c@ c! fill cmove cmove>`, a cell at a
+  time `cells-move cells-fill`, and fields of a cell `field@ field!`
+- **The console**: `key key? emit cr space type . accept`
+- **The interpreter**: `source parse parse-name >number refill evaluate
+  quit`, in any `base`
+- **The compiler**: `: ; :noname ] immediate create does> variable constant
+  , c, s, compile, literal postpone recurse`, `if else then`, `begin while
+  repeat until again`, `do ?do loop +loop leave`, and a hook for the peephole
+- **The dictionary**: `sfind ' words name> here allot align`
+- **Errors**: `catch throw`
+- **Tasks**: `spawn pause`
+- **Blocks**: `blk`, and the rest of the block words in the system
 
-We have the following `alu_op`:
+## Seeing it
 
-| ALU Op  | Op  | Descripton                                   |
-|---------|-----|----------------------------------------------|
-| `T`     | 0x0 | Do something with `T`                        |
-| `N`     | 0x1 | Set `T` to N                                 |
-| `T+N`   | 0x2 | Add `T` and `N`                              |
-| `T&N`   | 0x3 | Bitwise AND of `T` and `N`                   |
-| `T|N`   | 0x4 | Bitwise OR of `T` and `N`                    |
-| `T^N`   | 0x5 | Bitwise XOR of `T` and `N`                   |
-| `~T`    | 0x6 | Bitwise inversion of`T`                      |                  
-| `T==N`  | 0x7 | Test if `T` and `N` are equivalent           |
-| `T>N`   | 0x8 | Test if `T` is greater than `N`|             |
-| `N>>T`  | 0x9 | Bitshift `N` left by `T` bits.               |
-| `N<<T`  | 0xA | Bitshift `N` right by `T` bits.              |
-| `R->T`  | 0xB | Copy the top of return stack `R` to `T`      |
-| `[T]`   | 0xC | Load address located at `T` into `T`.        |
-| `io[T]` | 0xD | IO read at `T`.                              |
-| `depth` | 0xE | Depth of the stack                           |
-| `T>Nu`  | 0xF | Unsigned test for if `T` is greater than `N` |
+It needs CMake and either Homebrew or apt.  Everything else is asked for
+when CMake is configured.
 
-Then we have the following `mem_op`s:
+    cmake -S . -B build/cmake
+    cmake --build build/cmake --target demo      # the desktop, on QEMU
+    cmake --build build/cmake --target check     # every test
+    cmake --build build/cmake --target bench     # the benchmarks, on the Verilog CPU
+    cmake --build build/cmake --target gates     # the gates
 
-| Mem Op    | Op  | Descripton                                     |
-|-----------|-----|------------------------------------------------|
-| `T->N`    | 0x0 | Copy `T` into `N`                              |
-| `T->R`    | 0x1 | Copy `T` into `R`, the top of the return stack |
-| `N->[T]`  | 0x2 | Store `N` into address `T`                     |
-| `io[N]->T`| 0x3 | Write IO operation `N`into `T`                 |
-| `io@`     | 0x4 | Read IO operation into `T`                     |
-| `R->EIP`  | 0x5 | Copy the R stack into the IP pointer           |
+`cmake -DMIPS=1 build/cmake` before `demo` holds the machine to a million
+instructions a second, which is the speed it is meant to be judged at.
 
-Then with `dstack` and `rstack`, we can adjust the size of the data and return stacks.
+## What there is
 
-Finally, we have `ram_write`, which is to write `N` into the address at `T`.
+One machine, made three times, each tested against the first:
 
-Effectively, this encoding allows us to have microinstructions that we construct Forth words out of.
+- `vm.c`, the reference: a virtual machine in C
+- `baremetal/`, two kernels in AArch64 assembler that run on QEMU, where the
+  desktop is shown
+- `rtl/`, the CPU in Verilog, which runs the system in simulation and is
+  synthesised for an FPGA
 
-An example is `!` which is 'write N to [T]', encoded as such:
+The system is Forth (`forth/`), built by a cross-compiler that is itself
+Forth.  The tests, the tools and the benchmarks are C.
 
-```c
-        {"!", {
-                        { .alu.op_type = OP_TYPE_ALU,
-                          .alu.alu_op = ALU_N,
-                          .alu.dstack = -1,
-                          .alu.ram_write = 1 }}},
-```
+None of it has been built as hardware yet.
+
+## Where it came from
+
+It began in 2020 as an experiment: whether a virtual machine whose
+instructions are unencoded, in the manner of the Novix NC4016 and the
+[J1](https://excamera.com/files/j1.pdf), would be faster than one that
+decodes bytecode.  The instruction came from the J1's, with its three fixed
+flags for where a result goes replaced by two fields, one choosing the input
+and one the output.  What those two fields made possible is what the project
+turned into.
+
+## Reading on
+
+- `MODEL.md`: what the machine is, which all three implementations keep to
+- `CLAUDE.md`: how to build, test and measure, where everything is, and the
+  rules of working here
+- `UNDERSTANDING.md`: an account of the design from 2025.  Its argument for
+  the two fields holds; much of the rest is of the machine as it was
+- the commits: each says what was changed, why, and what it cost or saved
