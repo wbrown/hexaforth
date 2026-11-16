@@ -48,6 +48,7 @@ while read C A W H BASE <&3; do
     mv build/region-test-$C-$A $OUT/region-test-$C
     mv build/tiff-test-$C-$A $OUT/tiff-test-$C
     mv build/display-test-$C-$A $OUT/display-test-$C
+    mv build/desktop-test-$C-$A $OUT/desktop-test-$C
     mv build/nuc-$C-$A.hex $OUT/nuc-$C.hex
     rm -f $OUT/nuc-$C.tables                # the names that go with the image, if it has any
     [ -f build/nuc-$C-$A.tables ] && mv build/nuc-$C-$A.tables $OUT/nuc-$C.tables
@@ -65,9 +66,9 @@ while read C A W H BASE <&3; do
     T=
     [ -f $OUT/nuc-$C.tables ] && T=$OUT/nuc-$C.tables
     if $MKDISK $PICTURE $OUT/disk-$C.img baremetal/block1.fs $T > $OUT/disk-$C.log 2>&1; then
-        cp $PICTURE $OUT/disk-$C.tiff       # where the test looks for the picture that is on the disk
-        run desktop-$C python3 test/desktop_test.py $OUT/vm-$C $OUT/nuc-$C.hex $OUT/desktop-$C \
-            $OUT/disk-$C.img $C $W $H $BASE $T
+        mkdir -p $OUT/desktop-$C            # where the test keeps its screens, and its copy of the disk
+        run desktop-$C $OUT/desktop-test-$C $OUT/nuc-$C.hex $OUT/disk-$C.img $PICTURE forth $OUT/desktop-$C \
+            ${T:+names}
     else
         printf 'FAIL %-18s %s\n' "disk-$C" "$(tail -1 $OUT/disk-$C.log | cut -c1-110)"
         fail=1

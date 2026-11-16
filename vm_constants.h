@@ -51,6 +51,15 @@
 #define STACK_CELLS 256
 #endif
 
+// Stack depth ports.  Reading gives the depth of the data or return stack
+// as the instruction starts (so `port io@` counts the port number itself).
+// Writing sets the depth and changes nothing else: every cell keeps its
+// value, whether it is covered or uncovered by the change, so lowering a
+// depth and raising it again gives back the same stack.  T and R are only
+// copies of the top cells, and are written back before a depth moves.
+#define IO_SP  0xd0
+#define IO_RSP 0xd1
+
 // The display: a bitmap in memory, one bit to a pixel.  See MODEL.md.
 //   DISP_W, DISP_H    size in pixels; a width of 0 means no display
 //   DISP_BASE         the cell where the bitmap starts

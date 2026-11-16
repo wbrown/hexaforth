@@ -377,8 +377,14 @@ The machine, in C:
   against their pixels: what is typed is done to a plane of pixels too,
   and every cell of every region compared with the one form of them);
   `display_test.c` (the drawing words: what is typed is drawn a pixel at
-  a time too, with the fonts and patterns read from the Forth that says
-  them, and every pixel compared after every step);
+  a time too, and every pixel compared after every step); `tables.c`
+  (the system's tables read from the Forth that says them, for a test
+  that needs a font, a pattern or where the windows go: a test has none
+  of its own); `deskcheck.c` (what the desktop is checked for: a table of
+  what is done with the keys and the pointer and what is then to be on
+  the screen, for whatever machine it runs on) and `desktop_test.c` (the
+  reference VM as that machine: it is stopped in its event loop to be
+  looked at, and gone on with);
   `tiff_test.c` (the TIFF reader: files that are only a header and a
   directory, on a disk of bytes by chance, dithered by the machine and a
   pixel at a time);

@@ -17,8 +17,8 @@
 #     reference VM, an instruction at a time, and the nucleus says what it
 #     made of it and which of its rules it used (typed.c)
 #   the work is done on a VM that counts how often the instruction at each
-#     place is run (counting.c): the desktop's test (test/desktop_test.py),
-#     and the drawing benchmark (draw.fs)
+#     place is run (counting.c): the desktop's test (test/desktop_test.c,
+#     built with that VM in it), and the drawing benchmark (draw.fs)
 #   and the runs are weighed by that (weigh.c), which says at its top what
 #     it prints
 #
@@ -50,6 +50,10 @@ gcc -O2 -w -fcommon $FLAGS -o $OUT/counting bench/counting.c $MACHINE -lm || exi
 gcc -O2 -w -fcommon $FLAGS -o $OUT/runs bench/runs.c $MACHINE util/image.c -lm || exit 1
 gcc -O2 -w -fcommon $FLAGS -o $OUT/typed bench/typed.c vm_opcodes.c vm_debug.c util/image.c -lm || exit 1
 gcc -O2 -w -o $OUT/weigh bench/weigh.c || exit 1
+# The desktop's test, with the VM that counts in it in place of vm.c.
+gcc -O2 -w -fcommon $FLAGS -DCOUNTING_A_TEST -o $OUT/desktop-test test/desktop_test.c test/deskcheck.c \
+    test/tables.c test/dither.c bench/tiff.c test/nucleus.c bench/counting.c vm_opcodes.c vm_debug.c \
+    util/stack.c util/image.c -lm || exit 1
 
 # The runs, and what the nucleus makes of them.
 $OUT/runs $OUT/plain.hex $OUT/plain.tables $OUT/image.hex $OUT/image.tables > $OUT/runs.txt 2> $OUT/runs.log || stop "the runs" $OUT/runs.log
@@ -59,19 +63,11 @@ $OUT/typed read $OUT/runs.txt $OUT/typed.out > $OUT/typed.txt 2> $OUT/typed.log 
 
 # The work, counted.  The disk is made as the desktop's test wants it.
 $MKDISK $PICTURE $OUT/disk.img baremetal/block1.fs $OUT/image.tables > $OUT/disk.log 2>&1 || stop "the disk" $OUT/disk.log
-cp $PICTURE $OUT/disk.tiff                  # where the test looks for the picture that is on the disk
 printf '8000 execute\n' | RUN_COUNTS=$OUT/idle.counts $OUT/counting $OUT/image.hex $OUT/disk.img > $OUT/idle.log 2>&1
 RUN_COUNTS=$OUT/draw.counts $OUT/counting $OUT/image.hex $OUT/disk.img < bench/draw.fs > $OUT/draw.log 2>&1
-# The desktop's test starts the VM with an image and a disk: this is the
-# counting VM, told where its counts go and not to count the screen being
-# printed.
 rm -f $OUT/desktop.counts
-printf '#!/bin/sh\nSCREEN_NOT_COUNTED=1 RUN_COUNTS=%s exec %s "$1" "$2"\n' "$PWD/$OUT/desktop.counts" "$PWD/$OUT/counting" > $OUT/vm
-chmod +x $OUT/vm
-python3 test/desktop_test.py $OUT/vm $OUT/image.hex $OUT/desktop $OUT/disk.img $C $W $H $BASE $OUT/image.tables > $OUT/desktop.log 2>&1
-passed=$?
-git checkout util/__pycache__ baremetal/__pycache__ test/__pycache__ 2>/dev/null
-[ $passed = 0 ] || stop "the desktop's test" $OUT/desktop.log
+RUN_COUNTS=$OUT/desktop.counts $OUT/desktop-test $OUT/image.hex $OUT/disk.img $PICTURE forth $OUT/desktop names \
+    > $OUT/desktop.log 2>&1 || stop "the desktop's test" $OUT/desktop.log
 for piece in idle draw desktop; do
     [ -f $OUT/$piece.counts ] || stop "nothing was counted for $piece" $OUT/$piece.log
 done

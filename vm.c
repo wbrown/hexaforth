@@ -56,15 +56,10 @@ static inline uint64_t ucell(int64_t x) {
 #define FAR_CELL(addr) ((uint8_t *)0)
 #endif
 
-// What counts a machine's work is told two things as they happen: RUNS,
-// that the instruction at a place is about to be run, and SAYS, that a
-// character is written to the console (bench/counting.c).  Here they are
-// nothing.
+// What counts a machine's work is told that the instruction at a place is
+// about to be run (bench/counting.c).  Here that is nothing.
 #ifndef RUNS
 #define RUNS(at)
-#endif
-#ifndef SAYS
-#define SAYS(c)
 #endif
 #ifdef STRICT_ALIGN
 static int64_t strict_pc;
@@ -126,15 +121,6 @@ static inline uint8_t clz(uint64_t N) {
 static inline uint8_t ctz(uint64_t N) {
     return N ? 64 - __builtin_ctzll(N) : -(uint64_t)INFINITY;
 }
-
-// Stack depth ports.  Reading gives the depth of the data or return stack
-// as the instruction starts (so `port io@` counts the port number itself).
-// Writing sets the depth and changes nothing else: every cell keeps its
-// value, whether it is covered or uncovered by the change, so lowering a
-// depth and raising it again gives back the same stack.  T and R are only
-// copies of the top cells, and are written back before a depth moves.
-#define IO_SP  0xd0
-#define IO_RSP 0xd1
 
 // Device access ports.  Devices have registers of a fixed width, and `!`
 // always moves 64 bits, so these give exact-width access at a latched
@@ -209,7 +195,6 @@ static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t i
     }
     switch (io_addr) {
         case 0xf1:
-            SAYS((uint8_t)io_write);
             fputc((uint8_t)io_write, ctx->OUT);
             return(TRUE);
         case 0xf0: {

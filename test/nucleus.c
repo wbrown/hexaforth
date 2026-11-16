@@ -74,10 +74,17 @@ void line(const char* format, ...) {
     typed[typed_len] = '\0';
 }
 
-// What is then on the machine's data stack is what the lines left there.
-// The lines have been typed: what is said next is typed after.
-void type(void) {
-    line("%d execute", stop_at);
+void keys(const void* bytes, size_t count) {
+    if (typed_len + count + 1 > sizeof(typed)) {
+        fprintf(stderr, "there is too much for the machine to read\n");
+        exit(EXIT_FAILURE);
+    }
+    memcpy(typed + typed_len, bytes, count);
+    typed_len += count;
+}
+
+// What has been said has then been read: what is said next is read after.
+static void read_it(void) {
     memset(said, 0, sizeof(said));
     machine.IN = fmemopen(typed, typed_len, "r");
     machine.OUT = fmemopen(said, sizeof(said) - 1, "w");
@@ -87,9 +94,52 @@ void type(void) {
     typed_len = 0;
 }
 
+// What is then on the machine's data stack is what the lines left there.
+void type(void) {
+    line("%d execute", stop_at);
+    read_it();
+}
+
 void type_more(void) {
     machine.EIP = prompt_at;
     type();
+}
+
+void set_off(void) {
+    machine.EIP = prompt_at;
+    read_it();
+}
+
+int stopping(void) {
+    return(stop_at);
+}
+
+// The two depths are kept in two cells of the machine's, and the word that
+// goes on fetches them from there: it is all numbers and instructions, so
+// it calls nothing, and has nothing on the return stack before that
+// stack's depth is set.
+static uint64_t depths_at;      // the two cells,
+static int goes_on_at;          // and the word
+
+void going_on(void) {
+    line("create depths 0 , 0 ,  depths");
+    type();
+    depths_at = machine.SP == 1 ? left(0) : 0;
+    line(": go-on %d @ %d io!  %d @ %d io! ;  ' go-on",
+         (int)depths_at + 1, IO_RSP, (int)depths_at, IO_SP);
+    type_more();
+    if (!depths_at || machine.SP != 1) {
+        fprintf(stderr, "the machine was not given what goes on from where it stops.  It said:\n%s\n", said);
+        exit(EXIT_FAILURE);
+    }
+    goes_on_at = (int)left(0);
+}
+
+void go_on(void) {
+    store(depths_at, (uint64_t)machine.SP);
+    store(depths_at + 1, (uint64_t)machine.RSP);
+    machine.EIP = goes_on_at;
+    read_it();
 }
 
 uint64_t left(int n) {
@@ -108,4 +158,8 @@ uint64_t fetch(uint64_t addr) {
     uint64_t v = 0;
     memcpy(&v, cell_at(addr), CELL_BYTES);
     return(v);
+}
+
+void store(uint64_t addr, uint64_t x) {
+    memcpy(cell_at(addr), &x, CELL_BYTES);
 }
