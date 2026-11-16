@@ -183,10 +183,11 @@ demo-test: $(B)/$(KERNEL)-display$(X).elf $(B)/disk.img $(B)/guitest
 
 # What drives the desktop on QEMU and looks at its screen: the checks are
 # the reference VM's too (../test/deskcheck.c).
-DESKCHECK := ../test/deskcheck.c ../test/tables.c ../test/dither.c ../bench/tiff.c
-$(B)/guitest: guitest.c $(DESKCHECK) ../test/deskcheck.h ../test/tables.h ../vm_constants.h
+DESKCHECK := qemu.c ../test/deskcheck.c ../test/tables.c ../test/dither.c ../bench/tiff.c
+$(B)/guitest $(B)/desktime: $(B)/%: %.c $(DESKCHECK) qemu.h ../test/deskcheck.h ../test/tables.h \
+                            ../util/words.c ../vm_opcodes.c ../vm_constants.h
 	@mkdir -p $(B)
-	cc -O2 -w -o $@ guitest.c $(DESKCHECK) -lm
+	cc -O2 -w -fcommon -o $@ $< $(DESKCHECK) ../vm_opcodes.c ../vm_debug.c -lm
 
 # Drive the desktop as demo-test does, and say where the instructions went.
 demo-profile: $(B)/hexaforth-profile.elf $(B)/disk.img
@@ -196,8 +197,9 @@ demo-profile: $(B)/hexaforth-profile.elf $(B)/disk.img
 # Boot the desktop, leave it alone, and say when it is ready and when the
 # picture is made: at full speed, or with MIPS on a machine of that speed,
 # and with DISK from a disk of that speed.
-demo-time: $(B)/$(KERNEL)-display$(M).elf $(B)/disk.img
+demo-time: $(B)/$(KERNEL)-display$(M).elf $(B)/disk.img $(B)/desktime
 	cp $(B)/disk.img $(B)/gui.img
-	DISK=$(DISK) python3 desktime.py $< $(B)/gui.img $(B)/mandrill.tiff $(HEX)
+	DISK=$(DISK) $(B)/desktime $< $(B)/gui.img $(B)/mandrill.tiff ../forth ../build/nuc.tables \
+	    $$($(LLVM)llvm-nm $< | awk '$$3 == "image" {print $$1}')
 
 .PHONY: all size run test demo demo-test demo-profile demo-time clean

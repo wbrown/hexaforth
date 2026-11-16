@@ -37,4 +37,9 @@ typedef struct {
 // Every check.  Returns how many failed.
 int desk_checks(const desk* machine);
 
+// For what only watches a desktop: is a row of a window's text, on a
+// screen the machine gave, this?  It is not while the windows are not up.
+// The window's text is named as the checks name it (GRIDS in deskcheck.c).
+bool desk_sees(const desk* machine, const uint8_t* screen, const char* text_of, int row, const char* text);
+
 #endif //HEXAFORTH_DESKCHECK_H

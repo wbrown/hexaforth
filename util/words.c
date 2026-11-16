@@ -82,6 +82,28 @@ static int words_of(const uint8_t* image, size_t len, const char* tables, word* 
     return(n);
 }
 
+// The cell a label for data is of, or 0 if the file of names has no such
+// label: a variable or a table that has no header, by its name.
+static uint64_t data_called(const char* tables, const char* name) {
+    static uint8_t cells[1 << 20];
+    FILE* in = fopen(tables, "rb");
+    if (!in) return(0);
+    size_t have = fread(cells, CELL_BYTES, sizeof(cells) / CELL_BYTES, in);
+    fclose(in);
+    size_t at = 2;                                      // past the stamp and the count
+    if (have > at) at += 1 + 2 * cell_of(cells, at);    // and the two tables
+    if (have > at) at += 1 + 2 * cell_of(cells, at);
+    for(uint64_t place = have > at ? cell_of(cells, at) : 0; place && at + place + 2 < have;
+        place = cell_of(cells, at + place)) {
+        uint64_t value = cell_of(cells, at + place + 1);
+        char is[256];
+        if (!(value >> (CELL_BITS - 1))) continue;      // a label for code
+        decode_name(cells + (at + place + 2) * CELL_BYTES, (have - at - place - 2) * CELL_BYTES, is);
+        if (!strcmp(is, name)) return(value & ~(1ull << (CELL_BITS - 1)));
+    }
+    return(0);
+}
+
 // Where a word is, or less than nothing if the image has none of that name.
 static long place_of(const word* words, int n, const char* name) {
     for(int idx=0; idx < n; idx++) if (!strcmp(words[idx].name, name)) return(words[idx].at);

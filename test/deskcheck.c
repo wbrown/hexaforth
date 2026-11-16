@@ -1159,7 +1159,10 @@ static bool is_seen(const seen* s, char* why) {
     return(is);
 }
 
-int desk_checks(const desk* on) {
+// What is read from the Forth before anything is looked at: the fonts and
+// the patterns.
+static void begin(const desk* on) {
+    if (machine) return;
     machine = on;
     mono = font_named("mono");
     sans = font_named("sans");
@@ -1171,6 +1174,19 @@ int desk_checks(const desk* on) {
     }
     for(int n=0; n < 8; n++) patterns[n] = pattern_named(PATTERNS[n][0], PATTERNS[n][1]);
     kept = calloc(SCREEN, 1);
+}
+
+bool desk_sees(const desk* on, const uint8_t* on_screen, const char* text_of, int row, const char* text) {
+    char is[COLS + 1];
+    begin(on);
+    shot = on_screen;
+    if (!windows_start()) return(false);
+    read_grid(text_of, row, is);
+    return(!strcmp(is, text));
+}
+
+int desk_checks(const desk* on) {
+    begin(on);
 
     int checks = 0, failed = 0;
     boot = desk_boot();
