@@ -42,13 +42,13 @@
 #include <string.h>
 #include <unistd.h>
 #include "nucleus.h"
+#include "tables.h"
 
 #define W       DISP_W
 #define H       DISP_H
 #define SCREEN  ((size_t)W * H)
 #define STEPS   300             // how many are taken by chance
 #define UNDER   12345           // what is under what a check leaves
-#define GLYPH_ROWS 16           // the rows of a glyph
 
 typedef struct {
     const char* label;
@@ -184,108 +184,17 @@ static check SAID[] = {
      PICTURE "xor-mode  0 0 300 150 0 -16 scroll-rect  200 100 150 80 pat-rect"},
     {""}};
 
-// ---- the system's tables, read from its source
+// ---- the system's patterns and fonts, read from its source (tables.h)
 
-// The numbers a table is, in a source file: those laid down after
-// `header NAME create NAME`.  Each is # and decimal digits or $ and hex,
-// and after each is the word that lays it down; the table ends at the
-// first word that is neither.  Returns how many there are.
-static int numbers_of(const char* source, const char* path, const char* name, uint64_t* out, int most) {
-    const char* at = NULL;
-    for(const char* row = source; row && !at; row = strchr(row, '\n') ? strchr(row, '\n') + 1 : NULL) {
-        char is[64], made[64];
-        int used = 0;
-        if (sscanf(row, "header %63s create %63s%n", is, made, &used) == 2 && !strcmp(is, name) && !strcmp(made, name)) {
-            at = row + used;
-        }
-    }
-    if (!at) {
-        fprintf(stderr, "display_test: %s has no %s\n", path, name);
-        exit(EXIT_FAILURE);
-    }
-    int count = 0;
-    for(;;) {
-        char word[64], lays[64];
-        int used = 0;
-        if (sscanf(at, "%63s%n", word, &used) != 1) break;
-        at += used;
-        if (!strcmp(word, "font[")) continue;       // what a font's numbers are between
-        if (*word != '#' && *word != '$') break;
-        if (sscanf(at, "%63s%n", lays, &used) != 1) break;
-        at += used;
-        if (count == most) {
-            fprintf(stderr, "display_test: %s has more numbers than %d\n", name, most);
-            exit(EXIT_FAILURE);
-        }
-        out[count++] = strtoull(word + 1, NULL, *word == '#' ? 10 : 16);
-    }
-    return(count);
-}
-
-static char* source_of(const char* dir, const char* file, char* path, size_t path_len) {
-    snprintf(path, path_len, "%s/%s", dir, file);
-    FILE* in = fopen(path, "rb");
-    if (in == NULL) {
-        perror(path);
-        exit(EXIT_FAILURE);
-    }
-    fseek(in, 0, SEEK_END);
-    size_t len = ftell(in);
-    fseek(in, 0, SEEK_SET);
-    char* text = calloc(len + 1, 1);
-    if (fread(text, 1, len, in) != len) {
-        perror(path);
-        exit(EXIT_FAILURE);
-    }
-    fclose(in);
-    return(text);
-}
-
-// A pattern is eight rows of eight pixels, the leftmost the highest bit.
 static const char* PATTERNS[] = { "p-white", "p-black", "p-gray", "p-ltgray", "p-dkgray", NULL };
-static uint64_t pattern_rows[5][8];
-
-// A font, as font.fs says one is: how high, the first character, how many,
-// the numbers in a row of the strike, a cell the system uses; then where
-// each glyph starts and where the last ends; then the strike a row at a
-// time, 64 pixels to a number with the leftmost highest.
+static pattern patterns[5];
 static const char* FONTS[] = { "mono", "sans", NULL };
-typedef struct {
-    int rows, first, count, across;
-    const uint64_t* starts;
-    const uint64_t* strike;
-} font;
 static font fonts[2];
 
-static bool strike_pixel(const font* f, int x, int row) {
-    return(f->strike[row * f->across + x / 64] >> (63 - x % 64) & 1);
-}
-
 static void tables(const char* dir) {
-    char path[512];
-    char* source = source_of(dir, "display.fs", path, sizeof(path));
-    for(int n=0; PATTERNS[n]; n++) {
-        if (numbers_of(source, path, PATTERNS[n], pattern_rows[n], 8) != 8) {
-            fprintf(stderr, "display_test: %s is not eight rows\n", PATTERNS[n]);
-            exit(EXIT_FAILURE);
-        }
-    }
-    free(source);
-    source = source_of(dir, "font.fs", path, sizeof(path));
-    for(int n=0; FONTS[n]; n++) {
-        int most = 1 << 12;
-        uint64_t* numbers = malloc(most * sizeof(uint64_t));
-        int count = numbers_of(source, path, FONTS[n], numbers, most);
-        font* f = &fonts[n];
-        f->rows = (int)numbers[0], f->first = (int)numbers[1], f->count = (int)numbers[2], f->across = (int)numbers[3];
-        f->starts = numbers + 5;
-        f->strike = f->starts + f->count + 1;
-        if (count < 5 || count != 5 + f->count + 1 + f->rows * f->across || f->rows != GLYPH_ROWS) {
-            fprintf(stderr, "display_test: %s is not a font as %s says one is\n", FONTS[n], path);
-            exit(EXIT_FAILURE);
-        }
-    }
-    free(source);
+    tables_are(dir);
+    for(int n=0; PATTERNS[n]; n++) patterns[n] = pattern_named("display.fs", PATTERNS[n]);
+    for(int n=0; FONTS[n]; n++) fonts[n] = font_named(FONTS[n]);
 }
 
 // ---- the screen a pixel at a time
@@ -297,7 +206,7 @@ static uint8_t* rgn[REGIONS];   // a region's pixels, of those on the screen: 1 
 static int clip_x0, clip_y0, clip_x1, clip_y1;  // the clip rectangle, on the screen
 static int clip_rgn;            // the clip region, or -1
 static int ox, oy;              // where the port's coordinates start
-static int pattern, mode, type_face;
+static int filled, mode, type_face;     // the pattern, the mode and the font, each as which it is
 static bool bold, italic, inverse, text_or;
 static char text[64];           // the text buffer, tb
 
@@ -309,7 +218,7 @@ static void screen_start(void) {
     clip_x0 = clip_y0 = 0, clip_x1 = W, clip_y1 = H;
     clip_rgn = -1;
     ox = oy = 0;
-    pattern = 1, mode = COPY, type_face = 0;        // black, copying, plain text in mono
+    filled = 1, mode = COPY, type_face = 0;         // black, copying, plain text in mono
     bold = italic = inverse = text_or = false;
     memset(text, 0, sizeof(text));
 }
@@ -334,7 +243,7 @@ static void pat_rect(int x, int y, int w, int h) {
     for(int yy=high(y, 0); yy < low(y + h, H); yy++) {
         for(int xx=high(x, 0); xx < low(x + w, W); xx++) {
             if (!visible(xx, yy)) continue;
-            int is = pattern_rows[pattern][yy & 7] >> (7 - (xx & 7)) & 1;
+            int is = pattern_pixel(&patterns[filled], xx, yy);
             uint8_t* p = px + (size_t)yy * W + xx;
             *p = through(mode, *p, is);
         }
@@ -353,9 +262,7 @@ static void draw_text(const char* chars, int count, int x, int y) {
     int pen = x + ox;
     y += oy;
     for(int n=0; n < count; n++) {
-        int code = (unsigned char)chars[n] - f->first;
-        if (code < 0 || code >= f->count) code = 0;
-        int start = (int)f->starts[code], width = (int)f->starts[code + 1] - start;
+        int width, start = glyph_of(f, (unsigned char)chars[n], &width);
         if (!(pen + width <= clip_x0 || pen < 0 || pen >= clip_x1)) {
             for(int row=0; row < f->rows; row++) {
                 for(int k=0; k < width; k++) {
@@ -407,7 +314,7 @@ static void scroll_rect(int x, int y, int w, int h, int dx, int dy) {
         }
     }
     mode = COPY;
-    pattern = 0;
+    filled = 0;
 }
 
 // ---- what is typed, drawn here
@@ -550,7 +457,7 @@ static void pixels_do(const char* typed) {
         } else if (!strcmp(word, "!")) {
             if (s[1].is != 'v') cannot(word, "is not to a variable drawn here");
             const char* name = VARIABLES[a[1]];
-            if (!strcmp(name, "pattern") && s[0].is == 'p') pattern = (int)a[0];
+            if (!strcmp(name, "pattern") && s[0].is == 'p') filled = (int)a[0];
             else if (!strcmp(name, "font") && s[0].is == 'f') type_face = (int)a[0];
             else if (!strcmp(name, "bold") && s[0].is == 'n') bold = a[0];
             else if (!strcmp(name, "italic") && s[0].is == 'n') italic = a[0];

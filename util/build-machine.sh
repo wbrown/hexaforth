@@ -64,5 +64,5 @@ gcc -O2 -w -fcommon $D -o build/source-test-$C-$A test/source_test.c $TYPED -lm
 gcc -O2 -w -fcommon $D -o build/prompt-test-$C-$A test/prompt_test.c $TYPED -lm
 gcc -O2 -w -fcommon $D -o build/region-test-$C-$A test/region_test.c $TYPED -lm
 gcc -O2 -w -fcommon $D -o build/tiff-test-$C-$A test/tiff_test.c test/dither.c $TYPED -lm
-[ -n "$3" ] && gcc -O2 -w -fcommon $D -o build/display-test-$C-$A test/display_test.c $TYPED -lm
+[ -n "$3" ] && gcc -O2 -w -fcommon $D -o build/display-test-$C-$A test/display_test.c test/tables.c $TYPED -lm
 echo "build/nuc-$C-$A.hex: $(tr -c 'a-zA-Z0-9 ' ' ' < build/cross-$C-$A.log | grep -o 'tdp [0-9A-F]* thp [0-9A-F]* tcp [0-9A-F]*')"
