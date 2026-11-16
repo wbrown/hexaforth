@@ -46,24 +46,24 @@ $6414 , $1 , hdr, tuck
 $642c , $1 , hdr, nip
 $600f , $2 , hdr, r> hdr, 2drop
 $6208 , $1 , hdr, io!
+$646c , $1 , hdr, xor
 $60e4 , $2 , hdr, over hdr, @
 $6830 , $3 , hdr, @ hdr, over hdr, +
 $6539 , $2 , hdr, + hdr, >r
 $683c , $2 , hdr, @ hdr, +
 $6014 , $2 , hdr, swap hdr, dup
-$646c , $1 , hdr, xor
 $6501 , $2 , hdr, >r hdr, r@
 $60d0 , $3 , hdr, over hdr, swap hdr, lshift
 $6403 , $1 , hdr, rdrop
 $6b58 , $1 , hdr, or!
+$6408 , $2 , hdr, nip hdr, nip
 $64f0 , $1 , hdr, io@
 $65ed , $2 , hdr, @ hdr, >r
 $6c0f , $2 , hdr, 2drop hdr, r>
-$6408 , $2 , hdr, nip hdr, nip
-$63e8 , $4 , hdr, swap hdr, @ hdr, swap hdr, !
-$630c , $3 , hdr, over hdr, swap hdr, !
 $640c , $4 , hdr, swap hdr, invert hdr, swap hdr, nip
+$63e8 , $4 , hdr, swap hdr, @ hdr, swap hdr, !
 $6c03 , $2 , hdr, r> hdr, nip
+$630c , $3 , hdr, over hdr, swap hdr, !
 $6f0f , $3 , hdr, r> hdr, swap hdr, !
 $6008 , $2 , hdr, drop hdr, nip
 $687c , $2 , hdr, @ hdr, *
@@ -102,6 +102,7 @@ $6488 , $3 , hdr, invert hdr, nip hdr, nip
 $64a8 , $2 , hdr, < hdr, nip
 $686c , $2 , hdr, @ hdr, xor
 $6890 , $3 , hdr, @ hdr, over hdr, =
+$68b0 , $3 , hdr, @ hdr, over hdr, u>
 $6c13 , $2 , hdr, nip hdr, r>
 $6c30 , $4 , hdr, drop hdr, dup hdr, r@ hdr, +
 $6cd0 , $3 , hdr, r@ hdr, swap hdr, lshift
@@ -116,7 +117,6 @@ $6454 , $2 , hdr, 2dup hdr, or
 $64d0 , $2 , hdr, dup hdr, lshift
 $6549 , $2 , hdr, and hdr, >r
 $6718 , $2 , hdr, swap hdr, !
-$68b0 , $3 , hdr, @ hdr, over hdr, u>
 $68e0 , $2 , hdr, @ hdr, @
 $6b30 , $2 , hdr, 2dup hdr, +!
 $6c3f , $3 , hdr, r> hdr, nip hdr, +
@@ -187,7 +187,6 @@ $6d3d , $4 , hdr, drop hdr, r@ hdr, bounds hdr, swap>r
 $6f0e , $4 , hdr, r> hdr, swap hdr, rdrop hdr, !
 $6f5b , $4 , hdr, swapr> hdr, or hdr, swap hdr, !
 $6fe3 , $4 , hdr, r> hdr, @ hdr, over hdr, !
-$6ce7 , $2 , hdr, r> hdr, @
 0 ,
 unhigh
 

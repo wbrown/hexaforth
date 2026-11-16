@@ -631,6 +631,17 @@ static int t_number(int64_t n) {
     return(term_of(A_NUMBER, 0, cell(n), 0, NULL));
 }
 
+// A number an instruction has in it.  While any_number is so, it is a
+// number of which nothing is known: a cell like one of a stack's, and of
+// neither.  What two sequences are then found to leave the same, they
+// leave the same whatever the number is (util/joins.c).
+static int any_number;
+
+static int t_in_instruction(int64_t n) {
+    if (any_number) return(term_of(IN_DATA, 0, SLOTS, 0, NULL));
+    return(t_number(n));
+}
+
 static int t_whole(int x) {         // a term is a cell already
     return(x);
 }
@@ -791,7 +802,7 @@ static void step_named(named* m, uint16_t x) {
 #define VALUE           int
 #define DS(i)           m->DS[i]
 #define RS(i)           m->RS[i]
-#define NUMBER(n)       t_number(n)
+#define NUMBER(n)       t_in_instruction(n)
 #define WHOLE(x)        t_whole(x)
 #define ALU(op, a, b)   t_made(op, a, b)
 #define FETCH(a)        t_fetch(m, a)

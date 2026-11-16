@@ -1633,12 +1633,14 @@ s" ;" target-wordlist search-wordlist 0= throw constant the-semicolon
     settle
     2* tcp @ $1fff and + $1ffe u> if next-page then
 ;
-:: i, ( w -- )
+: (i,) ( w -- )
     settle
     tcp @ $1fff and $1ffe = abort" a table of instructions has run off its page"
     tcp @ tw!  2 tcp +!
     label
 ;
+:: i, ( w -- ) (i,) ;
+: is, ( w n -- ) 0 ?do dup (i,) loop drop ;         \ the same in each of n places
 
 \ A header in front of create names the data.  The header points at code,
 \ so code is laid down for it that pushes the data's address, as a word

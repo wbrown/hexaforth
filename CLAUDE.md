@@ -282,10 +282,18 @@ Homebrew's, the compiler is told where Homebrew's headers are:
 `CPATH="$(brew --prefix)/include" gforth ...`.
 
 Generated, and checked in: `forth/basewords.fs` (by `basewords-fs-gen`,
-from `vm_constants.h` and `vm_opcodes.h`), and `forth/fused.fs` and
-`forth/joins.fs` (the decompiler's table and the nucleus's peephole, made
-from a built image: build until they stop changing). The last two are
-still made by `util/insn_map.py`.
+from `vm_constants.h` and `vm_opcodes.h`); `forth/folds.fs` (what the
+nucleus's peephole is told of numbers, by `util/joins.c`, which has
+`fuse.c` in it and reads no image: `gcc -O2 -w -fcommon -o build/joins
+util/joins.c -lm && build/joins forth/folds.fs`); and `forth/fused.fs`
+(the decompiler's table, made from a built image: build until it stops
+changing), which is still made by `util/insn_map.py`.
+
+`forth/joins.fs`, the rules of the nucleus's peephole, is not generated:
+it is the rules that are kept, and says at its top which and why. Do not
+give `insn_map.py --fused` a third file, or it writes all of its rules
+over them. The nucleus counts each rule's uses; `sh test/hits.sh` works
+the desktop and prints the counts.
 
 ## Testing
 
@@ -368,6 +376,8 @@ The toolchain and the nucleus, in Forth (`forth/`):
   compiler, the dictionary, tasks (`spawn`, `pause`). It includes
   `system.fs`, or with no display `join.fs` alone
 - `join.fs`: the nucleus's own peephole, for what is typed at the prompt
+  and for source read from blocks: the rules (`joins.fs`), and numbers,
+  which it works out by running the instruction (`folds.fs`)
 
 The system (`forth/system.fs` includes it, and says where each code page
 starts):

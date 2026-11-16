@@ -1252,7 +1252,9 @@ create 'compile 0 ,
 
 \ Where its rules are, and how many: they are instructions laid down after
 \ its code, and the tools that read an image must not take them for code.
-header join-rules create join-rules 0 , 0 ,
+\ The third cell is where what it is told of numbers is (folds.fs), and
+\ the fourth where the count of each rule's uses is.
+header join-rules create join-rules 0 , 0 , 0 , 0 ,
 
 : (compile,) ( xt -- )
     dup i@ isreturn if
