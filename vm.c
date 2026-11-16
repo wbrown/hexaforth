@@ -55,6 +55,17 @@ static inline uint64_t ucell(int64_t x) {
 #ifndef FAR_CELL
 #define FAR_CELL(addr) ((uint8_t *)0)
 #endif
+
+// What counts a machine's work is told two things as they happen: RUNS,
+// that the instruction at a place is about to be run, and SAYS, that a
+// character is written to the console (bench/counting.c).  Here they are
+// nothing.
+#ifndef RUNS
+#define RUNS(at)
+#endif
+#ifndef SAYS
+#define SAYS(c)
+#endif
 #ifdef STRICT_ALIGN
 static int64_t strict_pc;
 static uint64_t strict_steps;
@@ -198,6 +209,7 @@ static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t i
     }
     switch (io_addr) {
         case 0xf1:
+            SAYS((uint8_t)io_write);
             fputc((uint8_t)io_write, ctx->OUT);
             return(TRUE);
         case 0xf0: {
@@ -368,6 +380,7 @@ int vm(context *ctx) {
         //    show_registers(T, R, EIP, SP, RSP, ctx);
         // #endif // DEBUG
         instruction ins = *(instruction*)&(ctx->memory[EIP]);
+        RUNS(EIP);
         #ifdef DEBUG
         print_state(ctx, RSP, SP, EIP, R, T);
         #endif // DEBUG

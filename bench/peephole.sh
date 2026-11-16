@@ -1,0 +1,96 @@
+#!/bin/sh
+# What the nucleus's compiler is worth (forth/join.fs): what it makes of
+# the system's code beside what cross.fs makes of it, and what each of its
+# rules saves, in the code and when the code is run.
+#
+#   bench/peephole.sh
+#
+# The nucleus compiles what is typed and what is read from blocks, and
+# cross.fs compiles the image; the system's own source is the code there is
+# to try the nucleus's compiler on.  For the first machine of
+# util/machines:
+#
+#   the image is built with the peephole and without, and the two are cut
+#     into the same straight-line runs (runs.c): a run as it is typed, and
+#     what cross.fs made of it
+#   each run as typed is given to the nucleus's emit1 at the prompt of the
+#     reference VM, an instruction at a time, and the nucleus says what it
+#     made of it and which of its rules it used (typed.c)
+#   the work is done on a VM that counts how often the instruction at each
+#     place is run (counting.c): the desktop's test (test/desktop_test.py),
+#     and the drawing benchmark (draw.fs)
+#   and the runs are weighed by that (weigh.c), which says at its top what
+#     it prints
+#
+# Everything is kept in build/peephole/, and what weigh prints is
+# build/peephole/peephole.txt.  The exit status is 0 only if every step
+# was done and the desktop's test passed.
+cd "$(dirname "$0")/.."
+OUT=build/peephole
+mkdir -p $OUT/desktop
+PICTURE=baremetal/build/mandrill.tiff       # the Mandrill, which baremetal/Makefile fetches,
+MKDISK=baremetal/build/mkdisk               # and what makes a disk, which it builds
+
+stop() { # what failed, and the log that says why
+    echo "FAIL $1"
+    tail -5 $2
+    exit 1
+}
+
+make -C baremetal build/mandrill.tiff build/mkdisk > $OUT/picture.log 2>&1 || stop "the picture and mkdisk" $OUT/picture.log
+set -- $(grep -v '^#' util/machines | head -1)
+C=$1 A=$2 W=$3 H=$4 BASE=$5
+# The machine: its basewords, the reference VM, and what the C is told.
+util/build-machine.sh $C $A $W $H $BASE > $OUT/machine.log 2>&1 || stop "the machine" $OUT/machine.log
+FLAGS=$(cat build/machine-$C-$A.flags)
+VM=build/hexaforth-$C-$A
+
+# The image with the peephole, and then without: the second reads the calls
+# the first compiled in place (build/nuc.inline), so they are built one
+# after the other.  cross.fs writes build/nuc.*, which belong to the
+# default machine: any that are there are kept.
+KEEP="hex lst tables inline sizes"
+for f in $KEEP; do [ -f build/nuc.$f ] && mv build/nuc.$f build/nuc.$f.keep; done
+(cd forth && gforth ./cross.fs ../build/basewords-$C-$A.fs ./nuc.fs) > $OUT/cross.log 2>&1
+if grep -q "tdp" $OUT/cross.log; then
+    cp build/nuc.hex $OUT/image.hex; cp build/nuc.tables $OUT/image.tables; cp build/nuc.sizes $OUT/image.sizes
+    (cd forth && PEEPHOLE=off gforth ./cross.fs ../build/basewords-$C-$A.fs ./nuc.fs) > $OUT/cross-plain.log 2>&1
+    grep -q "tdp" $OUT/cross-plain.log && { cp build/nuc.hex $OUT/plain.hex; cp build/nuc.tables $OUT/plain.tables; }
+fi
+for f in $KEEP; do rm -f build/nuc.$f; [ -f build/nuc.$f.keep ] && mv build/nuc.$f.keep build/nuc.$f; done
+grep -q "tdp" $OUT/cross.log || stop "the image" $OUT/cross.log
+grep -q "tdp" $OUT/cross-plain.log || stop "the image with the peephole off" $OUT/cross-plain.log
+
+MACHINE="vm_opcodes.c vm_debug.c util/stack.c"
+gcc -O2 -w -fcommon $FLAGS -o $OUT/counting bench/counting.c $MACHINE -lm || exit 1
+gcc -O2 -w -fcommon $FLAGS -o $OUT/runs bench/runs.c $MACHINE util/image.c -lm || exit 1
+gcc -O2 -w -fcommon $FLAGS -o $OUT/typed bench/typed.c vm_opcodes.c vm_debug.c util/image.c -lm || exit 1
+gcc -O2 -w -o $OUT/weigh bench/weigh.c || exit 1
+
+# The runs, and what the nucleus makes of them.
+$OUT/runs $OUT/plain.hex $OUT/plain.tables $OUT/image.hex $OUT/image.tables > $OUT/runs.txt 2> $OUT/runs.log || stop "the runs" $OUT/runs.log
+$OUT/typed type $OUT/runs.txt $OUT/image.hex $OUT/image.tables > $OUT/typed.fs 2> $OUT/typed.log || stop "what is typed" $OUT/typed.log
+$VM $OUT/image.hex < $OUT/typed.fs > $OUT/typed.out 2>&1
+$OUT/typed read $OUT/runs.txt $OUT/typed.out > $OUT/typed.txt 2> $OUT/typed.log || stop "what the nucleus made" $OUT/typed.log
+
+# The work, counted.  The disk is made as the desktop's test wants it.
+$MKDISK $PICTURE $OUT/disk.img baremetal/block1.fs $OUT/image.tables > $OUT/disk.log 2>&1 || stop "the disk" $OUT/disk.log
+cp $PICTURE $OUT/disk.tiff                  # where the test looks for the picture that is on the disk
+printf '8000 execute\n' | RUN_COUNTS=$OUT/idle.counts $OUT/counting $OUT/image.hex $OUT/disk.img > $OUT/idle.log 2>&1
+RUN_COUNTS=$OUT/draw.counts $OUT/counting $OUT/image.hex $OUT/disk.img < bench/draw.fs > $OUT/draw.log 2>&1
+# The desktop's test starts the VM with an image and a disk: this is the
+# counting VM, told where its counts go and not to count the screen being
+# printed.
+rm -f $OUT/desktop.counts
+printf '#!/bin/sh\nSCREEN_NOT_COUNTED=1 RUN_COUNTS=%s exec %s "$1" "$2"\n' "$PWD/$OUT/desktop.counts" "$PWD/$OUT/counting" > $OUT/vm
+chmod +x $OUT/vm
+python3 test/desktop_test.py $OUT/vm $OUT/image.hex $OUT/desktop $OUT/disk.img $C $W $H $BASE $OUT/image.tables > $OUT/desktop.log 2>&1
+passed=$?
+git checkout util/__pycache__ baremetal/__pycache__ test/__pycache__ 2>/dev/null
+[ $passed = 0 ] || stop "the desktop's test" $OUT/desktop.log
+for piece in idle draw desktop; do
+    [ -f $OUT/$piece.counts ] || stop "nothing was counted for $piece" $OUT/$piece.log
+done
+
+$OUT/weigh $OUT/typed.txt forth/joins.fs $OUT/image.sizes $OUT desktop draw > $OUT/peephole.txt 2> $OUT/weigh.log || stop "the weighing" $OUT/weigh.log
+cat $OUT/peephole.txt

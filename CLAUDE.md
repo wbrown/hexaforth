@@ -230,6 +230,13 @@ and print a summary from that; do not cut or head the results.
   it made is checked before a figure is printed for it. It says at its top
   what there is. What a change costs is what it prints before the change
   and after; no figure is kept in the repository
+- `sh bench/peephole.sh` is what the nucleus's compiler is worth: what it
+  makes of the system's code as typed beside what `cross.fs` makes, by
+  source file, and what each of its rules saves in the code and when the
+  desktop and the drawing are run. A rule is kept or cut by what that
+  prints, and a change to `join.fs` is measured by it before and after. A
+  rule that is rare in the source may be in the hottest loop: how often it
+  is used does not say what it saves
 - A thing the machine is compared with does the same work and is checked
   against the same model: the 68000 in `bench/m68k/` runs the machine's
   own dither, written for it, and makes the same bitmap
@@ -363,7 +370,12 @@ The machine, in C:
   `m68k/` (the same dither for a 68000, in its assembler, and the 68000
   to run it on: the one place here that is not C or Forth, since it is
   what is measured against); `gates.sh` (the CPU's size beside a Z80's
-  and a 68000's)
+  and a 68000's); `peephole.sh` (what the nucleus's compiler is worth),
+  with `runs.c` (the image cut into straight-line runs, as typed and as
+  `cross.fs` made them), `typed.c` (the runs typed at the nucleus, and
+  what it made of them), `counting.c` (the reference VM, counting how
+  often each place is run), `weigh.c` (the runs and the rules weighed by
+  that) and `words.c` (an image's words, by header and by label)
 
 The toolchain and the nucleus, in Forth (`forth/`):
 
