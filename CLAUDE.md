@@ -150,7 +150,7 @@ a name for one of them.
   has `cells-move ( from to n )` and `cells-fill ( x a n )`: use them
   before writing another loop over cells
 
-## Shell code is a last resort
+## Shell code
 
 Change a file with the Edit tool, and make a new one with Write. Do not
 write a shell or Python script to edit source: a change made that way
@@ -158,13 +158,12 @@ cannot be read as a diff or approved, the harness does not know the file
 changed, and a wrong replacement is easy to miss. Read and search with
 Read, Grep and Glob, not `cat`, `sed` and `grep`.
 
-The shell is for what has no tool: building, running the suites,
-measuring, and git. When a suite is run, keep all of its output in a file
-and print a summary from that; do not cut or head the results.
+When a suite is run, keep all of its output in a file and print a summary
+from that; do not cut or head the results.
 
-That is not leave to write a script for whatever else has no tool. What
-is written to look into something, to measure it or to compare two things
-is not a script, in the tree or out of it. If it is worth writing it is a
+That a thing has no tool is not leave to write a script for it. What is
+written to look into something, to measure it or to compare two things is
+not a script, in the tree or out of it. If it is worth writing it is a
 function of the tree's C, which a test or a tool has in it
 (`util/words.c`, `util/cut.c`, `util/reach.c`, `test/nucleus.c`), and a
 test is CMake's to build and run.
