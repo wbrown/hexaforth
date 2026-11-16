@@ -22,7 +22,7 @@
 
 typedef struct {
     long at, size;
-    char name[160];
+    char name[NAME_ROOM];
 } word;
 
 static int by_place(const void* a, const void* b) {
@@ -149,4 +149,20 @@ static const char* word_at(const word* words, int n, long at) {
     const char* in = "?";
     for(int idx=0; idx < n && words[idx].at <= at; idx++) if (words[idx].size) in = words[idx].name;
     return(in);
+}
+
+// The dictionary of an image: the byte its first header starts at, the
+// byte after its last, and how many headers it has.
+static int headers_of(const uint8_t* image, size_t len, size_t* from, size_t* to) {
+    int n = 0;
+    *from = *to = 0;
+    for(uint32_t head = newest_header(image, len); head; n++) {
+        uint64_t xt;
+        char name[NAME_ROOM];
+        size_t end = header_end(image, len, head);
+        if (!n || head < *from) *from = head;
+        if (end > *to) *to = end;
+        head = read_header(image, len, head, &xt, name);
+    }
+    return(n);
 }

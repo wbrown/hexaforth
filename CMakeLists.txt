@@ -42,6 +42,22 @@ if(BREW)
     set(GFORTH ${CMAKE_COMMAND} -E env CPATH=${BREW_CPATH} gforth)
 endif()
 
+# The kernels are run against vm.c on Unicorn, which is a C library
+# (baremetal/difftest.c, which asks pkg-config where it is).  Where it is
+# not there and Homebrew is, Homebrew is asked to install it.
+find_program(PKG_CONFIG pkg-config)
+set(NO_UNICORN 1)
+if(PKG_CONFIG)
+    execute_process(COMMAND ${PKG_CONFIG} --exists unicorn RESULT_VARIABLE NO_UNICORN)
+endif()
+if(NO_UNICORN AND BREW)
+    message(STATUS "Unicorn's library is not here: asking Homebrew to install it")
+    execute_process(COMMAND ${BREW} install unicorn RESULT_VARIABLE NO_UNICORN)
+    if(NO_UNICORN)
+        message(WARNING "Homebrew did not install Unicorn: the kernels cannot be run against vm.c (make -C baremetal test)")
+    endif()
+endif()
+
 # hexaforth nucleus image from swapforth
 add_custom_command(
         COMMAND           ${MAKE_BUILD_DIR}
@@ -170,6 +186,22 @@ add_executable(fewer_test
         util/image.c)
 target_compile_options(fewer_test PRIVATE -UDEBUG -w)
 target_link_libraries(fewer_test m)
+
+# What an image is made of: its pages of code, the source files its code is
+# from, and the rest of its memory (util/layout.c).  The target `examine`
+# says it of the nucleus's image.
+add_executable(examine-image
+        util/examine.c
+        vm_opcodes.c
+        vm_debug.c
+        util/image.c)
+target_compile_options(examine-image PRIVATE -UDEBUG -w)
+target_link_libraries(examine-image m)
+add_custom_target(examine
+        COMMAND           ${CMAKE_BINARY_DIR}/examine-image build/nuc.hex build/nuc.tables build/nuc.sizes
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        DEPENDS           examine-image
+                          build/nuc.hex)
 
 # (They read build/test_cases.hex and the nucleus's image, from where the
 # source is.)

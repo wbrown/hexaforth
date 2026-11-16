@@ -66,7 +66,7 @@ static int runs_on(uint16_t w) {
 // there are as many as the image has words.
 static void reach(const cut_image* m, reached* how) {
     const uint8_t* bytes = (const uint8_t*)m->code;
-    size_t len = (size_t)m->instructions * 2;
+    size_t len = (size_t)m->instructions * sizeof(instruction);
     memset(how, 0, m->n * sizeof(reached));
 
     // Calls, jumps and branches from another word; and numbers pushed.
@@ -96,19 +96,17 @@ static void reach(const cut_image* m, reached* how) {
     // which have), but for the dictionary, where every header has its
     // word's place.
     const unsigned char* has_code = m->has_code;
-    size_t headers_from = len, headers_to = 0;
+    size_t headers_from, headers_to;
+    headers_of(bytes, len, &headers_from, &headers_to);
     for(uint32_t head = newest_header(bytes, len); head; ) {
         uint64_t xt;
-        char name[256];
-        size_t end = head + 2 * CELL_BYTES + decode_name(bytes + head + 2 * CELL_BYTES, len - head - 2 * CELL_BYTES, name);
-        if (head < headers_from) headers_from = head;
-        if (end > headers_to) headers_to = end;
+        char name[NAME_ROOM];
         head = read_header(bytes, len, head, &xt, name);
         int is = xt < (uint64_t)m->instructions ? starting_at(m, (long)xt) : -1;
         if (is >= 0) how[is].typed = 1;
     }
     for(size_t at=0; at + CELL_BYTES <= len; at += CELL_BYTES) {
-        if (has_code[at / 2 / PAGE] || (at >= headers_from && at < headers_to)) continue;
+        if (has_code[at / sizeof(instruction) / PAGE] || (at >= headers_from && at < headers_to)) continue;
         uint64_t held = cell_of(bytes, at / CELL_BYTES);
         int to = held && held < (uint64_t)m->instructions ? starting_at(m, (long)held) : -1;
         if (to >= 0) how[to].cells++;

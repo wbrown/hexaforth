@@ -106,7 +106,7 @@ int decode_name(const uint8_t* cells, size_t room, char* out) {
     bool last = false;
 
     while (!last) {
-        if (bytes + CELL_BYTES > room || len > 128) {
+        if (bytes + CELL_BYTES > room || len > NAME_MOST) {
             out[0] = '\0';
             return(0);
         }
@@ -162,6 +162,15 @@ uint32_t read_header(const uint8_t* image, size_t len, uint32_t head,
     if (link >= head / CELL_BYTES) return(0);
     decode_name(image + head + 2 * CELL_BYTES, len - head - 2 * CELL_BYTES, name);
     return(link * CELL_BYTES);
+}
+
+// Where the header at byte `head` ends: the byte after the last cell of its
+// name.  This and read_header are what know that a header is two cells and
+// then the name.
+uint32_t header_end(const uint8_t* image, size_t len, uint32_t head) {
+    char name[NAME_ROOM];
+    if (head + 2 * CELL_BYTES > len) return(head);
+    return(head + 2 * CELL_BYTES + decode_name(image + head + 2 * CELL_BYTES, len - head - 2 * CELL_BYTES, name));
 }
 
 void decode_instruction(char* out, instruction ins, word_node words[]) {

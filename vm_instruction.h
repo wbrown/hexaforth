@@ -5,6 +5,7 @@
 #ifndef HEXAFORTH_VM_INSTRUCTION_H
 #define HEXAFORTH_VM_INSTRUCTION_H
 
+#include <stdbool.h>
 #include "vm_constants.h"
 
 // ==========================================================================

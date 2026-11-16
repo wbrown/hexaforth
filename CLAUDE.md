@@ -265,8 +265,11 @@ image and not of the source, on every size of machine: the peephole, and
 the small words compiled in place of calls to them, make a count from
 the source wrong. What asks is functions of the tree's C, which a test or
 a tool has in it: `util/words.c` (an image's words, and how long each
-is), `util/cut.c` (its calls, jumps and branches, and where each goes)
-and `util/reach.c` (what reaches each word).
+is), `util/cut.c` (its calls, jumps and branches, and where each goes),
+`util/reach.c` (what reaches each word) and `util/layout.c` (its pages of
+code, and what each source file has of them). The target `examine`
+prints what the last finds of the nucleus's image: how long the kernel
+is, what is on each page, and each file's words, code and tables.
 
 - Before a word is made shorter, find what reaches it (`util/reach.c`):
   the calls and jumps to it from the kernel and from every other page,
@@ -309,7 +312,11 @@ The C is built with CMake (`CMakeLists.txt`): `hexaforth` (the reference
 VM), `hexaforth-debug` (with a trace of every instruction),
 `hexaforth_test`, `kernel_test`, `fewer_test`, `basewords-fs-gen`,
 `generate-test-cases`, and the target `tests`, which runs `hexaforth_test`,
-then `kernel_test` on the image, and then `fewer_test`.
+then `kernel_test` on the image, and then `fewer_test`; and
+`examine-image`, with the target `examine`, which runs it on the image.
+When it is configured it looks for Unicorn's library, which the kernels
+are run against `vm.c` on (`make -C baremetal test`), and where that is
+not there and Homebrew is, has Homebrew install it.
 
 An image is built by `gforth` from the Forth:
 
@@ -452,8 +459,10 @@ The machine, in C:
   (an image's loops, and the turn of one), `fewer.c` (the fewest
   instructions that leave what is wanted: a search on the step's terms,
   each answer run on `vm.c`), `turns.c` (a turn of a loop looked at the
-  ways fewer could do it), `both-builds.sh` (the image with the peephole
-  and without)
+  ways fewer could do it), `layout.c` (how an image is laid out: its
+  pages of code, the tables after them, what each file has, the
+  dictionary and the data) and `examine.c` (which prints it),
+  `both-builds.sh` (the image with the peephole and without)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `nucleus.c` (the
   nucleus on `vm.c`, typed at its prompt, once or again as it was left,
@@ -501,7 +510,8 @@ The machine, in C:
   `weigh.c` (the runs and the rules weighed by that); `profile.sh` and
   `profile.c` (where the desktop's instructions go), with `work.c` (the
   work by place, as the file the profile leaves), `files.c` (the source
-  files an image's code is of, from its `.sizes`), `costs.c` (what the
+  files an image is made of, from its `.sizes`: the one place the C reads
+  that file), `costs.c` (what the
   work costs: each word with all it calls, the loops, the variables),
   `shorter.c` (the loops that ran, and fewer instructions that do a turn
   of each) and `cycles.h` (the cycles the Verilog takes for an

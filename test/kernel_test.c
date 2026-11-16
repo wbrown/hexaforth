@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
     long words = 0, instructions = 0, dead = 0, typed = 0, typed_instructions = 0;
     for(int idx=0; idx < IMAGE.n; idx++) {
         const word* w = &IMAGE.words[idx];
-        if (!w->size || w->at >= KROM_BYTES / 2) continue;
+        if (!w->size || w->at >= KROM_BYTES / (long)sizeof(instruction)) continue;
         words++;
         instructions += w->size;
         if (is_reached(&HOW[idx])) continue;

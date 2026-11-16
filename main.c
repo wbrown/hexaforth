@@ -43,9 +43,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     uint32_t DP0 = code_end;
     uint32_t DP1 = DP0;
     if (head) {
-        DP1 = (head + 2 * CELL_BYTES
-               + decode_name(bytes + head + 2 * CELL_BYTES,
-                             image_len - head - 2 * CELL_BYTES, word)) / 2;
+        DP1 = header_end(bytes, image_len, head) / 2;
     }
     uint16_t WORDCT=0;
     while (head) {
