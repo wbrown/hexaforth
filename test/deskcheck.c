@@ -656,6 +656,7 @@ static int numbers(const char* at, int* out, int most) {
 //   drag:NAME+DX+DY    a window is dragged by its title
 //   click:NAME+X+Y     a click in a window, from the top left of its content;
 //   click:NAME-X-Y     or back from the bottom right of its frame
+//   point:X,Y          the pointer is put at a place of the screen
 //   away               the pointer is put where it is off everything
 //   menu               the title in the bar is clicked, which brings the menu down
 //   pick:NAME          a window's line of the menu is clicked
@@ -734,6 +735,9 @@ static void does(const char* said) {
             int w = window(of, name);
             if (of[name] == '-') click(rect[w].x + rect[w].w + n[0], rect[w].y + rect[w].h + n[1]);
             else click(content_x(w) + n[0], content_y(w) + n[1]);
+            to_front(w);                        // a click in a window brings it to the front
+        } else if (!strncmp(word, "point:", 6) && count == 2) {
+            desk_pointer(n[0], n[1]);
         } else if (!strncmp(word, "pick:", 5)) {
             int w = window(of, name);
             click(32, 20 + 16 * menu_line(w) + 8);
@@ -1185,21 +1189,29 @@ bool desk_sees(const desk* on, const uint8_t* on_screen, const char* text_of, in
     return(!strcmp(is, text));
 }
 
-int desk_checks(const desk* on) {
+bool desk_begins(const desk* on) {
     begin(on);
-
-    int checks = 0, failed = 0;
     boot = desk_boot();
     look(NULL);
-    if (!windows_start()) {
-        printf("FAIL the Forth window is not in front where forth/desk.fs puts it, on a big screen or a small\n");
-        return(1);
-    }
+    if (!windows_start()) return(false);
     // The canvas is HexaPaint's content, less its tools down the left and
     // its patterns along the bottom.
     cw = rect[PAINT].w - 2 - 45, ch = rect[PAINT].h - 20 - 21;
     canvas = calloc((size_t)cw * ch, 1);
     shaped = calloc((size_t)cw * ch, 1);
+    return(true);
+}
+
+void desk_does(const char* said) {
+    does(said);
+}
+
+int desk_checks(const desk* on) {
+    int checks = 0, failed = 0;
+    if (!desk_begins(on)) {
+        printf("FAIL the Forth window is not in front where forth/desk.fs puts it, on a big screen or a small\n");
+        return(1);
+    }
 
     for(const check* c = CHECKS; c->label; c++) {
         if (c->when == (machine->names ? NO_NAMES : NAMES)) continue;

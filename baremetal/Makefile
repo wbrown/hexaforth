@@ -190,9 +190,12 @@ $(B)/guitest $(B)/desktime: $(B)/%: %.c $(DESKCHECK) qemu.h ../test/deskcheck.h 
 	cc -O2 -w -fcommon -o $@ $< $(DESKCHECK) ../vm_opcodes.c ../vm_debug.c -lm
 
 # Drive the desktop as demo-test does, and say where the instructions went.
-demo-profile: $(B)/hexaforth-profile.elf $(B)/disk.img
-	cp $(B)/disk.img $(B)/gui.img
-	DISK= python3 deskprof.py $< $(B)/gui.img $(HEX) ../build/nuc.sizes
+# The desktop is worked on the reference VM that counts, where a turn of its
+# loop is exact (../bench/profile.sh, which says what it prints).  The
+# kernel that counts, hexaforth-profile.elf, is still built by its rule
+# above, and nothing here reads its counts.
+demo-profile:
+	sh ../bench/profile.sh
 
 # Boot the desktop, leave it alone, and say when it is ready and when the
 # picture is made: at full speed, or with MIPS on a machine of that speed,

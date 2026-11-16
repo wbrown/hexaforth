@@ -369,8 +369,11 @@ below, and prints a line for each.
   kernel ROM, or the small kernel with `STRICT=1`
 
 `baremetal/Makefile` says in its first lines what else it does: `demo`,
-`demo-profile` (where the desktop's instructions go; it leaves
-`build/desktop.counts`), `demo-time`, and `MIPS=`, `DISK=`, `SCALE=`.
+`demo-time`, and `MIPS=`, `DISK=`, `SCALE=`. `sh bench/profile.sh` is
+where the desktop's instructions go: the desktop worked on the reference
+VM that counts, a table of things a person would do, and the work of each
+by file, word and kind of instruction (it leaves
+`build/profile/desktop.counts`; `make -C baremetal demo-profile` runs it).
 The reports made from a profile are `util/survey.py` (the whole encoding
 against it), `loops.py`, `paths.py` (each word charged with all it
 calls), `shorter.py`, `vars.py` and `phrases.py`; each says at its top
@@ -420,9 +423,10 @@ The machine, in C:
   that needs a font, a pattern or where the windows go: a test has none
   of its own); `deskcheck.c` (what the desktop is checked for: a table of
   what is done with the keys and the pointer and what is then to be on
-  the screen, for whatever machine it runs on) and `desktop_test.c` (the
+  the screen, for whatever machine it runs on), `deskvm.c` (the
   reference VM as that machine: it is stopped in its event loop to be
-  looked at, and gone on with);
+  looked at, and gone on with) and `desktop_test.c` (the checks run on
+  it);
   `tiff_test.c` (the TIFF reader: files that are only a header and a
   directory, on a disk of bytes by chance, dithered by the machine and a
   pixel at a time);
@@ -438,8 +442,9 @@ The machine, in C:
   with `runs.c` (the image cut into straight-line runs, as typed and as
   `cross.fs` made them), `typed.c` (the runs typed at the nucleus, and
   what it made of them), `counting.c` (the reference VM, counting how
-  often each place is run) and `weigh.c` (the runs and the rules weighed
-  by that)
+  often each place is run: by itself, or as the VM in a test) and
+  `weigh.c` (the runs and the rules weighed by that); `profile.sh` and
+  `profile.c` (where the desktop's instructions go)
 
 The toolchain and the nucleus, in Forth (`forth/`):
 
@@ -483,7 +488,10 @@ The other two machines:
 - `baremetal/`: `hexaforth.S` (the small kernel) and `hexaforth-fast.S`
   (decoded by table), which behave the same; `ramfb.S`, the bridge that
   shows the display on QEMU; `difftest_dump.c`, the cases they and the
-  Verilog are run against
+  Verilog are run against; `qemu.c` (QEMU as a machine the desktop's
+  checks can be run on: told keys and the pointer, and its screen
+  dumped), `guitest.c` (those checks run on it) and `desktime.c` (when
+  the desktop is ready and its picture made, watched and not touched)
 - `rtl/`: `hexaforth.v` (the CPU), `hf_mem.v` (the memory), `soc.v`, and
   the test benches. `tb.cpp` is also what times a piece of work: it says
   at its top how marks are made and how it is a disk

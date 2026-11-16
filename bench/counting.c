@@ -17,9 +17,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "counting.h"
 
-#define PLACES 0x20000
-static uint64_t RAN[PLACES];
+uint64_t RAN[PLACES];
 
 #define RUNS(at)    (RAN[(at) & (PLACES - 1)]++)
 #include "../vm.c"

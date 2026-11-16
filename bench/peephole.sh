@@ -51,7 +51,7 @@ gcc -O2 -w -fcommon $FLAGS -o $OUT/runs bench/runs.c $MACHINE util/image.c -lm |
 gcc -O2 -w -fcommon $FLAGS -o $OUT/typed bench/typed.c vm_opcodes.c vm_debug.c util/image.c -lm || exit 1
 gcc -O2 -w -o $OUT/weigh bench/weigh.c || exit 1
 # The desktop's test, with the VM that counts in it in place of vm.c.
-gcc -O2 -w -fcommon $FLAGS -DCOUNTING_A_TEST -o $OUT/desktop-test test/desktop_test.c test/deskcheck.c \
+gcc -O2 -w -fcommon $FLAGS -DCOUNTING_A_TEST -o $OUT/desktop-test test/desktop_test.c test/deskvm.c test/deskcheck.c \
     test/tables.c test/dither.c bench/tiff.c test/nucleus.c bench/counting.c vm_opcodes.c vm_debug.c \
     util/stack.c util/image.c -lm || exit 1
 

@@ -34,7 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLACES 0x20000                  // as bench/counting.c
+#define PLACES 0x20000                  // as bench/counting.h, which is for what has the VM in it
 #define PIECES 8
 #define RULES 1024
 #define FILES 128

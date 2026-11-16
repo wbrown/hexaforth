@@ -37,6 +37,13 @@ typedef struct {
 // Every check.  Returns how many failed.
 int desk_checks(const desk* machine);
 
+// For what works a desktop and is not checking it (bench/profile.c): the
+// desktop is started, and found to have its windows where forth/desk.fs
+// puts them, or not; and something is done, in the words the checks say
+// what they do in (does(), in deskcheck.c).
+bool desk_begins(const desk* machine);
+void desk_does(const char* said);
+
 // For what only watches a desktop: is a row of a window's text, on a
 // screen the machine gave, this?  It is not while the windows are not up.
 // The window's text is named as the checks name it (GRIDS in deskcheck.c).
