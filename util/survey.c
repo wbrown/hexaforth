@@ -135,6 +135,7 @@ int main(int argc, char *argv[]) {
 
     // What the image uses.
     double total_runs = 0, total_alu = 0, folded = 0, unnamed = 0;
+    double read_a_port = 0, stored_to_one = 0;  // the step on terms says nothing of these, so they are of no kind
     long instructions = 0;
     int used = 0, used_unnamed = 0, with_name = 0;
     for(long at=0; at < n; at++) {
@@ -144,7 +145,11 @@ int main(int argc, char *argv[]) {
         total_runs += work[at];
         if (ins.lit.lit_f || ins.alu.op_type != OP_TYPE_ALU) continue;
         int returned, k = kind_at[unfolded(code[at], &returned)];
-        if (k < 0) continue;
+        if (k < 0) {
+            if (ins.alu.alu_op == ALU_IO_READ) read_a_port += work[at];
+            if (ins.alu.out_mux == OUTPUT_IO_T) stored_to_one += work[at];
+            continue;
+        }
         folded += returned ? work[at] : 0;
         USES[k].places++;
         USES[k].runs += work[at];
@@ -234,6 +239,8 @@ int main(int argc, char *argv[]) {
     if (argc > 3) {
         SAY("instructions run as work: %.0f, of them ALU %.0f, and by those with no name %.0f (%.0f%% of ALU); "
             "%.0f had a return folded in", total_runs, total_alu, unnamed, total_alu ? 100 * unnamed / total_alu : 0, folded);
+        SAY("and of the ALU's that are not among those, since they are IO: %.0f read a port and %.0f stored to one",
+            read_a_port, stored_to_one);
     }
     SAY("runs of instructions that fewer would do: %ld places, %.0f %s saved (%.1f%% of the work), %.1f a turn of the idle loop",
         places, saved, unit, total_runs ? 100 * saved / total_runs : 0, turn_saved);
