@@ -3,6 +3,7 @@
 `MODEL.md` says what the machine is.  This says what each part of the
 design is for and what it costs.  Where a reason is a measurement, the
 target that makes it is named, and the figure is what that target prints.
+The README has the figures the project is there to show.
 
 ## Where it started
 
@@ -40,7 +41,8 @@ That is sixteen routes, each with any operation, and it gives:
   brought to the data stack first
 - Every setting of the fields is an instruction.  A name in `vm_opcodes.h`
   costs a line and nothing in the machine, and an instruction with no name
-  is said by its fields
+  is said by its fields, in source that `cross.fs` compiles (`MODEL.md` has
+  the fields and what each does)
 
 The read, the operation and the store as one instruction is the inner step
 of drawing a glyph.  OR-ing a mask into a cell of the display without it is
@@ -60,13 +62,14 @@ two operations that write N, and the multiply.
 
 - **`IN->`** passes its input through.  The instruction is then its routes
   and the stacks' movements, and it is `dup`, `over`, `drop`, `>r`, `r>`,
-  `r@`, `exit`, `@` and `!`.  It is more than two in five of all the ALU's
-  work on the desktop (the target `profile`)
+  `r@`, `exit`, `@` and `!`.  No operation does more of the ALU's work on
+  the desktop (the target `profile` says how much)
 - **`T->N,IN->`** also writes T into the cell under it.  In the J1 that is
   one of the routes.  Here the output is T, R, memory or a port, and N is
   otherwise written only by a push, so it is an operation.  It is `swap`,
   `nip` and `swap>r`
-- **`T<>N,IN->`** exchanges T and N and then delivers its input.  With a
+- **`T<>N,IN->`** exchanges T and N and delivers its input as it was before
+  they were exchanged.  With a
   push that is three cells rearranged in one instruction: `tuck`, and
   `swap r>`
 - **`IN+N`** adds two cells, and subtraction is made of it.  A literal with
@@ -80,8 +83,8 @@ two operations that write N, and the multiply.
   display in one instruction.  `xor` is also what a loop over memory ends
   on: `2dupxor while` leaves nothing when the two addresses have met
 - **`IN*N`** is added to the J1's.  Without it a product is a loop of a step
-  for every bit.  Where a cell is 16 bits it is 1,009 of the CPU's 7,458
-  gates, and it takes two more clocks (the target `gates`)
+  for every bit.  It takes two more clocks, and the target `gates` counts
+  the CPU with it and without
 - **`IN==N`** makes a flag that is a value, to be combined with another or
   stored.  A conditional jump asks only whether T is nothing, so `xor` would
   do for a jump alone.  It is also `0=`, which is `0 =`
@@ -137,7 +140,7 @@ elsewhere.
 
 Memory is cells, an address is the number of one, and `@` and `!` move one.
 
-So it is one machine with cells of 16, 32 or 64 bits: the same Forth, the
+It is one machine with cells of 16, 32 or 64 bits: the same Forth, the
 same tests, a different width.  An instruction is 16 bits at every width.  A
 machine with cells of 16 bits has 65,536 of them, which is 128KB.
 
@@ -192,8 +195,9 @@ and a multiply two more.  A store is within its instruction's clock: it
 lands while the next instruction starts.  The read, the operation and the
 store as one instruction is two clocks.
 
-The CPU with cells of 16 bits is fewer gates than a Z80, counted the same
-way, and a third of a 68000 (the target `gates`).
+The CPU with cells of 16 bits is fewer gates than a Z80 and than a 68000,
+counted the same way with memories left out (the target `gates`, and the
+README has what it prints).
 
 ## One definition
 

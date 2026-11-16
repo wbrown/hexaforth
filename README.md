@@ -5,8 +5,10 @@ Forth operating system with windows, a pointer and menus that runs on it,
 and the Verilog to build it from.
 
 The CPU with cells of 16 bits is 7,458 gates, which is fewer than a Z80
-counted the same way.  Drawing, it takes 1.06 to 1.36 clocks an instruction,
+counted the same way, with the memory of its two stacks left out.  Drawing, it takes 1.06 to 1.36 clocks an instruction,
 so at 1.2 MHz it runs 0.88 to 1.13 million instructions a second.
+
+![The desktop: the Forth window, the editor, the Words window, the calculator and the picture, with HexaPaint in front](doc/desktop.png)
 
 ## What it is here to show
 
@@ -32,8 +34,8 @@ Two stacks, a memory of cells, and ports for devices.  A cell is 16, 32 or 64
 bits and an instruction is always 16.  `MODEL.md` says exactly what the
 machine is, and `UNDERSTANDING.md` why it is so.
 
-An instruction of the ALU is seven fields, and every setting of them is an
-instruction the machine carries out:
+An instruction of the ALU is three bits that say it is one and six fields,
+and every setting of the fields is an instruction the machine carries out:
 
     15   14 13   12    11 10    9 8      7 6 5 4     3 2      1 0
      0    1  1   ret   input    output   operation   d-stack  r-stack
@@ -51,19 +53,22 @@ instruction the machine carries out:
 Fetching is a choice of input and storing is a choice of output, and an
 operation can be done on memory where it lies.  `+!` is one instruction:
 memory in, add, memory out.  So is OR-ing a mask into a cell of the display,
-which is what drawing a glyph is made of.  Subtracting is a complement and an
-add, and what is complemented can come from any of the four inputs.
+which is what drawing a glyph is made of.  Subtracting is a complement, an
+add of one and an add, three instructions, and what is complemented can come
+from any of the four inputs.
 
 The other instructions are a jump, a conditional jump, a call, and a literal
 of twelve bits that is pushed or added to the top of the stack, or that
 fetches or stores one of 4,096 variables.
 
 A word of Forth is a name for one of these instructions or for a run of
-them.  The fields make 5,344 instructions that do different things.  Fifty-six
-have names, and the system uses 308: the rest of those it uses are made by
-the compiler, which joins a run into one instruction wherever one does the
-same work, and finds that out by asking the machine.  (The target `profile`
-counts them, of the image with cells of 64 bits.)
+them.  Leaving out those that read or write a port, the fields make 5,344
+instructions that do different things, many settings doing the same as
+another.  Fifty-six of those have a name, and the system uses 308: the rest
+of those it uses are made by the compiler, which joins a run into one
+instruction wherever one does the same work, and finds that out by asking
+the machine.  (The target `profile` counts them, of the image with cells of
+64 bits.)  `MODEL.md` says what every field does.
 
 ## What it comes to
 
@@ -71,8 +76,10 @@ These are what the tree's own targets print, and each is named so that it can
 be asked again.  They are of the tree as it was when this was written.
 
 **The CPU** (`gates`).  A gate is a NAND, a NOT or a flip-flop as Yosys
-counts them, with memories left out.  The Z80 and the 68000 are other
-people's Verilog put through the same count.
+counts them, with memories left out.  For hexaforth what is left out is its
+two stacks, 256 cells each; the Z80 has no memory to leave out, and its
+registers are counted.  The Z80 and the 68000 are other people's Verilog
+put through the same count.
 
 | | gates |
 |---|---|
@@ -160,8 +167,12 @@ words, and these 202 of them have names that can be typed.
 
 ## Seeing it
 
-It needs CMake and either Homebrew or apt.  Everything else is asked for
-when CMake is configured.
+It needs CMake and either Homebrew or apt.  Configuring installs the rest:
+it runs `brew install`, or `apt-get install` as root, for what is missing
+of the twenty programs and libraries it needs, QEMU, Verilator, Yosys and
+LLVM among them.
+`-DINSTALL_NEEDED=OFF` has it only look and say what is missing, and the top
+of `CMakeLists.txt` lists them all.
 
     cmake -S . -B build/cmake
     cmake --build build/cmake --target demo      # the desktop, on QEMU
@@ -172,45 +183,49 @@ when CMake is configured.
 `cmake -DMIPS=1 build/cmake` before `demo` holds the machine to a million
 instructions a second.
 
+`demo` wants a QEMU that has a display.  Without one:
+
+    cmake --build build/cmake --target hello        # a window typed at the reference VM, and a picture of it
+    cmake --build build/cmake --target screenshot   # the picture above, made again
+
+`DESKTOP.md` says how the desktop is worked and how a program for it is
+written.
+
 ## What there is
 
 The machine is made three times, and the second and third are tested
 against the first:
 
 - `vm.c`, the reference: a virtual machine in C
-- `baremetal/`, two kernels in AArch64 assembler that run on QEMU, where the
+- `baremetal/`, the machine twice in AArch64 assembler, for QEMU, where the
   desktop is shown: the small one above, and one that is quicker and decodes
-  by table
+  by table.  The tree calls these kernels too (`KERNEL`, `kernel_size`,
+  `build/kernel/`), being what QEMU boots.  Elsewhere the kernel is the
+  first 4KB of the Forth
 - `rtl/`, the CPU in Verilog, which runs the system in simulation, and which
   the target `synth` places and routes for an FPGA
 
 The system is Forth (`forth/`), built by a cross-compiler that is itself
-Forth.  The tests, the tools and the benchmarks are C.
+Forth.  The image it builds is called the nucleus, after `nuc.fs`: the
+kernel, which is the part in ROM, and the system that file includes.  The
+tests, the tools and the benchmarks are C.
 
 ## Where it stands
 
-None of it has been built as hardware yet.  What a built machine needs that
-is not here:
+None of it has been built as hardware yet.  What there is to build from is
+`rtl/soc.v`: the CPU and its memory, with a clock, a reset, a console as
+bytes sent and bytes taken, each with a handshake, and a wire that says the
+machine has halted.  Its cell, its memory and how long its memory takes to
+answer are parameters, and with `HF_KROM` the kernel is a ROM.  The target
+`synth` places and routes it for an ECP5 and says what clock it would meet.
+
+What a built machine needs that is yet to be made:
 
 - the display scanned out as video: the Verilog has the bitmap in its memory
   and nothing that shows it
-- a keyboard, a pointer and a disk of its own: the system's drivers are for
-  QEMU's
-- a board, and a synthesis that has been run on one: the target `synth`
-  places and routes for an ECP5 and says what clock it would meet
-
-What is open in the software:
-
-- the places the work subtracts: one has been rewritten, and the rest have
-  only been read (the target `subtracts` lists them, with how often each is
-  run and what it is given)
-- text that only adds its black, which is how the Forth window draws, is
-  yet to be put in the drawing benchmark
-- the five places where a comparison is followed by `0 =` and `invert` would
-  do (the target `profile` lists them)
-- what is asked of Homebrew when CMake is configured has not been tried on a
-  Mac
-- the kernel has not been measured against SwapForth's
+- a keyboard, a pointer and a disk, and a driver for each: the system's are
+  for QEMU's.  `DESKTOP.md` says what the system asks of each
+- a board
 
 ## Where it came from
 
@@ -225,6 +240,8 @@ two fields, one choosing the input and one the output.
 
 - `MODEL.md`: what the machine is, which all three implementations keep to
 - `UNDERSTANDING.md`: why it is as it is
+- `DESKTOP.md`: how the desktop is worked, and how a program for it is
+  written
 - `CLAUDE.md`: how to build, test and measure, where everything is, and the
   rules of working here
 - the commits: each says what was changed, why, and what it cost or saved

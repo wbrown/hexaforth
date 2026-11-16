@@ -7,6 +7,10 @@ profile figure or the story of a change goes: the build prints the first
 three, and the last is a commit message. A figure written here is a fact
 said a second time, which someone then has to keep in step.
 
+The README is the one document that has figures: those the project is
+there to show, each beside the target that prints it. When a target prints
+otherwise, it is the README that is out of date.
+
 ## C and Forth, and nothing else
 
 This project is C and Forth. Where this branch began it was nothing
@@ -108,6 +112,22 @@ can fall short. That is a bug in it.
 `vm.c`, the AArch64 kernels and the Verilog must all provide in the same
 way. Read it before changing any of the three, and keep them to it.
 `UNDERSTANDING.md` says why the machine is as it is: read it first.
+`DESKTOP.md` says how the desktop is worked and how a program for it is
+written, with one that is run (`doc/hello.fs`, the target `hello`).
+
+Names that are used for two things:
+
+- The nucleus is the image `cross.fs` builds from `nuc.fs`, and the Forth
+  that runs in it. "The nucleus's compiler" and "the nucleus's peephole"
+  are the ones on the machine, which compile what is typed; `cross.fs` has
+  its own
+- The kernel is the first 4KB of that image, on page 0, which may be a
+  ROM. The two AArch64 programs in `baremetal/` are called kernels as
+  well (`KERNEL`, `kernel_size`, `build/kernel/`, `kernel-hexaforth`).
+  `kernel_test` and `examine` are of the first, and `size` of the second
+- A port of the machine is where a device is reached (`MODEL.md`). A port
+  in the drawing words is the record of how drawing is done
+- Nothing is zero, and a number below nothing is negative
 
 ## The instruction set is the whole encoding
 
@@ -121,12 +141,13 @@ a name for one of them.
   whether it looks useful. Measure where it occurs in the image and how
   often it runs. A site that is rare in the source may be in the hottest
   loop
-- A name costs a line in `vm_opcodes.h` and nothing in the machine. An
-  encoding with no name is one the programmer cannot say and the nucleus's
-  compiler cannot emit
-- Any control word can be said in source by its fields, and the peephole
-  joins it to its neighbours as it does a named one:
-  `meta N->IN [IN] ->[T] d-1 alu target`
+- A name costs a line in `vm_opcodes.h` and nothing in the machine. At the
+  prompt an instruction is said by its name, or by a phrase that the
+  nucleus's peephole joins: the nucleus has no words for the fields
+- In source that `cross.fs` compiles, any control word can be said by its
+  fields, and the peephole joins it to its neighbours as it does a named
+  one: `meta N->IN [IN] ->[T] d-1 alu target`. `MODEL.md` says what each
+  field is and does
 - Most instructions are said by a phrase of standard words that the
   peephole joins. A baseword's name must mean what the standard says: the
   shift right by one is `u2/`, and `2/`, which keeps the sign, is a word
@@ -203,7 +224,10 @@ test is CMake's to build and run.
 - Nothing draws when something changes: it says what is out of date
   (`inval-rect`, `win-inval`) and the event loop paints it. Everything
   that draws takes coordinates in the port, and nothing outside
-  `display.fs` knows how the display is laid out
+  `display.fs` knows how the display is laid out. (A port here is the
+  record of how drawing is done, its origin, clip, pattern and font, which
+  the screen has and each window has: another thing than a port of the
+  machine)
 - A table is written where it is said, as source that can be read: a font
   is its strike a row at a time, the key map is rows of keys, an icon is
   rows of `#` and `.`. It is not generated from somewhere else
@@ -234,8 +258,11 @@ test is CMake's to build and run.
   change, measure. A count of how often a thing is done, times what one is
   thought to cost, leaves out the loop that does them and whatever is rare
   and dear
-- Runtime is cycles, not instructions: a memory read, a shift, a multiply
-  and a jump each take more than one. The target `bench` says cycles
+- Runtime is cycles, not instructions: a memory read, a shift and a
+  multiply each take more than one, and where memory takes two cycles to
+  answer (`LAT = 2`, the tests named `lat2`) so does a jump, a call, a
+  return or a branch that is taken (`rtl/hexaforth.v` says at its top).
+  The target `bench` says cycles
 - The target `bench` is the benchmarks: a piece of work is a file typed
   at the prompt, the same file on the Verilog CPU of every size, and what
   it made is checked before a figure is printed for it. `CMakeLists.txt`
@@ -277,8 +304,10 @@ is, what is on each page, and each file's words, code and tables; and
   its place pushed as a number or kept in a cell of data, and the word
   before it running into it. `kernel_test`, which the target `tests`
   runs, fails if a word of the kernel that has no header has nothing that
-  comes to it, and with `typed` says which words that have one are there
-  only to be typed. Whether one of those stays is not the count's to say
+  comes to it, and run by hand with `typed` after the image and its names
+  (`build/cmake/kernel_test build/nuc.hex build/nuc.tables typed`) says
+  which words that have one are there only to be typed. Whether one of
+  those stays is not the count's to say
 - A word that is reached only through another is handed only what that
   one lets through: `pcompile,` stands before the kernel's `(compile,)`,
   and compiles in place itself whatever is small. Put the first one's
@@ -310,7 +339,10 @@ is, what is on each page, and each file's words, code and tables; and
 ## Building
 
 The C is built with CMake (`CMakeLists.txt`): `hexaforth` (the reference
-VM), `hexaforth-debug` (with a trace of every instruction),
+VM, of the machine `vm_constants.h` gives when nothing is said; each
+machine of `util/machines` has its own, `hexaforth-64` and the like),
+`hexaforth-debug` (with a trace of every instruction, which is built when
+CMake is told `-DDEBUG=ON`),
 `hexaforth_test`, `kernel_test`, `fewer_test`, `basewords-fs-gen`,
 `generate-test-cases`, and the target `tests`, which runs `hexaforth_test`,
 then `kernel_test` on the image, and then `fewer_test`; and
@@ -336,7 +368,8 @@ the tree's C that a tool has in it, and not a pipe of `grep` and `awk`:
 what a test bench said passed between two marks.
 
 `util/machines` is the machines the system is tried on, and CMake reads
-it: for each it builds the definition `cross.fs` reads, the nucleus, the
+it. The first of them, which has cells of 64 bits, is the one the reports,
+`hello` and the screenshot are of. For each it builds the definition `cross.fs` reads, the nucleus, the
 reference VM and the tests, and keeps what is made in a directory of
 `build/` named for the bits of the machine's cell (`build/32/nuc.hex`;
 what is compiled is where CMake builds, `hexaforth-32`,
@@ -346,7 +379,10 @@ tested on the machine `vm_constants.h` gives each size of cell when
 nothing else is said (`build/default-32/`). None of that is built until
 a target wants it: `check`, which builds every test and runs them; the
 reports, `profile`, `subtracts`, `peephole`, `hits`, `phrases` and
-`tables`, and `examine-16` and the like; `bench`
+`tables`, and `examine-16` and the like; `screenshot`, which makes the
+README's picture of the desktop again (`doc/desktop.png`), `hello`, and
+`seen`, which builds what shows a machine's display from the memory the
+reference VM writes (`screen-64`, `png`); `bench`
 and `gates`; `run`, `demo`, `demo-test`, `demo-time` and `size`, of the
 kernel that `KERNEL`, `STRICT`, `SCALE`, `MIPS` and `DISK` say
 (`cmake -DMIPS=5 build/cmake`); and `synth`.
@@ -356,12 +392,21 @@ An image is built by `gforth` from the Forth:
 ```bash
 cd forth
 gforth ./cross.fs ./basewords.fs ./nuc.fs      # build/nuc.hex and what goes with it
-PEEPHOLE=off gforth ./cross.fs ./basewords.fs ./nuc.fs   # the same with the peephole off
-BUILD=../build/32/ gforth ./cross.fs ../build/32/basewords.fs ./nuc.fs   # written there, not in build/
+BUILD=../build/32/ gforth ./cross.fs ../build/32/basewords.fs ./nuc.fs   # the image written there
 ```
 
-`./hexaforth IMAGE.hex [DISK.img [MEMORY.out]]` runs an image, and writes
-its memory when it has stopped if it is told where.
+The checked-in `forth/basewords.fs` is the machine with cells of 64 bits.
+`BUILD` is the directory the image and what goes with it are written to: it
+is to be there already, and to end in `/`. The source is a file of
+`forth/`, said as `./name.fs`, and what is written is named for it.
+`PEEPHOLE=off` builds the same with the peephole off. That build reads the
+`.inline` of the build with it on, and writes files of the same names, so
+it is given a directory of its own with that `.inline` copied into it:
+CMake does so, in `build/64/plain/`.
+
+`build/cmake/hexaforth-64 IMAGE.hex [DISK.img [MEMORY.out]]` runs an image
+on the reference VM of that machine, and writes its memory when it has
+stopped if it is told where.
 
 Beside an image `cross.fs` writes `.lst` (symbols), `.sizes` (code and
 data by file), `.inline` (the calls it compiled in place, which a build
@@ -374,10 +419,11 @@ variables in it: `util/fuse.c`, which has `vm.c` in it, is built by gforth
 each time an image is and called through gforth's C interface. gforth
 builds C with `libtool`. An answer is found by
 the machine's step on terms and then run on `vm.c`, and the build stops if
-the two do not agree. What was found and run is kept beside the images
-(`build/fuse-*.kept`, named for the text of `fuse.c` and of the machine,
-so that a change to either starts another), so the first image built
-after such a change takes longer than the rest. Where gforth is
+the two do not agree. What was found and run is kept in the tree's
+`build/`, whatever `BUILD` says (`build/fuse-*.kept`, named for the text
+of `fuse.c` and of the machine, so that a change to either starts
+another), so the first image built after such a change takes longer than
+the rest. gforth prints the C compiler's warnings of `fuse.c` each time. Where gforth is
 Homebrew's, the compiler is told where Homebrew's headers are:
 `CMakeLists.txt` does, and by hand it is
 `CPATH="$(brew --prefix)/include" gforth ...`.
@@ -421,17 +467,19 @@ runs it, and prints a line for each.
 - on each machine of `util/machines`, with cells of 64, 32 and 16 bits,
   each with a display and `STRICT`: the prompt, comments and a block read
   as source, the desktop, the drawing words, regions, the dither and the
-  TIFF reader (`prompt-32`, `desktop-16`, `display-64-3`: the last is the
-  seed, and `SEEDS` says which are run). Nothing is cell-size safe that
-  these have not run
+  TIFF reader (`prompt-32`, `desktop-16`, `display-64-3`). A test that
+  tries things by chance is run once for each seed its chances start
+  from, and the seed is the last part of its name: `SEEDS`, said to CMake,
+  is which seeds. Nothing is cell-size safe that these have not run
 - `kernel-hexaforth` and `kernel-hexaforth-fast`: each AArch64 kernel
   against `vm.c`
 - `qemu-hexaforth-display-strict` and `qemu-hexaforth-fast-display`: the
   desktop on QEMU with each, driven and its screen checked. The target
   `demo-test` is the same of the kernel that is said to CMake
 - `verilog-cases-c64` and `verilog-session-c64` (and `c32`, `c16`; each
-  with `-lat2`; and `c64-lat2-krom`): the Verilog against `vm.c`, on the
-  cases and on a session typed at the nucleus; and `verilog-memory`
+  with `-lat2`, where memory takes two cycles to answer; and
+  `c64-lat2-krom`, with the kernel in a ROM): the Verilog against `vm.c`,
+  on the cases and on a session typed at the nucleus; and `verilog-memory`
 - `builds`, which `check` runs too: after any change to a compiler or a
   peephole, the image against the image built with the peephole off: every
   straight-line run must leave what the plain one leaves, and every call,
@@ -473,7 +521,9 @@ The machine, in C:
   terms. `main.c`: loads an image and runs it.
   `vm_debug.c`: the trace. `vm_opcodes.c`: makes instructions of the
   definitions, and reads an image's dictionary (`read_header`)
-- `util/`: `baseword_fs_gen.c` (writes `basewords.fs`), `disasm_hex.c`,
+- `util/`: `baseword_fs_gen.c` (writes `basewords.fs`), `disasm_hex.c`
+  (an image's code, an instruction to a line), `stack.c` (the stacks
+  printed, for the trace),
   `hex2bin.c` and `memimage.c` (an image as bytes for the kernels, and as
   what the Verilog loads; `image.c` reads one), `mkdisk.c` (a disk),
   `fuse.c` (which instruction does the work of others: found by the
@@ -499,7 +549,9 @@ The machine, in C:
   each answer run on `vm.c`), `turns.c` (a turn of a loop looked at the
   ways fewer could do it), `layout.c` (how an image is laid out: its
   pages of code, the tables after them, what each file has, the
-  dictionary and the data) and `examine.c` (which prints it)
+  dictionary and the data) and `examine.c` (which prints it), `screen.c`
+  (a machine's display, out of the memory the reference VM writes when it
+  stops) and `png.c` (a screen as a PNG)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `nucleus.c` (the
   nucleus on `vm.c`, typed at its prompt, once or again as it was left,
@@ -522,7 +574,9 @@ The machine, in C:
   a time too, and every pixel compared after every step); `tables.c`
   (the system's tables read from the Forth that says them, for a test
   that needs a font, a pattern or where the windows go: a test has none
-  of its own); `deskcheck.c` (what the desktop is checked for: a table of
+  of its own); `hits.c` (how often each rule of the nucleus's peephole
+  was used, read out of the memory the VM wrote: the target `hits`);
+  `deskcheck.c` (what the desktop is checked for: a table of
   what is done with the keys and the pointer and what is then to be on
   the screen, for whatever machine it runs on), `deskvm.c` (the
   reference VM as that machine: it is stopped in its event loop to be
@@ -562,7 +616,8 @@ The machine, in C:
   `shorter.c` (the loops that ran, and fewer instructions that do a turn
   of each), `uses.c` (where the work uses a small word, called or
   compiled in place, how often, and what it is given: the target
-  `subtracts` asks it of `-`, `1-` and `negate`) and `cycles.h` (the
+  `subtracts` asks it of `-`, `1-` and `negate`, and `uses.c` says at its
+  top how it is asked of any other) and `cycles.h` (the
   cycles the Verilog takes for an instruction)
 
 The toolchain and the nucleus, in Forth (`forth/`):
@@ -617,7 +672,11 @@ The other two machines:
   desktop's checks can be run on: told keys and the pointer, and its
   screen dumped), `guitest.c` (those checks run on it) and `desktime.c`
   (when the desktop is ready and its picture made, watched and not
-  touched)
+  touched); `block1.fs` (what is in block 1 of the disk the desktop is
+  given, which is the block the editor opens on)
+- `doc/`: `desktop.png` (the README's picture of the desktop, which the
+  target `screenshot` makes) and `hello.fs` (the window `DESKTOP.md` is
+  about, which the target `hello` types at the reference VM)
 - `rtl/`: `hexaforth.v` (the CPU), `hf_mem.v` (the memory), `soc.v`, and
   the test benches. `tb.cpp` is also what times a piece of work: it says
   at its top how marks are made and how it is a disk. `session.fs` is
@@ -639,11 +698,25 @@ header quit : quit halt ;
 
 - `meta` and `target` switch between the host and the program
 - `header name` before a definition gives it a dictionary header
-- `main` and `quit` must be defined: they are where the image starts
+- `main` and `quit` must be defined: they are where the image starts.
+  `cross.fs` lays down the image's first two instructions, which run `main`
+  and then `quit`, and `4 org` starts the program's code after them, at
+  byte 4
 - a number in a definition is `d# 123` or `h# ff`
+- `emit` sends a character to the console, which is how such a program
+  shows what it made
+- an instruction said by its fields is between `meta` and `target`, the
+  input first and `alu` last (`MODEL.md`, Instructions)
+- the peephole joins what it can, and works out arithmetic on numbers that
+  are known: the image may have fewer instructions than were written
 
 `cd forth && gforth ./cross.fs ./basewords.fs ./yourprogram.fs` writes
-`build/yourprogram.hex`, and `disasm_hex` shows it.
+`build/yourprogram.hex`, for the machine with cells of 64 bits.
+`build/cmake/hexaforth-64 build/yourprogram.hex` runs it, and
+`build/cmake/disasm_hex-64 build/yourprogram.hex 0 0x20 build/yourprogram.lst`
+shows its first instructions, one to a line with the words' names (CMake
+builds the two for each machine). With no range the disassembler prints
+all of memory.
 
 ## Adding to the machine
 
