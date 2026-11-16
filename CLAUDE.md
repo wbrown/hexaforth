@@ -245,6 +245,44 @@ and print a summary from that; do not cut or head the results.
 - Do not give an estimate as a fact, and do not leave a thing untested so
   as not to find out
 
+## Making the kernel smaller
+
+What is in the kernel, and what a change to it saves, is asked of the
+image and not of the source, on every size of machine: the peephole, and
+the small words compiled in place of calls to them, make a count from
+the source wrong. A tool that asks has `util/words.c` in it (an image's
+words, and how long each is) and `util/cut.c` (its calls, jumps and
+branches, and where each goes).
+
+- Before a word is made shorter, find what reaches it: the calls and
+  jumps to it from the kernel and from every other page, its place pushed
+  as a number, and the word before it running into it. A word with a
+  header that nothing reaches can still be typed: whether it stays is not
+  the count's to say
+- A word that is reached only through another is handed only what that
+  one lets through: `pcompile,` stands before the kernel's `(compile,)`,
+  and compiles in place itself whatever is small. Put the first one's
+  rule to every word of the image and see which cases of the second are
+  ever handed anything. A case that is handed nothing is dead, however
+  much of the word it is
+- A path that a machine of one size can never take is in that size's
+  kernel all the same, unless the source leaves it out there
+  (`W64? [if]`). That it is never taken is run on that machine
+- A change is tried by itself, in a copy of the tree, and built for every
+  size: what it saves is how much shorter the kernel is. Changes are built
+  together before what they save is added up
+- The kernel as it was is what a changed one is compared with. The same
+  lines are typed at the prompt of each, and what each says is compared
+  (`test/nucleus.c` types at one). The lines run every word the change
+  touches: numbers at the ends of a cell as well as small ones, a name
+  that fills its cells exactly, a line that is an error. A change that is
+  to behave as before makes it say the same, but for the places of the
+  kernel's own words, which have moved
+- What a change costs in time is asked of work that runs what it changes.
+  Where the benchmarks do not run it, a file that does is typed the same
+  way, with a mark round each piece (`rtl/tb.cpp`), at the kernel as it
+  was and at the changed one
+
 ## Building
 
 The C is built with CMake (`CMakeLists.txt`): `hexaforth` (the reference
