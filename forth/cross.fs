@@ -1122,9 +1122,15 @@ variable in-depth
     wants-label? if tcp @ 2/ (label) then
     tcp @ wordstart !
     label
-    create  here lastdef !  codeptr , 0 , 0 , 0 ,
+    create  here lastdef !  codeptr , 0 , 0 , 0 , 0 ,
     true indef !
-    does>   call# @  1 call# +!                 ( body ord )
+    does>   dup 4 cells + @ ?dup if             \ a baseword that is a word of the kernel's too
+                kernel? 0= if                   \ (callable): anywhere else it is in line,
+                    false stays !  nip execute exit     \ whether or not that was said
+                then
+                drop
+            then
+            call# @  1 call# +!                 ( body ord )
             plain @ if
                 false stays !
                 inl-map + c@ if plain-inline, else call, then
@@ -1313,20 +1319,68 @@ variable fkc                                \ the cell it is opened out from
 ;
 :: px, ( pixels -- ) px-lay ;
 
-\ A row of a picture, drawn where it is wanted: the rest of the line, in
-\ which # is a pixel of ink and . is one of none, and the spaces are for
-\ whoever reads it.  It is laid down 64 pixels at a time, as px, lays
-\ them, so a row is a whole number of those.
+\ A picture, drawn where it is wanted, between picture[ and ]picture.  A
+\ row of it is the rest of a line after row|, in which # is a pixel of ink
+\ and . is one of none, and the spaces are for whoever reads it.
+\
+\ A picture wider than a line of source is drawn in pieces, one under
+\ another, with `beside` between them: the piece after it goes to the
+\ right of what has been drawn, row for row.  So every piece has as many
+\ rows as the first, and the rows of a piece are all as long.
+\
+\ The rows are kept until ]picture, which lays them down 64 pixels at a
+\ time, as px, lays them: so a row of the whole picture is a whole number
+\ of those, though a piece's need not be.
+#64 constant pic-down                       \ the most rows a picture has,
+#1024 constant pic-across                   \ and the most pixels a row
+create pic-px  pic-down pic-across * allot  \ a character a pixel, 1 for ink: a row after a row
+create pic-n   pic-down cells allot         \ how many pixels each row has so far
+variable pic-rows                           \ how many rows the first piece had: -1 until it is done
+variable pic-row                            \ the row of this piece that is next
+variable in-picture     false in-picture !
+
+: pic-piece ( -- ) \ the piece that was being drawn is done
+    pic-row @ 0= abort" a piece of a picture has no rows"
+    pic-row @ 0 do
+        pic-n i cells + @  pic-n @  <> abort" the rows of a piece of a picture are not all as long"
+    loop
+    pic-rows @ 0< if pic-row @ pic-rows ! then
+    pic-row @ pic-rows @ <> abort" a piece of a picture has not as many rows as the first"
+;
+:: picture[ ( -- )
+    in-picture @ abort" picture[ within a picture"
+    true in-picture !  -1 pic-rows !  0 pic-row !
+    pic-n pic-down cells erase
+;
+:: beside ( -- )
+    in-picture @ 0= abort" beside with no picture"
+    pic-piece  0 pic-row !
+;
 :: row| ( "pixels" -- )
-    0 0                                             ( pixels how-many )
+    in-picture @ 0= abort" a row of a picture with no picture[ before it"
+    pic-row @ pic-down = abort" a picture has too many rows"
     0 parse bounds ?do
         i c@ bl <> if
             i c@ [char] # <>  i c@ [char] . <>  and abort" a picture is # and ."
-            swap 2*  i c@ [char] # = 1 and or  swap 1+
-            dup 64 = if drop px-lay 0 0 then
+            pic-n pic-row @ cells + @               ( across )
+            dup pic-across = abort" a row of a picture is too long"
+            i c@ [char] # = 1 and
+            over  pic-row @ pic-across * +  pic-px + c!
+            1+  pic-n pic-row @ cells + !
         then
     loop
-    nip abort" a row of a picture is not a whole number of 64 pixels"
+    1 pic-row +!
+;
+:: ]picture ( -- )
+    in-picture @ 0= abort" ]picture with no picture"
+    pic-piece  false in-picture !
+    pic-n @ 63 and abort" a row of a picture is not a whole number of 64 pixels"
+    pic-rows @ 0 do
+        pic-n @ 0 do                                \ 64 pixels at a time, the leftmost highest
+            0  64 0 do  2*  k pic-across * j + i + pic-px + c@ or  loop
+            px-lay
+        64 +loop
+    loop
 ;
 \ A cell for each number of pixels from none to a whole cell: that many
 \ pixels at the left of a cell.
@@ -1483,6 +1537,9 @@ variable ntf#  0 ntf# !
         s" exit" evaluate
     else
         tcp @ 2 - shortcut \ true if shortcut applied
+        \ A jump that was written as one is the end too: nothing comes
+        \ back to after it.  One that a word before it reads is not.
+        tcp @ 2 - t@ h# e000 and 0=  tpinned @ tcp @ 2 - <> and  or
         tcp @ 0 do
             i tbranches @ tcp @ = if
                 i tbranches @ shortcut and
@@ -1493,6 +1550,28 @@ variable ntf#  0 ntf# !
             \ RET r-1 swap tw!
             s" exit" evaluate
         then
+    then
+;
+
+\ An exit in the middle of a word is as the one at its end: a call just
+\ before it is made a jump, which returns for both.  Not if something
+\ lands between the two.  And not if the exit is not an exit at all but
+\ the instruction that the word just called reads and copies (`inline:
+\ exit`): that one is laid down as it is written.  A small word waiting
+\ before it is measured as one before the end of a word is, against the
+\ jump.
+: exit-here ( -- )
+    tpinned @ tcp @ <>  tcp @ wordstart @ <>  and if
+        1 fusable? if  tcp @ 2 - shortcut if exit then  then
+    then
+    h# 7403 tcode,
+;
+:: exit
+    pend @ if
+        true ending !  h# 7403 tcode,  false ending !
+        tcp @ 2 - t@ h# 7403 = if 1 retract exit-here then
+    else
+        exit-here
     then
 ;
 
@@ -1515,6 +1594,24 @@ variable ntf#  0 ntf# !
 ;
 
 :: ;fallthru ;
+
+\ A baseword as a word of the kernel's as well: `header 0=  callable 0=`.
+\ Its body is the baseword's own instructions, so nothing is said again.
+\ In the kernel, which has to fit its ROM, a use of it is a small word's:
+\ it is tried in place, and called where that is shorter.  Anywhere else
+\ it is what it was, its instructions in line.
+s" :" target-wordlist search-wordlist 0= throw constant the-colon
+s" ;" target-wordlist search-wordlist 0= throw constant the-semicolon
+:: callable ( "name" -- )
+    >in @
+    bl word count target-wordlist search-wordlist 0= abort" callable: there is no such baseword"
+    swap >in !                                  ( the baseword )
+    >r
+    the-colon execute
+    r@ execute
+    the-semicolon execute
+    r> lastdef @ 4 cells + !
+;
 
 :: jmp
     ' >body @ >target ubranch

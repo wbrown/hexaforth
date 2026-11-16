@@ -207,6 +207,12 @@ and print a summary from that; do not cut or head the results.
   cell size; the VM says how long it is when it loads an image (`CODE=`).
   When it does not fit, look in it for what is written twice before moving
   a word out of it
+- A baseword of two instructions is in line wherever it is written. In
+  the kernel one can be made `callable` instead: a call wherever the
+  peephole does not join it to its neighbours. The top of `nuc.fs` says
+  which are and which are not, and why. One that words run all the time
+  are made of is not, and which is which is measured
+  (`bench/bench.sh draw`), not judged
 - A shift count is taken modulo 64 whatever the cell, so a shift by the
   width of a cell of 16 or 32 bits gives zero, and a shift by 64 shifts
   by nothing

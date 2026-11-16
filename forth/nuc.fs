@@ -31,11 +31,43 @@ header >in      : >in      up @ c# 9 + ;
 : sourceC                  up @ c# 10 + ;   \ two cells: the text being interpreted
 
 header 1-       : 1-        d# -1 + ;
-\ Words the cross-compiler already knows as one or two instructions get a
-\ header only: `:noname` leaves the name bound to the inline form, so code
-\ below compiles the instructions themselves, where the peephole can fuse
-\ them, instead of a call.
-header 0=       :noname     0=       ;
+
+\ A baseword is a name for an instruction or two, which the cross-compiler
+\ lays down wherever the name is written.  The nucleus has to have each in
+\ its dictionary as well, and it is given one in either of two ways.
+\
+\ `:noname` gives it a header and a body and leaves the name what it was:
+\ its instructions go in line wherever it is written, where the peephole
+\ can join them to what is beside them.  A baseword of one instruction is
+\ always given so, a call being no shorter than it is.
+\
+\ `callable` (cross.fs) makes it a word of the kernel's too, with the
+\ baseword's own instructions for its body.  In the kernel, which has to
+\ fit its ROM, a use is then one call where it was two instructions,
+\ unless the peephole joins them to what is beside them; on every other
+\ page it is in line, as before.  These are callable: with them calls in
+\ the kernel, drawing and the dither take no longer than they did
+\ (bench/bench.sh).
+header 0=       callable 0=
+header <>       callable <>
+header >        callable >
+header 0<       callable 0<
+header u>       callable u>
+header 2*       callable 2*
+header 2dup     callable 2dup
+header bounds   callable bounds
+header -rot     callable -rot
+
+\ negate is two instructions as well, and it is NOT callable.  It stays in
+\ line everywhere, the kernel included, because `-` is made of it, and the
+\ rest of the system subtracts all the time.  A word with a call in it
+\ takes longer, and it is no longer small enough to be laid in line where
+\ another page uses it, so it is called there as well: with negate a call,
+\ a subtraction is a call that makes a call, where it was three
+\ instructions in line, and drawing takes longer (bench/bench.sh draw).
+\ Of all of these it is the one that was found to cost drawing anything.
+header negate   :noname     negate   ;
+
 \ CELL, CELLB, BYTESHIFT, TOPBIT, HALFBITS and the W64? W32? W32+? tests
 \ come from cross.fs, which takes the machine's sizes from basewords.fs.
 \
@@ -51,12 +83,8 @@ header cells    : cells ;
 header >c       : >c        (>c) ;
 header c>       : c>        (c>) ;
 
-header <>       :noname     <>       ;
-header >        :noname     >        ;
-header 0<       :noname     0<       ;
 header 0>       : 0>        d# 0 > ;
 header 0<>      : 0<>       d# 0 <> ;
-header u>       :noname     u>       ;
 
 header key?
 : key? ( -- f ) \ is a character waiting on the console?
@@ -101,13 +129,11 @@ header .x2      : .x2 hex2 space ;
 
 header true     : true  d# -1 ;
 header false    : false d# 0 ;
-header rot      : rot   >r swap r> swap ; 
-header -rot     :noname     -rot     ;
+header rot      : rot   >r swap r> swap ;
 header tuck     :noname     tuck     ;
 header 2drop    :noname     2drop    ;
 header ?dup     : ?dup  dup if dup then ;
 
-header 2dup     :noname     2dup     ;
 header +!       :noname     +!       ;
 header or!      :noname     or!      ;
 header and!     :noname     and!     ;
@@ -117,13 +143,13 @@ header not!     :noname     not!     ;
 header 2swap    : 2swap rot >r rot r> ;
 header 2over    : 2over >r >r 2dup r> r> 2swap ;
 
-header min      : min   2dup< if drop else nip then ;
-header max      : max   2dup< if nip else drop then ;
+header min      : min   2dup< if drop exit then nip ;
+header max      : max   2dup< if nip exit then drop ;
 
 header hi32  :noname hi32 ;
 header lo32  : lo32 ( dw -- w ) h# ffffffff and ;
-header hi16  : hi16 ( dw -- s ) d# 16 rshift h# ffff and ;
 header lo16  : lo16 ( dw -- s ) h# ffff and ;
+header hi16  : hi16 ( dw -- s ) d# 16 rshift lo16 ;
 
 \ Memory is fetched and stored a cell at a time.  A byte or a 16-bit field
 \ is part of a cell: these take the address of a byte, fetch the cell it is
@@ -171,8 +197,6 @@ header count
     dup 1+ swap c@
 ;
 
-header bounds   :noname     bounds   ;
-
 header type
 : type
     bounds
@@ -212,10 +236,8 @@ header state :noname state ;
 header forth :noname forth ;
 header labels :noname labels ;
 
-header negate   :noname     negate   ;
-header -        : -         negate + ; 
-header abs      : abs       dup 0< if negate then ; 
-header 2*       :noname     2*       ;
+header -        : -         negate + ;
+header abs      : abs       dup 0< if negate then ;
 header 2/       : 2/        dup 0< TOPBIT lshift  swap d# 1 rshift  or ;    \ the sign stays where it is
 \ The data pointer counts bytes, so that bytes can be laid down one at a
 \ time.  here is the address of the cell it is in, which is the next free
@@ -244,8 +266,7 @@ header pause
 \ Waiting for a key gives the other tasks their turns.
 header key
 : ckey ( -- c )
-    begin key? 0= while pause repeat
-    key
+    begin key? if key exit then pause again
 ;
 
 
@@ -421,18 +442,18 @@ header um/mod
 header u/mod : u/mod ( u1 u2 -- rem quot )
     >r
 W32+? [if]
-    dup d# 16 rshift 0= if
-        TOP16 lshift d# 0 r> div16
-    else
+    dup d# 16 rshift if
 W64? [if]
-        dup d# 32 rshift 0= if
-            d# 32 lshift d# 0 r> div32
-        else
+        dup d# 32 rshift if
             d# 0 r> divstep
+        else
+            d# 32 lshift d# 0 r> div32
         then
 [else]
         d# 0 r> divstep
 [then]
+    else
+        TOP16 lshift d# 0 r> div16
     then
 [else]
     d# 0 r> divstep
@@ -607,7 +628,7 @@ header sfind
                 rdrop nip nip
                 cell+ @
                 dup 2* u2/                          \ the xt, less the flag
-                swap 0< 2* 1+ negate                \ which is 1 if it was set, and -1 if not
+                swap 0< invert d# 1 or              \ which is 1 if it was set, and -1 if not
                 exit
             then
         then
@@ -653,10 +674,9 @@ header name>
             d# 5 rshift
         repeat
         drop
-        r> 0< 0=                                    \ the top bit says this was its last cell
-    while
         1+
-    repeat
+        r> 0<                                       \ the top bit says this was its last cell
+    until
     drop
     nbuf >c  pto @ nbuf - >c  psh @ d# 3 rshift +
 ;
@@ -930,11 +950,12 @@ header i!
 
 
 : code,
-    cp @ 1+ h# fff and 0= if        \ the last slot of a page stays empty
-        d# -8 throw                 \ ran off the end of the page
+    cp @ 1+ h# fff and if           \ the last slot of a page stays empty
+        cp @ i!
+        d# 1 cp +!
+        exit
     then
-    cp @ i!
-    d# 1 cp +!
+    d# -8 throw                     \ ran off the end of the page
 ;
 
 : newpage? ( -- ) \ before a definition: move on if under 1KB is left here
@@ -1050,10 +1071,12 @@ inline-operand
             h# 4000 >r
         then
         1+ swap d# 12 rshift swap
-        over 0=
-    until
+        over
+    while
+    repeat
     2drop
-    r> 0= if h# 8000 code, then \ nothing emitted: push zero
+    r> if exit then
+    h# 8000 code,               \ nothing emitted: push zero
 ;
 
 header-imm 2literal
@@ -1084,22 +1107,25 @@ create doesexit 0 ,
 \ Runs inside a defining word: the rest of that word becomes the behaviour
 \ of the word just created.  Its exit is replaced by a jump to the code after
 \ does>, and the defining word returns to its own caller.
+: exit, ( -- ) inline: exit ;            \ compile an exit
+
 header does>
 : (does>)
     r>                                  ( xt of the code after does> )
-    dup d# 12 rshift 0= if              \ in the kernel
-        doesexit @ i! exit
+    dup d# 12 rshift if                 \ not in the kernel, which a jump reaches as it is
+        dup doesexit @ xor d# 12 rshift if
+            \ On another page than the created word: replace the exit
+            \ with a jump by xt.  That is longer, so the created word has
+            \ to be the last code compiled.
+            doesexit @ 1+ cp @ <> d# 22 -throw
+            doesexit @ cp !
+            tliteral
+            inline: >r
+            exit,  exit
+        then
+        h# fff and h# 1000 or           \ on the created word's page
     then
-    dup doesexit @ xor d# 12 rshift 0= if   \ on the created word's page
-        h# fff and h# 1000 or doesexit @ i! exit
-    then
-    \ On another page: replace the exit with a jump by xt.  That is longer,
-    \ so the created word has to be the last code compiled.
-    doesexit @ 1+ cp @ <> d# 22 -throw
-    doesexit @ cp !
-    tliteral
-    inline: >r
-    h# 7403 code,
+    doesexit @ i!
 ;
 
 \ May ; turn this call into a jump?  Not for words that take their own
@@ -1120,7 +1146,7 @@ header-imm exit
             2drop
         then
     then
-    inline: exit                            \ and there is an exit all the same: a branch may land on it
+    exit,                                   \ and there is an exit all the same: a branch may land on it
 ;
 
 header-imm ;
@@ -1137,7 +1163,7 @@ header-imm if
 ;
 
 header-imm ahead
-:noname
+: tahead
     cp @
     h# 0000 code,
 ;
@@ -1168,7 +1194,7 @@ header-imm until
 \ start, and repeat is again followed by that if's then.
 header-imm else
 :noname
-    cp @  h# 0000 code,
+    tahead
     swap tthen
 ;
 
@@ -1231,27 +1257,24 @@ header join-rules create join-rules 0 , 0 ,
 : (compile,) ( xt -- )
     dup i@ isreturn if
         i@ h# effc and      \ single-instruction word: inline it without RET r-1
-        dup h# 6800 = over h# 6308 = or if var, else code, then
-    else
-        dup isliteral if
-            i@ code,
-        else
-            dup i@ h# 8000 and 0<>  over 1+ isliteral  and if
-                dup i@ code,  1+ i@ code,       \ a literal of two instructions: an address
-                exit                            \ too far up for one, which @ or ! may join
-            then
-            dup d# 12 rshift 0= if              \ kernel: reachable from anywhere
-                h# 4000 or code,
-            else
-                dup cp @ xor d# 12 rshift 0= if \ this page
-                    h# fff and h# 5000 or code,
-                else                            \ another page: go by xt
-                    tliteral
-                    ['] execute h# 4000 or code,
-                then
-            then
-        then
+        dup h# 6800 = over h# 6308 = or if var, exit then
+        code, exit
     then
+    dup isliteral if
+        i@ code, exit
+    then
+    dup i@ h# 8000 and 0<>  over 1+ isliteral  and if
+        dup i@ code,  1+ i@ code,       \ a literal of two instructions: an address
+        exit                            \ too far up for one, which @ or ! may join
+    then
+    dup d# 12 rshift if
+        dup cp @ xor d# 12 rshift if    \ another page: go by xt
+            tliteral
+            ['] execute h# 4000 or code, exit
+        then
+        h# fff and h# 5000 or code, exit    \ this page
+    then
+    h# 4000 or code,                    \ kernel: reachable from anywhere
 ;
 
 header compile,
@@ -1465,7 +1488,7 @@ header constant
     mkheader attach
     tliteral
     cp @ doesexit !
-    h# 7403 code,           \ exit
+    exit,
 ;
 
 header create
