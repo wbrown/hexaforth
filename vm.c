@@ -327,10 +327,11 @@ int vm(context *ctx) {
                 EIP = branch(EIP, ins.jmp.target);
                 break;
             case OP_TYPE_CALL:
-                // Unconditional call
+                // Unconditional call.  The return address is a cell on the
+                // return stack, as everything else there is.
                 ctx->RSTACK[RSP-1] = R;
-                R = EIP;
-                ctx->RSTACK[RSP] = EIP;
+                R = cell(EIP);
+                ctx->RSTACK[RSP] = R;
                 RSP++;
                 EIP = branch(EIP, ins.jmp.target);
                 break;

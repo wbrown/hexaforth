@@ -92,6 +92,28 @@ static void paging_case(FILE *f, word_node *words) {
   free(ctx);
 }
 
+// A return address is a cell on the return stack, and no more than a cell:
+// R is the same as what `r@` gives, also where the address has the top bit
+// of a cell, as one in the upper half of the memory of a 16-bit machine
+// has.  A word at 0xc010 is called from 0xc000: it leaves the address
+// twice, and whether R is the same as it.
+static void return_case(FILE *f, word_node *words) {
+  context *ctx = calloc(1, sizeof(context));
+  ctx->words = words;
+  uint16_t *m = ctx->memory;
+  m[0x000] = 0x900c;                    // h# c000
+  m[0x001] = 0x4010;                    // call execute
+  m[0x002] = 0x0000;                    // halt
+  m[0x010] = 0x650d; m[0x011] = 0x7403; // execute: >r exit
+  m[0xc000] = 0x5010;                   // call 0xc010, same page
+  m[0xc001] = 0x7403;                   // exit: back to the kernel
+  m[0xc010] = 0x6c04; m[0xc011] = 0x6c04; // r@ r@
+  m[0xc012] = 0x6c90;                   // R->IN = ->T
+  m[0xc013] = 0x7403;                   // exit
+  run_and_dump_n(f, ctx, "return address", "", 0x18040);
+  free(ctx);
+}
+
 // A literal instruction with a shift field of 3 fetches or stores one of
 // the 4,096 cells from VAR_BASE.  The first and the last of them, and one
 // between, stored and fetched back; one that was never stored reads zero.
@@ -158,6 +180,8 @@ int main(int argc, char **argv) {
     paging_case(f, words);
     n++;
   }
+  return_case(f, words);
+  n++;
   variable_case(f, words);
   n++;
   fclose(f);
