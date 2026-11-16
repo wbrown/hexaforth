@@ -176,9 +176,17 @@ demo: $(B)/$(KERNEL)-display$(M)$(X).elf $(B)/disk.img
 # Boot headless, drive the desktop with key and pointer events, and check
 # the screen.  Screenshots are left in $(B)/gui.  With SCALE it checks as
 # well that every pixel came out as a whole block.
-demo-test: $(B)/$(KERNEL)-display$(X).elf $(B)/disk.img
+demo-test: $(B)/$(KERNEL)-display$(X).elf $(B)/disk.img $(B)/guitest
 	cp $(B)/disk.img $(B)/gui.img
-	DISK= SCALE=$(SCALE) python3 guitest.py $< $(B)/gui.img $(B)/mandrill.tiff $(B)/gui
+	mkdir -p $(B)/gui
+	DISK= SCALE=$(SCALE) $(B)/guitest $< $(B)/gui.img $(B)/mandrill.tiff ../forth $(B)/gui
+
+# What drives the desktop on QEMU and looks at its screen: the checks are
+# the reference VM's too (../test/deskcheck.c).
+DESKCHECK := ../test/deskcheck.c ../test/tables.c ../test/dither.c ../bench/tiff.c
+$(B)/guitest: guitest.c $(DESKCHECK) ../test/deskcheck.h ../test/tables.h ../vm_constants.h
+	@mkdir -p $(B)
+	cc -O2 -w -o $@ guitest.c $(DESKCHECK) -lm
 
 # Drive the desktop as demo-test does, and say where the instructions went.
 demo-profile: $(B)/hexaforth-profile.elf $(B)/disk.img
