@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.18)
 project(hexaforth C)
 
 set(DEBUG true)
@@ -50,8 +50,8 @@ endif()
 set(GFORTH ${WITH_HEADERS} gforth)
 
 # The kernels are run against vm.c on Unicorn, which is a C library
-# (baremetal/difftest.c, which asks pkg-config where it is).  Where it is
-# not there and Homebrew is, Homebrew is asked to install it.
+# (baremetal/difftest.c, which is built with what pkg-config says of it).
+# Where it is not there and Homebrew is, Homebrew is asked to install it.
 find_program(PKG_CONFIG pkg-config)
 set(NO_UNICORN 1)
 if(PKG_CONFIG)
@@ -61,7 +61,7 @@ if(NO_UNICORN AND BREW)
     message(STATUS "Unicorn's library is not here: asking Homebrew to install it")
     execute_process(COMMAND ${BREW} install unicorn RESULT_VARIABLE NO_UNICORN)
     if(NO_UNICORN)
-        message(WARNING "Homebrew did not install Unicorn: the kernels cannot be run against vm.c (make -C baremetal test)")
+        message(WARNING "Homebrew did not install Unicorn: the kernels cannot be run against vm.c (the tests kernel-hexaforth and kernel-hexaforth-fast)")
     endif()
 endif()
 
@@ -314,9 +314,11 @@ set(DESK_SOURCES test/deskvm.c test/deskcheck.c test/tables.c test/dither.c benc
 # made after it, in a directory of its own.
 #
 # What is made for a machine is the target machine-NAME's to make, and the
-# nucleus with the peephole off is plain-NAME's: whatever needs either
-# depends on the target, so that each is made in one place.  made() says a
-# file is the first one's.
+# nucleus with the peephole off is plain-NAME's.  Whatever else is made
+# from one of those files depends on the file, so that it is made again
+# when the file is, and on the target, so that the file is made in one
+# place and not by two targets at once.  made() says a file is the first
+# target's.
 function(made NAME)
     set_property(GLOBAL APPEND PROPERTY MADE_FOR_${NAME} ${ARGN})
 endfunction()
@@ -327,6 +329,9 @@ function(machine NAME)
     set(CELL ${ARGN})
     list(FILTER CELL INCLUDE REGEX "^CELL_BITS=")
     set(CELL_OF_${NAME} ${CELL} CACHE INTERNAL "and of that, its cell")
+    set(SIZES ${ARGN})
+    list(REMOVE_ITEM SIZES STRICT)
+    set(SIZES_OF_${NAME} ${SIZES} CACHE INTERNAL "and all of it that is the machine's sizes")
 
     tool(basewords-fs-gen-${NAME} util/baseword_fs_gen.c vm_opcodes.c vm_debug.c)
     target_compile_definitions(basewords-fs-gen-${NAME} PRIVATE ${ARGN})
@@ -359,9 +364,7 @@ function(machine NAME)
                                 ${GFORTH} ./cross.fs ${AT}/basewords.fs ./nuc.fs > ${AT}/plain/cross.log 2>&1
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
             COMMENT           "The nucleus for the machine ${NAME}, with the peephole off (${AT}/plain/cross.log)"
-            DEPENDS           machine-${NAME}
-                              ${FORTH_SOURCES}
-                              ${MACHINE_SOURCES})
+            DEPENDS           machine-${NAME} ${NUCLEUS})
     add_custom_target(plain-${NAME} DEPENDS ${PLAIN})
 
     machine_tool(hexaforth ${NAME} main.c ${VM_SOURCES})
@@ -418,7 +421,7 @@ function(machine_tests NAME)
             OUTPUT            ${AT}/source.img
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}
             COMMAND           mkdisk ${PICTURE} ${AT}/source.img ${CMAKE_SOURCE_DIR}/test/source.fs > ${AT}/source-disk.log 2>&1
-            DEPENDS           mkdisk picture test/source.fs)
+            DEPENDS           mkdisk picture ${PICTURE} test/source.fs)
     machine_test(source-${NAME} ${NAME} source_test ${NUC} ${AT}/source.img)
     made(${NAME} ${AT}/source.img)
 
@@ -449,7 +452,7 @@ function(machine_tests NAME)
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}/desktop
             COMMAND           mkdisk ${PICTURE} ${AT}/disk.img ${CMAKE_SOURCE_DIR}/baremetal/block1.fs ${AT}/nuc.tables
                                 > ${AT}/disk.log 2>&1
-            DEPENDS           mkdisk picture baremetal/block1.fs ${AT}/nuc.tables)
+            DEPENDS           mkdisk picture ${PICTURE} baremetal/block1.fs ${AT}/nuc.tables)
     machine_test(desktop-${NAME} ${NAME} desktop_test ${NUC} ${AT}/disk.img ${PICTURE} forth ${AT}/desktop names)
     made(${NAME} ${AT}/disk.img)
 endfunction()
@@ -633,6 +636,857 @@ add_custom_target(tables
         COMMAND           joins forth/folds.fs
         COMMAND           ${WITH_HEADERS} ${CMAKE_COMMAND} -DFUSED=$<TARGET_FILE:fused> -P util/tables.cmake
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+#
+# The AArch64 kernels, for QEMU's virt machine: baremetal/hexaforth.S, the
+# small one, and baremetal/hexaforth-fast.S, decoded by table, which behave
+# the same.  A register of the AArch64 is a cell, so they are built for the
+# machine of util/machines whose cell is 64 bits: its sizes are what the
+# assembler is told, and its nucleus is the image a kernel has in it.
+# Everything made is in build/kernel/.
+#
+#   check       runs each kernel against vm.c, and the desktop on QEMU with
+#               each, with the others
+#   run         boots KERNEL in QEMU, at its serial console (Ctrl-A X to
+#               leave)
+#   demo        boots it into the desktop, with a disk, a keyboard and a
+#               pointer.  It wants a QEMU with a display; the serial
+#               console types into the front window too, and ^Q leaves the
+#               desktop for the serial prompt
+#   demo-test   drives that desktop with no display and checks its screen,
+#               as check does, on the kernel that is said here
+#   demo-time   says when the desktop is ready and when its picture is made
+#   size        how big the kernel is
+#
+# and what those five are of is said when CMake is run, and kept until it
+# is said otherwise (cmake -DMIPS=5 -DKERNEL=hexaforth-fast build/cmake):
+#
+#   KERNEL      which kernel: hexaforth, or hexaforth-fast
+#   STRICT      the kernel halts on a fetch or a store outside memory
+#   SCALE       each pixel that many across and down, for a screen whose
+#               own pixels are small; demo-test then checks as well that
+#               every pixel came out as a whole block
+#   MIPS        that many million instructions a second and no more,
+#               however fast the host is, evenly, so the machine is as slow
+#               as one of that speed and as smooth.  It may have a fraction
+#   DISK        the disk gives and takes that many thousand bytes a second
+#               and no more, as a floppy did: about 40 for an 8-inch one at
+#               double density, 23 for a 5 1/4-inch one, half of each at
+#               single density.  It is QEMU that holds the drive to it, and
+#               it is the rate and no more: no head moves and nothing has
+#               to come round.  demo and demo-time take it
+#
+set(KERNELS_OF 64)
+set(KERNEL hexaforth CACHE STRING "which kernel run, demo, demo-test, demo-time and size are of: hexaforth or hexaforth-fast")
+option(STRICT "that kernel halts on a fetch or a store outside memory" OFF)
+set(SCALE 1 CACHE STRING "how many across and down the bridge draws each pixel of the display")
+set(MIPS "" CACHE STRING "the million instructions a second that kernel is held to, if any")
+set(DISK "" CACHE STRING "the thousand bytes a second the disk is held to, if any")
+
+if(KERNELS_OF IN_LIST MACHINES)
+
+set(KB ${BUILD}/kernel)
+set(OF_KERNEL ${BUILD}/${KERNELS_OF})
+set(LOAD 0x40080000)                # where QEMU's virt machine has a kernel start
+set(KERNEL_SIZES ${SIZES_OF_${KERNELS_OF}})
+list(TRANSFORM KERNEL_SIZES PREPEND -D)
+set(CROSS_CLANG clang --target=aarch64-none-elf -c ${KERNEL_SIZES})
+
+# Homebrew keeps LLVM's tools out of PATH: where PATH has none, Homebrew's
+# are used, and clang is still the one PATH finds first.
+set(BREW_LLVM)
+if(BREW)
+    execute_process(COMMAND ${BREW} --prefix llvm
+                    OUTPUT_VARIABLE BREW_LLVM OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+endif()
+find_program(LLD ld.lld PATHS ${BREW_LLVM}/bin)
+find_program(OBJCOPY llvm-objcopy PATHS ${BREW_LLVM}/bin)
+find_program(NM llvm-nm PATHS ${BREW_LLVM}/bin)
+
+# A number that may have a fraction, times a whole number, as a whole
+# number: CMake's own arithmetic is of whole numbers.
+function(times RESULT NUMBER BY)
+    if(NOT "${NUMBER}" MATCHES "^([0-9]*)\\.?([0-9]*)$")
+        message(FATAL_ERROR "${NUMBER} is not a number")
+    endif()
+    set(UNITS "${CMAKE_MATCH_1}")
+    set(PARTS "${CMAKE_MATCH_2}")
+    string(LENGTH "${PARTS}" DIGITS)
+    set(OF 1)
+    while(DIGITS GREATER 0)
+        math(EXPR OF "${OF} * 10")
+        math(EXPR DIGITS "${DIGITS} - 1")
+    endwhile()
+    foreach(WHICH UNITS PARTS)                          # a number that starts with a nothing is not read as tens
+        string(REGEX REPLACE "^0+" "" ${WHICH} "${${WHICH}}")
+        if("${${WHICH}}" STREQUAL "")
+            set(${WHICH} 0)
+        endif()
+    endforeach()
+    math(EXPR IS "${UNITS} * ${BY} + ${PARTS} * ${BY} / ${OF}")
+    set(${RESULT} ${IS} PARENT_SCOPE)
+endfunction()
+
+# The image a kernel has in it, as bytes; and the bridge that shows the
+# display on QEMU (baremetal/ramfb.S), which a kernel with a display is
+# linked after, since the machine's memory runs on from the end of the
+# kernel.  A bridge that draws each pixel more than once across and down is
+# another bridge, named for how many.
+tool(hex2bin util/hex2bin.c util/image.c)
+add_custom_command(
+        OUTPUT            ${KB}/image.bin
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${KB}
+        COMMAND           hex2bin ${OF_KERNEL}/nuc.hex ${KB}/image.bin
+        DEPENDS           hex2bin machine-${KERNELS_OF} ${OF_KERNEL}/nuc.hex)
+function(bridge SCALED)
+    set(BRIDGE ${KB}/ramfb.o)
+    set(TOLD)
+    if(NOT SCALED EQUAL 1)
+        set(BRIDGE ${KB}/ramfb-x${SCALED}.o)
+        set(TOLD -DSCALE=${SCALED})
+    endif()
+    set(BRIDGE ${BRIDGE} PARENT_SCOPE)
+    get_property(BRIDGES GLOBAL PROPERTY BRIDGES)
+    if(BRIDGE IN_LIST BRIDGES)
+        return()
+    endif()
+    set_property(GLOBAL APPEND PROPERTY BRIDGES ${BRIDGE})
+    add_custom_command(
+            OUTPUT            ${BRIDGE}
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${KB}
+            COMMAND           ${CROSS_CLANG} ${TOLD} ${CMAKE_SOURCE_DIR}/baremetal/ramfb.S -o ${BRIDGE}
+            DEPENDS           baremetal/ramfb.S)
+endfunction()
+bridge(1)
+bridge(${SCALE})
+get_property(BRIDGES GLOBAL PROPERTY BRIDGES)
+add_custom_target(kernel-parts DEPENDS ${KB}/image.bin ${BRIDGES})
+
+# A kernel: which of the two, and how it is built.
+#
+#   DISPLAY     with the bridge, which it calls
+#   PROFILE     the same, counting how often each instruction is executed.
+#               The counts are kept 4MB past the stacks, which is clear of
+#               the pixels only when they are not scaled, so this is always
+#               the plain bridge.  (Nothing reads them now: the target
+#               `profile` counts on the reference VM.)
+#   STRICT      halting on a fetch or a store outside memory
+#   MIPS n      held to that many million instructions a second
+#   SCALE n     with the bridge that draws each pixel that many times
+#
+# Each is another file, named for what it is; KERNEL_FILE is its name,
+# which the target kernel-NAME makes: NAME.elf, NAME.bin, which is what
+# QEMU's machine has in memory, and NAME.symbols, where its symbols are.
+function(kernel WHICH)
+    cmake_parse_arguments(IS "DISPLAY;PROFILE;STRICT" "MIPS;SCALE" "" ${ARGN})
+    set(NAME ${WHICH})
+    set(TOLD)
+    set(BRIDGE)
+    if(IS_PROFILE)
+        string(APPEND NAME -profile)
+        list(APPEND TOLD -DBRIDGE -DPROFILE)
+        bridge(1)
+    elseif(IS_DISPLAY)
+        string(APPEND NAME -display)
+        list(APPEND TOLD -DBRIDGE)
+        if(NOT IS_SCALE)
+            set(IS_SCALE 1)
+        endif()
+        bridge(${IS_SCALE})
+    endif()
+    if(IS_STRICT)
+        string(APPEND NAME -strict)
+        list(APPEND TOLD -DSTRICT)
+    endif()
+    if(IS_MIPS)
+        string(APPEND NAME -m${IS_MIPS})
+        times(IPS ${IS_MIPS} 1000000)
+        list(APPEND TOLD -DIPS=${IPS})
+    endif()
+    if(IS_DISPLAY AND NOT IS_SCALE EQUAL 1)
+        string(APPEND NAME -x${IS_SCALE})
+    endif()
+    set(KERNEL_FILE ${KB}/${NAME} PARENT_SCOPE)
+    if(TARGET kernel-${NAME})
+        return()
+    endif()
+    set(FILE ${KB}/${NAME})
+    add_custom_command(
+            OUTPUT            ${FILE}.o
+            COMMAND           ${CROSS_CLANG} "-DIMAGE=\"${KB}/image.bin\"" ${TOLD}
+                                ${CMAKE_SOURCE_DIR}/baremetal/${WHICH}.S -o ${FILE}.o
+            DEPENDS           baremetal/${WHICH}.S kernel-parts ${KB}/image.bin
+            VERBATIM)
+    add_custom_command(
+            OUTPUT            ${FILE}.elf ${FILE}.bin ${FILE}.symbols
+            COMMAND           ${LLD} -Ttext=${LOAD} -e _start -o ${FILE}.elf ${BRIDGE} ${FILE}.o
+            COMMAND           ${OBJCOPY} -O binary ${FILE}.elf ${FILE}.bin
+            COMMAND           ${NM} ${FILE}.elf > ${FILE}.symbols
+            DEPENDS           ${FILE}.o kernel-parts ${BRIDGE})
+    add_custom_target(kernel-${NAME} DEPENDS ${FILE}.elf ${FILE}.bin ${FILE}.symbols)
+    add_dependencies(kernel-${NAME} kernel-parts)
+endfunction()
+
+# What is built for the kernels' machine and is not the machine's own VM
+# stopping where it is strict: as the kernels are built, unless they are
+# told to be.
+function(kernel_tool TOOL)
+    tool(${TOOL} ${ARGN})
+    target_compile_definitions(${TOOL} PRIVATE ${SIZES_OF_${KERNELS_OF}})
+endfunction()
+
+# A kernel against vm.c, which is the machine: the cases difftest_dump
+# writes, each with what vm.c left of it, are run on the kernel under
+# Unicorn (baremetal/difftest.c).
+kernel_tool(difftest_dump baremetal/difftest_dump.c ${VM_SOURCES} test/compiler.c test/vm_test.c)
+kernel_tool(difftest baremetal/difftest.c)
+find_package(PkgConfig)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(UNICORN unicorn)
+    target_include_directories(difftest PRIVATE ${UNICORN_INCLUDE_DIRS})
+    target_link_directories(difftest PRIVATE ${UNICORN_LIBRARY_DIRS})
+endif()
+target_link_libraries(difftest unicorn)
+add_custom_command(
+        OUTPUT            ${KB}/cases.bin
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${KB}
+        COMMAND           difftest_dump ${KB}/cases.bin
+        DEPENDS           difftest_dump)
+
+# What drives the desktop on QEMU and looks at its screen (baremetal/qemu.c:
+# the checks are the reference VM's too, test/deskcheck.c), what only
+# watches it, and what says how big a kernel is.
+set(QEMU_SOURCES baremetal/qemu.c test/deskcheck.c test/tables.c test/dither.c bench/tiff.c vm_opcodes.c vm_debug.c)
+kernel_tool(guitest baremetal/guitest.c ${QEMU_SOURCES})
+kernel_tool(desktime baremetal/desktime.c ${QEMU_SOURCES})
+tool(kernel_size baremetal/size.c)
+
+# The tests: each kernel against vm.c, and the desktop on QEMU with each,
+# the small one halting if it leaves memory.  A desktop's screens, and its
+# copy of the disk, are kept in a directory named for the kernel.
+function(kernel_test WHICH)
+    kernel(${WHICH})
+    add_test(NAME kernel-${WHICH}
+             COMMAND difftest ${KERNEL_FILE}.bin ${KB}/cases.bin ${KERNEL_FILE}.symbols)
+    wanted(kernel-${WHICH})
+endfunction()
+function(qemu_test WHICH)
+    kernel(${WHICH} DISPLAY ${ARGN})
+    get_filename_component(NAME ${KERNEL_FILE} NAME)
+    add_test(NAME qemu-${NAME}
+             COMMAND ${CMAKE_COMMAND} -E env --unset=DISK SCALE=1
+                     $<TARGET_FILE:guitest> ${KERNEL_FILE}.elf ${OF_KERNEL}/disk.img ${PICTURE} forth ${KB}/screens-${NAME}
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_property(GLOBAL APPEND PROPERTY SCREENS ${KB}/screens-${NAME})
+    wanted(kernel-${NAME})
+endfunction()
+kernel_test(hexaforth)
+kernel_test(hexaforth-fast)
+qemu_test(hexaforth STRICT)
+qemu_test(hexaforth-fast)
+get_property(SCREENS GLOBAL PROPERTY SCREENS)
+add_custom_target(kernel-tests
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${SCREENS}
+        DEPENDS           ${KB}/cases.bin)
+wanted(kernel-tests difftest guitest machine-${KERNELS_OF})
+
+# The kernel that is said when CMake is run, and what is done with it.
+set(SAID)
+if(STRICT)
+    list(APPEND SAID STRICT)
+endif()
+if(MIPS)
+    list(APPEND SAID MIPS ${MIPS})
+endif()
+set(SLOW)
+if(DISK)
+    times(RATE ${DISK} 1024)
+    set(SLOW ",throttling.bps-read=${RATE},throttling.bps-write=${RATE}")
+endif()
+set(QEMU qemu-system-aarch64 -M virt -cpu cortex-a53 -nic none)
+
+kernel(${KERNEL} ${SAID})
+get_filename_component(PLAIN_KERNEL ${KERNEL_FILE} NAME)
+add_custom_target(run
+        COMMAND           ${QEMU} -nographic -kernel ${KERNEL_FILE}.elf
+        USES_TERMINAL)
+add_dependencies(run kernel-${PLAIN_KERNEL})
+add_custom_target(size
+        COMMAND           kernel_size ${KERNEL_FILE}.symbols ${KERNEL_FILE}.bin)
+add_dependencies(size kernel-${PLAIN_KERNEL})
+
+# The desktop is given a disk of its own, which is made of the machine's
+# when that is made again and is otherwise as the desktop left it.
+add_custom_command(
+        OUTPUT            ${KB}/demo.img
+        COMMAND           ${CMAKE_COMMAND} -E copy ${OF_KERNEL}/disk.img ${KB}/demo.img
+        DEPENDS           machine-${KERNELS_OF} ${OF_KERNEL}/disk.img)
+kernel(${KERNEL} DISPLAY SCALE ${SCALE} ${SAID})
+get_filename_component(SHOWN_KERNEL ${KERNEL_FILE} NAME)
+add_custom_target(demo
+        COMMAND           ${QEMU} -m 256 -serial mon:stdio -device ramfb -global virtio-mmio.force-legacy=false
+                            -drive "file=${KB}/demo.img,if=none,format=raw,id=hd0${SLOW}"
+                            -device virtio-blk-device,drive=hd0
+                            -device virtio-keyboard-device -device virtio-tablet-device
+                            -kernel ${KERNEL_FILE}.elf
+        DEPENDS           ${KB}/demo.img
+        USES_TERMINAL
+        VERBATIM)
+add_dependencies(demo kernel-${SHOWN_KERNEL} machine-${KERNELS_OF})
+
+set(STRICTLY)
+if(STRICT)
+    set(STRICTLY STRICT)
+endif()
+kernel(${KERNEL} DISPLAY SCALE ${SCALE} ${STRICTLY})
+get_filename_component(TESTED_KERNEL ${KERNEL_FILE} NAME)
+add_custom_target(demo-test
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${KB}/screens
+        COMMAND           ${CMAKE_COMMAND} -E env --unset=DISK SCALE=${SCALE}
+                            $<TARGET_FILE:guitest> ${KERNEL_FILE}.elf ${OF_KERNEL}/disk.img ${PICTURE} forth ${KB}/screens
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+add_dependencies(demo-test kernel-${TESTED_KERNEL} machine-${KERNELS_OF})
+
+set(HELD)
+if(MIPS)
+    set(HELD MIPS ${MIPS})
+endif()
+kernel(${KERNEL} DISPLAY ${HELD})
+get_filename_component(TIMED_KERNEL ${KERNEL_FILE} NAME)
+add_custom_target(demo-time
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${KB}/timed
+        COMMAND           ${CMAKE_COMMAND} -E env DISK=${DISK}
+                            $<TARGET_FILE:desktime> ${KERNEL_FILE}.elf ${KERNEL_FILE}.symbols ${OF_KERNEL}/disk.img ${PICTURE}
+                            forth ${OF_KERNEL}/nuc.tables ${KB}/timed
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+add_dependencies(demo-time kernel-${TIMED_KERNEL} machine-${KERNELS_OF})
+
+# The kernel that counts: nothing reads its counts, and it is still built.
+kernel(hexaforth PROFILE)
+
+endif()
+
+#
+# The Verilog: rtl/hexaforth.v, the CPU; rtl/hf_mem.v, the memory; and
+# rtl/soc.v, the two together.  Verilator makes a program of each with its
+# test bench: tb (rtl/tb.cpp), the CPU with a plain memory; tb_soc, the
+# whole system with the nucleus in its memory; and tb_mem, the memory by
+# itself.  Everything made is in build/rtl/, with a directory for each way
+# the CPU is built (c64, c32-lat2, c64-lat2-krom).
+#
+# A way it is built is the bits of its cell; LAT, the cycles after it is
+# asked for that what the memory read is back, 1 or 2; and whether the
+# kernel is in a ROM.  Its memory is 128KB at every width.  The program
+# counter is 16 bits, which is all an execution token holds.
+#
+# The nucleus the tests run is the one for the machine vm_constants.h
+# gives a cell of that size when nothing else is said (default-32), and
+# what the Verilog does is compared with what vm.c does of that machine.
+#
+#   check       on each way: the cases difftest_dump writes, each with what
+#               vm.c left of it, run on the CPU; and a session typed at the
+#               nucleus on vm.c, on the CPU and on the whole system, which
+#               are to send the same (test/session_test.c).  And the
+#               memory, against a model of it
+#   synth       synthesises the system for an ECP5 FPGA, and says how big
+#               it is and how fast its clock can go.  It wants yosys and
+#               nextpnr-ecp5; SYNTH_CELL, SYNTH_ADDR (the log2 of memory's
+#               cells: 128KB if it is not said), SYNTH_LAT and SYNTH_KROM
+#               say what of
+#
+set(RB ${BUILD}/rtl)
+set(RTL ${CMAKE_SOURCE_DIR}/rtl)
+set(RTL_MEMORY 17)                  # the log2 of the bytes of memory a CPU is tested with
+set(RTL_PC 16)
+set(VERILATED verilator -Wall -Wno-UNUSED -Wno-DECLFILENAME -Wno-PINCONNECTEMPTY -Wno-WIDTH -O3
+                        --x-assign fast --x-initial fast)
+
+# The log2 of the cells that so much memory is, of a cell of some size.
+function(cells_of RESULT BYTES_LOG2 CELL)
+    math(EXPR BYTES "${CELL} / 8")
+    while(BYTES GREATER 1)
+        math(EXPR BYTES "${BYTES} / 2")
+        math(EXPR BYTES_LOG2 "${BYTES_LOG2} - 1")
+    endwhile()
+    set(${RESULT} ${BYTES_LOG2} PARENT_SCOPE)
+endfunction()
+
+# What makes an image into what the Verilog's memory is loaded from, and
+# the kernel's ROM, for a cell and so much memory (util/memimage.c).
+function(memimage CELL ADDR)
+    if(NOT TARGET memimage-${CELL}-${ADDR})
+        tool(memimage-${CELL}-${ADDR} util/memimage.c util/image.c)
+        target_compile_definitions(memimage-${CELL}-${ADDR} PRIVATE CELL_BITS=${CELL} ADDR_BITS=${ADDR})
+    endif()
+endfunction()
+
+# The CPU with a plain memory and its test bench, in a directory (tb): of
+# a cell, the log2 of its memory's cells, and LAT.
+function(verilog_cpu B CELL ADDR LAT)
+    add_custom_command(
+            OUTPUT            ${B}/tb
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${B}
+            COMMAND           ${VERILATED} -CFLAGS "-DW=${CELL} -DAB=${ADDR} -DLAT=${LAT}"
+                                --cc hexaforth.v -GW=${CELL} -GPCW=${RTL_PC} -GLAT=${LAT}
+                                --exe ${RTL}/tb.cpp --Mdir ${B}/cpu -o ../tb --build -j 4 > ${B}/tb.log 2>&1
+            WORKING_DIRECTORY ${RTL}
+            COMMENT           "The Verilog CPU in ${B} (what Verilator says is in its tb.log)"
+            DEPENDS           rtl/hexaforth.v rtl/tb.cpp
+            VERBATIM)
+endfunction()
+
+# What is the same for every way a CPU of one cell is built: the machine,
+# the cases, and what vm.c sent when the session was typed at it.
+function(verilog_cell CELL)
+    set(M default-${CELL})
+    machine(${M} CELL_BITS=${CELL})
+    machine_made(${M})
+    tool(difftest_dump-${CELL} baremetal/difftest_dump.c ${VM_SOURCES} test/compiler.c test/vm_test.c)
+    target_compile_definitions(difftest_dump-${CELL} PRIVATE CELL_BITS=${CELL})
+    add_custom_command(
+            OUTPUT            ${RB}/cases-${CELL}.bin
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${RB}
+            COMMAND           difftest_dump-${CELL} ${RB}/cases-${CELL}.bin
+            DEPENDS           difftest_dump-${CELL})
+    add_custom_command(
+            OUTPUT            ${RB}/session-${CELL}.out
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${RB}
+            COMMAND           hexaforth-${M} ${BUILD}/${M}/nuc.hex < ${RTL}/session.fs > ${RB}/session-${CELL}.out
+            DEPENDS           hexaforth-${M} machine-${M} ${BUILD}/${M}/nuc.hex rtl/session.fs)
+    add_custom_target(verilog-${CELL} DEPENDS ${RB}/cases-${CELL}.bin ${RB}/session-${CELL}.out)
+    add_dependencies(verilog-${CELL} machine-${M})
+endfunction()
+
+# A way the CPU is built, and its tests.
+function(verilog CELL LAT)                              # and KROM, if the kernel is in a ROM
+    set(NAME c${CELL})
+    if(NOT LAT EQUAL 1)
+        string(APPEND NAME -lat${LAT})
+    endif()
+    set(KROM)
+    if("${ARGN}" STREQUAL "KROM")
+        string(APPEND NAME -krom)
+        set(KROM +define+HF_KROM -I${RB}/${NAME})
+    endif()
+    set(B ${RB}/${NAME})
+    set(M default-${CELL})
+    set(NUC ${BUILD}/${M}/nuc.hex)
+    cells_of(ADDR ${RTL_MEMORY} ${CELL})
+    memimage(${CELL} ${ADDR})
+    set(TOLD -CFLAGS "-DW=${CELL} -DAB=${ADDR} -DLAT=${LAT}")
+
+    verilog_cpu(${B} ${CELL} ${ADDR} ${LAT})
+    add_custom_command(
+            OUTPUT            ${B}/tb_soc ${B}/mem.hex
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${B}
+            COMMAND           memimage-${CELL}-${ADDR} ${NUC} ${B}
+            COMMAND           ${VERILATED} ${TOLD} --cc soc.v hexaforth.v hf_mem.v --top-module soc
+                                -GW=${CELL} -GAB=${ADDR} -GLAT=${LAT} "-GINIT=\"${B}/mem.hex\"" ${KROM}
+                                --exe ${RTL}/tb_soc.cpp --Mdir ${B}/soc -o ../tb_soc --build -j 4 > ${B}/tb_soc.log 2>&1
+            WORKING_DIRECTORY ${RTL}
+            COMMENT           "The Verilog system ${NAME} (what Verilator says is in ${B}/tb_soc.log)"
+            DEPENDS           rtl/soc.v rtl/hexaforth.v rtl/hf_mem.v rtl/tb_soc.cpp
+                              memimage-${CELL}-${ADDR} verilog-${CELL} ${NUC}
+            VERBATIM)
+    add_custom_command(
+            OUTPUT            ${B}/cpu.out ${B}/cpu.err
+            COMMAND           ${B}/tb run ${NUC} < ${RTL}/session.fs > ${B}/cpu.out 2> ${B}/cpu.err
+            DEPENDS           ${B}/tb verilog-${CELL} ${NUC} rtl/session.fs)
+    add_custom_command(
+            OUTPUT            ${B}/soc.out ${B}/soc.err
+            COMMAND           ${B}/tb_soc < ${RTL}/session.fs > ${B}/soc.out 2> ${B}/soc.err
+            DEPENDS           ${B}/tb_soc rtl/session.fs)
+    add_custom_target(verilog-${NAME} DEPENDS ${B}/tb ${B}/tb_soc ${B}/cpu.out ${B}/soc.out)
+    add_dependencies(verilog-${NAME} verilog-${CELL})
+
+    add_test(NAME verilog-cases-${NAME} COMMAND ${B}/tb cases ${RB}/cases-${CELL}.bin)
+    add_test(NAME verilog-session-${NAME}
+             COMMAND session_test ${RB}/session-${CELL}.out ${B}/cpu.out ${B}/soc.out ${B}/cpu.err)
+    wanted(verilog-${NAME})
+endfunction()
+
+tool(session_test test/session_test.c)
+wanted(session_test)
+foreach(CELL 64 32 16)
+    verilog_cell(${CELL})
+    verilog(${CELL} 1)
+    verilog(${CELL} 2)
+endforeach()
+verilog(64 2 KROM)
+
+# The memory by itself, against a model of it (rtl/tb_mem.cpp).
+cells_of(ADDR ${RTL_MEMORY} 64)
+add_custom_command(
+        OUTPUT            ${RB}/c64/tb_mem
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${RB}/c64
+        COMMAND           ${VERILATED} -CFLAGS "-DW=64 -DAB=${ADDR} -DLAT=1" --cc hf_mem.v
+                            --exe ${RTL}/tb_mem.cpp --Mdir ${RB}/c64/mem -o ../tb_mem --build -j 4 > ${RB}/c64/tb_mem.log 2>&1
+        WORKING_DIRECTORY ${RTL}
+        COMMENT           "The Verilog memory (what Verilator says is in ${RB}/c64/tb_mem.log)"
+        DEPENDS           rtl/hf_mem.v rtl/tb_mem.cpp
+        VERBATIM)
+add_custom_target(verilog-memory DEPENDS ${RB}/c64/tb_mem)
+add_test(NAME verilog-memory COMMAND ${RB}/c64/tb_mem)
+wanted(verilog-memory)
+
+# Synthesis.
+set(SYNTH_CELL 64 CACHE STRING "the bits of a cell of the system `synth` synthesises")
+set(SYNTH_ADDR "" CACHE STRING "the log2 of the cells of its memory: 128KB, if it is not said")
+set(SYNTH_LAT 1 CACHE STRING "the cycles after it is asked for that what its memory read is back")
+option(SYNTH_KROM "its kernel is in a ROM" OFF)
+set(SYNTH_AB ${SYNTH_ADDR})
+if(NOT SYNTH_AB)
+    cells_of(SYNTH_AB ${RTL_MEMORY} ${SYNTH_CELL})
+endif()
+set(S ${RB}/synth-c${SYNTH_CELL}-ab${SYNTH_AB})
+if(NOT SYNTH_LAT EQUAL 1)
+    string(APPEND S -lat${SYNTH_LAT})
+endif()
+set(SYNTH_ROM)
+set(SYNTH_READ read_verilog)
+set(SYNTH_IS 0)
+if(SYNTH_KROM)
+    string(APPEND S -krom)
+    memimage(${SYNTH_CELL} ${SYNTH_AB})
+    set(SYNTH_ROM COMMAND memimage-${SYNTH_CELL}-${SYNTH_AB} ${BUILD}/default-${SYNTH_CELL}/nuc.hex ${S})
+    set(SYNTH_READ read_verilog -DHF_KROM -I${S})
+    set(SYNTH_IS 1)
+endif()
+string(REPLACE ";" " " SYNTH_READ "${SYNTH_READ}")
+tool(synth_said rtl/synth.c)
+add_custom_target(synth
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${S}
+        ${SYNTH_ROM}
+        COMMAND           yosys -q -l ${S}/yosys.log -p
+                            "${SYNTH_READ} soc.v hexaforth.v hf_mem.v; chparam -set W ${SYNTH_CELL} -set AB ${SYNTH_AB} -set LAT ${SYNTH_LAT} soc; synth_ecp5 -top soc -json ${S}/soc.json"
+        COMMAND           nextpnr-ecp5 --85k --package CABGA381 --json ${S}/soc.json --lpf-allow-unconstrained
+                            --timing-allow-fail -q -l ${S}/nextpnr.log || ${CMAKE_COMMAND} -E true
+        COMMAND           synth_said ${S}/nextpnr.log
+                            "W=${SYNTH_CELL} LAT=${SYNTH_LAT} KROM=${SYNTH_IS} memory 2^${SYNTH_AB} cells:"
+                            > ${S}/result.txt
+        COMMAND           ${CMAKE_COMMAND} -E cat ${S}/result.txt
+        WORKING_DIRECTORY ${RTL}
+        VERBATIM)
+add_dependencies(synth machine-default-${SYNTH_CELL})
+
+#
+# The benchmarks: what the machine costs to do its work, in clocks.
+#
+# Runtime is clocks, and the Verilog CPU is what has them (rtl/tb.cpp), so
+# the work is done there: on each machine of util/machines, with as much
+# memory as it has, and with what the memory read back a cycle after it is
+# asked for and two (LAT).  A piece of work is a file that is typed at the
+# nucleus's prompt, the same file on every machine:
+#
+#   bench-draw      bench/draw.fs: text, fills and scrolls.  What it leaves
+#                   on the display is compared with what the reference VM
+#                   leaves there when the same is typed at it
+#   bench-dither    bench/dither.fs: the Mandrill read from a disk a block
+#                   at a time, as the system reads it, and dithered, from
+#                   its three samples and from its grays, at its own size
+#                   and at half of it.  Each bitmap is compared with the
+#                   dither a pixel at a time (test/dither.c).  A machine
+#                   that has not the memory for one says so, and that is
+#                   what is printed
+#
+# and two things are there to compare the machine with:
+#
+#   bench-m68k      the same dither on a 68000, written for it
+#                   (bench/m68k/), with the picture already in its memory,
+#                   and its bitmap compared with the same dither a pixel at
+#                   a time.  It wants the 68000's assembler (m68k-elf-as),
+#                   and fetches Musashi, which is the 68000
+#   gates           how big the CPU is beside a Z80 and a 68000
+#
+#   bench           the first three
+#
+# A figure is printed by what checked the work it is of (bench/check.c),
+# and nothing is printed for work that was not checked.  Everything is
+# kept in build/bench/; a line a result is printed, and the target fails
+# if a check did.  No figure is kept in the repository: what a change costs
+# is what this prints before it and after.
+#
+set(BB ${BUILD}/bench)
+set(BENCH ${CMAKE_SOURCE_DIR}/bench)
+
+# The disk: the system's, and the picture's grays as a file after it
+# (bench/disk.c, which also writes what says where the two pictures are).
+tool(picture-disk bench/disk.c bench/tiff.c test/dither.c)
+add_custom_command(
+        OUTPUT            ${BB}/disk.img ${BB}/blocks.fs
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${BB}
+        COMMAND           mkdisk ${PICTURE} ${BB}/system.img > ${BB}/disk.log 2>&1
+        COMMAND           picture-disk ${PICTURE} ${BB}/system.img ${BB}/disk.img ${BB}/blocks.fs >> ${BB}/disk.log 2>&1
+        DEPENDS           mkdisk picture-disk picture ${PICTURE})
+
+# What is typed after bench/dither.fs to dither one picture at one size,
+# say where its bitmap is, and stop.
+set(PICTURES gray colour)
+set(PICTURE_SIZES own half)
+foreach(PIC ${PICTURES})
+    foreach(SIZE ${PICTURE_SIZES})
+        file(WRITE ${BB}/asks-${PIC}-${SIZE}.fs "mark ${PIC}-picture ${SIZE} mark\nb @ . b 1+ @ .\n8000 execute\n")
+    endforeach()
+endforeach()
+
+# The work on a machine: its nucleus, the reference VM, the Verilog CPU
+# with as much memory, and what checks a bitmap of its kind.
+function(bench_on NAME)
+    string(REGEX MATCH "CELL_BITS=([0-9]+)" HAS "${SIZES_OF_${NAME}}")
+    set(CELL ${CMAKE_MATCH_1})
+    string(REGEX MATCH "ADDR_BITS=([0-9]+)" HAS "${SIZES_OF_${NAME}}")
+    set(ADDR ${CMAKE_MATCH_1})
+    set(NUC ${BUILD}/${NAME}/nuc.hex)
+    machine_tool(check ${NAME} bench/check.c bench/tiff.c test/dither.c)
+    foreach(LAT 1 2)
+        set(T ${BB}/tb-${NAME}-${LAT})
+        verilog_cpu(${T} ${CELL} ${ADDR} ${LAT})
+        set_property(GLOBAL APPEND PROPERTY BENCH_PARTS ${T}/tb)
+        set(ON "${CELL} bits LAT=${LAT}")
+        set(WANTS bench-parts ${T}/tb ${BB}/disk.img machine-${NAME} ${NUC} check-${NAME})
+
+        set(J ${BB}/draw-${NAME}-${LAT})
+        add_custom_command(
+                OUTPUT            ${J}.txt
+                COMMAND           ${T}/tb run ${NUC} ${BB}/disk.img ${J}.mem < ${BENCH}/draw.fs > ${J}.out 2> ${J}.err
+                COMMAND           hexaforth-${NAME} ${NUC} ${BB}/disk.img ${J}.vm < ${BENCH}/draw.fs > ${J}.vm.out 2>&1
+                COMMAND           check-${NAME} display ${J}.vm ${J}.mem ${J}.err draw "${ON}" text fills scrolls
+                                    > ${J}.txt 2> ${J}.check
+                COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem ${J}.vm
+                DEPENDS           ${WANTS} hexaforth-${NAME} bench/draw.fs
+                VERBATIM)
+        set_property(GLOBAL APPEND PROPERTY DRAW_FIGURES ${J}.txt)
+
+        foreach(PIC ${PICTURES})
+            foreach(SIZE ${PICTURE_SIZES})
+                set(J ${BB}/dither-${PIC}-${SIZE}-${NAME}-${LAT})
+                add_custom_command(
+                        OUTPUT            ${J}.txt
+                        COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/blocks.fs ${BENCH}/dither.fs
+                                            ${BB}/asks-${PIC}-${SIZE}.fs > ${J}.fs
+                        COMMAND           ${T}/tb run ${NUC} ${BB}/disk.img ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
+                        COMMAND           check-${NAME} picture ${PICTURE} ${SIZE} ${J}.mem ${J}.out ${J}.err
+                                            "dither ${PIC} ${SIZE}" "${ON}" > ${J}.txt 2> ${J}.check
+                        COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem
+                        DEPENDS           ${WANTS} ${BB}/blocks.fs bench/dither.fs picture ${PICTURE}
+                        VERBATIM)
+                set_property(GLOBAL APPEND PROPERTY DITHER_FIGURES ${J}.txt)
+            endforeach()
+        endforeach()
+    endforeach()
+endfunction()
+foreach(NAME ${MACHINES})
+    bench_on(${NAME})
+endforeach()
+get_property(BENCH_PARTS GLOBAL PROPERTY BENCH_PARTS)
+add_custom_target(bench-parts DEPENDS ${BB}/disk.img ${BB}/blocks.fs ${BENCH_PARTS})
+
+# The 68000.  Musashi is fetched as it was when this was written; the
+# program is where it is put in the 68000's memory.
+set(MB ${BB}/m68k)
+set(M68K_AT 0x1000)
+find_program(M68K_AS m68k-elf-as)
+find_program(M68K_LD m68k-elf-ld)
+find_program(M68K_OBJCOPY m68k-elf-objcopy)
+set(M68K_FIGURES)
+if(M68K_AS)
+    include(ExternalProject)
+    set(MUSASHI ${BB}/Musashi)
+    ExternalProject_Add(musashi
+            GIT_REPOSITORY    https://github.com/kstenerud/Musashi
+            GIT_TAG           313ebf1bd9f4d0d93341eb5ce21fd8a119e9dbdd
+            SOURCE_DIR        ${MUSASHI}
+            CONFIGURE_COMMAND ""
+            BUILD_COMMAND     ""
+            INSTALL_COMMAND   ""
+            EXCLUDE_FROM_ALL  TRUE)
+    set_source_files_properties(${MUSASHI}/m68kmake.c ${MUSASHI}/m68kcpu.c ${MUSASHI}/softfloat/softfloat.c
+                                PROPERTIES GENERATED TRUE)
+    tool(m68kmake ${MUSASHI}/m68kmake.c)
+    add_dependencies(m68kmake musashi)
+    add_custom_command(
+            OUTPUT            ${MB}/m68kops.c ${MB}/m68kops.h
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${MB}
+            COMMAND           m68kmake ${MB} ${MUSASHI}/m68k_in.c > ${MB}/m68kmake.log 2>&1
+            DEPENDS           m68kmake)
+    tool(run68k bench/m68k/run68k.c bench/tiff.c test/dither.c
+                ${MUSASHI}/m68kcpu.c ${MB}/m68kops.c ${MUSASHI}/softfloat/softfloat.c)
+    target_include_directories(run68k PRIVATE ${MUSASHI} ${MB})
+    add_dependencies(run68k musashi)
+
+    set(M68K_ASSEMBLED ${M68K_AS} -m68000 --register-prefix-optional)
+    foreach(PART atk gray)
+        add_custom_command(
+                OUTPUT            ${MB}/${PART}.o
+                COMMAND           ${CMAKE_COMMAND} -E make_directory ${MB}
+                COMMAND           ${M68K_ASSEMBLED} -o ${MB}/${PART}.o ${BENCH}/m68k/${PART}.s
+                DEPENDS           bench/m68k/${PART}.s)
+    endforeach()
+    foreach(PIC ${PICTURES})
+        foreach(SIZE ${PICTURE_SIZES})
+            set(J ${MB}/${PIC}-${SIZE})
+            set(SAMPLES 3)
+            if(PIC STREQUAL gray)
+                set(SAMPLES 1)
+            endif()
+            set(HALF 0)
+            if(SIZE STREQUAL half)
+                set(HALF 1)
+            endif()
+            add_custom_command(
+                    OUTPUT            ${J}.txt
+                    COMMAND           ${M68K_ASSEMBLED} --defsym SAMPLES=${SAMPLES} --defsym HALF=${HALF}
+                                        -o ${J}.o ${BENCH}/m68k/glue.s
+                    COMMAND           ${M68K_LD} -Ttext=${M68K_AT} -e _start -o ${J}.elf ${J}.o ${MB}/atk.o ${MB}/gray.o
+                    COMMAND           ${M68K_OBJCOPY} -O binary ${J}.elf ${J}.bin
+                    COMMAND           run68k ${J}.bin ${M68K_AT} ${PICTURE} ${PIC} ${SIZE} > ${J}.txt 2> ${J}.log
+                    DEPENDS           run68k bench/m68k/glue.s ${MB}/atk.o ${MB}/gray.o picture ${PICTURE})
+            list(APPEND M68K_FIGURES ${J}.txt)
+        endforeach()
+    endforeach()
+else()
+    file(WRITE ${BB}/m68k.txt "m68k                   68000             not run: there is no m68k-elf-as\n")
+    list(APPEND M68K_FIGURES ${BB}/m68k.txt)
+endif()
+
+# What was found, as figures: each kind is one target's to make, and the
+# targets that print are of those.
+get_property(DRAW_FIGURES GLOBAL PROPERTY DRAW_FIGURES)
+get_property(DITHER_FIGURES GLOBAL PROPERTY DITHER_FIGURES)
+add_custom_target(draw-figures DEPENDS ${DRAW_FIGURES})
+add_custom_target(dither-figures DEPENDS ${DITHER_FIGURES})
+add_custom_target(m68k-figures DEPENDS ${M68K_FIGURES})
+add_dependencies(draw-figures bench-parts)
+add_dependencies(dither-figures bench-parts)
+function(figures TARGET)                                # and the kinds it prints
+    set(PRINTED)
+    foreach(KIND ${ARGN})
+        list(APPEND PRINTED ${${KIND}_FIGURES})
+    endforeach()
+    add_custom_target(${TARGET} COMMAND check-${FIRST} table ${PRINTED})
+    foreach(KIND ${ARGN})
+        string(TOLOWER ${KIND} OF)
+        add_dependencies(${TARGET} ${OF}-figures)
+    endforeach()
+endfunction()
+figures(bench-draw DRAW)
+figures(bench-dither DITHER)
+figures(bench-m68k M68K)
+figures(bench DRAW DITHER M68K)
+
+#
+# `gates`: how big the CPU is, beside a Z80 and a 68000.
+#
+# Each is put through one flow of Yosys, to NAND gates of two inputs,
+# inverters and D flip-flops, and what it comes to is given as gates
+# (bench/gates.c).  A memory that is a register file is made flip-flops,
+# and one that is a ROM or a stack is left a memory and said, not counted.
+# The CPU is rtl/hexaforth.v with cells of 16 bits, of 32 and of 64, and
+# each again without its multiplier, which the other two have none of.
+#
+# The other two are not kept here.  They are fetched, as they were when
+# this was written: TV80 for the Z80, and fx68k for the 68000, whose
+# microcode is the ROMs that are left out.  fx68k's structures are made
+# packed for Yosys to read (bench/packed.cmake), which changes nothing they
+# are.
+#
+# It wants yosys.  Everything is kept in build/bench/gates/.
+#
+set(GB ${BB}/gates)
+find_program(YOSYS yosys)
+if(YOSYS)
+    include(ExternalProject)
+    tool(gates_said bench/gates.c)
+
+    # One flow for every CPU: what it is called, where its Verilog is, its
+    # top module, what reads it (a line each), the memories to make
+    # flip-flops, and whether its multipliers are left out.
+    function(gates LABEL)
+        cmake_parse_arguments(OF "NO_MULTIPLIER" "IN;TOP;MEMORIES" "READ;AFTER" ${ARGN})
+        string(REPLACE ";" "\n" READ "${OF_READ}")
+        set(MAP "techmap")
+        if(OF_NO_MULTIPLIER)
+            set(MAP "techmap t:$mul %n")
+        endif()
+        set(MEMORIES)
+        if(OF_MEMORIES)
+            set(MEMORIES "memory_map ${OF_MEMORIES}")
+        endif()
+        file(WRITE ${GB}/${LABEL}.ys
+"${READ}
+hierarchy -top ${OF_TOP}
+proc -norom
+synth -top ${OF_TOP} -flatten -noalumacc -run :fine
+${MEMORIES}
+opt -fast -full
+${MAP}
+opt -fast
+abc -g NAND
+opt -fast
+dfflegalize -cell $_DFF_P_ 01 -cell $_DFF_PN0_ 01 -cell $_DFF_PN1_ 01 -cell $_DFF_PP0_ 01 -cell $_DFF_PP1_ 01
+abc -g NAND
+opt_clean
+tee -o ${GB}/${LABEL}.stat stat
+")
+        add_custom_command(
+                OUTPUT            ${GB}/${LABEL}.stat
+                COMMAND           ${YOSYS} -q -l ${GB}/${LABEL}.log -s ${GB}/${LABEL}.ys > ${GB}/${LABEL}.out 2>&1
+                WORKING_DIRECTORY ${OF_IN}
+                COMMENT           "Gates: ${LABEL} (what Yosys says is in ${GB}/${LABEL}.log)"
+                DEPENDS           ${GB}/${LABEL}.ys ${OF_AFTER})
+        set_property(GLOBAL APPEND PROPERTY GATES ${LABEL})
+    endfunction()
+
+    foreach(CELL 16 32 64)
+        set(READ "read_verilog hexaforth.v" "chparam -set W ${CELL} -set LAT 1 hexaforth")
+        gates(hexaforth-${CELL} IN ${RTL} TOP hexaforth READ ${READ} AFTER rtl/hexaforth.v)
+        gates(hexaforth-${CELL}-no-multiplier IN ${RTL} TOP hexaforth READ ${READ} AFTER rtl/hexaforth.v NO_MULTIPLIER)
+    endforeach()
+
+    ExternalProject_Add(tv80
+            GIT_REPOSITORY    https://github.com/hutch31/tv80
+            GIT_TAG           66a131c38d05ef58b3d8c4f1507a72e6e4aa5d65
+            SOURCE_DIR        ${GB}/tv80
+            CONFIGURE_COMMAND ""
+            BUILD_COMMAND     ""
+            INSTALL_COMMAND   ""
+            EXCLUDE_FROM_ALL  TRUE)
+    gates(z80-tv80 IN ${GB}/tv80/rtl/core TOP tv80s
+          READ "read_verilog tv80s.v tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v"
+          MEMORIES "t:$mem_v2" AFTER tv80)
+
+    ExternalProject_Add(fx68k
+            GIT_REPOSITORY    https://github.com/ijor/fx68k
+            GIT_TAG           0602ee4627b10f301298f2673d826cdd6baa9327
+            SOURCE_DIR        ${GB}/fx68k
+            CONFIGURE_COMMAND ""
+            BUILD_COMMAND     ""
+            INSTALL_COMMAND   ""
+            EXCLUDE_FROM_ALL  TRUE)
+    set(PACKED ${GB}/fx68k-packed)
+    add_custom_command(
+            OUTPUT            ${PACKED}/fx68k.sv
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${PACKED}
+            COMMAND           ${CMAKE_COMMAND} -E copy ${GB}/fx68k/fx68kAlu.sv ${GB}/fx68k/uaddrPla.sv
+                                ${GB}/fx68k/microrom.mem ${GB}/fx68k/nanorom.mem ${PACKED}
+            COMMAND           ${CMAKE_COMMAND} -DFROM=${GB}/fx68k/fx68k.sv -DTO=${PACKED}/fx68k.sv -P ${BENCH}/packed.cmake
+            DEPENDS           fx68k bench/packed.cmake)
+    gates(m68000-fx68k IN ${PACKED} TOP fx68k
+          READ "read_verilog -sv fx68k.sv fx68kAlu.sv uaddrPla.sv"
+          MEMORIES "fx68k/excUnit.regs68L fx68k/excUnit.regs68H" AFTER ${PACKED}/fx68k.sv)
+
+    get_property(GATES GLOBAL PROPERTY GATES)
+    set(COUNTED)
+    set(SAID)
+    foreach(LABEL ${GATES})
+        list(APPEND COUNTED ${GB}/${LABEL}.stat)
+        list(APPEND SAID COMMAND gates_said ${LABEL} ${GB}/${LABEL}.stat)
+    endforeach()
+    add_custom_target(gates ${SAID} DEPENDS ${COUNTED})
+    add_dependencies(gates tv80 fx68k)
+else()
+    add_custom_target(gates COMMAND ${CMAKE_COMMAND} -E echo "gates: not run: there is no yosys")
+endif()
 
 #
 # Every test there is, built and then run: a line for each, and all that

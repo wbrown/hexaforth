@@ -1,5 +1,5 @@
 //
-// desktime KERNEL.elf DISK.img PICTURE.tiff FORTH NAMES.tables MEMORY [SECONDS]
+// desktime KERNEL.elf KERNEL.symbols DISK.img PICTURE.tiff FORTH NAMES.tables OUT [SECONDS]
 //
 // When the desktop is ready, and when its picture is made.
 //
@@ -8,19 +8,20 @@
 // Forth window has its prompt on the screen, and when the first row of
 // the picture, half its rows and all of them have been made.  The times
 // are in seconds from when the machine was started.  On a kernel held to
-// a speed (make demo-time MIPS=1) they are what a machine of that speed is
-// like to wait for, and with the disk held to one as well (DISK=40, from
-// the environment) one with a floppy.  They are what to measure before
-// and after a change to how the picture is read, dithered or shown.  It
-// gives up after SECONDS, 600 if none is given.
+// a speed (the target `demo-time`, with MIPS) they are what a machine of
+// that speed is like to wait for, and with the disk held to one as well
+// (DISK=40, from the environment) one with a floppy.  They are what to
+// measure before and after a change to how the picture is read, dithered
+// or shown.  It gives up after SECONDS, 600 if none is given.  The copy of
+// the disk the machine is given is kept in OUT.
 //
 // The screen is looked at for the prompt, as the desktop's checks read it
 // (test/deskcheck.h).  How many rows of the picture are made is read out
-// of the machine's memory, which is at MEMORY in QEMU's: `vw` in view.fs
-// is the viewer in hand, and the third cell of a viewer's record is the
-// rows of its bitmap that are made (`bmh`).  If either changes, so must
-// this; it stops and says so if the names that go with the image have no
-// `vw`.
+// of the machine's memory, which is in QEMU's where the kernel's symbol
+// `image` is (symbols.c): `vw` in view.fs is the viewer in hand, and the
+// third cell of a viewer's record is the rows of its bitmap that are made
+// (`bmh`).  If either changes, so must this; it stops and says so if the
+// names that go with the image have no `vw`.
 //
 
 #include <stdio.h>
@@ -32,6 +33,7 @@
 #include "../test/tables.h"
 #include "../util/words.c"
 #include "qemu.h"
+#include "symbols.c"
 
 #define ROWS_MADE 2             // bmh: where it is in a viewer's record (view.fs)
 
@@ -49,24 +51,25 @@ static void note(int what) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 7) {
-        fprintf(stderr, "Usage: %s KERNEL.elf DISK.img PICTURE.tiff FORTH NAMES.tables MEMORY [SECONDS]\n", argv[0]);
+    if (argc < 8) {
+        fprintf(stderr, "Usage: %s KERNEL.elf KERNEL.symbols DISK.img PICTURE.tiff FORTH NAMES.tables OUT [SECONDS]\n",
+                argv[0]);
         return(1);
     }
-    double limit = argc > 7 ? atof(argv[7]) : 600;
-    int height = read_tiff(argv[3]).h;
-    uint64_t vw = data_called(argv[5], "vw");
-    uint64_t memory = strtoull(argv[6], NULL, 16);      // where the machine's cell 0 is
+    double limit = argc > 8 ? atof(argv[8]) : 600;
+    int height = read_tiff(argv[4]).h;
+    uint64_t vw = data_called(argv[6], "vw");
+    uint64_t memory = symbol_at(argv[2], "image");      // where the machine's cell 0 is
     if (!vw) {
-        fprintf(stderr, "%s has no label vw: view.fs has changed, and this must change with it\n", argv[5]);
+        fprintf(stderr, "%s has no label vw: view.fs has changed, and this must change with it\n", argv[6]);
         return(1);
     }
-    tables_are(argv[4]);
-    desk watched = { {"cold", "desktop"}, " catch drop", true, argv[3], "." };
+    tables_are(argv[5]);
+    desk watched = { {"cold", "desktop"}, " catch drop", true, argv[4], argv[7] };
     for(int what=0; what < TIMES; what++) when[what] = -1;
 
     clock_gettime(CLOCK_MONOTONIC, &started);
-    qemu_start(argv[1], argv[2]);
+    qemu_start(argv[1], argv[3], argv[7]);
     while (when[ALL] < 0 && now() < limit) {
         const char* said = qemu_said();
         uint64_t viewer = qemu_cell(memory + CELL_BYTES * vw);

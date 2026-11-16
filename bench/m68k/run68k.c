@@ -7,7 +7,7 @@
 // work on the processor of the first Macintosh, at the same clock.
 //
 // The 68000 is Musashi, which counts the clocks of each instruction as
-// Motorola's tables give them.  It is not kept here: bench.sh fetches it.
+// Motorola's tables give them.  It is not kept here: CMake fetches it.
 // PROGRAM.bin is glue.s, atk.s and gray.s, linked to run from the address
 // AT.  The picture is put in the 68000's memory, whole, as its three
 // samples (colour) or as its grays (gray), with what glue.s says it wants
@@ -18,7 +18,9 @@
 // with.
 //
 // The clocks are of the whole run.  The 68000 has the picture in memory
-// when it starts, and reads no file.
+// when it starts, and reads no file.  What it took is printed as the
+// machine's own figures are (figure.c), and says FAIL if the bitmap is not
+// the dither's.
 //
 
 #include <stdbool.h>
@@ -27,6 +29,7 @@
 #include <string.h>
 #include "m68k.h"
 #include "../../test/dither.h"
+#include "../figure.c"
 #include "../tiff.h"
 
 // The 68000's memory, and where things are put in it.  The program is
@@ -163,7 +166,12 @@ int main(int argc, char *argv[]) {
             if (got != black[y * dw + x]) differ++;
         }
     }
-    printf("%llu clocks; %d by %d: %d pixels compared, %d differ (program %d bytes)\n",
-           clocks, dw, dh, dw * dh, differ, (int)len);
-    return(differ || !(dw * dh));
+    bool failed = differ || !(dw * dh);
+    char* work = NULL;
+    char* is = NULL;
+    text_more(&work, "dither %s %s", argv[4], argv[5]);
+    text_more(&is, "%s%llu clocks; %d by %d: %d pixels compared, %d differ (program %d bytes)",
+              failed ? "FAIL " : "", clocks, dw, dh, dw * dh, differ, (int)len);
+    figure(work, NULL, "68000", is);
+    return(0);                  // it has said which: the table of the benchmarks gives the status (check.c)
 }

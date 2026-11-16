@@ -110,8 +110,25 @@ static void command(const char* format, ...) {
     for(const char* said = answer(); !strstr(said, "\"return\"") && !strstr(said, "\"error\""); said = answer());
 }
 
-void qemu_start(const char* elf, const char* on) {
-    disk = on;
+// A copy of a disk, in a directory, which is what QEMU is given: the
+// machine writes to its disk, and the disk that was made is left as it was
+// made.
+static const char* copy_of(const char* from, const char* in) {
+    unsigned char* bytes;
+    size_t len = file_bytes(from, &bytes);
+    if (len < DISK_BLOCK) {
+        fprintf(stderr, "QEMU: %s is not a disk: it is %zu bytes\n", from, len);
+        exit(EXIT_FAILURE);
+    }
+    char* to = text("%s/disk.img", in);
+    FILE* out = fopen(to, "wb");
+    if (out == NULL || fwrite(bytes, 1, len, out) != len || fclose(out)) fail(to);
+    free(bytes);
+    return(to);
+}
+
+void qemu_start(const char* elf, const char* on, const char* out) {
+    disk = copy_of(on, out);
     if (getenv("SCALE") && atoi(getenv("SCALE")) > 1) qemu_scale = atoi(getenv("SCALE"));
     int rate = getenv("DISK") ? (int)(atof(getenv("DISK")) * 1024) : 0;
     screen = malloc((size_t)W * H);
@@ -119,7 +136,7 @@ void qemu_start(const char* elf, const char* on) {
     if (!mkdtemp(tmp)) fail(tmp);
     char* sock = text("%s/qmp", tmp);
     char* qmp_is = text("unix:%s,server,nowait", sock);
-    char* drive = rate          // QEMU holds the drive to it, as the Makefile's DISK does
+    char* drive = rate          // QEMU holds the drive to it, as it does for the target `demo`
         ? text("file=%s,if=none,format=raw,id=hd0,throttling.bps-read=%d,throttling.bps-write=%d", disk, rate, rate)
         : text("file=%s,if=none,format=raw,id=hd0", disk);
 

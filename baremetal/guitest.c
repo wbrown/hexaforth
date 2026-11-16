@@ -5,9 +5,9 @@
 //
 // The checks are those of test/deskcheck.c, which test/desktop_test.c runs
 // on the reference VM with cells of each size.  Here the machine they are
-// run on is QEMU's (qemu.h), with its devices.  With SCALE in the
-// environment it checks as well that every pixel of every screen it took
-// was a whole block.
+// run on is QEMU's (qemu.h), with its devices, and a copy of the disk that
+// is kept in OUT with the screens.  With SCALE in the environment it checks
+// as well that every pixel of every screen it took was a whole block.
 //
 
 #include <stdio.h>
@@ -21,7 +21,7 @@ int main(int argc, char *argv[]) {
         return(1);
     }
     tables_are(argv[4]);
-    qemu_start(argv[1], argv[2]);
+    qemu_start(argv[1], argv[2], argv[5]);
 
     // The newest words of the kernel's dictionary are the system's own.
     desk on = { {"cold", "desktop"}, " catch drop", true, argv[3], argv[5] };

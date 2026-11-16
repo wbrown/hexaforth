@@ -50,7 +50,7 @@ header 1-       : 1-        d# -1 + ;
 \ unless the peephole joins them to what is beside them; on every other
 \ page it is in line, as before.  These are callable: with them calls in
 \ the kernel, drawing and the dither take no longer than they did
-\ (bench/bench.sh).
+\ (the target `bench`).
 header 0=       callable 0=
 header <>       callable <>
 header >        callable >
@@ -67,7 +67,7 @@ header -rot     callable -rot
 \ takes longer, and it is no longer small enough to be laid in line where
 \ another page uses it, so it is called there as well: with negate a call,
 \ a subtraction is a call that makes a call, where it was three
-\ instructions in line, and drawing takes longer (bench/bench.sh draw).
+\ instructions in line, and drawing takes longer (the target `bench-draw`).
 \ Of all of these it is the one that was found to cost drawing anything.
 header negate   :noname     negate   ;
 

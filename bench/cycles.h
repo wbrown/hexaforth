@@ -5,7 +5,7 @@
 // variable reads memory.
 //
 // This is for what weighs a profile by them.  What a piece of work takes
-// in cycles is measured, on the CPU itself: `make -C rtl bench`.
+// in cycles is measured, on the CPU itself: the target `bench`.
 //
 
 #ifndef HEXAFORTH_CYCLES_H

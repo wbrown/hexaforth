@@ -1,5 +1,5 @@
 //
-// difftest KERNEL.bin CASES.bin ADDR_BITS START IMAGE NEXT HALT
+// difftest KERNEL.bin CASES.bin KERNEL.symbols
 //
 // An AArch64 kernel against vm.c, which is the machine.
 //
@@ -10,11 +10,13 @@
 // memory it is given and a UART: and the kernel is to halt with the same
 // stacks, the same output and the same memory, every byte.
 //
-// The kernel is loaded where it is linked (START) and its boot stub run
-// once, to where it takes its first instruction (NEXT); every case then
-// starts from the machine as that left it.  IMAGE is where the kernel has
-// the machine's memory, which the stacks follow, and HALT where it stops.
-// The four are the kernel's own symbols, which the Makefile asks of it.
+// The kernel is loaded where it is linked (_start) and its boot stub run
+// once, to where it takes its first instruction (next); every case then
+// starts from the machine as that left it.  image is where the kernel has
+// the machine's memory, which the stacks follow, and halt where it stops.
+// The four are the kernel's own symbols, which the build keeps beside it
+// (symbols.c).  This is built for the machine the kernel is built for, and
+// so has how much memory that is.
 //
 
 #include <stdarg.h>
@@ -25,8 +27,9 @@
 #include <string.h>
 #include <unicorn/unicorn.h>
 #include "../vm_constants.h"
+#include "symbols.c"
 
-#define RAM         0x40000000ull       // where QEMU's virt machine has its memory,
+#define RAM        0x40000000ull       // where QEMU's virt machine has its memory,
 #define UART        0x09000000ull       // and its UART
 #define UART_DATA   0x00                // the UART's registers: a character,
 #define UART_FLAGS  0x18                // and its flags,
@@ -43,7 +46,7 @@ static uint8_t* tx;                     // and what it wrote: all of it, however
 static size_t tx_len, tx_room;
 
 // Room for so many of something, or it stops.
-static void* room_for(void* had, size_t count, size_t size) {
+static void* more_room(void* had, size_t count, size_t size) {
     void* room = realloc(had, (count ? count : 1) * size);
     if (room == NULL) {
         fprintf(stderr, "difftest: there is no room for %zu of %zu bytes\n", count, size);
@@ -71,7 +74,7 @@ static void uart(uc_engine* on, uc_mem_type type, uint64_t address, int size, in
         is = rx_at < rx_len ? rx[rx_at++] : 0;
         uc_mem_write(on, address, &is, 4);
     } else if (type == UC_MEM_WRITE && at == UART_DATA) {
-        if (tx_len == tx_room) tx = room_for(tx, tx_room = 2 * tx_room + MAPPED, 1);
+        if (tx_len == tx_room) tx = more_room(tx, tx_room = 2 * tx_room + MAPPED, 1);
         tx[tx_len++] = (uint8_t)value;
     }
 }
@@ -88,7 +91,7 @@ static uint64_t reg(int which) {
 static int stack_of(uint64_t base, int pointer, int top, int64_t** cells) {
     int depth = (int)((int64_t)(reg(pointer) - base) / (int64_t)sizeof(int64_t));
     if (depth < 0) depth = 0;
-    *cells = room_for(NULL, depth, sizeof(int64_t));
+    *cells = more_room(NULL, depth, sizeof(int64_t));
     if (depth > 1) uc_mem_read(uc, base + sizeof(int64_t), *cells, sizeof(int64_t) * (size_t)(depth - 1));
     if (depth > 0) (*cells)[depth - 1] = (int64_t)reg(top);
     return(depth);
@@ -102,7 +105,7 @@ static void also(char** why, const char* format, ...) {
     va_copy(again, args);
     size_t had = *why ? strlen(*why) : 0, more = vsnprintf(NULL, 0, format, args);
     va_end(args);
-    *why = room_for(*why, had + more + 1, 1);
+    *why = more_room(*why, had + more + 1, 1);
     vsnprintf(*why + had, more + 1, format, again);
     va_end(again);
 }
@@ -145,17 +148,17 @@ static uint8_t* file(const char* path, size_t* len) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 8) {
-        fprintf(stderr, "Usage: %s KERNEL.bin CASES.bin ADDR_BITS START IMAGE NEXT HALT\n", argv[0]);
+    if (argc != 4) {
+        fprintf(stderr, "Usage: %s KERNEL.bin CASES.bin KERNEL.symbols\n", argv[0]);
         return(1);
     }
     size_t code_len;
     uint8_t* code = file(argv[1], &code_len);
     cases = file(argv[2], &cases_len);
-    uint64_t stacks = sizeof(int64_t) << atoi(argv[3]); // the stacks follow memory:
+    uint64_t stacks = sizeof(int64_t) << ADDR_BITS;     // the stacks follow memory:
     uint64_t dstack = stacks, rstack = stacks + STACK_BYTES;    // the data stack, and then the return stack
-    uint64_t start = strtoull(argv[4], NULL, 16), image = strtoull(argv[5], NULL, 16);
-    uint64_t next = strtoull(argv[6], NULL, 16), halt = strtoull(argv[7], NULL, 16);
+    uint64_t start = symbol_at(argv[3], "_start"), image = symbol_at(argv[3], "image");
+    uint64_t next = symbol_at(argv[3], "next"), halt = symbol_at(argv[3], "halt");
 
     // Its memory is from where QEMU has it to the end of the kernel or of
     // the second stack, whichever is further, in what the emulator maps.
@@ -200,7 +203,7 @@ int main(int argc, char *argv[]) {
         bool halted = ran == UC_ERR_OK && reg(UC_ARM64_REG_PC) == halt;
 
         int64_t* got;
-        uint8_t* got_mem = room_for(NULL, mem_len, 1);
+        uint8_t* got_mem = more_room(NULL, mem_len, 1);
         char* why = NULL;
         if (!halted) also(&why, "did not halt%s%s; ", ran ? ": " : "", ran ? uc_strerror(ran) : "");
         int depth = stack_of(image + dstack, UC_ARM64_REG_X24, UC_ARM64_REG_X22, &got);

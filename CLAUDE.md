@@ -225,7 +225,7 @@ test is CMake's to build and run.
   peephole does not join it to its neighbours. The top of `nuc.fs` says
   which are and which are not, and why. One that words run all the time
   are made of is not, and which is which is measured
-  (`bench/bench.sh draw`), not judged
+  (the target `bench-draw`), not judged
 - A shift count is taken modulo 64 whatever the cell, so a shift by the
   width of a cell of 16 or 32 bits gives zero, and a shift by 64 shifts
   by nothing
@@ -237,11 +237,12 @@ test is CMake's to build and run.
   thought to cost, leaves out the loop that does them and whatever is rare
   and dear
 - Runtime is cycles, not instructions: a memory read, a shift, a multiply
-  and a jump each take more than one. `make -C rtl bench` says cycles
-- `sh bench/bench.sh` is the benchmarks: a piece of work is a file typed
+  and a jump each take more than one. The target `bench` says cycles
+- The target `bench` is the benchmarks: a piece of work is a file typed
   at the prompt, the same file on the Verilog CPU of every size, and what
-  it made is checked before a figure is printed for it. It says at its top
-  what there is. What a change costs is what it prints before the change
+  it made is checked before a figure is printed for it. `CMakeLists.txt`
+  says what there is (`bench-draw`, `bench-dither`, `bench-m68k`, and
+  `gates`). What a change costs is what it prints before the change
   and after; no figure is kept in the repository
 - The target `peephole` is what the nucleus's compiler is worth: what it
   makes of the system's code as typed beside what `cross.fs` makes, by
@@ -315,20 +316,35 @@ VM), `hexaforth-debug` (with a trace of every instruction),
 then `kernel_test` on the image, and then `fewer_test`; and
 `examine-image`, with the target `examine`, which runs it on the image.
 When it is configured it looks for Unicorn's library, which the kernels
-are run against `vm.c` on (`make -C baremetal test`), and where that is
-not there and Homebrew is, has Homebrew install it.
+are run against `vm.c` on (the tests `kernel-hexaforth` and
+`kernel-hexaforth-fast`), and where that is not there and Homebrew is,
+has Homebrew install it.
 
-Whatever else is compiled or run is CMake's to compile and run too, and
-`CMakeLists.txt` says what each thing is made of, once. A tool, a test or
-a report that is added is added there: not a compiler's command line in a
-script, and not a script. `util/machines` is the machines the system is
-tried on, and CMake reads it: for each it builds the definition
-`cross.fs` reads, the nucleus, the reference VM and the tests, and keeps
-what is made in a directory of `build/` named for the bits of the
-machine's cell (`build/32/nuc.hex`; what is compiled is where CMake
-builds, `hexaforth-32`, `prompt_test-32`). None of that is built until a
-target wants it: `check`, which builds every test and runs them, or one
-of the reports, `profile`, `peephole`, `hits`, `phrases` and `tables`.
+Whatever else is compiled or run is CMake's to compile and run too: the
+machines, the AArch64 kernels, the Verilog, the tests, the reports and
+the benchmarks. `CMakeLists.txt` says what each thing is made of, once,
+and at each part what its targets are and what can be said to them. A
+tool, a test or a report that is added is added there: not a compiler's
+command line in a script, not a script, and not a Makefile. What looks at
+what a program printed, or works something out of it, is a function of
+the tree's C that a tool has in it, and not a pipe of `grep` and `awk`:
+`baremetal/symbols.c` is where a kernel's symbols are, `bench/figure.c`
+what a test bench said passed between two marks.
+
+`util/machines` is the machines the system is tried on, and CMake reads
+it: for each it builds the definition `cross.fs` reads, the nucleus, the
+reference VM and the tests, and keeps what is made in a directory of
+`build/` named for the bits of the machine's cell (`build/32/nuc.hex`;
+what is compiled is where CMake builds, `hexaforth-32`,
+`prompt_test-32`). The kernels are of the one with cells of 64 bits, and
+are made in `build/kernel/`; the Verilog is made in `build/rtl/`, and
+tested on the machine `vm_constants.h` gives each size of cell when
+nothing else is said (`build/default-32/`). None of that is built until
+a target wants it: `check`, which builds every test and runs them; the
+reports, `profile`, `peephole`, `hits`, `phrases` and `tables`; `bench`
+and `gates`; `run`, `demo`, `demo-test`, `demo-time` and `size`, of the
+kernel that `KERNEL`, `STRICT`, `SCALE`, `MIPS` and `DISK` say
+(`cmake -DMIPS=5 build/cmake`); and `synth`.
 
 An image is built by `gforth` from the Forth:
 
@@ -339,12 +355,6 @@ PEEPHOLE=off gforth ./cross.fs ./basewords.fs ./nuc.fs   # the same with the pee
 BUILD=../build/32/ gforth ./cross.fs ../build/32/basewords.fs ./nuc.fs   # written there, not in build/
 ```
 
-`util/build-machine.sh CELL_BITS [ADDR_BITS [WIDTH HEIGHT BASE]]` builds
-the generator, the nucleus, the reference VM and the tests that have that
-VM in them for a machine of another size, into `build/`, with a display if
-one is given; `EXTRA` carries more definitions to it (`-DSTRICT`).
-`util/machines` is the machines the system is tried on, which
-`CMakeLists.txt` and `bench/bench.sh` read.
 `./hexaforth IMAGE.hex [DISK.img [MEMORY.out]]` runs an image, and writes
 its memory when it has stopped if it is told where.
 
@@ -364,7 +374,7 @@ the two do not agree. What was found and run is kept beside the images
 so that a change to either starts another), so the first image built
 after such a change takes longer than the rest. Where gforth is
 Homebrew's, the compiler is told where Homebrew's headers are:
-`CMakeLists.txt` and `build-machine.sh` do, and by hand it is
+`CMakeLists.txt` does, and by hand it is
 `CPATH="$(brew --prefix)/include" gforth ...`.
 
 Generated, and checked in: `forth/basewords.fs` (by `basewords-fs-gen`,
@@ -384,8 +394,10 @@ prints the counts.
 ## Testing
 
 After a change, run what covers it, and after anything in `cross.fs`,
-`nuc.fs` or the machine, all of it: `sh test/all.sh` runs every suite
-below, and prints a line for each.
+`nuc.fs` or the machine, all of it:
+`cmake -S . -B build/cmake` and then
+`cmake --build build/cmake --target check` builds every test below and
+runs it, and prints a line for each.
 
 - `hexaforth_test`: each test of `test/tests.h` compiled by the C compiler
   and by `cross.fs` and the instructions compared, then run on the VM
@@ -407,12 +419,14 @@ below, and prints a line for each.
   TIFF reader (`prompt-32`, `desktop-16`, `display-64-3`: the last is the
   seed, and `SEEDS` says which are run). Nothing is cell-size safe that
   these have not run
-- `make -C baremetal test` (and `KERNEL=hexaforth-fast`): each AArch64
-  kernel against `vm.c`
-- `make -C baremetal demo-test` (and `STRICT=1`, `KERNEL=`): the desktop
-  on QEMU, driven and its screen checked
-- `make -C rtl test W=64` (32, 16; `LAT=2`; `KROM=1`): the Verilog against
-  `vm.c`; `test-mem`, `bench`, `synth` are there too
+- `kernel-hexaforth` and `kernel-hexaforth-fast`: each AArch64 kernel
+  against `vm.c`
+- `qemu-hexaforth-display-strict` and `qemu-hexaforth-fast-display`: the
+  desktop on QEMU with each, driven and its screen checked. The target
+  `demo-test` is the same of the kernel that is said to CMake
+- `verilog-cases-c64` and `verilog-session-c64` (and `c32`, `c16`; each
+  with `-lat2`; and `c64-lat2-krom`): the Verilog against `vm.c`, on the
+  cases and on a session typed at the nucleus; and `verilog-memory`
 - `builds`, which `check` runs too: after any change to a compiler or a
   peephole, the image against the image built with the peephole off: every
   straight-line run must leave what the plain one leaves, and every call,
@@ -420,14 +434,13 @@ below, and prints a line for each.
   many instructions, since then the plain build did not finish
 - To check that nothing stores into the kernel or leaves memory or a
   stack: the VM built with `-DSTRICT` and `-DROM_BYTES` the size of the
-  kernel ROM, or the small kernel with `STRICT=1`
+  kernel ROM, or the small kernel with `STRICT`
 
-`baremetal/Makefile` says in its first lines what else it does: `demo`,
-`demo-time`, and `MIPS=`, `DISK=`, `SCALE=`. The target `profile` is
+The target `profile` is
 where the desktop's instructions go: the desktop worked on the reference
 VM that counts, a table of things a person would do, and the work of each
 by file, word and kind of instruction (it leaves
-`build/profile/desktop.counts`; `make -C baremetal demo-profile` runs it).
+`build/profile/desktop.counts`).
 It then says what that work costs, three ways (`bench/costs.c`):
 `paths.txt`, each word charged with all it calls, which is what to read
 before saying what a change will save; `loops.txt`, the loops by what
@@ -514,14 +527,22 @@ The machine, in C:
   directory, on a disk of bytes by chance, dithered by the machine and a
   pixel at a time);
   `builds_test.c` (the two
-  builds, run for run: it has `fuse.c` in it, and asks the machine)
-- `bench/`: `bench.sh` (the benchmarks, and what each is); `draw.fs` and
-  `dither.fs` (the work, as it is typed); `disk.c`, `check.c` and `tiff.c`
-  (the disk the picture is read from, and what looks at a bitmap);
+  builds, run for run: it has `fuse.c` in it, and asks the machine);
+  `session_test.c` (what the Verilog sent of a session against what
+  `vm.c` sent)
+- `bench/`: the benchmarks (the target `bench`, and `CMakeLists.txt`
+  says what each is): `draw.fs` and
+  `dither.fs` (the work, as it is typed); `disk.c` and `tiff.c`
+  (the disk the picture is read from); `check.c` (what looks at what the
+  work made, and then prints what it cost: the table of the benchmarks is
+  its too) and `figure.c` (a line of that table, and what a test bench
+  said passed between two marks);
   `m68k/` (the same dither for a 68000, in its assembler, and the 68000
   to run it on: the one place here that is not C or Forth, since it is
-  what is measured against); `gates.sh` (the CPU's size beside a Z80's
-  and a 68000's); what the nucleus's compiler is worth (the target
+  what is measured against); `gates.c` (the CPU's size beside a Z80's
+  and a 68000's, from what Yosys counted: the target `gates`) and
+  `packed.cmake` (the 68000's Verilog made what Yosys reads); what the
+  nucleus's compiler is worth (the target
   `peephole`): `runs.c` (the image cut into straight-line runs, as typed and as
   `cross.fs` made them), `typed.c` (the runs typed at the nucleus, and
   what it made of them), `counting.c` (the reference VM, counting how
@@ -582,13 +603,19 @@ The other two machines:
 - `baremetal/`: `hexaforth.S` (the small kernel) and `hexaforth-fast.S`
   (decoded by table), which behave the same; `ramfb.S`, the bridge that
   shows the display on QEMU; `difftest_dump.c`, the cases they and the
-  Verilog are run against; `qemu.c` (QEMU as a machine the desktop's
-  checks can be run on: told keys and the pointer, and its screen
-  dumped), `guitest.c` (those checks run on it) and `desktime.c` (when
-  the desktop is ready and its picture made, watched and not touched)
+  Verilog are run against, and `difftest.c`, which runs a kernel on them;
+  `symbols.c` (where a kernel's own symbols are, for the tools that are
+  told); `size.c` (how big a kernel is); `qemu.c` (QEMU as a machine the
+  desktop's checks can be run on: told keys and the pointer, and its
+  screen dumped), `guitest.c` (those checks run on it) and `desktime.c`
+  (when the desktop is ready and its picture made, watched and not
+  touched)
 - `rtl/`: `hexaforth.v` (the CPU), `hf_mem.v` (the memory), `soc.v`, and
   the test benches. `tb.cpp` is also what times a piece of work: it says
-  at its top how marks are made and how it is a disk
+  at its top how marks are made and how it is a disk. `session.fs` is
+  what is typed at the nucleus on the Verilog and on `vm.c`, which
+  `test/session_test.c` compares; `synth.c` says what a synthesis came
+  to
 
 ## Writing a program for the cross-compiler
 

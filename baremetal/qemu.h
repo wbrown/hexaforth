@@ -22,8 +22,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// Start QEMU on a kernel, with a disk.  It is stopped when the program ends.
-void qemu_start(const char* elf, const char* disk);
+// Start QEMU on a kernel, with a copy of a disk that is made in a
+// directory (disk.img).  It is stopped when the program ends.
+void qemu_start(const char* elf, const char* disk, const char* out);
 
 // All the console has said so far, however much: it does not wait for
 // more.  The text is where it is only until this is next asked.
