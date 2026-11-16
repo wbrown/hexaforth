@@ -624,6 +624,19 @@ function(builds_test NAME)
     wanted(plain-${NAME})
 endfunction()
 
+# What a machine's image is made of (util/examine.c, as the target `examine`
+# says it of the image where the source is): the target examine-NAME.  The
+# kernel is to fit in its ROM on every machine, and this is what says how
+# long it is on each.
+function(examined NAME)
+    set(AT ${BUILD}/${NAME})
+    machine_tool(examine-image ${NAME} util/examine.c vm_opcodes.c vm_debug.c util/image.c)
+    add_custom_target(examine-${NAME}
+            COMMAND           examine-image-${NAME} ${AT}/nuc.hex ${AT}/nuc.tables ${AT}/nuc.sizes
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    add_dependencies(examine-${NAME} machine-${NAME})
+endfunction()
+
 # util/machines, a line a machine: the bits of a cell, the log2 of memory's
 # cells, and the display, across and down and the cell it starts at.  Each
 # stops at a fetch or a store outside memory (STRICT).  The first of them
@@ -646,6 +659,9 @@ foreach(LINE ${MACHINE_LINES})
     machine(${CELL} ${DEFINITIONS})
     machine_tests(${CELL})
     machine_made(${CELL})
+    if(HOW_MUCH GREATER 2)
+        examined(${CELL})                               # the names it reads are a machine's that has a display
+    endif()
     list(APPEND MACHINES ${CELL})
 endforeach()
 list(GET MACHINES 0 FIRST)

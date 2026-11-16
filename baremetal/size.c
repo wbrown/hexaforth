@@ -5,6 +5,11 @@
 // its symbol native_end (symbols.c), and the whole of it with the image it
 // has in it, which is the file.
 //
+// Then the parts of its own code: a line for each label it has, with the
+// bytes from that label to the next.  What a part is is the kernel's to
+// say, at the label (hexaforth.S).  It fails if the parts do not come to
+// the whole.
+//
 
 #include <stdio.h>
 #include "symbols.c"
@@ -20,8 +25,19 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "%s is not a kernel: there is nothing in it\n", argv[2]);
         return(1);
     }
-    printf("native code: %llu bytes\n",
-           (unsigned long long)(symbol_at(argv[1], "native_end") - symbol_at(argv[1], "_start")));
+    uint64_t from = symbol_at(argv[1], "_start"), to = symbol_at(argv[1], "native_end");
+    printf("native code: %llu bytes\n", (unsigned long long)(to - from));
     printf("whole image: %zu bytes\n", whole);
-    return(0);
+
+    symbol* parts;
+    long n = symbols_between(argv[1], from, to, &parts);
+    uint64_t all = 0;
+    printf("\nits parts      bytes\n");
+    for(long idx=0; idx < n; idx++) {
+        uint64_t next = idx + 1 < n ? parts[idx + 1].at : to;
+        if (next == parts[idx].at) continue;            // a second name for the same place
+        printf("  %-12s %5llu\n", parts[idx].name, (unsigned long long)(next - parts[idx].at));
+        all += next - parts[idx].at;
+    }
+    return(all == to - from ? 0 : 1);
 }

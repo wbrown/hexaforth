@@ -8,7 +8,10 @@
 // (build/nuc.tables), after a stamp, a count and the decompiler's two
 // tables, and says there how they are laid out (name-tables and (label)).
 // A word is as long as it is to the next word of its page, or for the last
-// of a page to the last instruction the page has.
+// of a page to the end of the page, less what is nothing at the end of
+// that: code is not always laid down against the code before it.  Where
+// cells are 16 bits the kernel's ROM is half of page 0 and other code is
+// put in the rest of the page, with nothing between the two.
 //
 
 #include <stdint.h>
@@ -87,10 +90,10 @@ static int words_of(const uint8_t* image, size_t len, const char* tables, word**
         while (next < n && out[next].at == at) next++;
         if (next < n && out[next].at < end) {
             end = out[next].at;
-        } else {
-            if (end > instructions) end = instructions;
-            while (end > at && !code[end - 1]) end--;
+        } else if (end > instructions) {
+            end = instructions;
         }
+        while (end > at && !code[end - 1]) end--;
         out[idx].size = end - at;
     }
     return(n);
