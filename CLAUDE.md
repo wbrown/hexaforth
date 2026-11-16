@@ -363,7 +363,9 @@ The machine, in C:
   out of the machine's memory); `dither.c` (that dither a pixel at a
   time, which the test and the benchmarks share); `source_test.c` and
   `source.fs` (comments, at the prompt and in a block of a disk that
-  `mkdisk` made of that file)
+  `mkdisk` made of that file); `prompt_test.c` (the nucleus at its
+  prompt: its compiler, variables, tasks and names, each a check that is
+  what is typed and what that is to leave)
 - `bench/`: `bench.sh` (the benchmarks, and what each is); `draw.fs` and
   `dither.fs` (the work, as it is typed); `disk.c`, `check.c` and `tiff.c`
   (the disk the picture is read from, and what looks at a bitmap);

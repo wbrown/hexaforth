@@ -13,6 +13,7 @@
 #   dither-test-C-A    the dither's test, which has that VM in it
 #   source-test-C-A    the test of comments and of a block read as source,
 #                      which has it too
+#   prompt-test-C-A    the test of the nucleus at its prompt, which has it too
 #   machine-C-A.flags  what the C compiler is told for it, for whatever else
 #                      is built for the machine
 set -e
@@ -56,4 +57,5 @@ gcc -O2 -w -fcommon $D -o build/hexaforth-$C-$A main.c $VM -lm
 TYPED="test/nucleus.c $VM util/image.c"        # the nucleus on that VM, typed at
 gcc -O2 -w -fcommon $D -o build/dither-test-$C-$A test/dither_test.c test/dither.c $TYPED -lm
 gcc -O2 -w -fcommon $D -o build/source-test-$C-$A test/source_test.c $TYPED -lm
+gcc -O2 -w -fcommon $D -o build/prompt-test-$C-$A test/prompt_test.c $TYPED -lm
 echo "build/nuc-$C-$A.hex: $(tr -c 'a-zA-Z0-9 ' ' ' < build/cross-$C-$A.log | grep -o 'tdp [0-9A-F]* thp [0-9A-F]* tcp [0-9A-F]*')"

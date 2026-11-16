@@ -44,10 +44,11 @@ while read C A W H BASE <&3; do
     mv build/hexaforth-$C-$A $OUT/vm-$C
     mv build/dither-test-$C-$A $OUT/dither-test-$C
     mv build/source-test-$C-$A $OUT/source-test-$C
+    mv build/prompt-test-$C-$A $OUT/prompt-test-$C
     mv build/nuc-$C-$A.hex $OUT/nuc-$C.hex
     rm -f $OUT/nuc-$C.tables                # the names that go with the image, if it has any
     [ -f build/nuc-$C-$A.tables ] && mv build/nuc-$C-$A.tables $OUT/nuc-$C.tables
-    run prompt-$C python3 test/prompt_test.py $OUT/vm-$C $OUT/nuc-$C.hex $C
+    run prompt-$C $OUT/prompt-test-$C $OUT/nuc-$C.hex
     # Comments, and a block read as source: the block is a file that is
     # there for this, laid down as a disk's source is.
     if $MKDISK $PICTURE $OUT/source-$C.img test/source.fs > $OUT/source-disk-$C.log 2>&1; then
