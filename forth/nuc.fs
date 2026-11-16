@@ -463,7 +463,7 @@ header um/mod
 \ kept for what it is felt in: a number is printed with this, a division a
 \ digit ((.)), and the decompiler and the calculator print whenever they
 \ draw, so without it the desktop's work in those windows is a good deal
-\ more where cells are 64 bits (bench/profile.sh says).  A second way in,
+\ more where cells are 64 bits (the target `profile` says).  A second way in,
 \ for a dividend that fits in 32 bits where cells are 64, would be as
 \ much again for numbers that are seldom printed.  HexaPaint divides too,
 \ once a row of an oval.  A program that divides a great deal of what is

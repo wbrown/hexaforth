@@ -206,11 +206,11 @@ $(B)/guitest $(B)/desktime: $(B)/%: %.c $(DESKCHECK) qemu.h ../test/deskcheck.h 
 
 # Drive the desktop as demo-test does, and say where the instructions went.
 # The desktop is worked on the reference VM that counts, where a turn of its
-# loop is exact (../bench/profile.sh, which says what it prints).  The
+# loop is exact (CMake's target `profile`, which says what it prints).  The
 # kernel that counts, hexaforth-profile.elf, is still built by its rule
 # above, and nothing here reads its counts.
 demo-profile:
-	sh ../bench/profile.sh
+	cmake --build ../build/cmake --target profile
 
 # Boot the desktop, leave it alone, and say when it is ready and when the
 # picture is made: at full speed, or with MIPS on a machine of that speed,

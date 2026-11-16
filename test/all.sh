@@ -6,11 +6,9 @@
 # What CLAUDE.md lists under Testing, as it is run after a change to
 # cross.fs, nuc.fs or the machine:
 #
-#   the instruction tests, each compiled by the C compiler and by cross.fs
-#     and run on the VM (CMake's target `tests`)
-#   the image built with the peephole against the image built without
-#     (test/builds.sh)
-#   the system on every size of machine (test/sizes.sh)
+#   what CMake builds and runs (its target `check`): the instruction tests,
+#     the image built with the peephole against the image built without,
+#     and the system on every size of machine
 #   each AArch64 kernel against vm.c, and the desktop on QEMU with each
 #   the Verilog against vm.c, with cells of 64, 32 and 16 bits, and with
 #     the kernel in a ROM
@@ -29,13 +27,11 @@ run() { # name, command...
     printf '%-4s %-22s %s\n' "$r" "$name" "$(grep -v '^make' $OUT/$name.log | tail -1 | cut -c1-110)"
 }
 
-instructions() { # built as a release: built otherwise, the tests do not link
-    cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release && cmake --build build/cmake --target tests
+check() {
+    cmake -S . -B build/cmake && cmake --build build/cmake --target check
 }
 
-run instructions instructions
-run builds sh test/builds.sh
-run sizes sh test/sizes.sh
+run check check
 run kernel-small make -C baremetal test
 run kernel-fast make -C baremetal test KERNEL=hexaforth-fast
 run desktop-small-strict make -C baremetal demo-test STRICT=1

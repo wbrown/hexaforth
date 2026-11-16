@@ -243,7 +243,7 @@ test is CMake's to build and run.
   it made is checked before a figure is printed for it. It says at its top
   what there is. What a change costs is what it prints before the change
   and after; no figure is kept in the repository
-- `sh bench/peephole.sh` is what the nucleus's compiler is worth: what it
+- The target `peephole` is what the nucleus's compiler is worth: what it
   makes of the system's code as typed beside what `cross.fs` makes, by
   source file, and what each of its rules saves in the code and when the
   desktop and the drawing are run. A rule is kept or cut by what that
@@ -318,12 +318,25 @@ When it is configured it looks for Unicorn's library, which the kernels
 are run against `vm.c` on (`make -C baremetal test`), and where that is
 not there and Homebrew is, has Homebrew install it.
 
+Whatever else is compiled or run is CMake's to compile and run too, and
+`CMakeLists.txt` says what each thing is made of, once. A tool, a test or
+a report that is added is added there: not a compiler's command line in a
+script, and not a script. `util/machines` is the machines the system is
+tried on, and CMake reads it: for each it builds the definition
+`cross.fs` reads, the nucleus, the reference VM and the tests, and keeps
+what is made in a directory of `build/` named for the bits of the
+machine's cell (`build/32/nuc.hex`; what is compiled is where CMake
+builds, `hexaforth-32`, `prompt_test-32`). None of that is built until a
+target wants it: `check`, which builds every test and runs them, or one
+of the reports, `profile`, `peephole`, `hits`, `phrases` and `tables`.
+
 An image is built by `gforth` from the Forth:
 
 ```bash
 cd forth
 gforth ./cross.fs ./basewords.fs ./nuc.fs      # build/nuc.hex and what goes with it
 PEEPHOLE=off gforth ./cross.fs ./basewords.fs ./nuc.fs   # the same with the peephole off
+BUILD=../build/32/ gforth ./cross.fs ../build/32/basewords.fs ./nuc.fs   # written there, not in build/
 ```
 
 `util/build-machine.sh CELL_BITS [ADDR_BITS [WIDTH HEIGHT BASE]]` builds
@@ -331,7 +344,7 @@ the generator, the nucleus, the reference VM and the tests that have that
 VM in them for a machine of another size, into `build/`, with a display if
 one is given; `EXTRA` carries more definitions to it (`-DSTRICT`).
 `util/machines` is the machines the system is tried on, which
-`test/sizes.sh` and `bench/bench.sh` read.
+`CMakeLists.txt` and `bench/bench.sh` read.
 `./hexaforth IMAGE.hex [DISK.img [MEMORY.out]]` runs an image, and writes
 its memory when it has stopped if it is told where.
 
@@ -359,13 +372,13 @@ from `vm_constants.h` and `vm_opcodes.h`); `forth/folds.fs` (what the
 nucleus's peephole is told of numbers, by `util/joins.c`, which reads no
 image); and `forth/fused.fs` (the words the decompiler shows an
 instruction as, by `util/fused.c`, from a built image). Both have
-`fuse.c` in them and ask the machine. `sh util/tables.sh` makes the two
-again: the decompiler's table is in the image it is made from, so the
-script builds until the table stops changing.
+`fuse.c` in them and ask the machine. The target `tables` makes the two
+again: the decompiler's table is in the image it is made from, so
+`util/tables.cmake` builds until the table stops changing.
 
 `forth/joins.fs`, the rules of the nucleus's peephole, is not generated:
 it is the rules that are kept, and says at its top which and why. The
-nucleus counts each rule's uses; `sh test/hits.sh` works the desktop and
+nucleus counts each rule's uses; the target `hits` works the desktop and
 prints the counts.
 
 ## Testing
@@ -383,19 +396,25 @@ below, and prints a line for each.
   of a run, and of a turn of a loop (`util/fewer.c`, `util/turns.c`),
   held to runs whose fewest is known, and each answer run on `vm.c`. The
   target `tests` runs it
-- `sh test/sizes.sh [SEEDS]`: the machine with cells of 64, 32 and 16
-  bits, each with a display and `STRICT`: the prompt, comments and a
-  block read as source, the desktop, the drawing words, regions, the
-  dither and the TIFF reader. Nothing is cell-size safe that it has not
-  run
+- The target `check` builds every test CMake has and runs them (`ctest`):
+  a line a test, and all that each said in
+  `Testing/Temporary/LastTest.log` where CMake builds. `ctest -V -R NAME`
+  there runs the tests whose names have that in them and prints what
+  they say. It runs the three above, and
+- on each machine of `util/machines`, with cells of 64, 32 and 16 bits,
+  each with a display and `STRICT`: the prompt, comments and a block read
+  as source, the desktop, the drawing words, regions, the dither and the
+  TIFF reader (`prompt-32`, `desktop-16`, `display-64-3`: the last is the
+  seed, and `SEEDS` says which are run). Nothing is cell-size safe that
+  these have not run
 - `make -C baremetal test` (and `KERNEL=hexaforth-fast`): each AArch64
   kernel against `vm.c`
 - `make -C baremetal demo-test` (and `STRICT=1`, `KERNEL=`): the desktop
   on QEMU, driven and its screen checked
 - `make -C rtl test W=64` (32, 16; `LAT=2`; `KROM=1`): the Verilog against
   `vm.c`; `test-mem`, `bench`, `synth` are there too
-- `sh test/builds.sh`: after any change to a compiler or a peephole, the
-  image against the image built with the peephole off: every
+- `builds`, which `check` runs too: after any change to a compiler or a
+  peephole, the image against the image built with the peephole off: every
   straight-line run must leave what the plain one leaves, and every call,
   jump and branch go where the plain one goes. It fails if the two are as
   many instructions, since then the plain build did not finish
@@ -404,7 +423,7 @@ below, and prints a line for each.
   kernel ROM, or the small kernel with `STRICT=1`
 
 `baremetal/Makefile` says in its first lines what else it does: `demo`,
-`demo-time`, and `MIPS=`, `DISK=`, `SCALE=`. `sh bench/profile.sh` is
+`demo-time`, and `MIPS=`, `DISK=`, `SCALE=`. The target `profile` is
 where the desktop's instructions go: the desktop worked on the reference
 VM that counts, a table of things a person would do, and the work of each
 by file, word and kind of instruction (it leaves
@@ -412,8 +431,8 @@ by file, word and kind of instruction (it leaves
 It then says what that work costs, three ways (`bench/costs.c`):
 `paths.txt`, each word charged with all it calls, which is what to read
 before saying what a change will save; `loops.txt`, the loops by what
-they cost; and `vars.txt`, what the variables cost, of the files named
-to it or of all. `sh util/phrases.sh` is the phrase book: for every
+they cost; and `vars.txt`, what the variables cost, of the files
+`PROFILE_FILES` names or of all. The target `phrases` is the phrase book: for every
 instruction some run of the machine's words does the work of, the
 shortest run, whether `cross.fs` makes one instruction of it, and whether
 each name means what it means in gforth. The profile ends with the
@@ -442,8 +461,9 @@ The machine, in C:
   `fuse.c` (which instruction does the work of others: found by the
   machine's step on terms, and each answer then run on `vm.c`; what it
   trusts and why is said at its top), `joins.c` and `fused.c` (the two
-  generators that have it in them), `tables.sh` (which runs them),
-  `phrases.c` and `phrases.sh` (the phrase book, which has it in it too),
+  generators that have it in them), `tables.cmake` (which runs the second
+  until its table settles),
+  `phrases.c` (the phrase book, which has it in it too),
   `survey.c` (the encoding against a profile, which has it too),
   `room.c` (room for as many of a thing as there are: a list that grows,
   a file or a line of any length, text that grows.  Nothing in the tools
@@ -461,8 +481,7 @@ The machine, in C:
   each answer run on `vm.c`), `turns.c` (a turn of a loop looked at the
   ways fewer could do it), `layout.c` (how an image is laid out: its
   pages of code, the tables after them, what each file has, the
-  dictionary and the data) and `examine.c` (which prints it),
-  `both-builds.sh` (the image with the peephole and without)
+  dictionary and the data) and `examine.c` (which prints it)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `nucleus.c` (the
   nucleus on `vm.c`, typed at its prompt, once or again as it was left,
@@ -502,12 +521,13 @@ The machine, in C:
   `m68k/` (the same dither for a 68000, in its assembler, and the 68000
   to run it on: the one place here that is not C or Forth, since it is
   what is measured against); `gates.sh` (the CPU's size beside a Z80's
-  and a 68000's); `peephole.sh` (what the nucleus's compiler is worth),
-  with `runs.c` (the image cut into straight-line runs, as typed and as
+  and a 68000's); what the nucleus's compiler is worth (the target
+  `peephole`): `runs.c` (the image cut into straight-line runs, as typed and as
   `cross.fs` made them), `typed.c` (the runs typed at the nucleus, and
   what it made of them), `counting.c` (the reference VM, counting how
-  often each place is run: by itself, or as the VM in a test) and
-  `weigh.c` (the runs and the rules weighed by that); `profile.sh` and
+  often each place is run: by itself, or as the VM in a test), `idle.fs`
+  (the machine come up and stopped, which is taken from the rest) and
+  `weigh.c` (the runs and the rules weighed by that);
   `profile.c` (where the desktop's instructions go), with `work.c` (the
   work by place, as the file the profile leaves), `files.c` (the source
   files an image is made of, from its `.sizes`: the one place the C reads

@@ -1907,12 +1907,19 @@ next-arg 2dup .trim >str constant prefix.
 : .suffix  ( c-addr u -- c-addr u ) \ e.g. "bar" -> "foo.bar"
     >str prefix. +str str@
 ;
+\ Where what is made goes: ../build/, or the directory BUILD names, which
+\ ends in a / and is there already.  So an image for another machine, or
+\ one made with the peephole off, has a place of its own:
+\ BUILD=../build/32/ gforth ...
+: build-dir ( -- c-addr u ) s" BUILD" getenv dup 0= if 2drop s" ../build/" then ;
 : create-output-file w/o create-file throw ;
-: out-suffix ( s -- h ) \ Create an output file h with suffix s
+: out-name ( s -- c-addr u ) \ the file with suffix s, where what is made goes
     >str
     prefix. +str
-    s" ../build/" >str +str str@
-    create-output-file
+    build-dir >str +str str@
+;
+: out-suffix ( s -- h ) \ Create an output file h with suffix s
+    out-name create-output-file
 ;
 \ The file of names is two cells and then the rest: a stamp, which the
 \ image has too, so that names made for another build are not used; how
@@ -1947,7 +1954,7 @@ create ntb 8 allot                          \ a cell of the file, as its bytes
 
 \ The map of calls compiled in place: read for a build with the peephole
 \ off, and written at the end of one with it on.
-: inline-name ( -- c-addr u ) s" inline" >str prefix. +str s" ../build/" >str +str str@ ;
+: inline-name ( -- c-addr u ) s" inline" out-name ;
 plain @ [if]
     inline-name r/o open-file 0= [if]
         dup inl-map 65536 rot read-file throw drop  close-file throw

@@ -3,7 +3,7 @@
 \ These are 59 of the 360 rules that were once made from a built image:
 \ those that save at least their own eight bytes in the system's code,
 \ and those that save at least a ten-thousandth of the instructions that
-\ the desktop's test or a benchmark runs (bench/peephole.sh).  Four more
+\ the desktop's test or a benchmark runs (the target `peephole`).  Four more
 \ are for what is typed and the system's own source happens not to say:
 \ the two that make `2dup xor` one instruction, which is how a loop over
 \ memory is written in standard words, and the two that make

@@ -1,6 +1,6 @@
 # The machines the system is built for and tried on, a line each: the bits
 # of a cell, the log2 of memory's cells, and the display, across and down
-# and the cell it starts at.  test/sizes.sh and bench/bench.sh read it.
+# and the cell it starts at.  CMakeLists.txt and bench/bench.sh read it.
 64 22 768 576 0x4000
 32 17 768 576 0x8000
 16 16 512 342 0x8000

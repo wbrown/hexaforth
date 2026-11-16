@@ -50,7 +50,7 @@
 
 // Built with -DPROFILE, the kernel counts how often the instruction at each
 // address is executed, to be read out of the machine.  (Nothing reads them
-// now: bench/profile.sh counts on the reference VM.)
+// now: the target `profile` counts on the reference VM.)
 //
 // Built with -DSTRICT, a fetch or store outside memory, a store into the
 // first 4KB of the kernel, or a stack that leaves its 256 cells, sends '!'
