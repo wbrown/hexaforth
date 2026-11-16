@@ -82,9 +82,10 @@ static int words_of(const uint8_t* image, size_t len, const char* tables, word* 
     return(n);
 }
 
-// The cell a label for data is of, or 0 if the file of names has no such
-// label: a variable or a table that has no header, by its name.
-static uint64_t data_called(const char* tables, const char* name) {
+// The labels for data that the file of names has: a variable or a table
+// that has no header, by its name, with the cell it is of as its place.
+// Returns how many there are.
+static int data_of(const char* tables, word* out, int most) {
     static uint8_t cells[1 << 20];
     FILE* in = fopen(tables, "rb");
     if (!in) return(0);
@@ -93,14 +94,24 @@ static uint64_t data_called(const char* tables, const char* name) {
     size_t at = 2;                                      // past the stamp and the count
     if (have > at) at += 1 + 2 * cell_of(cells, at);    // and the two tables
     if (have > at) at += 1 + 2 * cell_of(cells, at);
-    for(uint64_t place = have > at ? cell_of(cells, at) : 0; place && at + place + 2 < have;
+    int n = 0;
+    for(uint64_t place = have > at ? cell_of(cells, at) : 0; place && at + place + 2 < have && n < most;
         place = cell_of(cells, at + place)) {
         uint64_t value = cell_of(cells, at + place + 1);
-        char is[256];
         if (!(value >> (CELL_BITS - 1))) continue;      // a label for code
-        decode_name(cells + (at + place + 2) * CELL_BYTES, (have - at - place - 2) * CELL_BYTES, is);
-        if (!strcmp(is, name)) return(value & ~(1ull << (CELL_BITS - 1)));
+        decode_name(cells + (at + place + 2) * CELL_BYTES, (have - at - place - 2) * CELL_BYTES, out[n].name);
+        out[n].at = (long)(value & ~(1ull << (CELL_BITS - 1)));
+        out[n++].size = 0;
     }
+    return(n);
+}
+
+// The cell a label for data is of, or 0 if the file of names has no such
+// label.
+static uint64_t data_called(const char* tables, const char* name) {
+    static word labels[1 << 12];
+    int n = data_of(tables, labels, 1 << 12);
+    for(int idx=0; idx < n; idx++) if (!strcmp(labels[idx].name, name)) return((uint64_t)labels[idx].at);
     return(0);
 }
 

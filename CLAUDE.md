@@ -374,10 +374,11 @@ where the desktop's instructions go: the desktop worked on the reference
 VM that counts, a table of things a person would do, and the work of each
 by file, word and kind of instruction (it leaves
 `build/profile/desktop.counts`; `make -C baremetal demo-profile` runs it).
-The reports made from a profile are `util/survey.py` (the whole encoding
-against it), `loops.py`, `paths.py` (each word charged with all it
-calls), `shorter.py`, `vars.py` and `phrases.py`; each says at its top
-what it is given and writes to `build/`.
+It then says what that work costs, three ways (`bench/costs.c`):
+`paths.txt`, each word charged with all it calls, which is what to read
+before saying what a change will save; `loops.txt`, the loops by what
+they cost; and `vars.txt`, what the variables cost, of the files named
+to it or of all.
 
 ## Where things are
 
@@ -444,7 +445,9 @@ The machine, in C:
   what it made of them), `counting.c` (the reference VM, counting how
   often each place is run: by itself, or as the VM in a test) and
   `weigh.c` (the runs and the rules weighed by that); `profile.sh` and
-  `profile.c` (where the desktop's instructions go)
+  `profile.c` (where the desktop's instructions go), with `costs.c` (what
+  the work costs: each word with all it calls, the loops, the variables)
+  and `cycles.h` (the cycles the Verilog takes for an instruction)
 
 The toolchain and the nucleus, in Forth (`forth/`):
 

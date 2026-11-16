@@ -9,9 +9,18 @@
 # (counting.c), and worked through a few things a person would do
 # (profile.c, which says at its top what it prints).
 #
+#
+# What that work costs is then said three ways from the counts (costs.c,
+# which says at its top what each is): each word with all it calls, the
+# loops, and the variables.  Arguments are source files, for the variables
+# of those alone:
+#
+#   bench/profile.sh display.fs region.fs
+#
 # Everything is kept in build/profile/: what profile prints is
-# build/profile/profile.txt, and build/profile/desktop.counts is the work
-# by place.
+# build/profile/profile.txt, build/profile/desktop.counts is the work by
+# place, and paths.txt, loops.txt and vars.txt are the three, whose first
+# lines are printed.
 cd "$(dirname "$0")/.."
 OUT=build/profile
 mkdir -p $OUT
@@ -24,6 +33,7 @@ stop() { # what failed, and the log that says why
     exit 1
 }
 
+FILES=$*                                    # the source files whose variables are wanted, if any
 make -C baremetal build/mandrill.tiff build/mkdisk > $OUT/picture.log 2>&1 || stop "the picture and mkdisk" $OUT/picture.log
 set -- $(grep -v '^#' util/machines | head -1)
 C=$1 A=$2 W=$3 H=$4 BASE=$5
@@ -40,3 +50,9 @@ $MKDISK $PICTURE $OUT/made.img baremetal/block1.fs $IMAGE.tables > $OUT/disk.log
 $OUT/profile $IMAGE.hex $IMAGE.tables $IMAGE.sizes $OUT/made.img $PICTURE forth $OUT > $OUT/profile.txt 2> $OUT/profile.log \
     || stop "the profile" $OUT/profile.log
 cat $OUT/profile.txt
+
+gcc -O2 -w -fcommon $(cat build/machine-$C-$A.flags) -o $OUT/costs bench/costs.c vm_opcodes.c vm_debug.c \
+    util/stack.c util/image.c -lm || exit 1
+echo
+$OUT/costs $IMAGE.hex $IMAGE.tables $IMAGE.sizes $OUT/desktop.counts $OUT $FILES 2> $OUT/costs.log \
+    || stop "what the work costs" $OUT/costs.log
