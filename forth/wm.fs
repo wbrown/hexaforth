@@ -1,7 +1,8 @@
 \ wm.fs - windows, the pointer, and the event loop
 \
-\ A window is ten cells: x, y, width, height, title (a counted string),
-\ three routines, its port, and the region of it that can be seen:
+\ A window is eleven cells: x, y, width, height, title (a counted string),
+\ three routines, its port, the region of it that can be seen, and a cell
+\ for whoever draws it (win-data).  The routines:
 \     draw   ( win -- )         paint the content, in the window's port
 \     key    ( c win -- )       a key, when this window is in front
 \     click  ( x y win -- )     a click in the content, or 0 for none

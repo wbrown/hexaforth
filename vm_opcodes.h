@@ -167,9 +167,11 @@ typedef struct {
 // can refer to earlier words.  12-bit unsigned literals are supported.
 //
 // EXAMPLES:
-//     `-` is built out of two instructions, as we don't have a subtraction op.
-//           invert (0x6400)   (written out)
-//           +      (0x602c)   (written out)
+//     `-` is `negate +`, and `negate` is `invert 1+`: three instructions, as
+//     there is no subtraction op.
+//           invert (0x6480)   (written out)
+//           1+     (0xc001)   (written out)
+//           +      (0x643c)   (written out)
 //
 //     `1+` uses a literal `1`, as such:
 //           1      (0x0001)

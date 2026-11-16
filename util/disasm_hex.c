@@ -1,5 +1,5 @@
-#include "vm.h"
-#include "vm_opcodes.h"
+#include "../vm.h"
+#include "../vm_opcodes.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -174,7 +174,10 @@ int main(int argc, char *argv[]) {
     // Check instruction type and add target info for calls/jumps: it is
     // printed after the instruction, however long the label is
     if ((value & 0x8000) == 0) {        // Not a literal (bit 15 = 0)
-      uint16_t target = value & 0x1FFF;
+      // Where it goes: twelve bits in the kernel's page, or with bit 12
+      // set in the page the instruction itself is in (MODEL.md, Code)
+      long target = value & 0x0FFF;
+      if (value & 0x1000) target |= (long)i & ~0xFFFL;
       const char *label = find_label(target);
       const char *how = NULL;
       if ((value & 0x6000) == 0x4000) { // scall (bits 14:13 = 10)
@@ -188,7 +191,7 @@ int main(int argc, char *argv[]) {
       if (how && label) {
         printf(" ; %s %s", how, label);
       } else if (how) {
-        printf(" ; %s 0x%04X", how, target);
+        printf(" ; %s 0x%04lX", how, target);
       }
     }
     printf("\n");

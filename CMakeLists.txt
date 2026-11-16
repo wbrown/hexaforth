@@ -525,6 +525,9 @@ function(machine NAME)
     add_custom_target(plain-${NAME} DEPENDS ${PLAIN})
 
     machine_tool(hexaforth ${NAME} main.c ${VM_SOURCES})
+    # An image's code, an instruction to a line, with the words' names
+    # (util/disasm_hex.c): disasm_hex-NAME IMAGE.hex [FROM TO].
+    machine_tool(disasm_hex ${NAME} util/disasm_hex.c vm_opcodes.c vm_debug.c)
 endfunction()
 
 # When all that is made for a machine has been said.
@@ -637,6 +640,15 @@ function(examined NAME)
     add_dependencies(examine-${NAME} machine-${NAME})
 endfunction()
 
+# What a machine's display shows, from its memory as the reference VM
+# writes it when it has stopped (util/screen.c): screen-NAME, which the
+# target `seen` builds for every machine, with what makes a PNG of one
+# (util/png.c).
+function(shown NAME)
+    machine_tool(screen ${NAME} util/screen.c)
+    set_property(GLOBAL APPEND PROPERTY SEEN screen-${NAME})
+endfunction()
+
 # util/machines, a line a machine: the bits of a cell, the log2 of memory's
 # cells, and the display, across and down and the cell it starts at.  Each
 # stops at a fetch or a store outside memory (STRICT).  The first of them
@@ -661,6 +673,7 @@ foreach(LINE ${MACHINE_LINES})
     machine_made(${CELL})
     if(HOW_MUCH GREATER 2)
         examined(${CELL})                               # the names it reads are a machine's that has a display
+        shown(${CELL})
     endif()
     list(APPEND MACHINES ${CELL})
 endforeach()
@@ -705,6 +718,38 @@ add_custom_target(hits
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The desktop worked, and the rules it used (what its test says is in ${HITS}/desktop.log)")
 add_dependencies(hits machine-${FIRST})
+
+# `screenshot`: the desktop with every window open and HexaPaint in front,
+# as the README shows it (doc/desktop.png, which is checked in).  The
+# desktop's test is run with a directory of its own for its screens, and
+# the screen it leaves when HexaPaint has been drawn in, put behind another
+# window and brought back to the front is made a PNG (util/png.c).  The
+# target makes it again when the desktop looks otherwise.
+set(SHOT ${BUILD}/screenshot)
+tool(png util/png.c)
+get_property(SEEN GLOBAL PROPERTY SEEN)
+add_custom_target(seen DEPENDS ${SEEN} png)
+
+# `hello`: a window made by what is typed at the prompt (doc/hello.fs,
+# which DESKTOP.md is about), on the reference VM of the first machine: what
+# it printed, and its display as a picture (build/hello/hello.png).
+set(HELLO ${BUILD}/hello)
+add_custom_target(hello
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${HELLO}
+        COMMAND           hexaforth-${FIRST} ${NUC} ${OF}/disk.img ${HELLO}/memory.out < doc/hello.fs > ${HELLO}/hello.txt 2>&1
+        COMMAND           ${CMAKE_COMMAND} -E cat ${HELLO}/hello.txt
+        COMMAND           screen-${FIRST} ${HELLO}/memory.out ${HELLO}/hello.pbm
+        COMMAND           png ${HELLO}/hello.pbm ${HELLO}/hello.png
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+add_dependencies(hello machine-${FIRST})
+add_custom_target(screenshot
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${SHOT}/desktop
+        COMMAND           $<TARGET_FILE:desktop_test-${FIRST}> ${NUC} ${OF}/disk.img ${PICTURE} forth ${SHOT}/desktop names
+                            > ${SHOT}/desktop.log 2>&1
+        COMMAND           png ${SHOT}/desktop/16-again.pbm doc/desktop.png
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT           "The desktop worked, and its screen with HexaPaint in front (what its test says is in ${SHOT}/desktop.log)")
+add_dependencies(screenshot machine-${FIRST})
 
 # `profile`: where the desktop's instructions go.  The desktop is run on
 # the VM that counts and worked through a few things a person would do

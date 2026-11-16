@@ -23,19 +23,21 @@ typedef struct {
             bool    lit_add: 1;     // add to T?:   {true, false}
             bool    lit_f: 1;       // literal?:    {true, false}
         } lit;
-        // jump operations, 13-bit target, 8192 words (16384 bytes) addressable.
+        // A jump, a conditional jump or a call.  The target is 13 bits:
+        // twelve, and one that says whether they are an address in page 0
+        // or an offset in the page the instruction is in (MODEL.md).
         struct {
-            WORD    target: 13;     //              8192 words addressable
+            WORD    target: 13;     //              4,096 instructions either way
             BYTE    op_type: 2;     // OP_TYPE:     {jump, 0jump, call, alu}
             bool    lit_f: 1;       // literal?:    {true, false}
         } jmp;
         // ALU operation with 4 input sources, 16 ops, 4 output targets
         struct {
-            SBYTE   rstack: 2;      //              {r+1, r-1, r-2}
-            SBYTE   dstack: 2;      //              {d+1, d-1, d-2}
-            BYTE    alu_op: 4;      // ALU_OPS:     {IN->I, N->T,I, ...}
-            BYTE    out_mux: 2;     // OUTPUT_MUX:  {T, N, R, N->[I]}
-            BYTE    in_mux: 2;      // INPUT_MUX:   {T, [T], io[T], R}
+            SBYTE   rstack: 2;      //              {r+0, r+1, r-1, r-2}
+            SBYTE   dstack: 2;      //              {d+0, d+1, d-1, d-2}
+            BYTE    alu_op: 4;      // ALU_OPS:     {IN->, T<>N,IN->, T->N,IN->, IN+N, ...}
+            BYTE    out_mux: 2;     // OUTPUT_MUX:  {->T, ->R, ->io[T], ->[T]}
+            BYTE    in_mux: 2;      // INPUT_MUX:   {N->IN, T->IN, [T]->IN, R->IN}
             bool    r_eip: 1;       // R->EIP, copy top of return to PC
             BYTE    op_type: 2;     // OP_TYPE:     {jump, 0jump, call, alu}
             bool    lit_f: 1;       // literal?:    {true, false}
@@ -59,8 +61,8 @@ enum INPUT_MUX {
 
 enum ALU_OPS {
     ALU_IN = 0,        // IN->       Passthrough IN
-    ALU_SWAP_IN = 1,   // T<->N,IN-> Swap TOS and NOS, passthrough IN
-    ALU_T_N = 2,       // N->T,IN->  Copy NOS to TOS, passthrough IN
+    ALU_SWAP_IN = 1,   // T<>N,IN->  Exchange TOS and NOS, passthrough IN as it was
+    ALU_T_N = 2,       // T->N,IN->  Copy TOS to NOS, passthrough IN
     ALU_ADD = 3,       // IN+N
     ALU_AND = 4,       // IN&N
     ALU_OR = 5,        // IN|N
