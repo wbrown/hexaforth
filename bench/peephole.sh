@@ -38,28 +38,12 @@ stop() { # what failed, and the log that says why
 }
 
 make -C baremetal build/mandrill.tiff build/mkdisk > $OUT/picture.log 2>&1 || stop "the picture and mkdisk" $OUT/picture.log
-set -- $(grep -v '^#' util/machines | head -1)
+# The machine, and its image with the peephole and without.
+sh util/both-builds.sh $OUT || exit 1
+set -- $(cat $OUT/machine)
 C=$1 A=$2 W=$3 H=$4 BASE=$5
-# The machine: its basewords, the reference VM, and what the C is told.
-util/build-machine.sh $C $A $W $H $BASE > $OUT/machine.log 2>&1 || stop "the machine" $OUT/machine.log
 FLAGS=$(cat build/machine-$C-$A.flags)
 VM=build/hexaforth-$C-$A
-
-# The image with the peephole, and then without: the second reads the calls
-# the first compiled in place (build/nuc.inline), so they are built one
-# after the other.  cross.fs writes build/nuc.*, which belong to the
-# default machine: any that are there are kept.
-KEEP="hex lst tables inline sizes"
-for f in $KEEP; do [ -f build/nuc.$f ] && mv build/nuc.$f build/nuc.$f.keep; done
-(cd forth && gforth ./cross.fs ../build/basewords-$C-$A.fs ./nuc.fs) > $OUT/cross.log 2>&1
-if grep -q "tdp" $OUT/cross.log; then
-    cp build/nuc.hex $OUT/image.hex; cp build/nuc.tables $OUT/image.tables; cp build/nuc.sizes $OUT/image.sizes
-    (cd forth && PEEPHOLE=off gforth ./cross.fs ../build/basewords-$C-$A.fs ./nuc.fs) > $OUT/cross-plain.log 2>&1
-    grep -q "tdp" $OUT/cross-plain.log && { cp build/nuc.hex $OUT/plain.hex; cp build/nuc.tables $OUT/plain.tables; }
-fi
-for f in $KEEP; do rm -f build/nuc.$f; [ -f build/nuc.$f.keep ] && mv build/nuc.$f.keep build/nuc.$f; done
-grep -q "tdp" $OUT/cross.log || stop "the image" $OUT/cross.log
-grep -q "tdp" $OUT/cross-plain.log || stop "the image with the peephole off" $OUT/cross-plain.log
 
 MACHINE="vm_opcodes.c vm_debug.c util/stack.c"
 gcc -O2 -w -fcommon $FLAGS -o $OUT/counting bench/counting.c $MACHINE -lm || exit 1

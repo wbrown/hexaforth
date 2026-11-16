@@ -8,6 +8,8 @@
 #
 #   the instruction tests, each compiled by the C compiler and by cross.fs
 #     and run on the VM (CMake's target `tests`)
+#   the image built with the peephole against the image built without
+#     (test/builds.sh)
 #   the system on every size of machine (test/sizes.sh)
 #   each AArch64 kernel against vm.c, and the desktop on QEMU with each
 #   the Verilog against vm.c, with cells of 64, 32 and 16 bits, and with
@@ -27,11 +29,12 @@ run() { # name, command...
     printf '%-4s %-22s %s\n' "$r" "$name" "$(grep -v '^make' $OUT/$name.log | tail -1 | cut -c1-110)"
 }
 
-instructions() {
-    cmake -S . -B build/cmake && cmake --build build/cmake --target tests
+instructions() { # built as a release: built otherwise, the tests do not link
+    cmake -S . -B build/cmake -DCMAKE_BUILD_TYPE=Release && cmake --build build/cmake --target tests
 }
 
 run instructions instructions
+run builds sh test/builds.sh
 run sizes sh test/sizes.sh
 run kernel-small make -C baremetal test
 run kernel-fast make -C baremetal test KERNEL=hexaforth-fast

@@ -80,9 +80,11 @@ add_executable(generate-test-cases
         vm_debug.h)
 
 # Generate test_cases.fs from tests.h
+# (It writes forth/test_cases.fs, from where the source is.)
 add_custom_command(
         COMMAND           ${CMAKE_BINARY_DIR}/generate-test-cases
         OUTPUT            ${CMAKE_SOURCE_DIR}/forth/test_cases.fs
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         DEPENDS           generate-test-cases
                           test/tests.h)
 
@@ -148,9 +150,11 @@ target_compile_definitions(hexaforth_test
         TEST
         DEBUG)
 
+# (It reads build/test_cases.hex, from where the source is.)
 add_custom_target(tests
         ALL
-        COMMAND           ${CMAKE_BINARY_DIR}/hexaforth_test 2> hexaforth_test.debug
+        COMMAND           ${CMAKE_BINARY_DIR}/hexaforth_test 2> ${CMAKE_BINARY_DIR}/hexaforth_test.debug
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         DEPENDS           hexaforth_test
                           build/test_cases.hex)
 

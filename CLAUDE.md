@@ -306,7 +306,7 @@ prints the counts.
 
 After a change, run what covers it, and after anything in `cross.fs`,
 `nuc.fs` or the machine, all of it: `sh test/all.sh` runs every suite
-below but the comparison of the two builds, and prints a line for each.
+below, and prints a line for each.
 
 - `hexaforth_test`: each test of `test/tests.h` compiled by the C compiler
   and by `cross.fs` and the instructions compared, then run on the VM
@@ -321,10 +321,11 @@ below but the comparison of the two builds, and prints a line for each.
   on QEMU, driven and its screen checked
 - `make -C rtl test W=64` (32, 16; `LAT=2`; `KROM=1`): the Verilog against
   `vm.c`; `test-mem`, `bench`, `synth` are there too
-- `python3 util/insn_map.py --compare plain.hex optimised.hex`: after any
-  change to a compiler or a peephole, every straight-line run of the image
-  must behave as the build with the peephole off does. If the two have the
-  same number of instructions, the plain build did not finish
+- `sh test/builds.sh`: after any change to a compiler or a peephole, the
+  image against the image built with the peephole off: every
+  straight-line run must leave what the plain one leaves, and every call,
+  jump and branch go where the plain one goes. It fails if the two are as
+  many instructions, since then the plain build did not finish
 - To check that nothing stores into the kernel or leaves memory or a
   stack: the VM built with `-DSTRICT` and `-DROM_BYTES` the size of the
   kernel ROM, or the small kernel with `STRICT=1`
@@ -358,7 +359,9 @@ The machine, in C:
   trusts and why is said at its top), `joins.c` and `fused.c` (the two
   generators that have it in them), `tables.sh` (which runs them),
   `words.c` (an image's words, by header and by label, for the tools
-  that read an image)
+  that read an image), `cut.c` (two builds of an image cut into the same
+  straight-line runs), `both-builds.sh` (the image with the peephole and
+  without)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `nucleus.c` (the
   nucleus on `vm.c`, typed at its prompt, and what that left on its stack
@@ -369,7 +372,8 @@ The machine, in C:
   `source.fs` (comments, at the prompt and in a block of a disk that
   `mkdisk` made of that file); `prompt_test.c` (the nucleus at its
   prompt: its compiler, variables, tasks and names, each a check that is
-  what is typed and what that is to leave)
+  what is typed and what that is to leave); `builds_test.c` (the two
+  builds, run for run: it has `fuse.c` in it, and asks the machine)
 - `bench/`: `bench.sh` (the benchmarks, and what each is); `draw.fs` and
   `dither.fs` (the work, as it is typed); `disk.c`, `check.c` and `tiff.c`
   (the disk the picture is read from, and what looks at a bitmap);
