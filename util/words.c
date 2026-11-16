@@ -1,7 +1,7 @@
 //
-// words.c - the words of an image, for the tools here that have it in
-// them: every definition that has a header or a label, where its code
-// starts, and how many instructions it is.
+// words.c - the words of an image, for the tools that have this in them:
+// every definition that has a header or a label, where its code starts,
+// and how many instructions it is.
 //
 // A header is in the image (read_header, vm_opcodes.c).  A label is not:
 // cross.fs writes the labels to the file of names beside the image
@@ -86,6 +86,25 @@ static int words_of(const uint8_t* image, size_t len, const char* tables, word* 
 static long place_of(const word* words, int n, const char* name) {
     for(int idx=0; idx < n; idx++) if (!strcmp(words[idx].name, name)) return(words[idx].at);
     return(-1);
+}
+
+// The nucleus's tables (join.fs) are instructions laid down after its
+// code, each to the end of what its page has, and join-rules says where
+// they are.  They are not code: here they are made nothing, in an image
+// that is to be read as code.
+static void without_tables(uint8_t* image, size_t len, const word* words, int n) {
+    uint16_t* code = (uint16_t*)image;
+    long rules = place_of(words, n, "join-rules");
+    if (rules < 0) return;
+    uint64_t cells = 0;                 // the word pushes where its cells are
+    for(const instruction* ins = (const instruction*)code + rules; ins->lit.lit_f; ins++) {
+        cells += (uint64_t)ins->lit.lit_v << (ins->lit.lit_shifts * LIT_BITS);
+    }
+    for(int which=0; which < 4; which++) {
+        if (which == 1) continue;       // how many rules: not a place
+        uint64_t at = cell_of(image, cells + which);
+        for(uint64_t idx=at; at && idx < (at / PAGE + 1) * PAGE && idx < len / 2; idx++) code[idx] = 0;
+    }
 }
 
 // The word that the instruction at a place is in.

@@ -235,12 +235,12 @@ static uint16_t jump(int target) {
 // in, which a state can lead to, fetches the same whichever is run.
 static int lead;                    // how many instructions lead to a sequence
 static void lay_leads(void) {
-    instruction io_store;
-    lookup_word(FORTH_WORDS, "io!", &io_store);
+    instruction io_store[8];            // lookup_word clears as many
+    lookup_word(FORTH_WORDS, "io!", io_store);
     for(int which=0; which < 2; which++) {
         uint16_t* m = machine.memory + LEAD(which);
-        *m++ = push(DEPTH);  *m++ = push(IO_RSP);  *m++ = *(uint16_t*)&io_store;
-        *m++ = push(DEPTH);  *m++ = push(IO_SP);   *m++ = *(uint16_t*)&io_store;
+        *m++ = push(DEPTH);  *m++ = push(IO_RSP);  *m++ = *(uint16_t*)io_store;
+        *m++ = push(DEPTH);  *m++ = push(IO_SP);   *m++ = *(uint16_t*)io_store;
         *m++ = jump(AT(which));
         lead = m - (machine.memory + LEAD(which));
     }
@@ -1353,11 +1353,11 @@ static void learn_literals(void) {
     }
     more_worth(PUSHES, pushes);
     more_worth(ADDS, adds);
-    instruction word;
-    lookup_word(FORTH_WORDS, "invert", &word);
-    INVERTS = *(uint16_t*)&word;
-    lookup_word(FORTH_WORDS, "=", &word);
-    IS_SAME = *(uint16_t*)&word;
+    instruction word[8];                // lookup_word clears as many
+    lookup_word(FORTH_WORDS, "invert", word);
+    INVERTS = *(uint16_t*)word;
+    lookup_word(FORTH_WORDS, "=", word);
+    IS_SAME = *(uint16_t*)word;
 }
 
 static uint16_t worth(const literal* of, int64_t times) {

@@ -175,12 +175,12 @@ int main(int argc, char *argv[]) {
     }
     get_ready();
     list_named();
-    instruction dup;
-    if (lookup_word(FORTH_WORDS, "dup", &dup) != 1) {
+    instruction dup[8];                 // lookup_word clears as many
+    if (lookup_word(FORTH_WORDS, "dup", dup) != 1) {
         fprintf(stderr, "joins: dup is not one instruction\n");
         return(1);
     }
-    uint16_t across = *(uint16_t*)&dup;
+    uint16_t across = *(uint16_t*)dup;
     find_rules(across);
 
     uint16_t of_one[MOST], of_two[MOST];

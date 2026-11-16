@@ -25,7 +25,7 @@
 
 #include "../vm.c"
 #include "../util/image.h"
-#include "words.c"
+#include "../util/words.c"
 
 #define WORDS 8192
 #define ITEMS (1 << 17)
@@ -77,18 +77,7 @@ static void cut(cut_image* m, const char* hex, const char* tables) {
     m->n = words_of(bytes, len, tables, m->words, WORDS);
     long execute = place_of(m->words, m->n, "execute");
 
-    // The nucleus's tables (join.fs) are instructions laid down after its
-    // code, each to the end of what its page has: they are not code.
-    long rules = place_of(m->words, m->n, "join-rules");
-    if (rules >= 0) {
-        uint64_t cells = 0;
-        for(const uint16_t* w = m->code + rules; ins_of(*w).lit.lit_f; w++) cells += number_in(*w);
-        for(int which=0; which < 4; which++) {
-            if (which == 1) continue;                   // how many rules: not a place
-            uint64_t at = cell_of(bytes, cells + which);
-            for(uint64_t idx=at; at && idx < (at / PAGE + 1) * PAGE && idx < (uint64_t)m->instructions; idx++) m->code[idx] = 0;
-        }
-    }
+    without_tables(bytes, len, m->words, m->n);     // the nucleus's tables are not code
 
     // Code is the pages that words are in, each up to its last instruction.
     static long last[PLACES / PAGE];

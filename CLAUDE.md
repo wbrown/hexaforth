@@ -290,22 +290,23 @@ Homebrew's, the compiler is told where Homebrew's headers are:
 
 Generated, and checked in: `forth/basewords.fs` (by `basewords-fs-gen`,
 from `vm_constants.h` and `vm_opcodes.h`); `forth/folds.fs` (what the
-nucleus's peephole is told of numbers, by `util/joins.c`, which has
-`fuse.c` in it and reads no image: `gcc -O2 -w -fcommon -o build/joins
-util/joins.c -lm && build/joins forth/folds.fs`); and `forth/fused.fs`
-(the decompiler's table, made from a built image: build until it stops
-changing), which is still made by `util/insn_map.py`.
+nucleus's peephole is told of numbers, by `util/joins.c`, which reads no
+image); and `forth/fused.fs` (the words the decompiler shows an
+instruction as, by `util/fused.c`, from a built image). Both have
+`fuse.c` in them and ask the machine. `sh util/tables.sh` makes the two
+again: the decompiler's table is in the image it is made from, so the
+script builds until the table stops changing.
 
 `forth/joins.fs`, the rules of the nucleus's peephole, is not generated:
-it is the rules that are kept, and says at its top which and why. Do not
-give `insn_map.py --fused` a third file, or it writes all of its rules
-over them. The nucleus counts each rule's uses; `sh test/hits.sh` works
-the desktop and prints the counts.
+it is the rules that are kept, and says at its top which and why. The
+nucleus counts each rule's uses; `sh test/hits.sh` works the desktop and
+prints the counts.
 
 ## Testing
 
 After a change, run what covers it, and after anything in `cross.fs`,
-`nuc.fs` or the machine, all of it.
+`nuc.fs` or the machine, all of it: `sh test/all.sh` runs every suite
+below but the comparison of the two builds, and prints a line for each.
 
 - `hexaforth_test`: each test of `test/tests.h` compiled by the C compiler
   and by `cross.fs` and the instructions compared, then run on the VM
@@ -354,7 +355,10 @@ The machine, in C:
   what the Verilog loads; `image.c` reads one), `mkdisk.c` (a disk),
   `fuse.c` (which instruction does the work of others: found by the
   machine's step on terms, and each answer then run on `vm.c`; what it
-  trusts and why is said at its top)
+  trusts and why is said at its top), `joins.c` and `fused.c` (the two
+  generators that have it in them), `tables.sh` (which runs them),
+  `words.c` (an image's words, by header and by label, for the tools
+  that read an image)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `nucleus.c` (the
   nucleus on `vm.c`, typed at its prompt, and what that left on its stack
@@ -376,8 +380,8 @@ The machine, in C:
   with `runs.c` (the image cut into straight-line runs, as typed and as
   `cross.fs` made them), `typed.c` (the runs typed at the nucleus, and
   what it made of them), `counting.c` (the reference VM, counting how
-  often each place is run), `weigh.c` (the runs and the rules weighed by
-  that) and `words.c` (an image's words, by header and by label)
+  often each place is run) and `weigh.c` (the runs and the rules weighed
+  by that)
 
 The toolchain and the nucleus, in Forth (`forth/`):
 

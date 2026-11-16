@@ -23,7 +23,7 @@
 //
 
 #include "../util/image.h"
-#include "words.c"
+#include "../util/words.c"
 
 #define MOST 512
 #define WORDS 8192
@@ -66,8 +66,8 @@ int main(int argc, char *argv[]) {
         return(1);
     }
     init_opcodes(FORTH_WORDS);
-    instruction exit_ins;
-    if (lookup_word(FORTH_WORDS, "exit", &exit_ins) != 1) {
+    instruction exit_ins[8];            // lookup_word clears as many
+    if (lookup_word(FORTH_WORDS, "exit", exit_ins) != 1) {
         fprintf(stderr, "typed: exit is not one instruction\n");
         return(1);
     }
@@ -93,7 +93,7 @@ int main(int argc, char *argv[]) {
         printf(": rr join-rules 1+ @ 0 ?do i r1 loop ;\n");
         printf(": ]] cp @ c0 @ - . cp @ c0 @ ?do i i@ . loop c0 @ cp ! 7c emit rr ;\n");
         printf("rr\n");                                 // what compiling these used is not a run's
-        while (next_run(runs, &r, &exit_ins)) {
+        while (next_run(runs, &r, exit_ins)) {
             printf("[[\n");
             for(int idx=0; idx < r.n; idx++) printf("%04x j,%s", r.typed[idx], idx % 8 == 7 || idx == r.n - 1 ? "\n" : " ");
             printf("]]\n");
@@ -106,7 +106,7 @@ int main(int argc, char *argv[]) {
     if (!out) { perror(argv[3]); return(1); }
     static char line[1 << 16];
     long count = 0;
-    while (next_run(runs, &r, &exit_ins)) {
+    while (next_run(runs, &r, exit_ins)) {
         long made = -1;
         while (made < 0 && fgets(line, sizeof(line), out)) {
             if (strstr(line, "error")) { fprintf(stderr, "typed: the nucleus said: %s", line); return(1); }
