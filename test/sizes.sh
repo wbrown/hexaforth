@@ -3,8 +3,9 @@
 #
 #   test/sizes.sh [SEED ...]
 #
-# Builds the machine with cells of 64 bits, of 32 and of 16, each with a
-# display and each stopping at a fetch or store outside memory (STRICT),
+# Builds the machine with cells of 64 bits, of 32 and of 16 (util/machines
+# says what each is), each with a display and each stopping at a fetch or
+# store outside memory (STRICT),
 # and on each runs the tests that type at the prompt of the reference VM:
 # the nucleus; the desktop, its windows worked with keys and a pointer and
 # its screen looked at; the drawing words against a model of them; regions
@@ -32,11 +33,9 @@ run() { # name, command...
     printf '%-4s %-18s %s\n' "$r" "$name" "$(tail -1 $OUT/$name.log | cut -c1-110)"
 }
 
-for m in "64 22 768 576 0x4000" "32 17 768 576 0x8000" "16 16 512 342 0x8000"; do
-    set -- $m
-    C=$1 A=$2 W=$3 H=$4 BASE=$5
-    if ! EXTRA="-DSTRICT -DDISP_W=$W -DDISP_H=$H -DDISP_BASE=$BASE" \
-            util/build-machine.sh $C $A > $OUT/build-$C.log 2>&1; then
+while read C A W H BASE <&3; do
+    case $C in (\#*) continue;; esac
+    if ! EXTRA="-DSTRICT" util/build-machine.sh $C $A $W $H $BASE > $OUT/build-$C.log 2>&1; then
         printf 'FAIL %-18s %s\n' "build-$C" "$(tail -1 $OUT/build-$C.log | cut -c1-110)"
         fail=1
         continue
@@ -65,6 +64,6 @@ for m in "64 22 768 576 0x4000" "32 17 768 576 0x8000" "16 16 512 342 0x8000"; d
         run dither-$C-$s $OUT/dither-test-$C $OUT/nuc-$C.hex $s
         run tiff-$C-$s python3 test/tiff_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s $C
     done
-done
+done 3< util/machines
 git checkout util/__pycache__ baremetal/__pycache__ test/__pycache__ 2>/dev/null
 exit $fail

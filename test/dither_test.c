@@ -3,10 +3,11 @@
 //
 // The dither of forth/atkinson.fs, against a dither a pixel at a time.
 //
-// It is a contrastive test: the dither here is made apart from the
-// machine's, and nothing is built from it.  The machine works a cell of
-// lanes at a time and this a pixel at a time, as the dither is described,
-// and the two are to make the same bitmap, every cell of it.
+// It is a contrastive test: the dither it is compared with (dither.c) is
+// made apart from the machine's, and nothing is built from it.  The
+// machine works a cell of lanes at a time and that a pixel at a time, as
+// the dither is described, and the two are to make the same bitmap, every
+// cell of it.
 //
 // The machine is vm.c, which is built into this for the size of machine
 // the image is for, and the image is the nucleus.  For each test the
@@ -36,6 +37,7 @@
 #include <unistd.h>
 #include "../vm.h"
 #include "../util/image.h"
+#include "dither.h"
 
 #define BITS    CELL_BITS
 #define BYTES   CELL_BYTES
@@ -199,83 +201,21 @@ static int nothing_at(void) {
     exit(EXIT_FAILURE);
 }
 
-// A pixel's gray: its one sample, or of 256 parts 77 of its red, 150 of
-// its green and 29 of its blue.
-static int gray_of(const uint8_t* pixel, int samples) {
-    if (samples == 3) return((77 * pixel[0] + 150 * pixel[1] + 29 * pixel[2]) >> 8);
-    return(pixel[0]);
-}
-
-// Atkinson's dither, a pixel at a time.  A pixel is white if its gray and
-// what it is owed come to more than 127, and black if not.  An eighth of
-// what it is then out by is owed to each of six others: the two after it,
-// the three under it, and the one two rows under.  Two eighths are owed to
-// nobody.
-static void dither(const int* gray, int w, int h, uint8_t* black) {
-    int across = w + 4;         // a row of what is owed has two more at each end
-    int* owed = calloc((size_t)across * (h + 2), sizeof(int));
-    for(int y=0; y < h; y++) {
-        for(int x=0; x < w; x++) {
-            int* here = owed + y * across + x + 2;
-            int old = gray[y * w + x] + *here;
-            int new = old > 127 ? 255 : 0;
-            int eighth = ((old - new + 1024) >> 3) - 128;   // rounded down, below nothing too
-            here[1] += eighth;
-            here[2] += eighth;
-            here[across - 1] += eighth;
-            here[across] += eighth;
-            here[across + 1] += eighth;
-            here[2 * across] += eighth;
-            black[y * w + x] = !new;
-        }
-    }
-    free(owed);
-}
-
 // The cells a bitmap should be: of a picture's bytes, dithered whole or at
-// half its size, the part that is kept.  A row is whole cells, as the
-// display has its pixels in a cell, and what of the last is past the
-// picture is not black.  Returns how many cells there are, a row being
-// *stride of them.
+// half its size a pixel at a time (dither.c), the part that is kept.
+// Returns how many cells there are, a row being *stride of them.
 static int expected(const dither_test* test, const picture* p, const uint8_t* bytes,
                     uint64_t** cells, int* stride) {
-    int w = test->half ? p->w / 2 : p->w;
-    int h = test->half ? p->h / 2 : p->h;
-    int* gray = calloc((size_t)w * h + 1, sizeof(int));
+    int w, h;
+    int* gray = grays_of(bytes, p->w, p->h, p->samples, test->half, &w, &h);
     uint8_t* black = calloc((size_t)w * h + 1, 1);
-    for(int y=0; y < h; y++) {
-        for(int x=0; x < w; x++) {
-            if (test->half) {
-                // Four pixels' grays, quartered to the nearest.
-                const uint8_t* over = bytes + ((size_t)2 * y * p->w + 2 * x) * p->samples;
-                const uint8_t* under = over + (size_t)p->w * p->samples;
-                gray[y * w + x] = (gray_of(over, p->samples) + gray_of(over + p->samples, p->samples) +
-                                   gray_of(under, p->samples) + gray_of(under + p->samples, p->samples) + 2) >> 2;
-            } else {
-                gray[y * w + x] = gray_of(bytes + ((size_t)y * p->w + x) * p->samples, p->samples);
-            }
-        }
-    }
     dither(gray, w, h, black);
 
     int px = test->pw ? test->px : 0;
     int py = test->pw ? test->py : 0;
     int pw = test->pw ? test->pw : w;
     int ph = test->pw ? test->ph : h;
-    *stride = (pw + BITS - 1) / BITS;
-    *cells = calloc((size_t)*stride * ph + 1, sizeof(uint64_t));
-    for(int y=0; y < ph; y++) {
-        for(int c=0; c < *stride; c++) {
-            uint64_t cell = 0;
-            for(int bit=0; bit < BITS; bit++) {
-                int x = px + c * BITS + bit;
-                if (x < w && black[(py + y) * w + x]) {
-                    cell |= 1ull << (DISP_LEFT_LOW ? bit : BITS - 1 - bit);
-                }
-            }
-            (*cells)[y * *stride + c] = ucell(DISP_INK_BLACK ? cell : ~cell);
-        }
-    }
+    *cells = cells_of(black, w, px, py, pw, ph, BITS, DISP_LEFT_LOW, DISP_INK_BLACK, stride);
     free(gray);
     free(black);
     return(*stride * ph);

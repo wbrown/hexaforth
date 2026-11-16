@@ -245,13 +245,13 @@ header image-is
 ;
 
 W32+? [if]
-: rgb ( -- g )
-    d# 24 take
+: gray24 ( x -- g ) \ a pixel in the low three bytes of a cell, its red the lowest, whatever is above: its gray
     dup h# ff and d# 77 *
     over d# 8 rshift h# ff and d# 150 * +
     swap d# 16 rshift h# ff and d# 29 * +
     d# 8 rshift
 ;
+: rgb ( -- g ) d# 24 take gray24 ;
 [else]
 : rgb ( -- g )
     d# 8 take h# ff and d# 77 *
@@ -272,15 +272,20 @@ create pair-mask  meta $0000ffff0000ffff target ,   \ the lower lane of each two
 [then]
 
 \ A row of an image of three samples, where the row lies on cells, is not
-\ taken a pixel at a time.  Eight pixels are three cells.  Two pixels are
-\ six bytes of a cell, and their grays are made together: the two reds are
-\ masked out where they are and multiplied by 77, the greens and the blues
-\ shifted down to the same two places and multiplied by theirs, and the
-\ three added, which is each pixel's gray times 256 with nothing carried
-\ from one to the other.  Four pixels' grays are then a cell of four
-\ lanes.
+\ taken a pixel at a time, with a cell of any size.  Three cells of the
+\ row are as many pixels as a cell has bytes, and that is two cells of
+\ lanes: the grays of the first half of those pixels (lanes-a) and of the
+\ second (lanes-b), each made from the three cells where they are.  How
+\ is the cell's size.
 
 W64? [if]
+
+\ Eight pixels are three cells.  Two pixels are six bytes of a cell, and
+\ their grays are made together: the two reds are masked out where they
+\ are and multiplied by 77, the greens and the blues shifted down to the
+\ same two places and multiplied by theirs, and the three added, which is
+\ each pixel's gray times 256 with nothing carried from one to the other.
+\ Four pixels' grays are then a cell of four lanes.
 
 : pair ( w -- y ) \ two pixels, the first lowest: their grays, in two lanes
     dup h# ff0000ff and d# 77 *
@@ -296,22 +301,62 @@ W64? [if]
 
 \ The eight pixels in the three cells at p: the first two are the first
 \ cell's, and each two after start sixteen bits further up the cell before.
-: quad-a ( p -- y ) \ the first four
+: lanes-a ( p -- y ) \ the first four
     dup @  swap dup @ d# 48 rshift swap 1+ @ d# 16 lshift or  quad
 ;
-: quad-b ( p -- y ) \ and the next four
+: lanes-b ( p -- y ) \ and the next four
     dup 1+ @ d# 32 rshift over CELL2 + @ d# 32 lshift or
     swap CELL2 + @ d# 16 rshift  quad
 ;
 
+[then]
+
+W32? [if]
+
+\ A cell is a pixel and a byte of the next, so four pixels are three
+\ cells.  Each is shifted down to the bottom of a cell, with whatever is
+\ above it, and its gray made there; two grays are a cell of two lanes.
+
+: lanes-a ( p -- y ) \ the first two: the first cell, and its top byte with two of the second
+    dup @ tuck  d# 24 rshift swap 1+ @ d# 8 lshift or gray24
+    d# 16 lshift  swap gray24 or
+;
+: lanes-b ( p -- y ) \ the next two: half the second cell with a byte of the third, and the rest of the third
+    dup 1+ @ d# 16 rshift  swap CELL2 + @ tuck  d# 16 lshift or gray24
+    swap d# 8 rshift gray24  d# 16 lshift or
+;
+
+[then]
+
+W32+? [if] [else]
+
+\ A cell is two samples, so two pixels are three cells: red and green,
+\ blue and red, green and blue.  A pixel's gray is made of its three
+\ samples where they are, and is a cell of lanes by itself.  The most the
+\ three come to, before the eight bits are shifted off, is 65,280, which a
+\ cell holds.
+
+: lanes-a ( p -- y ) \ the first pixel: the first cell, and the low half of the second
+    dup @  dup h# ff and d# 77 *  swap d# 8 rshift d# 150 * +
+    swap 1+ @ h# ff and d# 29 * +
+    d# 8 rshift
+;
+: lanes-b ( p -- y ) \ the second: the high half of the second cell, and the third
+    dup 1+ @ d# 8 rshift d# 77 *
+    swap CELL2 + @  dup h# ff and d# 150 *  swap d# 8 rshift d# 29 * +  +
+    d# 8 rshift
+;
+
+[then]
+
 : gray-lanes ( lanes -- ) \ the next row's grays, each added to its pixel's lane
     tbp @ >r                                        ( a ) ( R: the three cells )
-    tw @ d# 2 rshift over + swap                    ( end a )
+    tw @ BYTESHIFT rshift 2*  over + swap           ( end a ) \ two cells of lanes to three of the row
     begin
         2dupxor
     while
-        r@ quad-a over +!
-        r@ quad-b over 1+ +!
+        r@ lanes-a over +!
+        r@ lanes-b over 1+ +!
         CELL2 +  r> c# 3 + >r
     repeat
     2drop
@@ -319,30 +364,41 @@ W64? [if]
 ;
 
 \ For a picture at half its size a lane is two pixels of a row, and their
-\ grays are added.  Four pixels' grays in four lanes are folded: the cell
-\ is added to itself a lane down, which leaves the first two added in the
-\ lowest lane and the next two in the third, and those are brought next
-\ to each other.  So eight pixels, three cells, are four lanes of sums,
-\ which is one cell.
+\ grays are added.  The grays in a cell of lanes are folded: the cell is
+\ added to itself a lane down, which leaves each two added in the lower
+\ lane of the two, and those are brought next to each other in the lower
+\ half of the cell.  So the three cells of the row are one cell of sums.
+\ With cells of 16 bits a cell of lanes is one gray, and the two are added
+\ as they are.
+W64? [if]
 : fold ( y -- z ) \ four grays in four lanes: each two added, in the lower two lanes
     dup d# 16 rshift +  pair-mask @ and
     dup d# 16 rshift or  HALFMASK and
 ;
+[then]
+W32? [if]
+: fold ( y -- z ) \ two grays in two lanes: added, in the lower lane
+    dup d# 16 rshift +  HALFMASK and
+;
+[then]
 
 : gray-pairs ( lanes -- ) \ the next row's grays, each two pixels' added into a lane
     tbp @ >r                                        ( a ) ( R: the three cells )
-    tw @ d# 3 rshift over + swap                    ( end a )
+    tw @ BYTESHIFT rshift over + swap               ( end a )
     begin
         2dupxor
     while
-        r@ quad-a fold  r@ quad-b fold d# 32 lshift or  over +!
+W32+? [if]
+        r@ lanes-a fold  r@ lanes-b fold HALFBITS lshift or
+[else]
+        r@ lanes-a  r@ lanes-b +
+[then]
+        over +!
         1+  r> c# 3 + >r
     repeat
     2drop
     r> tbp !
 ;
-
-[then]
 
 \ Nor is a row of an image of one sample, with a cell of any size.  A cell
 \ of the row is as many grays as it has bytes, which is twice as many as
@@ -422,12 +478,8 @@ header pixels
     tspp @ d# 3 = if ['] rgb else tspp @ d# 1 = if ['] gray1 else ['] grayn then then
     'pixel !
     d# 0 'grays !  d# 0 'pairs !
-W64? [if]
-    tspp @ d# 3 =  tw @ d# 7 and 0=  and if
-        ['] gray-lanes 'grays !  ['] gray-pairs 'pairs !
-    then
-[then]
-    tspp @ d# 1 =  tw @ CELLB 1- and 0=  and if
-        ['] gray1-lanes 'grays !  ['] gray1-pairs 'pairs !
+    tw @ CELLB 1- and 0= if                         \ a row is whole cells
+        tspp @ d# 3 = if ['] gray-lanes 'grays !  ['] gray-pairs 'pairs ! then
+        tspp @ d# 1 = if ['] gray1-lanes 'grays !  ['] gray1-pairs 'pairs ! then
     then
 ;

@@ -3,13 +3,33 @@
 //   tb cases CASES.bin     replay the cases dumped by baremetal/difftest_dump
 //                          (every test in test/tests.h, every ALU encoding,
 //                          paged code) and compare the halted state with vm.c
-//   tb run IMAGE.hex       boot an image; stdin is the UART; prints what it
-//                          sends, then cycle and instruction counts
+//   tb run IMAGE.hex [DISK.img [MEMORY.out]]
+//                          boot an image; stdin is the UART; prints what it
+//                          sends, then cycle and instruction counts.
+//                          DISK.img is a file to be a disk, and MEMORY.out
+//                          is where memory is written when it has stopped
 //
 // The memory here is a plain array with the timing the CPU expects:
 // one read port, whose address is sampled on the clock edge and whose data
 // is back in the next cycle, and one write port.  rtl/hf_mem.v, the real memory, is checked against the same model
 // by tb_mem.cpp.
+//
+// "run" is also how a piece of work is timed (bench/).  Each time the
+// machine sends the character MARK, the cycles and instructions so far are
+// noted, and what passed between each two is printed, with what the
+// memory was asked for meanwhile: instructions fetched, cells read, cells
+// stored.  So
+//     30 emit  the work  30 emit
+// times the work.
+//
+// The CPU has no port for a disk, and the system reads a file a block at a
+// time as it is wanted.  So the disk is on the console's line: a word
+// given to 'blk-read sends the character ASK and then eight more, the
+// block's number and the cell it is to go to, four each with the lowest
+// first, and when the eighth has come the block's bytes are in memory from
+// that cell, as the reference VM's disk puts them there.  It costs the CPU
+// what sending nine characters does, and the disk is as fast as it likes.
+// Neither character is printed.
 
 #include "Vhexaforth.h"
 #include "Vhexaforth___024root.h"
@@ -31,6 +51,12 @@ static const size_t CELLS = (size_t)1 << AB;
 static const size_t MEM = CELLS * (W / 8);
 static const uint64_t CELL_MASK = W == 64 ? ~0ull : (1ull << W) - 1;
 
+#define MARK        30      // the character that says: note where the machine has got to
+#define ASK         29      // and the one that asks the disk for a block,
+#define DISK_BLOCK  1024    // which is this many bytes
+
+struct Mark { uint64_t cycles, executed, fetches, reads, writes; };
+
 struct Machine {
     Vhexaforth top;
     std::vector<uint8_t> mem = std::vector<uint8_t>(MEM);
@@ -38,6 +64,40 @@ struct Machine {
     size_t in_at = 0;
     uint64_t rdata = 0, rnext = 0;
     uint64_t cycles = 0, executed = 0;
+    // What the memory was asked for: an instruction (the CPU's k1 says the
+    // read it made was for one), a cell of data (it wanted a or b, and the
+    // read was a real one), or a store.
+    uint64_t fetches = 0, reads = 0, writes = 0;
+    bool timing = false;            // "run": marks are noted, and the disk answers
+    std::vector<Mark> marks;
+    std::vector<uint8_t> disk;
+    int asked = -1;                 // how many of the eight characters have come, or -1
+    uint8_t ask[8];
+
+    // A character the machine sent: true if it was a mark or the disk's,
+    // and so not the console's.
+    bool taken(uint8_t c) {
+        if (!timing) return false;
+        if (asked < 0) {
+            if (c == MARK) {
+                marks.push_back({cycles, executed, fetches, reads, writes});
+                return true;
+            }
+            if (c != ASK || disk.empty()) return false;
+            asked = 0;
+            return true;
+        }
+        ask[asked++] = c;
+        if (asked == 8) {
+            uint64_t blk = 0, cell = 0;
+            for (int i = 3; i >= 0; i--) { blk = blk << 8 | ask[i];  cell = cell << 8 | ask[4 + i]; }
+            size_t from = blk * DISK_BLOCK, to = (cell % CELLS) * (W / 8);
+            for (size_t i = 0; i < DISK_BLOCK && to + i < MEM; i++)
+                mem[to + i] = from + i < disk.size() ? disk[from + i] : 0;
+            asked = -1;
+        }
+        return true;
+    }
 
     // The cell at an address, with the instruction asked for in its low 16 bits.
     uint64_t read(uint64_t a, int slot) {
@@ -60,11 +120,14 @@ struct Machine {
             uint64_t v = top.dwdata;
             memcpy(&mem[((uint64_t)top.waddr % CELLS) * (W / 8)], &v, W / 8);
         }
-        if (top.tx_valid) out.push_back(top.tx_data);
+        if (top.tx_valid && !taken(top.tx_data)) out.push_back(top.tx_data);
         if (top.rx_ready) in_at++;
         executed += top.dbg_exec;
+        reads += top.rootp->hexaforth__DOT__want_a || (top.rootp->hexaforth__DOT__want_b && top.rok);
+        writes += top.we;
         top.clk = 1;
         top.eval();
+        fetches += top.rootp->hexaforth__DOT__k1 == 1;      // K_INS
 #if LAT == 2
         rdata = rnext;
         rnext = next_rdata;
@@ -168,7 +231,7 @@ static int run_cases(const char *path) {
     return failed != 0;
 }
 
-static int run_image(const char *path) {
+static int run_image(const char *path, const char *disk, const char *memory) {
     Machine *m = new Machine;
     FILE *f = fopen(path, "r");
     if (!f) { perror(path); return 2; }
@@ -178,22 +241,48 @@ static int run_image(const char *path) {
         memcpy(&m->mem[at], &v, 4);
     }
     fclose(f);
+    if (disk) {
+        f = fopen(disk, "rb");
+        if (!f) { perror(disk); return 2; }
+        fseek(f, 0, SEEK_END);
+        m->disk.resize(ftell(f));
+        rewind(f);
+        if (fread(m->disk.data(), 1, m->disk.size(), f) != m->disk.size()) { perror(disk); return 2; }
+        fclose(f);
+    }
     for (int c; (c = getchar()) != EOF;) m->in.push_back(c);
     std::vector<uint8_t> input = m->in;
     m->reset(0);
     m->in = input;
+    m->timing = true;
     bool halted = m->run(2000000000ull);
     fwrite(m->out.data(), 1, m->out.size(), stdout);
-    fprintf(stderr, "\n%s after %llu cycles, %llu instructions: %.3f cycles per instruction\n",
+    fprintf(stderr, "\n");
+    for (size_t i = 1; i < m->marks.size(); i++) {
+        const Mark &a = m->marks[i - 1], &b = m->marks[i];
+        fprintf(stderr, "mark %zu to %zu: %llu cycles, %llu instructions; memory: %llu instructions fetched, "
+                "%llu cells read, %llu stored\n", i, i + 1,
+                (unsigned long long)(b.cycles - a.cycles), (unsigned long long)(b.executed - a.executed),
+                (unsigned long long)(b.fetches - a.fetches), (unsigned long long)(b.reads - a.reads),
+                (unsigned long long)(b.writes - a.writes));
+    }
+    fprintf(stderr, "%s after %llu cycles, %llu instructions: %.3f cycles per instruction\n",
             halted ? "halted" : "stopped", (unsigned long long)m->cycles,
             (unsigned long long)m->executed, (double)m->cycles / (double)m->executed);
+    if (memory) {
+        f = fopen(memory, "wb");
+        if (!f) { perror(memory); return 2; }
+        fwrite(m->mem.data(), 1, MEM, f);
+        fclose(f);
+    }
     return halted ? 0 : 1;
 }
 
 int main(int argc, char **argv) {
     Verilated::commandArgs(argc, argv);
     if (argc == 3 && !strcmp(argv[1], "cases")) return run_cases(argv[2]);
-    if (argc == 3 && !strcmp(argv[1], "run")) return run_image(argv[2]);
-    fprintf(stderr, "usage: tb cases CASES.bin | tb run IMAGE.hex\n");
+    if (argc >= 3 && argc <= 5 && !strcmp(argv[1], "run"))
+        return run_image(argv[2], argc > 3 ? argv[3] : 0, argc > 4 ? argv[4] : 0);
+    fprintf(stderr, "usage: tb cases CASES.bin | tb run IMAGE.hex [DISK.img [MEMORY.out]]\n");
     return 2;
 }

@@ -125,6 +125,17 @@ int main(int argc, char *argv[]) {
     // ctx->EIP=0x462C / 2;
     vm(ctx);
     printf("\n[%lld instructions executed]\n", ctx->CYCLES);
+    // A third argument is a file to write the machine's memory to when it
+    // has stopped, as rtl/tb.cpp does: the two are then compared (bench/).
+    if (argc > 3) {
+        FILE* memory = fopen(argv[3], "wb");
+        if (!memory) {
+            perror(argv[3]);
+            exit(EXIT_FAILURE);
+        }
+        fwrite(ctx->memory, 1, sizeof(ctx->memory), memory);
+        fclose(memory);
+    }
 
     // context *ctx = malloc(sizeof(context));
     // ctx->HERE = 0;

@@ -55,6 +55,10 @@ image. One definition, said once, and everything else made from it.
   for whether the project's own languages are enough
 - A test that finds nothing to test is to fail, not pass. Look at how
   many things a test says it compared
+- One thing here is neither: `bench/m68k/` is 68000 assembly. It is not a
+  tool and nothing is built from it. It is another machine's work, there
+  to be timed against this one's, and it can only be said in that
+  machine's language
 
 ## A tool's flaw is not the product's limit
 
@@ -191,6 +195,14 @@ and print a summary from that; do not cut or head the results.
   and dear
 - Runtime is cycles, not instructions: a memory read, a shift, a multiply
   and a jump each take more than one. `make -C rtl bench` says cycles
+- `sh bench/bench.sh` is the benchmarks: a piece of work is a file typed
+  at the prompt, the same file on the Verilog CPU of every size, and what
+  it made is checked before a figure is printed for it. It says at its top
+  what there is. What a change costs is what it prints before the change
+  and after; no figure is kept in the repository
+- A thing the machine is compared with does the same work and is checked
+  against the same model: the 68000 in `bench/m68k/` runs the machine's
+  own dither, written for it, and makes the same bitmap
 - Compare two profiles by word, not by their totals: how long the disk
   driver waits is the host's doing
 - Do not give an estimate as a fact, and do not leave a thing untested so
@@ -211,11 +223,14 @@ gforth ./cross.fs ./basewords.fs ./nuc.fs      # build/nuc.hex and what goes wit
 PEEPHOLE=off gforth ./cross.fs ./basewords.fs ./nuc.fs   # the same with the peephole off
 ```
 
-`util/build-machine.sh CELL_BITS [ADDR_BITS]` builds the generator, the
-nucleus, the reference VM and the tests that have that VM in them for a
-machine of another size, into `build/`; `EXTRA` carries more definitions
-to it (`-DSTRICT`, a display).
-`./hexaforth IMAGE.hex [DISK.img]` runs an image.
+`util/build-machine.sh CELL_BITS [ADDR_BITS [WIDTH HEIGHT BASE]]` builds
+the generator, the nucleus, the reference VM and the tests that have that
+VM in them for a machine of another size, into `build/`, with a display if
+one is given; `EXTRA` carries more definitions to it (`-DSTRICT`).
+`util/machines` is the machines the system is tried on, which
+`test/sizes.sh` and `bench/bench.sh` read.
+`./hexaforth IMAGE.hex [DISK.img [MEMORY.out]]` runs an image, and writes
+its memory when it has stopped if it is told where.
 
 Beside an image `cross.fs` writes `.lst` (symbols), `.sizes` (code and
 data by file), `.inline` (the calls it compiled in place, which a build
@@ -294,7 +309,16 @@ The machine, in C:
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `dither_test.c` (the
   dither against a dither a pixel at a time: it runs the nucleus on
-  `vm.c`, types at its prompt and reads the bitmap out of its memory)
+  `vm.c`, types at its prompt and reads the bitmap out of its memory);
+  `dither.c` (that dither a pixel at a time, which the test and the
+  benchmarks share)
+- `bench/`: `bench.sh` (the benchmarks, and what each is); `draw.fs` and
+  `dither.fs` (the work, as it is typed); `disk.c`, `check.c` and `tiff.c`
+  (the disk the picture is read from, and what looks at a bitmap);
+  `m68k/` (the same dither for a 68000, in its assembler, and the 68000
+  to run it on: the one place here that is not C or Forth, since it is
+  what is measured against); `gates.sh` (the CPU's size beside a Z80's
+  and a 68000's)
 
 The toolchain and the nucleus, in Forth (`forth/`):
 
@@ -338,7 +362,8 @@ The other two machines:
   shows the display on QEMU; `difftest_dump.c`, the cases they and the
   Verilog are run against
 - `rtl/`: `hexaforth.v` (the CPU), `hf_mem.v` (the memory), `soc.v`, and
-  the test benches
+  the test benches. `tb.cpp` is also what times a piece of work: it says
+  at its top how marks are made and how it is a disk
 
 ## Writing a program for the cross-compiler
 

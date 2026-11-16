@@ -5,7 +5,7 @@
 #   make test W=32        the same for a 32-bit machine (or W=16)
 #   make synth            synthesise for an ECP5 FPGA; reports size and clock
 #   make synth W=32 AB=16 ... for a 32-bit cell and 2^16 cells of memory
-#   make bench            how many cycles the drawing in bench.txt takes, on
+#   make bench            how many cycles the drawing in bench/draw.fs takes, on
 #                         the 64-bit CPU with all its memory (LAT=2 for the
 #                         registered memory)
 #
@@ -32,10 +32,11 @@ all: $(B)/tb
 # Runtime, not instructions: an instruction that reads memory, shifts or
 # multiplies takes more than a cycle, and with LAT=2 so does every jump.
 # The display is above the 128KB the tests give the CPU, so this is built
-# with the memory the nucleus is built for.
+# with the memory the nucleus is built for.  The drawing is bench/draw.fs,
+# and bench/bench.sh runs it and more on every size of machine.
 bench:
 	@$(MAKE) --no-print-directory W=64 AB=22 B=$(B)-bench $(B)-bench/tb
-	@$(B)-bench/tb run $(TOP)/build/nuc.hex < bench.txt 2>&1 > /dev/null | tail -1
+	@$(B)-bench/tb run $(TOP)/build/nuc.hex < $(TOP)/bench/draw.fs 2>&1 > /dev/null | tail -1
 
 $(B)/tb: hexaforth.v tb.cpp
 	@mkdir -p $(B)

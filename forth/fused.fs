@@ -80,7 +80,6 @@ $68bc , $2 , hdr, @ hdr, u<
 $6b68 , $1 , hdr, xor!
 $6c14 , $2 , hdr, swap hdr, r@
 $6ce4 , $2 , hdr, r@ hdr, @
-$684c , $2 , hdr, @ hdr, and
 $68ac , $2 , hdr, @ hdr, <
 $6b48 , $1 , hdr, and!
 $6c84 , $2 , hdr, r@ hdr, invert
@@ -88,6 +87,7 @@ $632c , $2 , hdr, tuck hdr, !
 $6460 , $2 , hdr, over hdr, xor
 $6470 , $2 , hdr, over hdr, *
 $671c , $3 , hdr, tuck hdr, swap hdr, !
+$684c , $2 , hdr, @ hdr, and
 $686c , $2 , hdr, @ hdr, xor
 $6b3c , $3 , hdr, over hdr, swap hdr, +!
 $6c37 , $3 , hdr, over hdr, r> hdr, +
