@@ -39,7 +39,7 @@
         .equ    VAR_BASE,    0x800           // the first of the cells one instruction reaches
         .equ    RSTACK_OFF,  0x800           // 256 cells each
         .equ    STACKS_SIZE, 0x1000
-        .equ    PROFILE_AT,  0x400000        // deskprof.py knows this too
+        .equ    PROFILE_AT,  0x400000        // where the counts of a kernel that counts are
 
         .equ    IO_EMIT,     0xf1
         .equ    IO_KEY,      0xe0
@@ -49,7 +49,8 @@
         .equ    IO_RSP,      0xd1
 
 // Built with -DPROFILE, the kernel counts how often the instruction at each
-// address is executed, for deskprof.py to read out of the machine.
+// address is executed, to be read out of the machine.  (Nothing reads them
+// now: bench/profile.sh counts on the reference VM.)
 //
 // Built with -DSTRICT, a fetch or store outside memory, a store into the
 // first 4KB of the kernel, or a stack that leaves its 256 cells, sends '!'

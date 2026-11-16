@@ -1,6 +1,6 @@
 // difftest_dump.c - run test programs on the reference VM (vm.c) and dump
 // each program image together with the machine state it halts in, for
-// difftest.py to replay against the AArch64 kernel.
+// difftest.c to replay against the AArch64 kernel.
 //
 // Two sets of cases:
 //   1. every test in test/tests.h, compiled with the test compiler;

@@ -3,7 +3,7 @@
 #   make            build build/hexaforth.elf and .bin around ../build/nuc.hex
 #   make run        boot it in QEMU (Ctrl-A X to quit)
 #   make size       native code size
-#   make test       differential test against vm.c (needs python3 + unicorn)
+#   make test       differential test against vm.c (needs Unicorn's library)
 #   make KERNEL=hexaforth-fast ...   any target, with the table-decoded kernel
 #   make demo       boot into the desktop, with a disk, keyboard and pointer
 #   make demo-test  drive the desktop headless and check the screen
@@ -134,8 +134,23 @@ size: $(B)/$(KERNEL).elf
 run: $(B)/$(KERNEL)$(M).elf
 	qemu-system-aarch64 -M virt -cpu cortex-a53 -nographic -nic none -kernel $<
 
-test: $(B)/$(KERNEL).bin
-	KERNEL=$(KERNEL) ADDR_BITS=$(ADDR_BITS) python3 difftest.py
+# The kernel against vm.c: the cases that difftest_dump writes, each with
+# what vm.c left of it, are run on the kernel under Unicorn (difftest.c),
+# which is told where the kernel's own symbols are.
+VM := ../vm.c ../vm_opcodes.c ../vm_debug.c ../util/stack.c
+$(B)/difftest_dump: difftest_dump.c $(VM) ../vm_step.h ../vm_constants.h ../test/compiler.c ../test/vm_test.c
+	@mkdir -p $(B)
+	cc -O1 -w -fcommon -o $@ difftest_dump.c $(VM) ../test/compiler.c ../test/vm_test.c -lm
+
+$(B)/difftest: difftest.c
+	@mkdir -p $(B)
+	cc -O2 -w -o $@ $< $$(pkg-config --cflags --libs unicorn)
+
+test: $(B)/$(KERNEL).bin $(B)/difftest_dump $(B)/difftest
+	$(B)/difftest_dump $(B)/cases.bin
+	@symbols="$$($(LLVM)llvm-nm $(B)/$(KERNEL).elf)"; \
+	at() { echo "$$symbols" | awk -v name=$$1 '$$3 == name {print $$1}'; }; \
+	$(B)/difftest $< $(B)/cases.bin $(ADDR_BITS) $$(at _start) $$(at image) $$(at next) $$(at halt)
 
 # The Mandrill, as the USC-SIPI image database has it: a TIFF that is not
 # compressed, which is what the system reads.
