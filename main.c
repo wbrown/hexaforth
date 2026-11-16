@@ -25,6 +25,12 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
         ctx->HERE+=2;
     }
 
+    // Where the code ends, in instructions.  A line of the image is two of
+    // them, and the gap is the first line that is nothing: the code ends
+    // there, or an instruction before if the line before has only its first.
+    int code_end = first_gap;
+    if (code_end > 0 && !ctx->memory[code_end - 1]) code_end--;
+
     // The words of the image's dictionary, from the newest (read_header in
     // vm_opcodes.c), each noted at the instruction its code starts at.
     const uint8_t *bytes = (const uint8_t *)ctx->memory;
@@ -34,7 +40,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     dprintf("WORDS:\n");
 
     // Where the headers start and where they end, in instructions.
-    uint32_t DP0 = first_gap - 1;
+    uint32_t DP0 = code_end;
     uint32_t DP1 = DP0;
     if (head) {
         DP1 = (head + 2 * CELL_BYTES
@@ -94,8 +100,8 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
         free(line);
     printf("%s loaded: (CODE=%d bytes, CODE_FREE=%d bytes, DICT=%d bytes, WORDS=%d)\n",
            filepath,
-           (first_gap-1) * 2,
-           (DP0 - (first_gap-1)) * 2,
+           code_end * 2,
+           (DP0 - code_end) * 2,
            (DP1 - DP0) * 2,
            WORDCT);
     fflush(stdout);
