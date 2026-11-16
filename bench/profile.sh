@@ -17,10 +17,15 @@
 #
 #   bench/profile.sh display.fs region.fs
 #
+# Last, the instruction encoding is laid out against the work
+# (util/survey.c): which instructions the image uses and how often they
+# run, and the runs of them that fewer would do, which are what cross.fs
+# left.
+#
 # Everything is kept in build/profile/: what profile prints is
 # build/profile/profile.txt, build/profile/desktop.counts is the work by
-# place, and paths.txt, loops.txt and vars.txt are the three, whose first
-# lines are printed.
+# place, paths.txt, loops.txt and vars.txt are the three, and survey.txt
+# the encoding; the first lines of each are printed.
 cd "$(dirname "$0")/.."
 OUT=build/profile
 mkdir -p $OUT
@@ -56,3 +61,10 @@ gcc -O2 -w -fcommon $(cat build/machine-$C-$A.flags) -o $OUT/costs bench/costs.c
 echo
 $OUT/costs $IMAGE.hex $IMAGE.tables $IMAGE.sizes $OUT/desktop.counts $OUT $FILES 2> $OUT/costs.log \
     || stop "what the work costs" $OUT/costs.log
+
+# The encoding against that work (util/survey.c, which says what it lays
+# out): it has the machine's step in it, for a cell of this size.
+gcc -O2 -w -fcommon -Iutil -DCELL_BITS=$C -o $OUT/survey util/survey.c util/image.c -lm || exit 1
+echo
+$OUT/survey $IMAGE.hex $IMAGE.tables $OUT/desktop.counts $OUT/survey.txt 2> $OUT/survey.log \
+    || stop "the survey" $OUT/survey.log

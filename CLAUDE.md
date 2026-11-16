@@ -381,7 +381,10 @@ they cost; and `vars.txt`, what the variables cost, of the files named
 to it or of all. `sh util/phrases.sh` is the phrase book: for every
 instruction some run of the machine's words does the work of, the
 shortest run, whether `cross.fs` makes one instruction of it, and whether
-each name means what it means in gforth.
+each name means what it means in gforth. The profile ends with the
+encoding laid out against the work (`util/survey.c`): the instructions
+the image uses, and the runs that fewer would do, which are what
+`cross.fs` left.
 
 ## Where things are
 
@@ -404,6 +407,7 @@ The machine, in C:
   trusts and why is said at its top), `joins.c` and `fused.c` (the two
   generators that have it in them), `tables.sh` (which runs them),
   `phrases.c` and `phrases.sh` (the phrase book, which has it in it too),
+  `survey.c` (the encoding against a profile, which has it too),
   `words.c` (an image's words, by header and by label, for the tools
   that read an image), `cut.c` (two builds of an image cut into the same
   straight-line runs), `both-builds.sh` (the image with the peephole and
