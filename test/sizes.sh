@@ -46,6 +46,7 @@ while read C A W H BASE <&3; do
     mv build/source-test-$C-$A $OUT/source-test-$C
     mv build/prompt-test-$C-$A $OUT/prompt-test-$C
     mv build/region-test-$C-$A $OUT/region-test-$C
+    mv build/tiff-test-$C-$A $OUT/tiff-test-$C
     mv build/nuc-$C-$A.hex $OUT/nuc-$C.hex
     rm -f $OUT/nuc-$C.tables                # the names that go with the image, if it has any
     [ -f build/nuc-$C-$A.tables ] && mv build/nuc-$C-$A.tables $OUT/nuc-$C.tables
@@ -74,7 +75,7 @@ while read C A W H BASE <&3; do
         run display-$C-$s python3 test/display_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s 150 $C $W $H
         run regions-$C-$s $OUT/region-test-$C $OUT/nuc-$C.hex $s
         run dither-$C-$s $OUT/dither-test-$C $OUT/nuc-$C.hex $s
-        run tiff-$C-$s python3 test/tiff_test.py $OUT/vm-$C $OUT/nuc-$C.hex $s $C
+        run tiff-$C-$s $OUT/tiff-test-$C $OUT/nuc-$C.hex $s
     done
 done 3< util/machines
 git checkout util/__pycache__ baremetal/__pycache__ test/__pycache__ 2>/dev/null
