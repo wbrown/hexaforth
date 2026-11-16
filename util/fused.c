@@ -106,7 +106,7 @@ static int is_the_instruction(const uint16_t* code, int len, uint16_t ins) {
 
 // Which of some words gforth has: it is asked, a line a word.
 static void ask_gforth(const char* beside) {
-    static const char ask[] = ".ask", run[] = "gforth ";
+    static const char ask[] = ".ask", run[] = GFORTH " ";       // GFORTH is where gforth is, which the build says
     char* path = room_for(strlen(beside) + sizeof(ask), 1);
     char* command = room_for(strlen(beside) + sizeof(ask) + sizeof(run), 1);
     sprintf(path, "%s%s", beside, ask);

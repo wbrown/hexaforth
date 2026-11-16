@@ -315,10 +315,14 @@ VM), `hexaforth-debug` (with a trace of every instruction),
 `generate-test-cases`, and the target `tests`, which runs `hexaforth_test`,
 then `kernel_test` on the image, and then `fewer_test`; and
 `examine-image`, with the target `examine`, which runs it on the image.
-When it is configured it looks for Unicorn's library, which the kernels
-are run against `vm.c` on (the tests `kernel-hexaforth` and
-`kernel-hexaforth-fast`), and where that is not there and Homebrew is,
-has Homebrew install it.
+What the project needs that is not in it is said once, at the top of
+`CMakeLists.txt`: each program or library, what it is for, and the
+package that has it, Homebrew's and apt's. When CMake is configured each
+is looked for, and what is not there is asked of Homebrew, or of apt as
+root, all at once; `-DINSTALL_NEEDED=OFF` only looks and says. So a
+system that has CMake and one of the two needs nothing else done to it.
+A program that is needed is added there, and is run by the name it is
+given there, not by a name that is hoped to be in `PATH`.
 
 Whatever else is compiled or run is CMake's to compile and run too: the
 machines, the AArch64 kernels, the Verilog, the tests, the reports and
@@ -367,7 +371,7 @@ with the peephole off reads, so build with it on first) and `.tables`
 three, and what shorter run does the work of a run that has numbers or
 variables in it: `util/fuse.c`, which has `vm.c` in it, is built by gforth
 each time an image is and called through gforth's C interface. gforth
-builds C with `libtool`, which has to be installed. An answer is found by
+builds C with `libtool`. An answer is found by
 the machine's step on terms and then run on `vm.c`, and the build stops if
 the two do not agree. What was found and run is kept beside the images
 (`build/fuse-*.kept`, named for the text of `fuse.c` and of the machine,

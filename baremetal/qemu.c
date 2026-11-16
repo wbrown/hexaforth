@@ -150,7 +150,8 @@ void qemu_start(const char* elf, const char* on, const char* out) {
         int nothing = open("/dev/null", O_RDWR);
         dup2(nothing, 0);
         dup2(nothing, 2);
-        execlp("qemu-system-aarch64", "qemu-system-aarch64", "-M", "virt", "-cpu", "cortex-a53", "-m", "256",
+        // (QEMU_AARCH64 is where QEMU is, which the build says.)
+        execlp(QEMU_AARCH64, QEMU_AARCH64, "-M", "virt", "-cpu", "cortex-a53", "-m", "256",
                "-display", "none", "-serial", "stdio", "-nic", "none", "-qmp", qmp_is, "-device", "ramfb",
                "-global", "virtio-mmio.force-legacy=false", "-drive", drive,
                "-device", "virtio-blk-device,drive=hd0", "-device", "virtio-keyboard-device",

@@ -1,4 +1,181 @@
 cmake_minimum_required(VERSION 3.18)
+
+#
+# What the project needs that is not in it.
+#
+# Each is said once, here: a program by the names it goes by, or a library
+# by a header of its; what it is for; and the package that has it, where
+# Homebrew installs things (macOS, and Linux if it is there) and where apt
+# does (Debian and Ubuntu).  When CMake is run, each is looked for, and
+# what is not there is asked of whichever of the two the system has, all
+# of it at once: apt as root, through sudo if CMake is not root itself.
+# So on a system that has CMake and one of the two, and nothing else,
+#
+#     cmake -S . -B build/cmake
+#
+# leaves everything here able to be built.  -DINSTALL_NEEDED=OFF only
+# looks, and says what is not there.  This is before the project is named,
+# since naming it wants the C compiler and make, which are two of them.
+#
+# What is still not there afterwards is said, with what it is for.  A
+# system with neither Homebrew nor apt is told the same, and has to find
+# each for itself.  macOS has a C compiler, make, git and curl with Xcode's
+# command line tools, which Homebrew does not install without.
+#
+option(INSTALL_NEEDED "ask Homebrew or apt for what the project needs and is not here" ON)
+find_program(BREW brew)
+find_program(APT apt-get)
+set(BREW_PREFIX)
+if(BREW)
+    execute_process(COMMAND ${BREW} --prefix
+                    OUTPUT_VARIABLE BREW_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+endif()
+
+# A need: the variable that has where it is, and then
+#
+#   PROGRAM names...    a program, by any of those names
+#   HEADER file         or a library, by a header of its
+#   FOR text            what it is for
+#   BREW formula        the package that has it, of Homebrew's
+#   APT package         and of apt's
+function(needs NAME)
+    cmake_parse_arguments(IT "" "HEADER;FOR;BREW;APT" "PROGRAM" ${ARGN})
+    set_property(GLOBAL APPEND PROPERTY NEEDED ${NAME})
+    foreach(PART PROGRAM HEADER FOR BREW APT)
+        set_property(GLOBAL PROPERTY NEEDED_${NAME}_${PART} "${IT_${PART}}")
+    endforeach()
+endfunction()
+
+needs(C_COMPILER    PROGRAM cc gcc clang        APT gcc
+      FOR "everything: the C is compiled with it, and gforth builds util/fuse.c with it")
+needs(CXX_COMPILER  PROGRAM c++ g++ clang++     APT g++
+      FOR "the Verilog: Verilator makes C++ of it")
+needs(MAKE_PROGRAM  PROGRAM make gmake          APT make                        BREW make
+      FOR "everything: CMake builds with it, and so does Verilator")
+needs(GIT           PROGRAM git                 APT git                         BREW git
+      FOR "bench-m68k and gates, which fetch the 68000 and the two other CPUs")
+needs(CURL          PROGRAM curl                APT curl                        BREW curl
+      FOR "the Mandrill, which the tests that have a disk are given")
+needs(GFORTH        PROGRAM gforth              APT gforth                      BREW gforth
+      FOR "every image: cross.fs is run by it")
+needs(LIBTOOL       PROGRAM glibtool libtool    APT libtool-bin                 BREW libtool
+      FOR "every image: gforth builds util/fuse.c through it")
+needs(LTDL_HEADER   HEADER ltdl.h               APT libltdl-dev                 BREW libtool
+      FOR "every image: what gforth builds of util/fuse.c is built with it")
+needs(UNICORN_HEADER HEADER unicorn/unicorn.h   APT libunicorn-dev              BREW unicorn
+      FOR "the tests kernel-hexaforth and kernel-hexaforth-fast: the kernels are run against vm.c on it")
+needs(CLANG         PROGRAM clang               APT clang                       BREW llvm
+      FOR "the AArch64 kernels, which it assembles")
+needs(LLD           PROGRAM ld.lld              APT lld                         BREW lld
+      FOR "the AArch64 kernels, which it links")
+needs(OBJCOPY       PROGRAM llvm-objcopy        APT llvm                        BREW llvm
+      FOR "the AArch64 kernels, as what QEMU's machine has in memory")
+needs(NM            PROGRAM llvm-nm             APT llvm                        BREW llvm
+      FOR "the AArch64 kernels: where a kernel's symbols are")
+needs(QEMU_AARCH64  PROGRAM qemu-system-aarch64 APT qemu-system-arm             BREW qemu
+      FOR "the desktop on a kernel: the qemu- tests, run, demo, demo-test and demo-time")
+needs(VERILATOR     PROGRAM verilator           APT verilator                   BREW verilator
+      FOR "the Verilog: the verilog- tests and the benchmarks")
+needs(YOSYS         PROGRAM yosys               APT yosys                       BREW yosys
+      FOR "gates and synth")
+needs(NEXTPNR       PROGRAM nextpnr-ecp5        APT nextpnr-ecp5
+      FOR "synth")
+needs(M68K_AS       PROGRAM m68k-elf-as m68k-linux-gnu-as           APT binutils-m68k-linux-gnu BREW m68k-elf-binutils
+      FOR "bench-m68k: the 68000's assembler")
+needs(M68K_LD       PROGRAM m68k-elf-ld m68k-linux-gnu-ld           APT binutils-m68k-linux-gnu BREW m68k-elf-binutils
+      FOR "bench-m68k: the 68000's linker")
+needs(M68K_OBJCOPY  PROGRAM m68k-elf-objcopy m68k-linux-gnu-objcopy APT binutils-m68k-linux-gnu BREW m68k-elf-binutils
+      FOR "bench-m68k: the 68000's program as its bytes")
+
+# Each is looked for where the system looks, and then where Homebrew has
+# what it does not put there (llvm is one), so that a program the system
+# has is the one that is used.
+function(look_for NAME)
+    get_property(PROGRAM GLOBAL PROPERTY NEEDED_${NAME}_PROGRAM)
+    get_property(HEADER GLOBAL PROPERTY NEEDED_${NAME}_HEADER)
+    get_property(FORMULA GLOBAL PROPERTY NEEDED_${NAME}_BREW)
+    set(PLACES)
+    if(BREW_PREFIX)
+        set(PLACES ${BREW_PREFIX})
+        if(FORMULA)
+            list(APPEND PLACES ${BREW_PREFIX}/opt/${FORMULA})
+        endif()
+    endif()
+    if(PROGRAM)
+        list(TRANSFORM PLACES APPEND /bin)
+        find_program(${NAME} NAMES ${PROGRAM} PATHS ${PLACES})
+    else()                          # CMake does not know where a system's headers are until the project is named
+        list(PREPEND PLACES /usr /usr/local)
+        list(TRANSFORM PLACES APPEND /include)
+        find_path(${NAME} ${HEADER} PATHS ${PLACES})
+    endif()
+endfunction()
+
+get_property(NEEDED GLOBAL PROPERTY NEEDED)
+set(ASKED)
+foreach(NAME ${NEEDED})
+    look_for(${NAME})
+    if(NOT ${NAME})
+        if(BREW)
+            get_property(PACKAGE GLOBAL PROPERTY NEEDED_${NAME}_BREW)
+        elseif(APT)
+            get_property(PACKAGE GLOBAL PROPERTY NEEDED_${NAME}_APT)
+        else()
+            set(PACKAGE)
+        endif()
+        list(APPEND ASKED ${PACKAGE})
+    endif()
+endforeach()
+list(REMOVE_DUPLICATES ASKED)
+if(ASKED AND INSTALL_NEEDED)
+    string(REPLACE ";" " " SAID "${ASKED}")
+    if(BREW)
+        message(STATUS "Not here, and asked of Homebrew: ${SAID}")
+        execute_process(COMMAND ${BREW} install ${ASKED})
+    else()
+        message(STATUS "Not here, and asked of apt: ${SAID}")
+        set(AS_ROOT)
+        execute_process(COMMAND id -u OUTPUT_VARIABLE WHO OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if(NOT WHO STREQUAL "0")
+            find_program(SUDO sudo)
+            set(AS_ROOT ${SUDO})
+        endif()
+        set(INSTALLED ${AS_ROOT} ${CMAKE_COMMAND} -E env DEBIAN_FRONTEND=noninteractive ${APT} install -y ${ASKED})
+        execute_process(COMMAND ${INSTALLED} RESULT_VARIABLE FAILED)
+        if(FAILED)                  # as it does where apt has not yet been told what there is
+            execute_process(COMMAND ${AS_ROOT} ${APT} update)
+            execute_process(COMMAND ${INSTALLED})
+        endif()
+    endif()
+    foreach(NAME ${NEEDED})
+        look_for(${NAME})
+    endforeach()
+endif()
+foreach(NAME ${NEEDED})
+    if(NOT ${NAME})
+        get_property(PROGRAM GLOBAL PROPERTY NEEDED_${NAME}_PROGRAM)
+        get_property(HEADER GLOBAL PROPERTY NEEDED_${NAME}_HEADER)
+        get_property(FOR GLOBAL PROPERTY NEEDED_${NAME}_FOR)
+        get_property(FORMULA GLOBAL PROPERTY NEEDED_${NAME}_BREW)
+        get_property(PACKAGE GLOBAL PROPERTY NEEDED_${NAME}_APT)
+        if(HEADER)
+            set(WHAT "The library that has ${HEADER}")
+        else()
+            list(GET PROGRAM 0 WHAT)
+        endif()
+        if(BREW AND NOT FORMULA)
+            set(HOW "Homebrew has no package of it")
+        elseif(NOT BREW AND NOT APT)
+            set(HOW "Neither Homebrew nor apt is here to ask: apt's package of it is ${PACKAGE}, and Homebrew's ${FORMULA}")
+        elseif(NOT INSTALL_NEEDED)
+            set(HOW "It was not asked for, since INSTALL_NEEDED is off: apt's package of it is ${PACKAGE}, and Homebrew's ${FORMULA}")
+        else()
+            set(HOW "It was asked for and did not come")
+        endif()
+        message(WARNING "${WHAT} is not here.  It is for ${FOR}.  ${HOW}.")
+    endif()
+endforeach()
+
 project(hexaforth C)
 
 set(DEBUG true)
@@ -31,44 +208,24 @@ list(FILTER FORTH_SOURCES EXCLUDE REGEX "/test_cases\\.fs$")
 # cross.fs asks the machine which instructions do the work of which
 # (util/fuse.c, which has vm.c in it), through gforth's C interface.  So an
 # image is out of date when the machine changes too.  gforth builds that C
-# with libtool, which has to be there; and where gforth is Homebrew's, the
-# compiler has to be told where Homebrew's headers are, gforth's own among
-# them.
+# with libtool; and where gforth is Homebrew's, the compiler has to be told
+# where Homebrew's headers are, gforth's own among them.
 set(MACHINE_SOURCES util/fuse.c util/named.c util/room.c vm.c vm_step.h vm.h vm_opcodes.c
                     vm_opcodes.h vm_instruction.h vm_constants.h util/stack.c)
 set(WITH_HEADERS)                   # what is put before a command that has gforth build C
-find_program(BREW brew)
 if(BREW)
-    execute_process(COMMAND ${BREW} --prefix
-                    OUTPUT_VARIABLE BREW_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
     set(BREW_CPATH ${BREW_PREFIX}/include)
     if(DEFINED ENV{CPATH})
         set(BREW_CPATH ${BREW_CPATH}:$ENV{CPATH})
     endif()
     set(WITH_HEADERS ${CMAKE_COMMAND} -E env CPATH=${BREW_CPATH})
 endif()
-set(GFORTH ${WITH_HEADERS} gforth)
-
-# The kernels are run against vm.c on Unicorn, which is a C library
-# (baremetal/difftest.c, which is built with what pkg-config says of it).
-# Where it is not there and Homebrew is, Homebrew is asked to install it.
-find_program(PKG_CONFIG pkg-config)
-set(NO_UNICORN 1)
-if(PKG_CONFIG)
-    execute_process(COMMAND ${PKG_CONFIG} --exists unicorn RESULT_VARIABLE NO_UNICORN)
-endif()
-if(NO_UNICORN AND BREW)
-    message(STATUS "Unicorn's library is not here: asking Homebrew to install it")
-    execute_process(COMMAND ${BREW} install unicorn RESULT_VARIABLE NO_UNICORN)
-    if(NO_UNICORN)
-        message(WARNING "Homebrew did not install Unicorn: the kernels cannot be run against vm.c (the tests kernel-hexaforth and kernel-hexaforth-fast)")
-    endif()
-endif()
+set(RUN_GFORTH ${WITH_HEADERS} ${GFORTH})
 
 # hexaforth nucleus image from swapforth
 add_custom_command(
         COMMAND           ${MAKE_BUILD_DIR}
-        COMMAND           ${GFORTH} cross.fs basewords.fs nuc.fs
+        COMMAND           ${RUN_GFORTH} cross.fs basewords.fs nuc.fs
         OUTPUT            ${CMAKE_SOURCE_DIR}/build/nuc.hex
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
         DEPENDS           forth/basewords.fs
@@ -114,7 +271,7 @@ add_custom_command(
 # Compile test_cases.fs to hex
 add_custom_command(
         COMMAND           ${MAKE_BUILD_DIR}
-        COMMAND           ${GFORTH} cross.fs basewords.fs test_cases.fs
+        COMMAND           ${RUN_GFORTH} cross.fs basewords.fs test_cases.fs
         OUTPUT            ${CMAKE_SOURCE_DIR}/build/test_cases.hex
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
         DEPENDS           forth/test_cases.fs
@@ -292,7 +449,7 @@ set(PICTURE ${BUILD}/mandrill.tiff)
 add_custom_command(
         OUTPUT            ${PICTURE}
         COMMAND           ${MAKE_BUILD_DIR}
-        COMMAND           curl -sSfL --remove-on-error -o ${PICTURE}
+        COMMAND           ${CURL} -sSfL --remove-on-error -o ${PICTURE}
                             "https://sipi.usc.edu/database/download.php?vol=misc&img=4.2.03"
         VERBATIM)
 add_custom_target(picture DEPENDS ${PICTURE})
@@ -350,7 +507,7 @@ function(machine NAME)
     add_custom_command(
             OUTPUT            ${NUCLEUS}
             COMMAND           ${CMAKE_COMMAND} -E env BUILD=${AT}/
-                                ${GFORTH} ./cross.fs ${AT}/basewords.fs ./nuc.fs > ${AT}/cross.log 2>&1
+                                ${RUN_GFORTH} ./cross.fs ${AT}/basewords.fs ./nuc.fs > ${AT}/cross.log 2>&1
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
             COMMENT           "The nucleus for the machine ${NAME} (what cross.fs says is in ${AT}/cross.log)"
             DEPENDS           ${AT}/basewords.fs
@@ -361,7 +518,7 @@ function(machine NAME)
             OUTPUT            ${PLAIN}
             COMMAND           ${CMAKE_COMMAND} -E copy ${AT}/nuc.inline ${AT}/plain/nuc.inline
             COMMAND           ${CMAKE_COMMAND} -E env BUILD=${AT}/plain/ PEEPHOLE=off
-                                ${GFORTH} ./cross.fs ${AT}/basewords.fs ./nuc.fs > ${AT}/plain/cross.log 2>&1
+                                ${RUN_GFORTH} ./cross.fs ${AT}/basewords.fs ./nuc.fs > ${AT}/plain/cross.log 2>&1
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
             COMMENT           "The nucleus for the machine ${NAME}, with the peephole off (${AT}/plain/cross.log)"
             DEPENDS           machine-${NAME} ${NUCLEUS})
@@ -617,6 +774,7 @@ add_dependencies(peephole machine-${FIRST} plain-${FIRST})
 # the environment is phrases of up to four words, which takes much longer.
 tool(phrase-book util/phrases.c util/image.c)
 target_include_directories(phrase-book PRIVATE util)
+target_compile_definitions(phrase-book PRIVATE GFORTH="${GFORTH}")
 add_custom_target(phrases
         COMMAND           ${MAKE_BUILD_DIR}
         COMMAND           ${WITH_HEADERS} $<TARGET_FILE:phrase-book> ${BUILD}/phrases.txt
@@ -632,9 +790,11 @@ add_custom_target(phrases
 tool(joins util/joins.c)
 tool(fused util/fused.c util/image.c)
 target_include_directories(fused PRIVATE util)
+target_compile_definitions(fused PRIVATE GFORTH="${GFORTH}")
 add_custom_target(tables
         COMMAND           joins forth/folds.fs
-        COMMAND           ${WITH_HEADERS} ${CMAKE_COMMAND} -DFUSED=$<TARGET_FILE:fused> -P util/tables.cmake
+        COMMAND           ${WITH_HEADERS} ${CMAKE_COMMAND} -DGFORTH=${GFORTH} -DFUSED=$<TARGET_FILE:fused>
+                            -P util/tables.cmake
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 #
@@ -690,18 +850,7 @@ set(OF_KERNEL ${BUILD}/${KERNELS_OF})
 set(LOAD 0x40080000)                # where QEMU's virt machine has a kernel start
 set(KERNEL_SIZES ${SIZES_OF_${KERNELS_OF}})
 list(TRANSFORM KERNEL_SIZES PREPEND -D)
-set(CROSS_CLANG clang --target=aarch64-none-elf -c ${KERNEL_SIZES})
-
-# Homebrew keeps LLVM's tools out of PATH: where PATH has none, Homebrew's
-# are used, and clang is still the one PATH finds first.
-set(BREW_LLVM)
-if(BREW)
-    execute_process(COMMAND ${BREW} --prefix llvm
-                    OUTPUT_VARIABLE BREW_LLVM OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-endif()
-find_program(LLD ld.lld PATHS ${BREW_LLVM}/bin)
-find_program(OBJCOPY llvm-objcopy PATHS ${BREW_LLVM}/bin)
-find_program(NM llvm-nm PATHS ${BREW_LLVM}/bin)
+set(CROSS_CLANG ${CLANG} --target=aarch64-none-elf -c ${KERNEL_SIZES})
 
 # A number that may have a fraction, times a whole number, as a whole
 # number: CMake's own arithmetic is of whole numbers.
@@ -840,13 +989,11 @@ endfunction()
 # Unicorn (baremetal/difftest.c).
 kernel_tool(difftest_dump baremetal/difftest_dump.c ${VM_SOURCES} test/compiler.c test/vm_test.c)
 kernel_tool(difftest baremetal/difftest.c)
-find_package(PkgConfig)
-if(PKG_CONFIG_FOUND)
-    pkg_check_modules(UNICORN unicorn)
-    target_include_directories(difftest PRIVATE ${UNICORN_INCLUDE_DIRS})
-    target_link_directories(difftest PRIVATE ${UNICORN_LIBRARY_DIRS})
+find_library(UNICORN unicorn PATHS ${BREW_PREFIX}/lib)
+if(UNICORN_HEADER AND UNICORN)      # without it difftest does not build, and says what it has not
+    target_include_directories(difftest PRIVATE ${UNICORN_HEADER})
+    target_link_libraries(difftest ${UNICORN})
 endif()
-target_link_libraries(difftest unicorn)
 add_custom_command(
         OUTPUT            ${KB}/cases.bin
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${KB}
@@ -859,6 +1006,8 @@ add_custom_command(
 set(QEMU_SOURCES baremetal/qemu.c test/deskcheck.c test/tables.c test/dither.c bench/tiff.c vm_opcodes.c vm_debug.c)
 kernel_tool(guitest baremetal/guitest.c ${QEMU_SOURCES})
 kernel_tool(desktime baremetal/desktime.c ${QEMU_SOURCES})
+target_compile_definitions(guitest PRIVATE QEMU_AARCH64="${QEMU_AARCH64}")
+target_compile_definitions(desktime PRIVATE QEMU_AARCH64="${QEMU_AARCH64}")
 tool(kernel_size baremetal/size.c)
 
 # The tests: each kernel against vm.c, and the desktop on QEMU with each,
@@ -903,7 +1052,7 @@ if(DISK)
     times(RATE ${DISK} 1024)
     set(SLOW ",throttling.bps-read=${RATE},throttling.bps-write=${RATE}")
 endif()
-set(QEMU qemu-system-aarch64 -M virt -cpu cortex-a53 -nic none)
+set(QEMU ${QEMU_AARCH64} -M virt -cpu cortex-a53 -nic none)
 
 kernel(${KERNEL} ${SAID})
 get_filename_component(PLAIN_KERNEL ${KERNEL_FILE} NAME)
@@ -998,7 +1147,7 @@ set(RB ${BUILD}/rtl)
 set(RTL ${CMAKE_SOURCE_DIR}/rtl)
 set(RTL_MEMORY 17)                  # the log2 of the bytes of memory a CPU is tested with
 set(RTL_PC 16)
-set(VERILATED verilator -Wall -Wno-UNUSED -Wno-DECLFILENAME -Wno-PINCONNECTEMPTY -Wno-WIDTH -O3
+set(VERILATED ${VERILATOR} -Wall -Wno-UNUSED -Wno-DECLFILENAME -Wno-PINCONNECTEMPTY -Wno-WIDTH -O3
                         --x-assign fast --x-initial fast)
 
 # The log2 of the cells that so much memory is, of a cell of some size.
@@ -1157,9 +1306,9 @@ tool(synth_said rtl/synth.c)
 add_custom_target(synth
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${S}
         ${SYNTH_ROM}
-        COMMAND           yosys -q -l ${S}/yosys.log -p
+        COMMAND           ${YOSYS} -q -l ${S}/yosys.log -p
                             "${SYNTH_READ} soc.v hexaforth.v hf_mem.v; chparam -set W ${SYNTH_CELL} -set AB ${SYNTH_AB} -set LAT ${SYNTH_LAT} soc; synth_ecp5 -top soc -json ${S}/soc.json"
-        COMMAND           nextpnr-ecp5 --85k --package CABGA381 --json ${S}/soc.json --lpf-allow-unconstrained
+        COMMAND           ${NEXTPNR} --85k --package CABGA381 --json ${S}/soc.json --lpf-allow-unconstrained
                             --timing-allow-fail -q -l ${S}/nextpnr.log || ${CMAKE_COMMAND} -E true
         COMMAND           synth_said ${S}/nextpnr.log
                             "W=${SYNTH_CELL} LAT=${SYNTH_LAT} KROM=${SYNTH_IS} memory 2^${SYNTH_AB} cells:"
@@ -1285,9 +1434,6 @@ add_custom_target(bench-parts DEPENDS ${BB}/disk.img ${BB}/blocks.fs ${BENCH_PAR
 # program is where it is put in the 68000's memory.
 set(MB ${BB}/m68k)
 set(M68K_AT 0x1000)
-find_program(M68K_AS m68k-elf-as)
-find_program(M68K_LD m68k-elf-ld)
-find_program(M68K_OBJCOPY m68k-elf-objcopy)
 set(M68K_FIGURES)
 if(M68K_AS)
     include(ExternalProject)
@@ -1393,7 +1539,6 @@ figures(bench DRAW DITHER M68K)
 # It wants yosys.  Everything is kept in build/bench/gates/.
 #
 set(GB ${BB}/gates)
-find_program(YOSYS yosys)
 if(YOSYS)
     include(ExternalProject)
     tool(gates_said bench/gates.c)

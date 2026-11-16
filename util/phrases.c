@@ -218,7 +218,8 @@ static void compile(entry** batch, int count) {
     }
     fprintf(source, "meta $%x org target\nheader main : main halt ;\nheader quit : quit halt ;\n", each * MAIN_AT);
     fclose(source);
-    int built = !system("gforth ./cross.fs ./basewords.fs ./phrasetest.fs > ../build/phrasetest.log 2>&1");
+    // (GFORTH is where gforth is, which the build says.)
+    int built = !system(GFORTH " ./cross.fs ./basewords.fs ./phrasetest.fs > ../build/phrasetest.log 2>&1");
     remove("phrasetest.fs");
     uint8_t* image;
     size_t len = built ? load_image("../build/phrasetest.hex", &image) : 0;
@@ -285,7 +286,7 @@ static int gforth_has(const char* name) {
     if (!script) { perror("../build/phrases.ask"); exit(1); }
     fprintf(script, ": t parse-name find-name 0<> . cr ;\nt %s\nbye\n", name);
     fclose(script);
-    FILE* answer = popen("gforth ../build/phrases.ask < /dev/null", "r");
+    FILE* answer = popen(GFORTH " ../build/phrases.ask < /dev/null", "r");
     int has = 0;
     if (!answer || fscanf(answer, "%d", &has) != 1) {
         fprintf(stderr, "phrases: gforth did not say whether it has %s\n", name);
@@ -307,7 +308,7 @@ static int in_gforth(const char* text, int64_t result[STACKS][FILLED], int* dept
     }
     fprintf(script, "bye\n");
     fclose(script);
-    FILE* answers = popen("gforth ../build/phrases.ask < /dev/null 2>&1", "r");
+    FILE* answers = popen(GFORTH " ../build/phrases.ask < /dev/null 2>&1", "r");
     char* row = NULL;               // a line of what it says, however long
     long row_room = 0;
     int s = 0, known = answers != NULL;

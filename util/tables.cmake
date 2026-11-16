@@ -1,6 +1,6 @@
 # forth/fused.fs, the words the decompiler shows an instruction as, made
 # again (the target `tables` runs this, from where the source is, and tells
-# it where the tool that makes the table is: FUSED).
+# it where gforth is, GFORTH, and the tool that makes the table, FUSED).
 #
 # The table is in the image it is made from.  So the image is built with
 # the table there is, the table made of that image, and the image built
@@ -8,7 +8,7 @@
 # machine's (build/nuc.hex), and what cross.fs says is build/cross.log.
 foreach(TURN RANGE 1 6)
     execute_process(
-            COMMAND           gforth ./cross.fs ./basewords.fs ./nuc.fs
+            COMMAND           ${GFORTH} ./cross.fs ./basewords.fs ./nuc.fs
             WORKING_DIRECTORY forth
             OUTPUT_FILE       ../build/cross.log
             ERROR_FILE        ../build/cross.log
