@@ -93,6 +93,86 @@ bool lookup_op_word(word_node* nodes, char* word, instruction* lookup) {
     return(interpret_imm(word, lookup));
 }
 
+// Given where the name in a dictionary header starts, and how many bytes
+// there are from there to the end of the image, write the name out as a
+// string, and return how many bytes of the header the name's cells are.
+// What does not end inside the image, or goes on longer than a name does,
+// is not a name: then the string is empty and nothing is returned.
+// See `NAME_CODES_REPR` for what the codes of a name are.
+int decode_name(const uint8_t* cells, size_t room, char* out) {
+    const char* lot = NULL;     // which lot the next code is one of, if any
+    int len = 0;
+    int bytes = 0;
+    bool last = false;
+
+    while (!last) {
+        if (bytes + CELL_BYTES > room || len > NAME_MOST) {
+            out[0] = '\0';
+            return(0);
+        }
+        uint64_t cell = 0;
+        memcpy(&cell, cells + bytes, CELL_BYTES);
+        bytes += CELL_BYTES;
+        last = (cell >> (CELL_BITS - 1)) & 1;
+        for (int idx = 0; idx < CELL_BITS / 5; idx++) {
+            uint8_t code = (cell >> (5 * idx)) & 31;
+            if (lot) {
+                out[len++] = (code && code <= strlen(lot)) ? lot[code - 1] : '?';
+                lot = NULL;
+            } else if (code >= 30) {
+                lot = NAME_CODES_REPR[code - 29];
+            } else if (code >= 27) {
+                out[len++] = NAME_CODES_REPR[0][code - 27];
+            } else if (code) {
+                out[len++] = 'a' + code - 1;
+            }
+        }
+    }
+    out[len] = '\0';
+    return(bytes);
+}
+
+// The dictionary of an image of `len` bytes.  A header is cells: the address
+// of the header before it, which is nothing for the first; the word's
+// execution token, with the top bit set if the word is immediate; and the
+// name.  The address of the newest header is the first cell of the image's
+// data, the cell at VAR_BASE, where cross.fs puts it.  An address is the
+// number of a cell, and a header is said here by the byte it starts at.
+uint32_t newest_header(const uint8_t* image, size_t len) {
+    uint64_t head = 0;
+    if ((VAR_BASE + 1) * CELL_BYTES > len) return(0);
+    memcpy(&head, image + VAR_BASE * CELL_BYTES, CELL_BYTES);
+    return(head < len / CELL_BYTES ? head * CELL_BYTES : 0);
+}
+
+// Read the header at byte `head`: its name, and its execution token without
+// the top bit.  Returns the byte the header before it starts at, which is
+// nothing for the first.  What does not fit in the image, or has a link
+// that does not go back, is not a header: then the name is empty and
+// nothing is returned.
+uint32_t read_header(const uint8_t* image, size_t len, uint32_t head,
+                     uint64_t* xt, char* name) {
+    uint64_t link = 0;
+    name[0] = '\0';
+    *xt = 0;
+    if (head + 2 * CELL_BYTES > len) return(0);
+    memcpy(&link, image + head, CELL_BYTES);
+    memcpy(xt, image + head + CELL_BYTES, CELL_BYTES);
+    *xt &= ~(1ull << (CELL_BITS - 1));
+    if (link >= head / CELL_BYTES) return(0);
+    decode_name(image + head + 2 * CELL_BYTES, len - head - 2 * CELL_BYTES, name);
+    return(link * CELL_BYTES);
+}
+
+// Where the header at byte `head` ends: the byte after the last cell of its
+// name.  This and read_header are what know that a header is two cells and
+// then the name.
+uint32_t header_end(const uint8_t* image, size_t len, uint32_t head) {
+    char name[NAME_ROOM];
+    if (head + 2 * CELL_BYTES > len) return(head);
+    return(head + 2 * CELL_BYTES + decode_name(image + head + 2 * CELL_BYTES, len - head - 2 * CELL_BYTES, name));
+}
+
 void decode_instruction(char* out, instruction ins, word_node words[]) {
     const char* forth_word = lookup_opcode(words, ins);
     char* ins_r = instruction_to_str(ins);
@@ -154,7 +234,7 @@ bool init_opcodes(word_node* opcodes) {
         bool string = false;
 
         // Loop through the characters in our buffer.
-        for(int i=0; i<=input_len; i++) {
+        for(int i=0; i<input_len; i++) {
            if (input[i]==' ' || input[i] == '\0') {
                 // We replace spaces with null bytes to indicate to C that it's
                 // the termination of the string.
@@ -223,7 +303,10 @@ const char* lookup_opcode(word_node words[], instruction ins) {
 // string and return it.
 char* instruction_to_str(instruction ins) {
     char *ret_str;
-    if (ins.lit.lit_f) {
+    if (ins.lit.lit_f && ins.lit.lit_shifts == 3) {
+        asprintf(&ret_str, "%6d  %-7s %-8s %25s %-7s",
+                 ins.lit.lit_v, "var", ins.lit.lit_add ? "!" : "@", "", "imm");
+    } else if (ins.lit.lit_f) {
         asprintf(&ret_str,
                  "%6d  %-7s %-8s %25s %-7s",
                  ins.lit.lit_v,

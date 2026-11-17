@@ -14,7 +14,6 @@
 
 
 typedef struct {
-  uint16_t start_addr;
   uint16_t *bytes;
   int count;
 } test_bytecode;
@@ -25,15 +24,11 @@ static uint16_t *load_hex_file(const char *filename, int *total_words) {
   if (!f)
     return NULL;
 
-  uint16_t *memory = calloc(65536, sizeof(uint16_t));
-  if (!memory) {
-    fclose(f);
-    return NULL;
-  }
-
-  int addr = 0;
+  // As many words as the file has: there is room for more as it is read.
+  uint16_t *memory = NULL;
+  int addr = 0, room = 0;
   char line[100];
-  while (fgets(line, sizeof(line), f) && addr < 65536) {
+  while (fgets(line, sizeof(line), f)) {
     // Remove newline
     line[strcspn(line, "\n")] = 0;
 
@@ -42,6 +37,14 @@ static uint16_t *load_hex_file(const char *filename, int *total_words) {
     if (strlen(line) == 8) {
       uint32_t value;
       if (sscanf(line, "%8x", &value) == 1) {
+        if (addr + 2 > room) {
+          room = 2 * room + 2;
+          memory = realloc(memory, room * sizeof(uint16_t));
+          if (!memory) {
+            fclose(f);
+            return NULL;
+          }
+        }
         // Split into two 16-bit words
         // The hex file has them in reverse order
         // Last 4 hex chars = first word in memory
@@ -56,145 +59,76 @@ static uint16_t *load_hex_file(const char *filename, int *total_words) {
   return memory;
 }
 
-// Parse dictionary header to find code pointer
-static uint16_t get_code_pointer(uint16_t *memory, uint16_t dict_addr) {
-  // Convert byte address to word index
-  // The .lst addresses are absolute byte addresses in the image
-  uint16_t word_idx = dict_addr / 2;
-  uint16_t start_idx = word_idx;
-
-  // Dictionary format:
-  // - link (2 bytes = 1 word)
-  // - name length (1 byte)
-  // - name chars (length bytes)
-  // - padding to align to word boundary
-  // - code pointer (2 bytes = 1 word)
-
-  // Skip link field
-  word_idx++;
-
-  // Get name length (it's in the low byte of the word)
-  uint8_t name_len = memory[word_idx] & 0xFF;
-
-  // The name length byte is in the low byte, so we need to account for that
-  // when calculating how many words to skip
-  // We have: [length_byte + name_bytes], and need to round up to word
-  // boundary
-  int name_bytes = name_len;
-  int total_name_bytes = 1 + name_bytes;       // 1 for the length byte itself
-  int name_words = (total_name_bytes + 1) / 2; // Round up to word boundary
-
-  word_idx += name_words;
-
-  // Now we're at the code field pointer
-  // Return the value at this location (the pointer to the actual code)
-  return memory[word_idx];
-}
-
-// Dictionary parsing structure
+// A word of a test image's dictionary: its name, and the instruction its
+// code starts at.
 typedef struct dict_entry {
   char name[64];
-  uint16_t dict_addr; // Word address of dictionary entry
-  uint16_t code_addr; // Word address of code
-  uint16_t link;      // Link to previous entry
+  uint16_t code_addr;
 } dict_entry;
 
-// Parse dictionary starting at word 0x2000
-static int parse_dictionary(uint16_t *memory, dict_entry *entries,
-                            int max_entries) {
-  int count = 0;
-  uint16_t dict_addr = 0x2000;
+// The words of a test image's dictionary, from the newest (read_header in
+// vm_opcodes.c): how many, and the entries, which are made here and are
+// as many as the dictionary has.
+static int parse_dictionary(uint16_t *memory, int total_words,
+                            dict_entry **entries) {
+  const uint8_t *bytes = (const uint8_t *)memory;
+  size_t image_len = (size_t)total_words * 2;
+  uint32_t head = newest_header(bytes, image_len);
+  dict_entry *found = NULL;
+  int count = 0, room = 0;
 
-  while (dict_addr < 0x2200 && count < max_entries) {
-    uint16_t link = memory[dict_addr];
-    uint8_t name_len = memory[dict_addr + 1] & 0xFF;
-
-    if (name_len == 0 || name_len > 63)
+  while (head) {
+    uint64_t xt;
+    char name[256];
+    head = read_header(bytes, image_len, head, &xt, name);
+    if (!name[0])
       break;
-
-    // Extract name
-    char name[64] = {0};
-    // First character is in high byte of length word
-    if (name_len > 0) {
-      name[0] = (memory[dict_addr + 1] >> 8) & 0xFF;
-    }
-    // Rest of name continues in following words
-    for (int i = 1; i < name_len; i++) {
-      uint16_t word_offset = 2 + (i - 1) / 2;
-      uint16_t word = memory[dict_addr + word_offset];
-      if ((i - 1) & 1) {
-        name[i] = (word >> 8) & 0xFF;
-      } else {
-        name[i] = word & 0xFF;
+    if (strlen(name) < sizeof(found->name)) {
+      if (count == room) {
+        room = 2 * room + 1;
+        found = realloc(found, room * sizeof(dict_entry));
+        if (!found) {
+          printf("No room for %d dictionary entries\n", room);
+          exit(1);
+        }
       }
+      strcpy(found[count].name, name);
+      found[count].code_addr = (uint16_t)xt;
+      count++;
     }
-
-    // Calculate code pointer location
-    uint16_t header_bytes = 2 + 1 + name_len;
-    if (header_bytes & 1)
-      header_bytes++;
-    uint16_t code_ptr_addr = dict_addr + header_bytes / 2;
-
-    // Read code pointer (already a word address)
-    uint16_t code_word_addr = memory[code_ptr_addr];
-
-    // Store entry
-    strcpy(entries[count].name, name);
-    entries[count].dict_addr = dict_addr;
-    entries[count].code_addr = code_word_addr;
-    entries[count].link = link;
-    count++;
-
-    // Find next entry
-    uint16_t next_addr = code_ptr_addr + 1;
-    dict_addr = 0;
-
-    // Scan forward for next dictionary entry
-    while (next_addr < 0x2200) {
-      if (memory[next_addr] >= 0x4000 || memory[next_addr] == 0) {
-        dict_addr = next_addr;
-        break;
-      }
-      next_addr++;
-    }
-
-    if (dict_addr == 0)
-      break;
   }
 
+  *entries = found;
   return count;
 }
 
-// Extract bytecode for each test using dictionary
-static void extract_test_bytecode(uint16_t *memory, test_bytecode *tests,
+// Extract bytecode for each test using dictionary.  A test's code is from
+// where its word starts to its exit or a halt, or to the end of the image.
+static void extract_test_bytecode(uint16_t *memory, int total_words,
+                                  uint16_t exit_ins, test_bytecode *tests,
                                   int test_count, dict_entry *dict_entries,
                                   int dict_count) {
   // For each test, find its dictionary entry and extract code
   for (int i = 0; i < test_count; i++) {
-    char test_name[32];
+    char test_name[sizeof("test_") + 3 * sizeof(int)];
     sprintf(test_name, "test_%d", i);
 
     // Find this test in dictionary
     for (int j = 0; j < dict_count; j++) {
       if (strcmp(dict_entries[j].name, test_name) == 0) {
-        // Found it - extract code until we hit exit/halt
-        tests[i].bytes = calloc(200, sizeof(uint16_t));
+        // Found it - its code is where the image has it, and is not copied
+        int addr = dict_entries[j].code_addr;
+        tests[i].bytes = memory + addr;
         tests[i].count = 0;
 
-        uint16_t addr = dict_entries[j].code_addr;
-        while (addr < 0x4000) {
-          uint16_t word = memory[addr];
-          tests[i].bytes[tests[i].count++] = word;
+        while (addr < total_words) {
+          uint16_t word = memory[addr++];
+          tests[i].count++;
 
-          // Check for exit (0x7403) or halt (0x0000)
-          if (word == 0x7403 || word == 0x0000) {
+          // Check for exit or halt
+          if (word == exit_ins || word == 0x0000) {
             break;
           }
-
-          // Safety limit
-          if (tests[i].count >= 200)
-            break;
-          addr++;
         }
         break;
       }
@@ -203,7 +137,7 @@ static void extract_test_bytecode(uint16_t *memory, test_bytecode *tests,
 }
 
 int main() {
-  context ctx;
+  static context ctx;       // too big for the stack: it holds the VM's memory
   ctx.words = FORTH_WORDS;
   int ret = init_opcodes(ctx.words);
 
@@ -216,9 +150,21 @@ int main() {
   }
   printf("Loaded %d words from test_cases.hex\n", total_words);
 
+  // The instruction that is an exit, as vm_opcodes.h has it
+  uint16_t exit_ins = 0;
+  for (word_node *w = ctx.words; w->repr && strlen(w->repr); w++) {
+    if (w->num_ins == 1 && strcmp(w->repr, "exit") == 0) {
+      exit_ins = *(uint16_t *)&w->ins[0];
+    }
+  }
+  if (!exit_ins) {
+    printf("exit is not one instruction\n");
+    return 1;
+  }
+
   // Parse dictionary to find all test words
-  dict_entry dict_entries[200];
-  int dict_count = parse_dictionary(hex_memory, dict_entries, 200);
+  dict_entry *dict_entries;
+  int dict_count = parse_dictionary(hex_memory, total_words, &dict_entries);
   printf("Found %d dictionary entries\n", dict_count);
 
   // Count how many test_N entries we found
@@ -230,10 +176,10 @@ int main() {
   }
   printf("Found %d test words in dictionary\n", cross_test_count);
 
-  // Extract bytecode for tests
-  test_bytecode cross_tests[100];
-  extract_test_bytecode(hex_memory, cross_tests, cross_test_count,
-                        dict_entries, dict_count);
+  // Extract bytecode for tests: as many as the dictionary has test words
+  test_bytecode *cross_tests = calloc(cross_test_count + 1, sizeof(test_bytecode));
+  extract_test_bytecode(hex_memory, total_words, exit_ins, cross_tests,
+                        cross_test_count, dict_entries, dict_count);
 
   // Now let's compare with C compiler output
   printf("\nComparing cross.fs vs C compiler:\n");
@@ -249,12 +195,21 @@ int main() {
 
   bool all_compiler_tests_passed = true;
 
+  // A test that cross.fs's image has no word for is compared with nothing.
+  if (cross_test_count < active_tests) {
+    printf("%d tests, and the image has %d of them\n", active_tests,
+           cross_test_count);
+    all_compiler_tests_passed = false;
+  }
+
   for (int i = 0; i < active_tests && i < cross_test_count; i++) {
     printf("Test %d: %-30s", i, TESTS[i].label);
 
     // Compile with C compiler
-    context c_ctx = {0};
-    c_ctx.words = calloc(1024, sizeof(word_node));
+    static context c_ctx;
+    memset(&c_ctx, 0, sizeof(c_ctx));
+    // as many words as vm_opcodes.h has room for
+    c_ctx.words = calloc(sizeof(FORTH_WORDS) / sizeof(FORTH_WORDS[0]), sizeof(word_node));
 
     // Suppress opcode output during comparison
     extern int suppress_opcode_output;
@@ -275,8 +230,8 @@ int main() {
       // C compiler adds halt (0x0000) at the end
       if (c_len > 0 && c_ctx.memory[c_len - 1] == 0x0000) {
         c_len--;
-      // cross.fs adds exit (0x7403) at the end
-      if (cross_len > 0 && cross_bytes[cross_len - 1] == 0x7403 ) {
+      // cross.fs adds exit at the end
+      if (cross_len > 0 && cross_bytes[cross_len - 1] == exit_ins) {
         cross_len--;
       }
       }
@@ -342,18 +297,16 @@ int main() {
   if (!all_compiler_tests_passed) {
     printf("COMPILER COMPARISON FAILED - Stopping before VM tests\n");
     free(hex_memory);
-    for (int i = 0; i < cross_test_count; i++) {
-      free(cross_tests[i].bytes);
-    }
+    free(cross_tests);
+    free(dict_entries);
     return 1;
   }
   printf("All compiler comparisons PASSED\n");
 
-  // Clean up
+  // Clean up: a test's bytes are the image's
   free(hex_memory);
-  for (int i = 0; i < cross_test_count; i++) {
-    free(cross_tests[i].bytes);
-  }
+  free(cross_tests);
+  free(dict_entries);
 
   // Now run the VM execution tests
   printf("\nRunning VM execution tests:\n");

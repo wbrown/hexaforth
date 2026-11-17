@@ -23,7 +23,9 @@ void generate_test_cases_fs() {
   }
 
   fprintf(f, "\\ Test cases generated from test/tests.h\n\n");
-  fprintf(f, "meta\n    4 org\ntarget\n\n");
+  // The test runner compares this output with the C test compiler one
+  // instruction at a time, so emit exactly what was written.
+  fprintf(f, "meta\n    4 org\ntarget\npeephole-off\n\n");
 
   int test_num = 0;
   for (int i = 0; i < sizeof(TESTS) / sizeof(TESTS[0]); i++) {

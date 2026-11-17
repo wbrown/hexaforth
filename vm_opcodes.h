@@ -40,7 +40,7 @@ static char* OUTPUT_MUX_REPR[] = {
 
 // === Representation of various flags
 static char* LIT_SHIFT_REPR[] = {
-        "", "imm<<12", "imm<<24", "imm<<36"
+        "", "imm<<12", "imm<<24", "var"
 };
 
 static char* DSTACK_REPR[] = {
@@ -49,6 +49,20 @@ static char* DSTACK_REPR[] = {
 
 static char* RSTACK_REPR[] = {
         "r+0", "r+1", "r-1", "r-2"
+};
+
+// === NAME_CODES: the characters of a name in a dictionary header that are
+// not letters.  A name is five bits a character, as many to a cell as a cell
+// holds, the first the lowest, and the top bit of its last cell is set.
+// Codes 1 to 26 are the letters.  These are the rest, in three lots: those
+// with a code of their own, and those said by a code that says which lot
+// and then which of it, counted from 1.  cross.fs packs names with these
+// (they are written into basewords.fs), and `decode_name` reads one;
+// `read_header` reads the header it is in.
+static char* NAME_CODES_REPR[] = {
+        "-!?",                                  // codes 27, 28 and 29
+        "0123456789><@'(),.+*/=\"#:;[]$%&",     // after code 30
+        "\\^`{|}~_",                            // after code 31
 };
 
 // ==========================================================================
@@ -119,7 +133,6 @@ static forth_op INS_FIELDS[] = {
         {"imm+",       FIELD, {{.lit.lit_add = true}}},
         {"imm<<12",    FIELD, {{.lit.lit_shifts = 0x1}}},
         {"imm<<24",    FIELD, {{.lit.lit_shifts = 0x2}}},
-        {"imm<<36",    FIELD, {{.lit.lit_shifts = 0x3}}},
         {"imm",        TERM,  {{.lit.lit_f = true}}},
         {"op_type",    COMMT, {{}}},
         {"ubranch",    TERM,  {{.alu.op_type = OP_TYPE_JMP}}},
@@ -154,9 +167,11 @@ typedef struct {
 // can refer to earlier words.  12-bit unsigned literals are supported.
 //
 // EXAMPLES:
-//     `-` is built out of two instructions, as we don't have a subtraction op.
-//           invert (0x6400)   (written out)
-//           +      (0x602c)   (written out)
+//     `-` is `negate +`, and `negate` is `invert 1+`: three instructions, as
+//     there is no subtraction op.
+//           invert (0x6480)   (written out)
+//           1+     (0xc001)   (written out)
+//           +      (0x643c)   (written out)
 //
 //     `1+` uses a literal `1`, as such:
 //           1      (0x0001)
@@ -193,10 +208,22 @@ static forth_define FORTH_OPS[] = {
         {"@",       "       [T]->IN            ->T                 alu"},
         {"@+",      "       [T]->IN IN+N       ->T       d-1       alu"},
         {"@and",    "       [T]->IN IN&N       ->T       d-1       alu"},
+        {"@or",     "       [T]->IN IN|N       ->T       d-1       alu"},
+        {"@xor",    "       [T]->IN IN^N       ->T       d-1       alu"},
+        {"@*",      "       [T]->IN IN*N       ->T       d-1       alu"},
+        {"@=",      "       [T]->IN IN==N      ->T       d-1       alu"},
+        {"@<",      "       [T]->IN N<IN       ->T       d-1       alu"},
+        {"@u<",     "       [T]->IN Nu<IN      ->T       d-1       alu"},
+        {"@not",    "       [T]->IN ~IN        ->T                 alu"},
         {"!",       "       N->IN              ->[T]     d-2       alu"},
         {"io@",     "       T->IN   io[IN]     ->T                 alu"},
         {"io!",     "       N->IN              ->io[T]   d-2       alu"},
         {"+!",      "       [T]->IN IN+N       ->[T]     d-2       alu"},
+        {"or!",     "       [T]->IN IN|N       ->[T]     d-2       alu"},
+        {"and!",    "       [T]->IN IN&N       ->[T]     d-2       alu"},
+        {"xor!",    "       [T]->IN IN^N       ->[T]     d-2       alu"},
+        {"*!",      "       [T]->IN IN*N       ->[T]     d-2       alu"},
+        {"not!",    "       [T]->IN ~IN        ->[T]     d-1       alu"},
         {"rshift",  "       N->IN   IN>>T      ->T       d-1       alu"},
         {"lshift",  "       N->IN   IN<<T      ->T       d-1       alu"},
         {"exit",    "       T->IN              ->T  RET       r-1  alu"},
@@ -216,7 +243,7 @@ static forth_define FORTH_OPS[] = {
         {"1+",      "1      imm+                                   imm"},
         {"2+",      "2      imm+                                   imm"},
         {"2*",      "1                                             imm lshift", CODE},
-        {"2/",      "1                                             imm rshift", CODE},
+        {"u2/",     "1                                             imm rshift", CODE},
         {"negate",  "invert 1+", CODE},
         {"-",       "negate +", CODE},
         {"emit",    "241                                           imm io!", CODE},
@@ -245,14 +272,9 @@ static forth_define FORTH_OPS[] = {
         {"lo16",    "48 imm lshift 48 imm rshift", CODE},
         {">><<",    "tuck rshift swap lshift", CODE},
         {"nmask8",  "255 imm invert", CODE},
-        {"w@",      "@ lo16", CODE},
-        {"c@",      ">r @r 255 imm and r> 256 imm and or", CODE},
-        {"c!",      ">r 255 imm and @r nmask8 and or r> !", CODE},
         {"nmask16",  "0 imm invert 16 imm lshift", CODE},
-        {"w!",      ">r lo16 r@ @ nmask16 and or r> !", CODE},
-        {"2w@",     "dup w@ swap 2+ w@", CODE},
-        {"2w!",     ">r 16 imm lshift or r@ @ 0 imm invert 32 imm lshift and or r> !", CODE},
-        {".s",      "0 imm 224 imm io!", CODE}};
+        {".s",      "0 imm 224 imm io!", CODE},
+        {"",        "", CODE}};
 
 // Instructions associated with string representations.
 typedef struct {
@@ -274,5 +296,15 @@ uint8_t lookup_word(word_node* nodes, const char* word, instruction* lookup);
 const char* lookup_opcode(word_node nodes[], instruction ins);
 char* instruction_to_str(instruction ins);
 bool init_opcodes(word_node opcodes[]);
+// A name is read as far as NAME_MOST characters.  What it is read into has
+// room for those, for what the cell they end in may add, and for its end.
+#define NAME_MOST 128
+#define NAME_ROOM (NAME_MOST + CELL_BITS + 1)
+
+int decode_name(const uint8_t* cells, size_t room, char* out);
+uint32_t newest_header(const uint8_t* image, size_t len);
+uint32_t read_header(const uint8_t* image, size_t len, uint32_t head,
+                     uint64_t* xt, char* name);
+uint32_t header_end(const uint8_t* image, size_t len, uint32_t head);
 
 #endif //HEXAFORTH_VM_OPCODES_H

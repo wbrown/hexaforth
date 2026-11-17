@@ -9,6 +9,41 @@ void generate_basewords_fs(const char* path) {
     init_opcodes(FORTH_WORDS);
     FILE* out = fopen(path, "w");
 
+    fprintf(out, "\\ machine sizes, from vm_constants.h\n");
+    fprintf(out, "#%d constant cell-bits\n", CELL_BITS);
+    fprintf(out, "#%d constant addr-bits\n", ADDR_BITS);
+    fprintf(out, "#%d constant stack-cells\n", STACK_CELLS);
+    fprintf(out, "#%d constant var-base\n", (int)VAR_BASE);
+    fprintf(out, "#%d constant disp-w\n", DISP_W);
+    fprintf(out, "#%d constant disp-h\n", DISP_H);
+    fprintf(out, "#%d constant disp-base\n", DISP_BASE);
+    fprintf(out, "#%d constant disp-left-low\n", DISP_LEFT_LOW);
+    fprintf(out, "#%d constant disp-ink-black\n", DISP_INK_BLACK);
+    fprintf(out, "#%d constant disp-stride\n", DISP_STRIDE);
+    fprintf(out, "#%d constant disp-banks\n", DISP_BANKS);
+    fprintf(out, "#%d constant disp-bank-step\n", DISP_BANK_STEP);
+
+    fprintf(out, "\n\\ what is where on the disk, from vm_constants.h\n");
+    fprintf(out, "#%d constant disk-block\n", DISK_BLOCK);
+    fprintf(out, "#%d constant disk-line\n", DISK_LINE);
+    fprintf(out, "#%d constant disk-source-block\n", DISK_SOURCE_BLOCK);
+    fprintf(out, "#%d constant disk-picture-block\n", DISK_PICTURE_BLOCK);
+    fprintf(out, "#%d constant disk-names-block\n", DISK_NAMES_BLOCK);
+    fprintf(out, "#%d constant disk-canvas-block\n", DISK_CANVAS_BLOCK);
+
+    // The characters of a name that are not letters, a lot to a table: the
+    // characters as their numbers, and how many there are.
+    static const char* name_tables[] = { "n-direct", "n-page1", "n-page2" };
+    fprintf(out, "\n\\ the codes of a name, from vm_opcodes.h\n");
+    for(int lot=0; lot < 3; lot++) {
+        const char* chars = NAME_CODES_REPR[lot];
+        fprintf(out, "create %s ", name_tables[lot]);
+        for(int idx=0; idx < strlen(chars); idx++) {
+            fprintf(out, " #%d c,", chars[idx]);
+        }
+        fprintf(out, "\n#%d constant %ss\n", (int)strlen(chars), name_tables[lot]);
+    }
+
     forth_op* curr_op = &INS_FIELDS[0];
 
     while(strlen(curr_op->repr)) {

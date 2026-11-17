@@ -1,122 +1,387 @@
 # hexaforth
 
-Work-in-progress experiments in unencoded instructions for performant stack machines; incomplete.
+A stack machine whose instructions are fields that drive it directly, a
+Forth operating system with windows, a pointer and menus that runs on it,
+and the Verilog to build it from.
 
-# Why?
+The CPU with cells of 16 bits is 7,458 gates, which is fewer than a Z80
+counted the same way, with the memory of its two stacks left out.  Drawing,
+it takes 1.06 to 1.36 clocks an instruction, so at 1.2 MHz it runs 0.88 to
+1.13 million instructions a second.
 
-Traditionally, many p-code VMs are implemented as bytecode. I wanted to investigate how encoded instructions such as implemented by [Novix NC4016](https://users.ece.cmu.edu/~koopman/stack_computers/sec4_4.html) or the [J1 Forth CPU](https://excamera.com/files/j1.pdf) used perform on modern architectures with a VM.
+1.2 MHz is the floor it is held to, to show how little it needs, and not
+what it can do.  An instruction takes its input from a stack, the return
+stack or memory, does its operation, sends the result to a stack or to
+memory, and moves both stacks, all at once: one clock, and one more for a
+read of memory or a shift.  A 68000's instruction takes four clocks at the
+least, and often twelve or more.
 
-# What?
+The same step of the same dither shows it.  A pixel's sum is thresholded,
+and an eighth of what it is out by is kept to pass on.  On a 68000, as
+`bench/m68k/atk.s` does it after MacPaint, that is four instructions and a
+branch, and about 30 clocks:
 
-The instruction encoding draws heavily from the J1b Forth CPU described at [swapforth/j1b/basewords.fs](https://github.com/jamesbowman/swapforth/blob/master/j1b/basewords.fs).  There are some notable differences, as I wanted to implement a 64-bit VM rather than a 16-bit VM, specifically how literals are handled.
+    cmp.w   d7,d2           ;  4   is it more than 127?
+    bgt.s   ItsWhite        ; 10
+    sub.w   d4,d2           ;  4   out by what it is short of white
+    asr.w   #3,d2           ; 12   an eighth of it
 
-## Literal Handling
+With cells of 16 bits hexaforth does it with no branch, the black kept in
+the number it passes on (`forth/atkinson.fs`): nine instructions and 10
+clocks.
 
-```c
-        struct {
-            bool  lit_f: 1;
-            bool  lit_add: 1;       // add
-            BYTE  lit_shifts: 2;    // 0-3 shifts
-            WORD  lit_v: 12;
-        } lit;
-```
+    dup 896 <  h# 80ff and + 1+  3 rshift
 
-If the first bit of the instruciton is on, it's a literal.  The literal is a 12-bit unsigned number, in `lit_v`.  Of particular interest is the `lit_shifts` field, which tells the VM to shift the `lit_v` number left by `lit_shifts * 12` bits.  This allows us to express 48 bits of magnitude in a 12-bit literal instruction.
+So the Mandrill dithered in colour takes 21.7 million clocks with cells of
+64 bits, read from its disk, where a 68000 takes 63.2 million with the
+picture already in its memory: at the Mac 128K's 8 MHz, 2.7 seconds against
+7.9.  The design is meant for 10 to 14 MHz built of TTL, and on an FPGA the
+system with cells of 64 bits places and routes at 30 MHz, where the same
+picture takes 0.7 seconds.
 
-The `lit_add` flag determines if the literal should be added to `T`, the top element of the stack, and has the following characteristics:
-* `true` -- add shifted `lit_v` value to `T`, and do *not* advance the `SP`; we are working with the existing value in place.
-* `false` -- advance the `SP` and set the new `T` to the shifted `lit_v` value.
+![The desktop: the Forth window, the editor, the Words window, the calculator and the picture, with HexaPaint in front](doc/desktop.png)
 
-An astute reader might have noted that the stack is 64-bit signed, but that our literals are unsigned.  This is taken care of by the literal encoder, inserting an instruction to invert the number on the stack.
+## What it is here to show
 
-A bonus characteristic of this literal implementation is that the literal instruction can be used as an in-line increment instruction for numbers up to `4096`, without having to push the value onto the stack, doing in one VM cycle what would normally take three.
+- How much a machine of 7,458 gates does at 1.2 MHz: fewer gates than the
+  Z80 of 1976, at a clock the microcomputers of 1979 ran at
+- How much more it does with each clock than the processors of its time,
+  so that at their clocks it is the quicker machine
+- What could have been: a desktop on a machine of that size and speed
+- A Forth operating system with a desktop.  Overlapping windows, regions, a
+  menu, a pointer, proportional text, and programs: the Forth prompt in a
+  window, a block editor, a viewer that reads a TIFF and dithers it, a
+  calculator, a paint program, a decompiler
+- The instruction set.  An instruction is a control word: where the ALU's
+  input comes from, the operation, where the result goes, how each stack
+  moves
+- How little code it takes.  The kernel is 3,332 bytes, in a ROM of 4,096.
+  The paint program is 2,270.  The whole machine, written in AArch64
+  assembler, is 880
 
-Some examples of the literal encoding, such as for `-20`.  As it is less than `4096`, we encode it as a single literal, and then we negate it with the following `invert` opcode call.
+It is meant to be built, as TTL, on an FPGA, or through TinyTapeout.
 
-```
-COMPILE_LITERAL: -20
-HERE[0]: 0x0141 => lit: {lit_f=1, lit_add=0, shifts=0, lit.lit_v=20 => 20}
-HERE[1]: 0x0036 => alu: {alu_op: 3, op: ~T, DSTACK: 0 RSTACK: 0, N->[T]: 0} => invert
-```
+## The machine
 
-An example of how we leverage the `lit_add` field is the number `-24923`.  It's turned into an *unsigned* `24923`, the rightmost 12-bits are encoded as `347`, and then the next 12-bits are encoded as `24576` with the `lit_add` flag set to `1`.  Then we `invert`.
+Two stacks, a memory of cells, and ports for devices.  A cell is 16, 32 or 64
+bits and an instruction is always 16.  `MODEL.md` says exactly what the
+machine is, and `UNDERSTANDING.md` why it is so.
 
-```
-COMPILE_LITERAL: -24923
-HERE[11]: 0x15b1 => lit: {lit_f=1, lit_add=0, shifts=0, lit.lit_v=347 => 347}
-HERE[12]: 0x0067 => lit: {lit_f=1, lit_add=1, shifts=1, lit.lit_v=6 => 24576}
-HERE[13]: 0x0036 => alu: {alu_op: 3, op: ~T, DSTACK: 0 RSTACK: 0, N->[T]: 0} => invert
-```
+An instruction of the ALU is three bits that say it is one and six fields,
+and every setting of the fields is an instruction the machine carries out:
 
-The literal compiler is smart enough not to bother encoding 12-bit segments that are `0`, skipping over them such as for `32768`.  This makes the literal encoding perfect for memory offset calculations up to 48-bits.
+    15   14 13   12    11 10    9 8      7 6 5 4     3 2      1 0
+     0    1  1   ret   input    output   operation   d-stack  r-stack
 
-```
-COMPILE_LITERAL: 32768
-HERE[14]: Skipping LIT instruction as lit_v == 0, shift=0
-HERE[14]: 0x0085 => lit: {lit_f=1, lit_add=0, shifts=1, lit.lit_v=8 => 32768}
-```
+- **input**: the top of the stack, the cell under it, the cell of memory the
+  top points at, or the top of the return stack
+- **operation**: one of sixteen.  Pass the input through, two that also
+  write the cell under the top, add, and, or, xor, multiply, complement,
+  three comparisons, two shifts, fetch, and read a port
+- **output**: the top of the stack, the top of the return stack, the cell of
+  memory the top points at, or a port
+- **the stacks**: each moves up one, down one or two, or stays
+- **ret**: return as well
 
-## ALU Instructions
+Fetching is a choice of input and storing is a choice of output, and an
+operation can be done on memory where it lies.  `+!` is one instruction:
+memory in, add, memory out.  So is OR-ing a mask into a cell of the display,
+which is what drawing a glyph is made of.  Subtracting is a complement, an
+add of one and an add, three instructions, and what is complemented can come
+from any of the four inputs.
 
-ALU instrucitons are roughly divided into two sections.  When `op_type` is `OP_TYPE_ALU`, we use `alu_op` for the actual operation and `mem_op` for 'what to do with the result of the ALU op'.  We also have fields for whether we should adjust the data stack or return stack, and whether we should write to memory.
+The other instructions are a jump, a conditional jump, a call, and a literal
+of twelve bits that is pushed or added to the top of the stack, or that
+fetches or stores one of 4,096 variables.
 
-```c
-        struct {
-            bool    lit_f: 1;
-            BYTE    op_type: 2;
-            BYTE    alu_op: 4;
-            BYTE    mem_op: 3;
-            bool    __unused: 1;
-            BYTE    dstack: 2;
-            BYTE    rstack: 2;
-            bool    ram_write: 1;
-        } alu;
-```
+A word of Forth is a name for one of these instructions or for a run of
+them.  Leaving out those that read or write a port, the fields make 5,344
+instructions that do different things, many settings doing the same as
+another.  Fifty-six of those have a name, and the system uses 308: the rest
+of those it uses are made by the compiler, which joins a run into one
+instruction wherever one does the same work, and finds that out by asking
+the machine.  (The target `profile` counts them, of the image with cells of
+64 bits.)  `MODEL.md` says what every field does.
 
-We have the following `alu_op`:
+## What it comes to
 
-| ALU Op  | Op  | Descripton                                   |
-|---------|-----|----------------------------------------------|
-| `T`     | 0x0 | Do something with `T`                        |
-| `N`     | 0x1 | Set `T` to N                                 |
-| `T+N`   | 0x2 | Add `T` and `N`                              |
-| `T&N`   | 0x3 | Bitwise AND of `T` and `N`                   |
-| `T|N`   | 0x4 | Bitwise OR of `T` and `N`                    |
-| `T^N`   | 0x5 | Bitwise XOR of `T` and `N`                   |
-| `~T`    | 0x6 | Bitwise inversion of`T`                      |                  
-| `T==N`  | 0x7 | Test if `T` and `N` are equivalent           |
-| `T>N`   | 0x8 | Test if `T` is greater than `N`|             |
-| `N>>T`  | 0x9 | Bitshift `N` left by `T` bits.               |
-| `N<<T`  | 0xA | Bitshift `N` right by `T` bits.              |
-| `R->T`  | 0xB | Copy the top of return stack `R` to `T`      |
-| `[T]`   | 0xC | Load address located at `T` into `T`.        |
-| `io[T]` | 0xD | IO read at `T`.                              |
-| `depth` | 0xE | Depth of the stack                           |
-| `T>Nu`  | 0xF | Unsigned test for if `T` is greater than `N` |
+These are what the tree's own targets print, and each is named so that it can
+be asked again.  They are of the tree as it was when this was written.
 
-Then we have the following `mem_op`s:
+**The CPU** (`gates`).  A gate is a NAND, a NOT or a flip-flop as Yosys
+counts them, with memories left out.  For hexaforth what is left out is its
+two stacks, 256 cells each; the Z80 has no memory to leave out, and its
+registers are counted.  The Z80 and the 68000 are other people's Verilog
+put through the same count.
 
-| Mem Op    | Op  | Descripton                                     |
-|-----------|-----|------------------------------------------------|
-| `T->N`    | 0x0 | Copy `T` into `N`                              |
-| `T->R`    | 0x1 | Copy `T` into `R`, the top of the return stack |
-| `N->[T]`  | 0x2 | Store `N` into address `T`                     |
-| `io[N]->T`| 0x3 | Write IO operation `N`into `T`                 |
-| `io@`     | 0x4 | Read IO operation into `T`                     |
-| `R->EIP`  | 0x5 | Copy the R stack into the IP pointer           |
+| | gates |
+|---|---|
+| hexaforth, cells of 16 bits | 7,458 |
+| the same without its multiplier | 6,449 |
+| a Z80 (tv80) | 9,443 |
+| a 68000 (fx68k) | 22,948 |
+| hexaforth, cells of 32 bits | 15,650 |
+| hexaforth, cells of 64 bits | 39,964 |
 
-Then with `dstack` and `rstack`, we can adjust the size of the data and return stacks.
+**Its speed** (`bench-draw`).  On the Verilog CPU with cells of 16 bits and
+memory that answers in one cycle, an instruction takes 1.36 clocks drawing
+text, 1.16 scrolling and 1.06 filling.  An instruction is one clock, and one
+more for a read of memory or a shift, and two more for a multiply.
 
-Finally, we have `ram_write`, which is to write `N` into the address at `T`.
+**Beside a 68000** (`bench-dither`, `bench-m68k`).  The Mandrill, 512 by
+512, read from the disk a block at a time as the system reads it and
+dithered, on the Verilog CPU with memory that answers in one cycle; and the
+same dither on a 68000, in code written for it, with the picture already in
+its memory.  Every bitmap is compared with the dither a pixel at a time
+before a figure is printed for it.  In millions of clocks:
 
-Effectively, this encoding allows us to have microinstructions that we construct Forth words out of.
+| | 68000 | cells of 64 bits | of 32 | of 16 |
+|---|---|---|---|---|
+| in colour, at its own size | 63.2 | 21.7 | 32.1 | (no room) |
+| in colour, at half its size | 40.3 | 13.3 | 19.7 | 17.9 |
+| its grays, at its own size | 31.7 | 15.0 | 21.6 | (no room) |
+| its grays, at half its size | 13.3 | 4.4 | 6.8 | 8.0 |
 
-An example is `!` which is 'write N to [T]', encoded as such:
+The machine with cells of 16 bits has 128KB, which has no room for the
+bitmap of the picture at its own size and what it is made from.
 
-```c
-        {"!", {
-                        { .alu.op_type = OP_TYPE_ALU,
-                          .alu.alu_op = ALU_N,
-                          .alu.dstack = -1,
-                          .alu.ram_write = 1 }}},
-```
+**On an FPGA** (`synth`).  The system with cells of 64 bits, placed and
+routed for an ECP5 of 85k: 14,989 LUTs and 986 flip-flops, and a clock of
+30.21 MHz.
+
+**The system** (`examine-16`), on the machine with cells of 16 bits: 65,536
+of them, which is 128KB, and a display of 512 by 342.
+
+| | words | bytes of code |
+|---|---|---|
+| The kernel, in a ROM of 4,096 bytes | 258 | 3,332 |
+| All drawing: fills, copying, text | 127 | 5,068 |
+| Regions | 30 | 1,390 |
+| The window manager | 61 | 2,556 |
+| The TIFF reader and the dither | 89 | 2,762 |
+| The Forth window | 14 | 632 |
+| The block editor | 5 | 480 |
+| The picture's viewer | 21 | 556 |
+| The calculator | 9 | 668 |
+| The paint program | 39 | 2,270 |
+| The decompiler and the Words window | 86 | 4,114 |
+| The compiler's peephole, for what is typed | 23 | 1,200 |
+| Everything | 814 | 26,140 |
+
+The dictionary is 373 names in 3,200 bytes, five bits to a character.
+
+**The machine on another processor** (`size`).  `baremetal/hexaforth.S` is
+the whole machine in AArch64 assembler, with a console.  It is 880 bytes:
+
+| | bytes |
+|---|---|
+| Starting | 60 |
+| Fetching an instruction and telling which kind it is | 24 |
+| Jumps, conditional jumps and calls | 64 |
+| Literals and variables | 80 |
+| The ALU: choosing its input | 52 |
+| The sixteen operations, two instructions each | 128 |
+| The stacks moved, and the result sent where it goes | 116 |
+| The ports: the console, the stacks' depths, the host's memory | 344 |
+| Halting | 12 |
+
+What carries out every instruction is 464 bytes, which is 116 instructions
+of AArch64.
+
+## What is in the kernel
+
+The kernel is the first 4KB of page 0: the part that is in ROM, and all that
+is needed to type Forth at the machine and have it compiled.  It has 258
+words, and these 202 of them have names that can be typed.
+
+- **The stacks**: `dup drop swap over nip tuck rot -rot ?dup 2dup 2drop 2swap
+  2over 2rot 3dup depth adepth`, and `>r r> r@ rdrop @r swap>r swapr> i j
+  unloop`
+- **Arithmetic**: `+ - * 1+ 1- 2* 2/ negate abs min max um* um/mod u/mod`
+- **Bits**: `and or xor invert lshift rshift`
+- **Comparison**: `= <> < > u< u> 0= 0<> 0< 0> true false`
+- **Two cells as one number**: `d+ d- dnegate dabs s>d d>s d= d< du< d0= d0<
+  d2* d2/ 2@ 2!`
+- **Memory**: `@ ! +! or! and! xor! *! not! dup@ over@ c@ c! uw@ w! field@
+  field! >c c> hi32 lo32 hi16 lo16 count cell+ cells aligned align fill cmove
+  cmove> cells-move cells-fill /string bounds i@ i!`
+- **The console and the ports**: `key key? emit uart-emit 'emit cr space bl
+  type . .x .x2 hex1 accept io@ io!`
+- **The interpreter**: `source source-id sourceid >in parse parse-name
+  isspace? isnotspace? isnotdelim >number base decimal hex state interpret1
+  refill evaluate quit execute \ (`
+- **The compiler**: `: ; :noname ] [ immediate create does> variable constant
+  , c, w, s, compile, literal 2literal postpone recurse exit ' ['] inline:
+  join-rules`, and `if else then ahead begin again until while repeat do ?do
+  loop +loop leave`
+- **The dictionary**: `forth labels sfind name> words here allot dp cp`
+- **Errors**: `catch throw -throw`
+- **Tasks**: `up sbase spawn pause`
+- **Blocks**: `blk`
+
+## Seeing it
+
+It needs CMake and either Homebrew or apt.  Configuring installs the rest:
+it runs `brew install`, or `apt-get install` as root, for what is missing
+of the twenty programs and libraries it needs, QEMU, Verilator, Yosys and
+LLVM among them.
+`-DINSTALL_NEEDED=OFF` has it only look and say what is missing, and the top
+of `CMakeLists.txt` lists them all.
+
+    cmake -S . -B build/cmake
+    cmake --build build/cmake --target demo      # the desktop, on QEMU
+    cmake --build build/cmake --target check     # every test
+    cmake --build build/cmake --target bench     # the benchmarks, on the Verilog CPU
+    cmake --build build/cmake --target gates     # the gates
+
+`demo` is the machine the project is here to show: a million instructions
+a second, a disk as fast as an 8-inch floppy, and each pixel drawn twice
+across and down.  What it is, and what `run`, `demo-test` and `demo-time`
+are of, is said to CMake when it is configured, and kept until it is said
+otherwise:
+
+| | | unless said |
+|---|---|---|
+| `MIPS` | the million instructions a second it runs at; nothing for as fast as the host can | 1 |
+| `DISK` | the thousand bytes a second its disk gives and takes; nothing for no limit | 40 |
+| `SCALE` | how many times across and down each pixel is drawn | 2 |
+| `KERNEL` | `hexaforth`, the small one, or `hexaforth-fast` | `hexaforth` |
+| `STRICT` | the kernel halts on a fetch or a store outside memory | `OFF` |
+
+    cmake -DMIPS= -DDISK= -DSCALE=1 build/cmake    # as fast as the host, at its own size
+    cmake -USCALE -UMIPS -UDISK build/cmake        # the defaults again
+    cmake --build build/cmake --target demo
+
+They are not arguments of `cmake --build`: a setting written after
+`--target demo` is not seen.  The tests `check` runs set their own.
+
+`demo` wants a QEMU that has a display.  Without one:
+
+    cmake --build build/cmake --target hello        # a window typed at the reference VM, and a picture of it
+    cmake --build build/cmake --target screenshot   # the picture above, made again
+
+`DESKTOP.md` says how the desktop is worked and how a program for it is
+written.
+
+## What there is
+
+The machine is made three times, and the second and third are tested
+against the first:
+
+- `vm.c`, the reference: a virtual machine in C
+- `baremetal/`, the machine twice in AArch64 assembler, for QEMU, where the
+  desktop is shown: the small one above, and one that is quicker and decodes
+  by table.  The tree calls these kernels too (`KERNEL`, `kernel_size`,
+  `build/kernel/`), being what QEMU boots.  Elsewhere the kernel is the
+  first 4KB of the Forth
+- `rtl/`, the CPU in Verilog, which runs the system in simulation, and which
+  the target `synth` places and routes for an FPGA
+
+The system is Forth (`forth/`), built by a cross-compiler that is itself
+Forth.  The image it builds is called the nucleus, after `nuc.fs`: the
+kernel, which is the part in ROM, and the system that file includes.  The
+tests, the tools and the benchmarks are C.  All of it, at cells of 64, 32
+and 16 bits, is built by CMake.
+
+**The cross-compiler** (`forth/cross.fs`) runs on gforth and lays down the
+image.  Code is paged: a branch is relative to its page, and a call to
+another page goes by execution token.  Its peephole joins a run of
+instructions into one wherever one does the same work, and it has no table
+of which runs those are: it asks the machine.  `util/fuse.c`, which gforth
+builds and calls, finds each answer by stepping the machine on symbols in
+place of numbers (`vm_step.h`, the step `vm.c` runs on cells), and the
+answer is then run on `vm.c` before it is used.  A word without a header
+keeps its name as a label, for the tools and the decompiler, and a small
+word is compiled in place of a call to it where that is no longer than the
+call.
+
+**The nucleus** is a Forth at its prompt: an interpreter and a compiler,
+`create` and `does>`, `catch` and `throw`, comments, blocks loaded as Forth
+reads them, and names stored at five bits a character.  It has cooperative
+tasks, each with its own part of the two stacks, and the Forth window and
+the picture's dither run as tasks.  What is typed at it is compiled by a
+peephole of its own (`forth/join.fs`), which works numbers out by running
+them, and keeps only the rules that measured worth their room.
+
+**The desktop** is drawn in the manner of QuickDraw, on a display of one
+bit a pixel in the machine's memory: transfer modes and patterns,
+`copy-bits`, a port for each window, fonts as strikes with proportional
+text, and regions.  Each window is painted only where it can be seen, and
+only what is out of date.  A word keeps what it is working on on the
+stacks, not in variables, and the two that need too many values for that,
+`copy-bits` and `draw-text`, set theirs aside when they are run while
+busy, so drawing can be begun again while it is under way.  The programs
+on it are the Forth window, a block editor, the Words window and a
+decompiler that shows each instruction as the words that make it, a
+calculator, a viewer that reads a TIFF from the disk and dithers it a row
+at a time, and HexaPaint, whose canvas is kept on the disk.
+
+**The CPU** is built along the lines of the J1a: one read port, the top
+cells of each stack in registers and the rest in two small memories, and
+the costly operations taking more cycles rather than setting the clock.
+Its memory can answer in one cycle or two, and the kernel can be a ROM, from
+which a jump costs nothing more.
+
+## How it is checked
+
+    cmake --build build/cmake --target check
+
+runs every test, a line each:
+
+- each instruction test compiled by a C compiler and by `cross.fs`, and the
+  two compared instruction for instruction, then run
+- the image built with the peephole against the image built without: every
+  straight-line run is to leave what the plain one leaves, and every call,
+  jump and branch go where the plain one goes
+- on the machines with cells of 64, 32 and 16 bits: the nucleus at its
+  prompt, comments and a block read as source, regions against their
+  pixels, every drawing word against a model of it drawn a pixel at a time,
+  the dither and the TIFF reader against a dither a pixel at a time, and the
+  desktop worked with keys and a pointer and its screen looked at
+- each AArch64 kernel against `vm.c`, on eight thousand cases, and the
+  desktop on QEMU with each, its screens checked
+- the Verilog against `vm.c` at every size of cell, with memory that answers
+  in one cycle and in two, and with the kernel in a ROM: on the same cases,
+  and on a session typed at the nucleus
+- nothing in the kernel that nothing comes to
+
+`vm.c` is the machine, and everything else is held to it.  The reports say
+where the work goes and what a change costs: `profile`, `peephole`,
+`phrases`, `subtracts`, `examine` and `hits`.  `CLAUDE.md` says what each
+is.
+
+## Where it stands
+
+None of it has been built as hardware yet.  What there is to build from is
+`rtl/soc.v`: the CPU and its memory, with a clock, a reset, a console as
+bytes sent and bytes taken, each with a handshake, and a wire that says the
+machine has halted.  Its cell, its memory and how long its memory takes to
+answer are parameters, and with `HF_KROM` the kernel is a ROM.  The target
+`synth` places and routes it for an ECP5 and says what clock it would meet.
+
+What a built machine needs that is yet to be made:
+
+- the display scanned out as video: the Verilog has the bitmap in its memory
+  and nothing that shows it
+- a keyboard, a pointer and a disk, and a driver for each: the system's are
+  for QEMU's.  `DESKTOP.md` says what the system asks of each
+- a board
+
+## Where it came from
+
+It began in 2020 as an experiment: whether a virtual machine whose
+instructions are unencoded, in the manner of the Novix NC4016 and the
+[J1](https://excamera.com/files/j1.pdf), would be faster than one that
+decodes bytecode.  The instruction came from the J1's, as swapforth's J1b has
+it, with its one field of fixed routes for where a result goes replaced by
+two fields, one choosing the input and one the output.
+
+## Reading on
+
+- `MODEL.md`: what the machine is, which all three implementations keep to
+- `UNDERSTANDING.md`: why it is as it is
+- `DESKTOP.md`: how the desktop is worked, and how a program for it is
+  written
+- `CLAUDE.md`: how to build, test and measure, where everything is, and the
+  rules of working here
+- the commits: each says what was changed, why, and what it cost or saved

@@ -14,18 +14,22 @@ typedef struct { int EIP;
     int        SP;
     int        RSP;
     int        DBGP;
-    uint16_t   memory[65536];
+    uint16_t   memory[MEM_BYTES / 2];
     int64_t    DSTACK_park;
-    int64_t    DSTACK[128];
+    int64_t    DSTACK[STACK_CELLS];
     int64_t    RSTACK_park;
-    int64_t    RSTACK[128];
+    int64_t    RSTACK[STACK_CELLS];
     int64_t    DBGSTACK_park;
     int64_t    DBGSTACK[32];
     FILE       *OUT;
     FILE       *IN;
-    char*      meta[32768];
+    char*      meta[65536];
     word_node* words;
-    uint64_t   CYCLES; } context;
+    uint64_t   CYCLES;
+    int64_t    IOADDR;
+    FILE       *DISK;           // the file that is the disk, if there is one
+    int64_t    DISKBLK;         // the block the disk's ports are at
+    int64_t    DISKBLOCKS; } context;
 
 static inline uint8_t clz(uint64_t N);
 static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write);

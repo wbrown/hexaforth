@@ -7,6 +7,113 @@
 
 #include <stdint.h>
 
+// The machine's two sizes.  CELL_BITS is the width of a stack cell, of the
+// ALU and of a memory fetch or store: 64, 32 or 16.  An address is the
+// number of a cell, and memory is 2^ADDR_BITS cells; ADDR_BITS cannot exceed
+// CELL_BITS, since an address is a cell.  Both reach the Forth toolchain
+// through the generated basewords.fs.  See MODEL.md.
+#ifndef CELL_BITS
+#define CELL_BITS 64
+#endif
+#ifndef ADDR_BITS
+#define ADDR_BITS (CELL_BITS == 64 ? 22 : CELL_BITS == 32 ? 17 : 16)
+#endif
+#define CELL_BYTES (CELL_BITS / 8)
+#define MEM_BYTES ((uint64_t)CELL_BYTES << ADDR_BITS)
+
+// Where variables are.  A literal instruction whose shift field is 3 is not
+// a literal: it fetches or stores the cell at VAR_BASE plus its twelve
+// bits, so the 4,096 cells from VAR_BASE can each be fetched or stored by
+// one instruction.  VAR_BASE is where the image's data starts.
+#define VAR_BASE (0x4000 / CELL_BYTES)
+
+// The kernel's ROM, on a machine built with one: this many bytes from the
+// start of the image, which the kernel's code is to fit in and nothing
+// stores to.  The Verilog has it from here (krom.vh, which util/memimage.c
+// writes).
+#define KROM_BYTES 4096
+
+// A disk is blocks of this many bytes, and this is what the system keeps on
+// the one it is given, by block.  The Forth has these from here, through
+// basewords.fs, and so has what makes a disk (util/mkdisk.c).
+#define DISK_BLOCK          1024
+#define DISK_LINE           64      // a block of source is lines of this many characters
+#define DISK_SOURCE_BLOCK   1       // Forth source, which the editor opens at
+#define DISK_PICTURE_BLOCK  16      // a TIFF, for the viewer
+#define DISK_NAMES_BLOCK    1024    // the names that go with the image
+#define DISK_CANVAS_BLOCK   1152    // HexaPaint's canvas,
+#define DISK_CANVAS_BLOCKS  16      // and how many blocks are kept for it
+
+// Each of the two stacks is this many cells.  The stacks are not part of
+// memory: they are reached by pushing, popping and the depth ports.  Going
+// past either end is undefined; a strict build stops there.
+#ifndef STACK_CELLS
+#define STACK_CELLS 256
+#endif
+
+// Stack depth ports.  Reading gives the depth of the data or return stack
+// as the instruction starts (so `port io@` counts the port number itself).
+// Writing sets the depth and changes nothing else: every cell keeps its
+// value, whether it is covered or uncovered by the change, so lowering a
+// depth and raising it again gives back the same stack.  T and R are only
+// copies of the top cells, and are written back before a depth moves.
+#define IO_SP  0xd0
+#define IO_RSP 0xd1
+
+// The display: a bitmap in memory, one bit to a pixel.  See MODEL.md.
+//   DISP_W, DISP_H    size in pixels; a width of 0 means no display
+//   DISP_BASE         the cell where the bitmap starts
+//   DISP_LEFT_LOW     1 if the leftmost pixel of a cell is its lowest bit
+//   DISP_INK_BLACK    1 if a set bit is black
+//   DISP_STRIDE       cells from one row to the next in the same bank
+//   DISP_BANKS        how many banks the rows are dealt into, in turn
+//   DISP_BANK_STEP    cells from the start of one bank to the next
+// The machine with 64-bit cells has a display by default; smaller ones do
+// not unless they are given one.
+#ifndef DISP_W
+#define DISP_W (CELL_BITS == 64 ? 768 : 0)
+#endif
+#ifndef DISP_H
+#define DISP_H (CELL_BITS == 64 ? 576 : 0)
+#endif
+#ifndef DISP_BASE
+#define DISP_BASE 0x4000
+#endif
+#ifndef DISP_LEFT_LOW
+#define DISP_LEFT_LOW 1
+#endif
+#ifndef DISP_INK_BLACK
+#define DISP_INK_BLACK 1
+#endif
+#ifndef DISP_STRIDE
+#define DISP_STRIDE (DISP_W / CELL_BITS)
+#endif
+#ifndef DISP_BANKS
+#define DISP_BANKS 1
+#endif
+#ifndef DISP_BANK_STEP
+#define DISP_BANK_STEP 0
+#endif
+// The cell where row y of the bitmap starts.
+#define DISP_ROW(y) (DISP_BASE + ((y) % DISP_BANKS) * DISP_BANK_STEP + ((y) / DISP_BANKS) * DISP_STRIDE)
+
+// A display has to suit the cell it is drawn with.  cross.fs makes the
+// same checks, with the same wording, on the definition it is given.
+#define DISP_ROWS_PER_BANK ((DISP_H + DISP_BANKS - 1) / DISP_BANKS)
+#define DISP_ONE_LITERAL(a) ((a) != 0 && \
+    ((((a) & 0xfff) == 0 && ((a) >> 12) < 4096) || \
+     (((a) & 0xffffff) == 0 && ((a) >> 24) < 4096)))
+_Static_assert(DISP_W == 0 || DISP_W % CELL_BITS == 0,
+               "display: the width is not a whole number of cells");
+_Static_assert(DISP_W == 0 || DISP_STRIDE * CELL_BITS >= DISP_W,
+               "display: a row is longer than the stride");
+_Static_assert(DISP_W == 0 || DISP_BANKS >= 1,
+               "display: there must be at least one bank");
+_Static_assert(DISP_W == 0 || DISP_BANKS == 1 || DISP_BANK_STEP >= DISP_ROWS_PER_BANK * DISP_STRIDE,
+               "display: the banks overlap");
+_Static_assert(DISP_W == 0 || DISP_ONE_LITERAL((unsigned long long)DISP_BASE),
+               "display: the base is not a single shifted literal");
+
 #define HX      "$"
 #define BYTE    uint8_t
 #define SBYTE   int8_t
@@ -16,7 +123,7 @@
 #define TRUE    0xffffffffffffffff
 #define FALSE   0x0000000000000000
 
-static const CELL CELL_SZ = 64;
+static const CELL CELL_SZ = CELL_BITS;
 static const WORD UART_D = 0x1000;
 static const WORD UART_STATUS = 0x2000;
 static const CELL LIT_BITS = 12;
