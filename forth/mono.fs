@@ -1,16 +1,16 @@
-\ font.fs - the fonts: mono and sans, for the characters from space to ~
+\ mono.fs - the font mono, for the characters from space to ~
 \
 \ A font is a strike: every glyph side by side in one bitmap 16 rows high,
 \ and a table of where each starts.  Here it is five cells (how high, the
 \ first character, how many, the cells in a row of the strike as runs of
 \ 64 pixels, and a cell the system uses), then where each glyph starts and
 \ where the last ends, then the strike a row at a time, 64 pixels to a
-\ number with the leftmost highest (px, in cross.fs).
+\ number with the leftmost highest (px, in cross.fs).  Each font is in the
+\ file named for it (sans.fs is the other), so that a system has only the
+\ fonts it uses, and test/tables.c finds one by its name.
 \
-\ These are the bitmaps, and this file is where they are: mono was drawn
-\ from GNU Unifont, which is 8 by 16, and sans from DejaVu Sans Bold at
-\ 11 pixels, each character as wide as it is.  To change a glyph, change
-\ its pixels here.
+\ This is the bitmap, and this file is where it is: it was drawn from GNU
+\ Unifont, which is 8 by 16.  To change a glyph, change its pixels here.
 
 bulk
 header mono create mono
@@ -40,34 +40,5 @@ $800483e294600 px, $810080818001840 px, $2408404204424208 px, $4204180804002008 
 $8004808463900 px, $810000008001840 px, $183e7e3c043c3c08 px, $3c38000802004008 px, $1e427c3c787e403a px, $423e38427e42423c px, $403c423c083c0842 px, $42087e0802100000 px, $3a5c3c3a3c1042 px, $423e04423e49423c px, $5c3a403c0c3a1836 px, $42027e1008080000 px,
 $0 px, $420000008000000 px, $0 px, $1000000000 px, $0 px, $0 px, $3000000000000 px, $e0070007f px, $42 px, $480000000000 px, $4002000000000000 px, $2001008080000 px,
 $0 px, $10000000 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $3c px, $300000000000 px, $4002000000000000 px, $3c000c08300000 px,
-]font
-
-header sans create sans
-font[
-#16 , #32 , #95 , #11 px-cells, #0 ,
-#0 , #4 , #9 , #15 , #24 , #32 , #43 , #53 , #56 , #61 , #66 , #72 ,
-#81 , #85 , #90 , #94 , #98 , #106 , #114 , #122 , #130 , #138 , #146 , #154 ,
-#162 , #170 , #178 , #182 , #186 , #195 , #204 , #213 , #219 , #230 , #239 , #247 ,
-#255 , #264 , #272 , #280 , #289 , #298 , #302 , #306 , #315 , #322 , #333 , #342 ,
-#351 , #359 , #368 , #376 , #384 , #392 , #401 , #410 , #422 , #430 , #438 , #446 ,
-#451 , #455 , #460 , #469 , #475 , #481 , #488 , #496 , #503 , #511 , #518 , #523 ,
-#531 , #539 , #543 , #547 , #554 , #558 , #569 , #577 , #585 , #593 , #601 , #606 ,
-#613 , #618 , #626 , #633 , #643 , #650 , #657 , #663 , #671 , #675 , #683 , #692 ,
-$0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px,
-$0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px,
-$0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px,
-$33 px, $0 px, $0 px, $0 px, $0 px, $0 px, $1 px, $e1e0000c0060000c px, $e00c0ccc180000 px, $0 px, $3c0f000000 px,
-$32812103083c233 px, $80000004f1e1f0f px, $39f0f1f8f0f0000 px, $3c1e060fc3e px, $f87e7e1f319998cc px, $1c739878fc3c7c3c px, $ff6361988f0f0dfd px, $9061c0060060000c px, $1800c0ccc180000 px, $3000000 px, $3083000000 px,
-$328167e49060261 px, $aa080000d9860191 px, $87980c0199998000 px, $4004006618f0c662 px, $cc6060313199998c px, $1c7398ccc6666664 px, $18633319cd99980d px, $986360000060000c px, $1800c000c180000 px, $3000000 px, $3083000000 px,
-$32816d04b060261 px, $9c08000099860181 px, $8d98180319999983 px, $800380e5f8f0c6c0 px, $c660606031999b0c px, $1ef39986c6c36660 px, $1863330dd9999819 px, $886630001e7c3c7c px, $7be7cf8cccd9ff3e px, $1e3e1f3cf7d9a332 px, $78f1be3083000000 px,
-$3007ff032073061 px, $be0800009986030f px, $99f1f030619999c px, $fe071cb3490fcc0 px, $c67e7e603f999e0c px, $1ab35986c6c3667c px, $1863330d58f0f031 px, $88600000036660cc px, $cd8ccccccd9999b3 px, $333333318319a337 px, $6d9b06e081c72000 px,
-$30024fe04cdb061 px, $887f038199860601 px, $91819986198f801c px, $718a1598c6c0 px, $c660606731999e0c px, $1bb35986fcc37c3e px, $1863120f78f06061 px, $8c6000001f6660cc px, $fd8ccccccf1999b3 px, $33333331e319b635 px, $671b0c308309c000 px,
-$fe1e0d2ce061 px, $8008038119860c01 px, $9fc1998619818003 px, $8fe3800a15f8c6c0 px, $c660606331999b0c px, $19333986c0c36606 px, $18631e07719860c1 px, $84600000336660cc px, $c18ccccccf1999b3 px, $33333330f319b61d px, $c70a183083000000 px,
-$3006816092c6061 px, $8008301919861811 px, $8181998c19831980 px, $4004018b3598c662 px, $cc6060333199998c px, $183338ccc0666646 px, $18631e0631986181 px, $84600000336660cc px, $c18ccccccd9999b3 px, $3333333033199c18 px, $cd8e303083000000 px,
-$30048fc10c7b033 px, $8301b0f1f9f8f px, $19f0f0c0f0f1980 px, $185fb0cfc3e px, $f87e601f319998cf px, $d8333878c03c637c px, $183e0c06330c61fd px, $866000001f7c3c7c px, $7d87ccccccd999b3 px, $1e3e1f31e3cf9c18 px, $d8cc3e3083000000 px,
-$1000000033 px, $200200000000 px, $100 px, $610000000 px, $18000 px, $c0000 px, $1 px, $e3e0000000000000 px, $c000c0000000 px, $30030000000000 px, $c001c8e000000 px,
-$1000000000 px, $400000000000 px, $200 px, $1e0000000 px, $30000 px, $60000 px, $0 px, $0 px, $7800180000000 px, $30030000000000 px, $18000080000000 px,
-$0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $7e000000000 px, $0 px, $0 px, $80000000 px,
-$0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px, $0 px,
 ]font
 unbulk

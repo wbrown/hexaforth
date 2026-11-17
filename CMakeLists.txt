@@ -505,6 +505,24 @@ add_custom_command(
         VERBATIM)
 add_custom_target(picture DEPENDS ${PICTURE})
 
+# Two more of that database, smoother than the Mandrill, for what is
+# measured of pictures (tiles-report): Peppers and the F-16.  Nothing else
+# reads them.
+set(PEPPERS ${BUILD}/peppers.tiff)
+set(AIRPLANE ${BUILD}/airplane.tiff)
+add_custom_command(
+        OUTPUT            ${PEPPERS}
+        COMMAND           ${MAKE_BUILD_DIR}
+        COMMAND           ${CURL} -sSfL --remove-on-error -o ${PEPPERS}
+                            "https://sipi.usc.edu/database/download.php?vol=misc&img=4.2.07"
+        VERBATIM)
+add_custom_command(
+        OUTPUT            ${AIRPLANE}
+        COMMAND           ${MAKE_BUILD_DIR}
+        COMMAND           ${CURL} -sSfL --remove-on-error -o ${AIRPLANE}
+                            "https://sipi.usc.edu/database/download.php?vol=misc&img=4.2.05"
+        VERBATIM)
+
 # The seeds the tests that try things by chance are each run with.
 set(SEEDS 3 4 CACHE STRING "the seeds the tests that try things by chance are run with")
 
@@ -574,6 +592,22 @@ function(machine NAME)
             COMMENT           "The nucleus for the machine ${NAME}, with the peephole off (${AT}/plain/cross.log)"
             DEPENDS           machine-${NAME} ${NUCLEUS})
     add_custom_target(plain-${NAME} DEPENDS ${PLAIN})
+
+    # A machine with a display has a second system too: the picture alone
+    # (forth/picture.fs), which picture-system-NAME makes in a directory of
+    # its own.  It is made after the nucleus, since both write what fuse.c
+    # keeps in build/.
+    if("${ARGN}" MATCHES "DISP_W=")
+        add_custom_command(
+                OUTPUT            ${AT}/picture/nuc.hex
+                COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}/picture
+                COMMAND           ${CMAKE_COMMAND} -E env BUILD=${AT}/picture/ SYSTEM=picture.fs
+                                    ${RUN_GFORTH} ./cross.fs ${AT}/basewords.fs ./nuc.fs > ${AT}/picture/cross.log 2>&1
+                WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
+                COMMENT           "The system with the picture alone, for the machine ${NAME} (${AT}/picture/cross.log)"
+                DEPENDS           machine-${NAME} ${NUCLEUS})
+        add_custom_target(picture-system-${NAME} DEPENDS ${AT}/picture/nuc.hex)
+    endif()
 
     machine_tool(hexaforth ${NAME} main.c ${VM_SOURCES})
     # An image's code, word by word, as the decompiler shows it, with every
@@ -662,8 +696,10 @@ function(machine_tests NAME)
     endif()
 
     machine_tool(display_test ${NAME} test/display_test.c test/tables.c ${TYPED_SOURCES})
+    machine_tool(gray_test ${NAME} test/gray_test.c test/dither.c ${TYPED_SOURCES})
     foreach(SEED ${SEEDS})
         machine_test(display-${NAME}-${SEED} ${NAME} display_test ${NUC} forth ${SEED})
+        machine_test(gray-${NAME}-${SEED} ${NAME} gray_test ${NUC} ${SEED})
     endforeach()
 
     # The desktop, with a disk made as QEMU's is: block 1 for the editor,
@@ -1548,6 +1584,12 @@ add_dependencies(synth machine-default-${SYNTH_CELL} ${NEXTPNR_BUILT})
 #                   dither a pixel at a time (test/dither.c).  A machine
 #                   that has not the memory for one says so, and that is
 #                   what is printed
+#   bench-gray      bench/gray.fs: the Mandrill kept as gray in sixteen
+#                   levels, a sample to 4 by 4 of its pixels (forth/gray.fs),
+#                   the mask of blue noise had from the disk, and the whole
+#                   drawn through it at half the picture's size: a figure
+#                   for each.  The bitmap is compared with the same a pixel
+#                   at a time (test/gray.h)
 #
 # and two things are there to compare the machine with:
 #
@@ -1558,7 +1600,7 @@ add_dependencies(synth machine-default-${SYNTH_CELL} ${NEXTPNR_BUILT})
 #                   and fetches Musashi, which is the 68000
 #   gates           how big the CPU is beside a Z80 and a 68000
 #
-#   bench           the first three
+#   bench           the first four
 #
 # A figure is printed by what checked the work it is of (bench/check.c),
 # and nothing is printed for work that was not checked.  Everything is
@@ -1579,6 +1621,63 @@ add_custom_command(
         COMMAND           picture-disk ${PICTURE} ${BB}/system.img ${BB}/disk.img ${BB}/blocks.fs >> ${BB}/disk.log 2>&1
         DEPENDS           mkdisk picture-disk picture ${PICTURE})
 
+# How often each cell of the dithered picture occurs, cut into cells of 16,
+# 32 and 64 pixels (bench/patterns.c): the target cell-patterns prints it
+# for the picture at its own size and at half, and keeps it in
+# build/bench/patterns-own.txt and patterns-half.txt.
+tool(patterns bench/patterns.c bench/tiff.c test/dither.c)
+add_custom_target(cell-patterns
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${BB}
+        COMMAND           patterns ${PICTURE} own > ${BB}/patterns-own.txt
+        COMMAND           patterns ${PICTURE} half > ${BB}/patterns-half.txt
+        COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/patterns-own.txt ${BB}/patterns-half.txt
+        DEPENDS           patterns picture ${PICTURE})
+
+# What a picture would be stored as a codebook of tiles and a tile's number
+# for each place, drawn as a font is (bench/tiles.c): the target
+# tiles-report prints how small and how near the dither each is, for the
+# Mandrill, Peppers and the F-16 at their own size and at half, and leaves
+# each as a picture in build/bench/tiles/NAME-SIZE/.
+tool(tiles bench/tiles.c bench/tiff.c test/dither.c)
+set(TILED)
+foreach(SOURCE ${PICTURE} ${PEPPERS} ${AIRPLANE})
+    get_filename_component(PIC ${SOURCE} NAME_WE)
+    foreach(SIZE own half)
+        set(T ${BB}/tiles/${PIC}-${SIZE})
+        add_custom_command(
+                OUTPUT            ${T}.txt
+                COMMAND           ${CMAKE_COMMAND} -E make_directory ${T}
+                COMMAND           tiles ${SOURCE} ${SIZE} ${T} > ${T}.txt
+                DEPENDS           tiles ${SOURCE})
+        list(APPEND TILED ${T}.txt)
+    endforeach()
+endforeach()
+add_custom_target(tiles-report
+        COMMAND           ${CMAKE_COMMAND} -E cat ${TILED}
+        DEPENDS           ${TILED})
+
+# What a picture would be kept as gray, in few bits and at less than its
+# size, and drawn black and white through a threshold mask (bench/masks.c):
+# the target masks-report prints how small each is, for the same pictures,
+# and leaves each as a picture in build/bench/masks/NAME-SIZE/.
+tool(masks bench/masks.c bench/tiff.c test/dither.c)
+set(MASKED)
+foreach(SOURCE ${PICTURE} ${PEPPERS} ${AIRPLANE})
+    get_filename_component(PIC ${SOURCE} NAME_WE)
+    foreach(SIZE own half)
+        set(T ${BB}/masks/${PIC}-${SIZE})
+        add_custom_command(
+                OUTPUT            ${T}.txt
+                COMMAND           ${CMAKE_COMMAND} -E make_directory ${T}
+                COMMAND           masks ${SOURCE} ${SIZE} ${T} > ${T}.txt
+                DEPENDS           masks ${SOURCE})
+        list(APPEND MASKED ${T}.txt)
+    endforeach()
+endforeach()
+add_custom_target(masks-report
+        COMMAND           ${CMAKE_COMMAND} -E cat ${MASKED}
+        DEPENDS           ${MASKED})
+
 # What is typed after bench/dither.fs to dither one picture at one size,
 # say where its bitmap is, and stop.
 set(PICTURES gray colour)
@@ -1588,6 +1687,20 @@ foreach(PIC ${PICTURES})
         file(WRITE ${BB}/asks-${PIC}-${SIZE}.fs "mark ${PIC}-picture ${SIZE} mark\nb @ . b 1+ @ .\n8000 execute\n")
     endforeach()
 endforeach()
+
+# What is typed after bench/gray.fs: the colour picture kept as gray, a
+# sample to 1 << GRAY_KEEP of its pixels a side; the mask of blue noise of
+# GRAY_MASK by GRAY_MASK; the whole drawn through it, a sample to 1 <<
+# GRAY_DRAW pixels a side; where the bitmap is, and stop.  It is the work
+# the viewer does on the machine with cells of 16 bits, which has not the
+# memory to draw the gray at the picture's own size.  The same numbers are
+# what check is told.
+set(GRAY_KEEP 2)
+set(GRAY_DRAW 1)
+set(GRAY_MASK 64)
+file(WRITE ${BB}/asks-gray.fs
+     "mark colour-picture ${GRAY_KEEP} keep mark mask-blue${GRAY_MASK} m ! mark ${GRAY_DRAW} draw mark\n"
+     "b @ . b 1+ @ .\n8000 execute\n")
 
 # The work on a machine: its nucleus, the reference VM, the Verilog CPU
 # with as much memory, and what checks a bitmap of its kind.
@@ -1620,19 +1733,46 @@ function(bench_on NAME)
         foreach(PIC ${PICTURES})
             foreach(SIZE ${PICTURE_SIZES})
                 set(J ${BB}/dither-${PIC}-${SIZE}-${NAME}-${LAT})
+                # The machine of 64K cells, with the whole desktop, has not
+                # the memory for the bitmap of the picture at its own size:
+                # that is dithered on its system with the picture alone
+                # (forth/picture.fs), and its line says so.
+                set(SYSTEM_IMAGE ${NUC})
+                set(SAYS "${ON}")
+                set(SYSTEM_WANTS)
+                if(SIZE STREQUAL "own" AND ADDR EQUAL 16)
+                    set(SYSTEM_IMAGE ${BUILD}/${NAME}/picture/nuc.hex)
+                    set(SAYS "${ON}, picture.fs")
+                    set(SYSTEM_WANTS picture-system-${NAME} ${SYSTEM_IMAGE})
+                endif()
                 add_custom_command(
                         OUTPUT            ${J}.txt
                         COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/blocks.fs ${BENCH}/tb-disk.fs ${BENCH}/dither.fs
                                             ${BB}/asks-${PIC}-${SIZE}.fs > ${J}.fs
-                        COMMAND           ${T}/tb run ${NUC} ${BB}/disk.img ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
+                        COMMAND           ${T}/tb run ${SYSTEM_IMAGE} ${BB}/disk.img ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
                         COMMAND           check-${NAME} picture ${PICTURE} ${SIZE} ${J}.mem ${J}.out ${J}.err
-                                            "dither ${PIC} ${SIZE}" "${ON}" > ${J}.txt 2> ${J}.check
+                                            "dither ${PIC} ${SIZE}" "${SAYS}" > ${J}.txt 2> ${J}.check
                         COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem
-                        DEPENDS           ${WANTS} ${BB}/blocks.fs bench/tb-disk.fs bench/dither.fs picture ${PICTURE}
+                        DEPENDS           ${WANTS} ${SYSTEM_WANTS} ${BB}/blocks.fs bench/tb-disk.fs bench/dither.fs
+                                            picture ${PICTURE}
                         VERBATIM)
                 set_property(GLOBAL APPEND PROPERTY DITHER_FIGURES ${J}.txt)
             endforeach()
         endforeach()
+
+        set(J ${BB}/gray-${NAME}-${LAT})
+        add_custom_command(
+                OUTPUT            ${J}.txt
+                COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/blocks.fs ${BENCH}/tb-disk.fs ${BENCH}/gray.fs
+                                    ${BB}/asks-gray.fs > ${J}.fs
+                COMMAND           ${T}/tb run ${NUC} ${BB}/disk.img ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
+                COMMAND           check-${NAME} gray ${PICTURE} ${GRAY_KEEP} ${GRAY_DRAW} ${GRAY_MASK}
+                                    ${J}.mem ${J}.out ${J}.err "gray colour" "${ON}" keep mask draw
+                                    > ${J}.txt 2> ${J}.check
+                COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem
+                DEPENDS           ${WANTS} ${BB}/blocks.fs bench/tb-disk.fs bench/gray.fs picture ${PICTURE}
+                VERBATIM)
+        set_property(GLOBAL APPEND PROPERTY GRAY_FIGURES ${J}.txt)
     endforeach()
 
     # Where the dither's clocks go (dither-costs-NAME): the same work, at
@@ -1664,6 +1804,27 @@ function(bench_on NAME)
     endforeach()
     add_custom_target(dither-costs-${NAME} ${COSTED} DEPENDS ${WORKS} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     add_dependencies(dither-costs-${NAME} costs-${NAME} shorter-${NAME})
+
+    # The same for the gray (gray-costs-NAME): bench/gray.fs's work, typed
+    # at the counting VM, and what each word of it costs, its loops and its
+    # variables, in build/bench/gray-costs-NAME/.
+    set(K ${BB}/gray-costs-${NAME})
+    add_custom_command(
+            OUTPUT            ${K}/work
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${K}
+            COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/vm-disk.fs ${BB}/blocks.fs ${BENCH}/gray.fs
+                                ${BB}/asks-gray.fs > ${K}/typed.fs
+            COMMAND           ${CMAKE_COMMAND} -E env RUN_WORK=${K}/work
+                                $<TARGET_FILE:counting-${NAME}> ${NUC} ${BB}/disk.img < ${K}/typed.fs > ${K}/typed.out 2>&1
+            DEPENDS           counting-${NAME} machine-${NAME} ${NUC} ${BB}/disk.img ${BB}/blocks.fs
+                              bench/gray.fs picture ${PICTURE}
+            VERBATIM)
+    add_custom_target(gray-costs-${NAME}
+            COMMAND           ${CMAKE_COMMAND} -E echo "the gray, cells of ${CELL} bits:"
+            COMMAND           costs-${NAME} ${NUC} ${BUILD}/${NAME}/nuc.tables ${BUILD}/${NAME}/nuc.sizes ${K}/work ${K}
+            DEPENDS           ${K}/work
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    add_dependencies(gray-costs-${NAME} costs-${NAME})
 endfunction()
 file(WRITE ${BB}/vm-disk.fs "vmdisk-init\n")       # the reference VM's disk, in place of the test bench's
 foreach(NAME ${MACHINES})
@@ -1741,11 +1902,14 @@ endif()
 # targets that print are of those.
 get_property(DRAW_FIGURES GLOBAL PROPERTY DRAW_FIGURES)
 get_property(DITHER_FIGURES GLOBAL PROPERTY DITHER_FIGURES)
+get_property(GRAY_FIGURES GLOBAL PROPERTY GRAY_FIGURES)
 add_custom_target(draw-figures DEPENDS ${DRAW_FIGURES})
 add_custom_target(dither-figures DEPENDS ${DITHER_FIGURES})
+add_custom_target(gray-figures DEPENDS ${GRAY_FIGURES})
 add_custom_target(m68k-figures DEPENDS ${M68K_FIGURES})
 add_dependencies(draw-figures bench-parts)
 add_dependencies(dither-figures bench-parts)
+add_dependencies(gray-figures bench-parts)
 function(figures TARGET)                                # and the kinds it prints
     set(PRINTED)
     foreach(KIND ${ARGN})
@@ -1759,8 +1923,9 @@ function(figures TARGET)                                # and the kinds it print
 endfunction()
 figures(bench-draw DRAW)
 figures(bench-dither DITHER)
+figures(bench-gray GRAY)
 figures(bench-m68k M68K)
-figures(bench DRAW DITHER M68K)
+figures(bench DRAW DITHER GRAY M68K)
 
 #
 # `gates`: how big the CPU is, beside a Z80 and a 68000.

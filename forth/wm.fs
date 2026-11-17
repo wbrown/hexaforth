@@ -1,8 +1,9 @@
 \ wm.fs - windows, the pointer, and the event loop
 \
-\ A window is eleven cells: x, y, width, height, title (a counted string),
-\ three routines, its port, the region of it that can be seen, and a cell
-\ for whoever draws it (win-data).  The routines:
+\ A window is twelve cells: x, y, width, height, title (a counted string),
+\ three routines, its port, the region of it that can be seen, a cell for
+\ whoever draws it (win-data), and its menu, or 0 (win-menu).  The
+\ routines:
 \     draw   ( win -- )         paint the content, in the window's port
 \     key    ( c win -- )       a key, when this window is in front
 \     click  ( x y win -- )     a click in the content, or 0 for none
@@ -26,17 +27,19 @@ create cw 0 ,           \ the window being drawn
 
 header top : top ( -- win ) nwin @ 1- cells wins + @ ;
 
-\ A window is eleven cells: where it is and how big, its title, the words
+\ A window is twelve cells: where it is and how big, its title, the words
 \ that draw it and take its keys and clicks, its port, what can be seen of
-\ it, and a cell for whoever draws it to keep what it is a window on.
+\ it, a cell for whoever draws it to keep what it is a window on, and the
+\ menu that is in the bar while it is in front.
 header win-data : win-data ( win -- a ) c# 10 + ;
+header win-menu : win-menu ( win -- a ) c# 11 + ;
 
 header window
 : window ( x y w h title draw key click -- win )
-    d# 11 >c halloc >r
+    d# 12 >c halloc >r
     new-port r@ c# 8 + !
     new-rgn r@ c# 9 + !
-    d# 0 r@ win-data !
+    d# 0 r@ win-data !  d# 0 r@ win-menu !
     r@ c# 7 + !  r@ c# 6 + !  r@ c# 5 + !  r@ c# 4 + !
     r@ c# 3 + !  r@ CELL2 + !  r@ CELL + !  r@ !
     r@ nwin @ cells wins + !
@@ -92,23 +95,32 @@ header 'moved create 'moved 0 ,     \ ( -- )
 
 create t-menu ," hexaforth"
 
-\ The title in the bar is a menu: the windows, the one in front first.
-\ The button going down on the title brings it down under the title.  If
-\ the button goes up on a line of it, that window comes to the front; if
-\ it goes up on the title the menu stays, and the next press picks a line
-\ or, anywhere else, takes the menu away.  So it works held down and
-\ dragged, or with a click and then a click.
+\ A title in the bar is a menu.  The first is the windows, the one in
+\ front first; after it is the menu of the window in front, if it has one.
+\ The button going down on a title brings its menu down under it.  If the
+\ button goes up on a line of it, that line is picked; if it goes up on
+\ the title the menu stays, and the next press picks a line or, anywhere
+\ else, takes the menu away.  So it works held down and dragged, or with
+\ a click and then a click.
+\
+\ A menu is five cells: its title (a counted string), and the words that
+\ say how many lines it has ( -- n ), what a line says ( i -- title ), what
+\ is done when a line is picked ( i -- ), and whether a line is marked
+\ ( i -- f ), or 0 if none is.
 \
 \ While it is down it is in front of every window.  It is counted with
 \ what covers them, so that none of them paints or scrolls where it is,
 \ and it is painted after them where it is out of date.
-header menu-open create menu-open 0 ,   \ true while it is down
+header menu-open create menu-open 0 ,   \ the menu that is down, or 0
 create menu-held 0 ,    \ true while the button that brought it down is still down
 create menu-hot -1 ,    \ the line of it the pointer is on, or -1
 create menu-w 0 ,       \ how wide it is,
-create menu-tw 0 ,      \ and how much of the bar its title has
+create menu-x 0 ,       \ and where its title starts in the bar
+create menu-tw 0 ,      \ how much of the bar the windows' title has,
+create menu-tw2 0 ,     \ and the front window's after it
 
-: menu-box ( -- x y w h ) d# 4 d# 19  menu-w @  nwin @ d# 4 lshift d# 2 + ;
+: menu-n ( -- n ) menu-open @ 1+ @ execute ;    \ lines of the menu that is down
+: menu-box ( -- x y w h ) menu-x @ d# 4 +  d# 19  menu-w @  menu-n d# 4 lshift d# 2 + ;
 
 \ ---- what is out of date
 
@@ -125,7 +137,8 @@ create rcov 0 ,         \ what the windows in front cover
 create rtmp 0 ,
 create rwin 0 ,         \ a rectangle
 
-: wm-regions ( -- )
+header wm-regions
+: wm-regions ( -- ) \ the regions the window manager works in, the first time it is asked
     rd @ if exit then
     new-rgn rd !  new-rgn ru !  new-rgn rpaint !  new-rgn rdesk !
     new-rgn rcov !  new-rgn rtmp !  new-rgn rwin !
@@ -186,7 +199,7 @@ header inval-window : inval-window ( win -- ) \ frame and all
     inverse !
     sans font !
     cw @ c# 4 + @ ctext  cw.x d# 8 + cw.y d# 2 + draw-chars
-    mono font !
+    plain-font font !
     d# 0 inverse !
 ;
 
@@ -203,41 +216,58 @@ header inval-window : inval-window ( win -- ) \ frame and all
     screen-port @ port!
 ;
 
+create sysmenu 0 , 0 , 0 , 0 , 0 ,      \ the windows' menu (made by sysmenu!)
+
+: top-menu ( -- menu|0 ) nwin @ if top win-menu @ else d# 0 then ;
+
+create bt 0 , 0 ,       \ the title being drawn: where it starts in the bar, and how wide it is
+
+: bar-title ( menu x -- w ) \ a menu's title, white on black while it is down
+    bt !  dup >r  @ ctext chars-width d# 16 + bt 1+ !
+    r@ menu-open @ = if
+        false  bt @ d# 4 +  d# 1  bt 1+ @ d# 8 -  d# 17  fill-rect
+        true inverse !
+    then
+    r> @ ctext  bt @ d# 8 +  d# 2  draw-chars
+    d# 0 inverse !
+    bt 1+ @
+;
+
 : draw-desk ( -- ) \ menu bar, then grey
     true d# 0 d# 0 fb-w @ d# 19 fill-rect
     false d# 0 d# 19 fb-w @ hline
     sans font !
-    t-menu ctext chars-width d# 16 + menu-tw !
-    menu-open @ if                                  \ its title is white on black while it is down
-        false d# 4 d# 1 menu-tw @ d# 8 - d# 17 fill-rect
-        true inverse !
-    then
-    t-menu ctext d# 8 d# 2 draw-chars
-    d# 0 inverse !
-    mono font !
+    sysmenu d# 0 bar-title menu-tw !
+    top-menu ?dup if menu-tw @ bar-title else d# 0 then menu-tw2 !
+    plain-font font !
     p-gray pattern !
     d# 0 d# 20 fb-w @ fb-h @ d# 20 - pat-rect
 ;
 
-: draw-menu ( -- ) \ a line for each window, the one in front first
+: draw-menu ( -- ) \ a line for each of the menu's, marked if it says so
     true menu-box fill-rect  false menu-box frame-rect
     sans font !
     d# 0
     begin
-        dup nwin @ <
+        dup menu-n <
     while
         >r                                          ( R: the line )
         r@ menu-hot @ = if                          \ the one the pointer is on
-            false  d# 5  r@ d# 4 lshift d# 20 +  menu-w @ d# 2 -  d# 16  fill-rect
+            false  menu-x @ d# 5 +  r@ d# 4 lshift d# 20 +  menu-w @ d# 2 -  d# 16  fill-rect
             true inverse !
         then
-        nwin @ 1- r@ - cells wins + @ c# 4 + @ ctext
-        d# 12  r@ d# 4 lshift d# 20 +  draw-chars
+        menu-open @ c# 4 + @ ?dup if                \ a mark before it, if it is marked
+            r@ swap execute if
+                inverse @  menu-x @ d# 6 +  r@ d# 4 lshift d# 26 +  d# 4 d# 4  fill-rect
+            then
+        then
+        r@ menu-open @ CELL2 + @ execute ctext
+        menu-x @ d# 12 +  r@ d# 4 lshift d# 20 +  draw-chars
         d# 0 inverse !
         r> 1+
     repeat
     drop
-    mono font !
+    plain-font font !
 ;
 
 \ What can be seen of each window changes only when a window is made,
@@ -365,7 +395,10 @@ header refresh : refresh ( -- ) \ paint what is out of date
 \ room for three.
 create fronts 0 , 0 , 0 , 0 ,       \ the words, ( -- ) each, and nothing after the last
 header on-front : on-front ( xt -- ) fronts begin dup @ while 1+ repeat ! ;
-: fronted ( -- ) fronts begin dup @ ?dup while execute 1+ repeat drop ;
+: fronted ( -- ) \ and the bar, whose second menu is the front window's
+    d# 0 d# 0 fb-w @ d# 19 inval-rect
+    fronts begin dup @ ?dup while execute 1+ repeat drop
+;
 
 : raise ( i -- )
     dup cells wins + @ >r
@@ -380,41 +413,59 @@ header on-front : on-front ( xt -- ) fronts begin dup @ while 1+ repeat ! ;
 
 \ ---- the menu: bringing it down, and what the button does while it is
 
-: menu-inval ( -- ) menu-box inval-rect  d# 0 d# 0 menu-tw @ d# 19 inval-rect ;     \ it, and its title
+: menu-inval ( -- ) menu-box inval-rect  d# 0 d# 0 fb-w @ d# 19 inval-rect ;      \ it, and the bar
 
 : menu-line ( -- i ) \ the line of it the pointer is on, or -1
-    mx @ d# 4 - menu-w @ u<  my @ d# 20 - nwin @ d# 4 lshift u<  and
+    mx @ menu-x @ - d# 4 - menu-w @ u<  my @ d# 20 - menu-n d# 4 lshift u<  and
     if my @ d# 20 - d# 4 rshift else d# -1 then
 ;
 
-: on-title? ( -- f ) my @ d# 19 <  mx @ menu-tw @ <  and ;
+: title-at ( -- x menu | 0 ) \ the title in the bar the pointer is on: where it starts, and its menu
+    my @ d# 19 < 0= if d# 0 exit then
+    mx @ menu-tw @ < if d# 0 sysmenu exit then
+    mx @ menu-tw @ - menu-tw2 @ u< if top-menu ?dup if menu-tw @ swap exit then then
+    d# 0
+;
 
-: menu-down ( -- ) \ as wide as the longest title wants
+: on-title? ( -- f ) title-at ?dup if nip menu-open @ = else false then ;    \ the title of the menu that is down
+
+: menu-down ( x menu -- ) \ as wide as its longest line wants
+    menu-open !  menu-x !
     sans font !
-    d# 0  wins nwin @ bounds
+    d# 0 d# 0
     begin
-        2dupxor
+        dup menu-n <
     while
-        dup @ c# 4 + @ ctext chars-width  >r rot r> max -rot
+        dup menu-open @ CELL2 + @ execute ctext chars-width  rot max swap
         1+
     repeat
-    2drop
-    mono font !
+    drop
+    plain-font font !
     d# 24 + menu-w !
-    true menu-open !  true menu-held !  d# -1 menu-hot !
+    true menu-held !  d# -1 menu-hot !
     menu-inval
 ;
 
 : menu-up ( -- ) menu-inval  d# 0 menu-open !  d# 0 menu-held ! ;
 
-: menu-pick ( i -- ) \ the window on that line comes to the front
-    menu-up
+: menu-pick ( i -- ) \ what the menu does with that line
+    menu-open @ >r  menu-up  r> c# 3 + @ execute
+;
+
+\ The windows' menu: a line for each, the one in front first, and the one
+\ picked comes to the front.
+: wins-n ( -- n ) nwin @ ;
+: wins-line ( i -- title ) nwin @ 1- swap - cells wins + @ c# 4 + @ ;
+: wins-pick ( i -- )
     nwin @ 1- swap -                                ( where it is among the windows )
     dup 1+ nwin @ <> if
         redraw-top raise redraw-top  fronted
     else
         drop
     then
+;
+: sysmenu! ( -- )
+    t-menu sysmenu !  ['] wins-n sysmenu 1+ !  ['] wins-line sysmenu CELL2 + !  ['] wins-pick sysmenu c# 3 + !
 ;
 
 : menu-track ( -- ) \ the pointer has moved: the line it is on is the one shown so
@@ -450,7 +501,7 @@ create dy0 0 ,
         menu-line dup 0< if drop menu-up else menu-pick then
         exit
     then
-    on-title? if menu-down exit then
+    title-at ?dup if menu-down exit then
     true held !  d# 0 'track !
     win-at dup 0< if drop exit then
     dup 1+ nwin @ <> if
@@ -565,6 +616,7 @@ header uart-poll : uart-poll ( -- ) key? if key on-key then ;
 header event-loop : event-loop ( -- )
     d# 0 quitting !
     'poll @ 0= if ['] uart-poll 'poll ! then
+    sysmenu!
     wm-regions
     repaint
     begin

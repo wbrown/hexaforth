@@ -1,14 +1,14 @@
 \ joins.fs - the rules of the nucleus's peephole (join.fs)
 \
-\ These are 59 of the 360 rules that were once made from a built image:
-\ those that save at least their own eight bytes in the system's code,
-\ and those that save at least a ten-thousandth of the instructions that
-\ the desktop's test or a benchmark runs (the target `peephole`).  Four more
-\ are for what is typed and the system's own source happens not to say:
-\ the two that make `2dup xor` one instruction, which is how a loop over
-\ memory is written in standard words, and the two that make
-\ `r> @ over !` one, the store that moves a cell.  The rest were taken
-\ out.
+\ These are 59 rules.  55 are of the 360 that were once made from a built
+\ image: those that save at least their own eight bytes in the system's
+\ code, and those that save at least a ten-thousandth of the instructions
+\ that the desktop's test or a benchmark runs (the target `peephole`).  The
+\ other four are for what is typed and the system's own source happens
+\ not to say: the two that make `2dup xor` one instruction, which is how a
+\ loop over memory is written in standard words, and the two that make
+\ `r> @ over !` one, the store that moves a cell.  The rest of the 360
+\ were taken out.
 \
 \ A rule is four instructions, and they are in order: nothing or the
 \ instruction two before, the one before, the one being compiled, and

@@ -156,8 +156,10 @@ header p-ltgray create p-ltgray  $88 prow, $22 prow, $88 prow, $22 prow, $88 pro
 header p-dkgray create p-dkgray  $77 prow, $dd prow, $77 prow, $dd prow, $77 prow, $dd prow, $77 prow, $dd prow,
 
 \ The n leftmost pixels of a cell are looked up, not made: making them is a
-\ shift by a whole cell less n, and one of none is a shift the machine does
-\ not promise.
+\ shift by a whole cell less n, and for none that is a shift by the width
+\ of a cell.  A shift is taken modulo 64 (MODEL.md), so with cells of 16
+\ and 32 bits that gives nothing, but with 64 it shifts by nothing, and
+\ would be every pixel.
 create lefts  lefts,
 
 : leftn ( n -- mask ) lefts + @ ;
@@ -729,7 +731,7 @@ header copy-end create copy-end
     while
         \ Where the cell comes from goes on the return stack, where it is
         \ what the store reads from: two instructions for a cell moved, and
-        \ the test that ends the turn takes it off again.
+        \ the second takes it off again, the rdrop being joined to it.
         over  meta R->IN IN+N ->R d-1 r+1 alu target    ( R: dist from )
         meta R->IN [IN] ->[T] alu target
         1+ rdrop
@@ -1366,9 +1368,9 @@ header port! : port! ( port -- ) \ put the port in use away, and take up another
     reclip
 ;
 
-header new-port : new-port ( -- port ) \ the whole screen, black, copying, plain text in mono
+header new-port : new-port ( -- port ) \ the whole screen, black, copying, plain text in the system's plain font
     PORT-CELLS cells >c halloc >r
-    mono r@ c# 11 + !
+    plain-font r@ c# 11 + !
     fb-w @ r@ c# 4 + !  fb-h @ r@ c# 5 + !
     fb-w @ r@ c# 15 + !  fb-h @ r@ c# 16 + !
     p-black r@ c# 6 + !

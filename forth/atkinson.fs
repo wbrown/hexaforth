@@ -194,7 +194,7 @@ create dth 0 ,          \ the dither in hand: its record
 \ taken and belongs to no lane.
 : apairs ( lanes -- ) \ the next row's grays, each two pixels' added into a lane
     'pairs @ ?dup if execute exit then
-    d# 0 swap  aw @ negate                          ( shift a -n )
+    d# 0 swap  tw @ d# 1 rshift negate              ( shift a -n )
     begin
         dup
     while
@@ -243,6 +243,12 @@ W32+? [if]
 \ last pixel gave is carried, on the return stack.  It goes in without
 \ whether they were black, so a lane holds only its number, and the lane
 \ after the last pixel, which is given it too, has no pixel made black.
+\
+\ What the last pixel gave is not taken off the return stack and put back:
+\ what this one gives is written over it where it is (swap rdrop >r is
+\ one instruction, its result to R with R not moved), and is stored from
+\ there while the address is brought up (swap r@ over !, one).  Each is
+\ an instruction where the plain way was two (doc/superoptimizations.md).
 : apixels ( lanes -- ) \ the same, a cell being one pixel
     d# 128 >r                                       ( lanes ) ( R: what the last pixel gave )
     d# 256 over +!                                  \ what the two before the first would have left it
@@ -252,10 +258,10 @@ W32+? [if]
     while
         dup @                                       ( end p pixel )
         dup d# 896 <  h# 80ff and + 1+  d# 3 rshift ( end p gives )
-        2dup swap !
-        dup r> +  swap >r                           \ the next is owed this and the one before; the one after, this
-        h# fff and  over 1+ +!
-        1+
+        h# fff over r@ + and                        ( end p gives owed ) \ the next is owed this and the one before,
+        swap rdrop >r                               ( end p owed ) ( R: gives ) \ the one after this
+        swap r@ over !                              ( end owed p ) \ and it is the pixel's lane
+        1+ tuck +!                                  ( end p' )
     repeat
     2drop rdrop
 ;
@@ -325,11 +331,13 @@ INK-BLACK? [if] [else] invert [then]
     begin
         2dupxor
     while
-        dup r@ +  over @ CLEAN                      ( end p t e )
-        2dup LOW>TOP swap +!                        \ its lowest lane, to the highest of the cell before
-        2dup TOP>LOW swap CELL2 + +!                \ its highest, to the lowest of the cell after
-        SPREAD                                      \ itself, and a lane each way
-        swap 1+ +!
+        \ Where the three are is p and R added, which is one instruction
+        \ while p is under the top: so it is made where it is wanted, and
+        \ not kept in the way of the rest.
+        dup @ CLEAN  over r@ +                      ( end p e t )
+        over LOW>TOP over +!                        \ its lowest lane, to the highest of the cell before
+        CELL2 +  over TOP>LOW swap +!               \ its highest, to the lowest of the cell after ( end p e )
+        SPREAD  over r@ + 1+ +!                     \ itself, and a lane each way
         1+
     repeat
     2drop rdrop
@@ -352,7 +360,9 @@ INK-BLACK? [if] [else] invert [then]
     d# 512 LANE1 * anew acur !                      \ the rows that are not there gave the first row four
     d# 128 LANE1 * anew dup apreset anxt !          \ times nothing, and the second once
     d# 0 anew dup apreset anx2 !
-    abm @ CELL + @ akh @ * >c halloc abm @ !        \ the bitmap last: it is what is kept when the rest is done with
+    abm @ @ 0= if                                   \ a bitmap that has none is given one,
+        abm @ CELL + @ akh @ * >c halloc abm @ !    \ last: it is what is kept when the rest is done with
+    then                                            \ and one that has is dithered into again
     pixels
     d# 0 ay !
     dth @
@@ -402,4 +412,240 @@ header atkinson
         dup dither-row
     repeat
     drop
+;
+
+\ ---- to sixteen levels
+\
+\ A picture kept as gray (gray.fs) is dithered the same way, but a lane is
+\ a sample and not a pixel, and is made the nearest of sixteen levels and
+\ not black or white.  A sample is the gray of 1, 2 by 2, 4 by 4 or 8 by 8
+\ of the image's pixels, their average to the nearest: the pixels of the
+\ rows a sample is are added two to a lane, as at half the size, into one
+\ row of lanes; for more than two across, each two lanes of that are then
+\ added into one (fold-pairs, tiff.fs), a cell of lanes at a time, until a
+\ lane is a sample; and the sum is shifted down.
+\
+\ What a lane holds when its sample is looked at is its number, as with a
+\ pixel: its gray and 768, and what it is owed.  What the sample gives, and
+\ its level, are both had by one fetch from a table of the numbers a lane
+\ can hold (glt): what it gives is the low twelve bits, which go to the
+\ next two as what a pixel gives does, and its level is the four above.  So
+\ the lanes of a row that is done are both what the rows below are owed
+\ and the levels, and each of the four planes of the levels is gathered
+\ out of them as the dither gathers its pixels: a bit of each lane, at
+\ 12, 13, 14 or 15.  A sample gives what its level is short of it or over
+\ it, an eighth to each of six, as a pixel gives what black or white is.
+\
+\ A lane's number is never under 762 or over 1029.  A sample is out by
+\ half a level, 8, or less, unless it is past black or white, and then by
+\ less than it is owed; it is owed an eighth of what each of six was out
+\ by, and so never more than 6 below black or above white.  The table is of
+\ the 512 numbers from 640.
+
+meta
+\ A number in each lane of a cell, and the bits of a lane a gray has: what
+\ a sum of grays is once it is shifted down, without what came down from
+\ the lane above.
+:: LANES*     lanes 1 > if s" aone @ *" evaluate then ;
+:: GRAY-BITS  lanes 1 > if s" gray-mask @ and" evaluate then ;
+\ The samples of a cell, as CELL-DONE does a cell's pixels: each one fetch.
+:: CELL-LEVELS ( x -- e x' )
+    lanes 0 do
+        s" dup d# 16 rshift swap h# fff and" evaluate   \ the rest of the cell, and the sample's number
+        s" glt @ + @" evaluate                          \ what it gives, with its level above it
+        s" tuck h# fff and h# 10001 * +" evaluate        \ what it gives, to the next two
+    loop
+    s" >r" evaluate
+    lanes 1- 0 ?do s" d# 16 lshift +" evaluate loop
+    s" r>" evaluate
+;
+\ The bit at lsh of each lane of a cell, a bit each, where acell-bits
+\ gathers them.
+:: PLANE-BITS ( e -- n )
+    lanes 1 = if
+        s" lsh @ rshift d# 1 and" evaluate
+        disp-left-low if cell-bits 1- literal s" lshift" evaluate then
+    else
+        s" lsh @ rshift aone @ and agather @ * NIBSHIFT rshift" evaluate
+        disp-left-low if s" NIBSHIFT lshift" evaluate then
+    then
+;
+target
+
+: alt   ( -- a ) dth @ c# 14 + ;        \ its table of what a lane's number gives, less 640
+: agw   ( -- a ) dth @ c# 15 + ;        \ the row of lanes pairs of pixels are added in, for 2 by 2 or more
+: ash   ( -- a ) dth @ c# 16 + ;        \ pixels a side to a sample, as a shift
+
+create glt 0 ,          \ the table of the dither in hand, while a row is done
+create lsh 0 ,          \ the bit of each lane that the plane being gathered is of
+
+: v-level ( v -- level ) \ the nearest of the sixteen levels to a lane's number: the first, if it is below it
+    d# 760 -  d# 0 swap                             ( level n ) \ n is the gray and 8
+    begin  over d# 15 <  over d# 16 >  and  while  d# 17 -  swap 1+ swap  repeat
+    drop
+;
+
+: levels-table ( a -- ) \ from a, for each number from 640: what its sample gives, and its level at 12
+    d# 640 >r                                       ( R: the number )
+    d# 512 bounds
+    begin
+        2dupxor
+    while
+        r@ v-level                                  ( end a level )
+        r@ d# 256 + over d# 17 * - d# 3 rshift      ( end a level gives )
+        swap d# 12 lshift or  over !
+        r> 1+ >r  1+
+    repeat
+    2drop rdrop
+;
+
+W32+? [if]
+: fold2 ( x y -- z ) \ two cells of lanes, each two lanes added: one cell, x's in its lower half
+    fold-pairs HALFBITS lshift  swap fold-pairs or
+;
+[else]
+: fold2 ( x y -- z ) + ;
+[then]
+
+: afold ( a n -- ) \ the n cells of lanes from a, each two lanes added, into the first half of them
+    over >r  u2/ over + swap                        ( end to ) ( R: a )
+    begin
+        2dupxor
+    while
+        dup 2* r@ -  dup @ swap 1+ @ fold2  over !  \ from twice as far from a
+        1+
+    repeat
+    2drop rdrop
+;
+
+: awide ( -- n ) \ cells of the row of lanes of pairs: as many as the row has, and as many as are folded
+    tw @ d# 1 rshift LANES 1- + LANESHIFT rshift  an @ ash @ 1- lshift  max
+;
+
+create ahalf-of 0 ,     \ half of what the sums are shifted down by, in each lane,
+create ashift-of 0 ,    \ and the shift, while a row of samples is made
+
+: asums ( lanes -- ) \ the grays of the next row of samples, each added into its lane
+    ash @ 0= if agrays exit then
+    d# 0 agw @ awide cells-fill
+    agw @ apairs                                    \ the first row is in hand
+    d# 1 ash @ lshift 1- negate
+    begin dup while aimg @ tiff-row agw @ apairs 1+ repeat
+    drop
+    agw @  an @ ash @ 1- lshift                     ( lanes a n ) \ each two lanes added, until a lane is a sample
+    begin dup an @ <> while 2dup afold u2/ repeat
+    drop                                            ( lanes a )
+    ash @ 2* dup ashift-of !  d# 1 swap 1- lshift LANES* ahalf-of !
+    tuck - >r                                       ( a ) ( R: from the sums to the lanes )
+    an @ bounds
+    begin
+        2dupxor
+    while
+        dup @ ahalf-of @ + ashift-of @ rshift GRAY-BITS  over r@ + +!
+        1+
+    repeat
+    2drop rdrop
+;
+
+W32+? [if]
+: lpixels ( lanes -- ) \ every sample of the row: each lane left as what it gives, and its level
+    h# 800100 >r
+    an @ bounds
+    begin
+        2dupxor
+    while
+        dup @ r> +  CELL-LEVELS  >r over !
+        1+
+    repeat
+    2drop rdrop
+;
+[else]
+: lpixels ( lanes -- ) \ the same, a cell being one sample (apixels says how)
+    d# 128 >r
+    d# 256 over +!
+    an @ bounds
+    begin
+        2dupxor
+    while
+        dup @ glt @ + @                             ( end p gives )
+        h# fff over r@ + and
+        swap rdrop >r
+        swap r@ over !
+        1+ tuck +!
+    repeat
+    2drop rdrop
+;
+[then]
+
+: lcell-bits ( p -- p' bits ) \ the plane at lsh of the samples whose lanes start at p, as a cell of it
+    d# 0 >r
+    dup d# 16 + swap
+    begin
+        2dupxor
+    while
+        dup @ PLANE-BITS
+LEFT-LOW? [if]
+        r> LANES rshift  or >r
+[else]
+        r> LANES lshift  or >r
+[then]
+        1+
+    repeat
+    nip r>
+;
+
+: lbits ( lanes dst -- ) \ the plane at lsh of the row's levels, into the row of it at dst
+    dup abm @ CELL + @ + swap                       ( lanes end dst )
+    rot >r
+    begin
+        2dupxor
+    while
+        r> lcell-bits swap >r
+        over ! 1+
+    repeat
+    2drop rdrop
+;
+
+: lplanes ( lanes -- ) \ the four planes of the row's levels, into the four rows it has, the lowest first
+    ay @ d# 2 lshift abm @ CELL + @ *  abm @ @ +    ( lanes dst )
+    d# 12 lsh !
+    begin
+        lsh @ d# 16 <
+    while
+        2dup lbits  abm @ CELL + @ +
+        d# 1 lsh +!
+    repeat
+    2drop
+;
+
+header dither-levels
+: dither-levels ( planes img shift -- dither ) \ a dither of the whole image to sixteen levels, a sample to 1 << shift pixels a side
+    \ planes is where the planes go and how many cells a row of one is: a
+    \ row of samples is four rows of planes, its lowest plane first.
+    d# 18 >c halloc dth !
+    ash !  dup aimg ! image!  abm !
+    tw @ ash @ rshift aw !
+    aw @ PXMASK + PXSHIFT rshift afull !
+    aw @ LANES 1- + LANESHIFT rshift an !
+    d# 0 aoff !  d# 0 ay0 !  th @ ash @ rshift akh !  false ahalf !
+    ash @ if awide >c halloc agw ! then
+    d# 512 >c halloc  dup levels-table  d# 640 - alt !
+    d# 512 LANE1 * anew acur !                      \ as (dither) has them
+    d# 128 LANE1 * anew dup apreset anxt !
+    d# 0 anew dup apreset anx2 !
+    pixels
+    d# 0 ay !
+    dth @
+;
+
+header level-row
+: level-row ( dither -- ) \ the next row of samples: read, each made the nearest level, its planes kept
+    dth !  alt @ glt !
+    aimg @ tiff-row
+    acur @  dup asums  dup lpixels  dup atrim  dup lplanes
+    anx2 @ adown2
+    acur @ anxt @ adown1
+    acur @  anxt @ acur !  anx2 @ anxt !  dup anx2 !
+    d# 0 over alanes  apreset
+    d# 1 ay +!
 ;

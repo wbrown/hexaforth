@@ -49,12 +49,10 @@ header windows
     d# 0 nwin !
     d# 5 place t-paint                              \ at the back: it is as big as its canvas, and has no canvas
     ['] paint-draw ['] ignore-key ['] paint-click window drop      \ until it is drawn in
+    d# 0 >r                                         ( R: the picture's window, if there is a disk )
     'blk-read @ if
-        PICTURE-BLK  d# 0 place 2swap 2drop  swap d# 2 - swap d# 20 -     \ the picture, and what its window shows
-        ['] view-load catch if 2drop drop d# 0 then >r      ( R: the viewer, or 0 if there is no picture )
         d# 0 place t-view
-        ['] view-draw ['] ignore-key d# 0 window
-        r> swap win-data !
+        ['] view-draw ['] ignore-key d# 0 window  dup view-menu  rdrop >r
         d# 1 place t-edit
         ['] edit-draw ['] edit-key d# 0 window drop
     then
@@ -66,6 +64,15 @@ header windows
     repl-start
     d# 4 place t-repl
     ['] term-draw ['] repl-key d# 0 window drop
+    \ The picture is started last, so that what reading it has is had after
+    \ all the windows have, and what the event loop has (wm-regions), and is
+    \ given back to where memory is given out from when its last row is
+    \ made (view.fs).
+    wm-regions
+    r> ?dup if
+        >r  PICTURE-BLK  d# 0 place 2swap 2drop  swap d# 2 - swap d# 20 -     \ the picture, and what its window shows
+        ['] view-load catch if 2drop drop d# 0 then  r> win-data !         \ the viewer, or 0 if there is no picture
+    then
     t-up >c count type cr
     event-loop
 ;

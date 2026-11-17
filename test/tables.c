@@ -98,7 +98,9 @@ int table(const char* file, const char* name, int64_t** numbers, int count) {
 
 font font_named(const char* name) {
     int64_t* numbers;
-    int count = table("font.fs", name, &numbers, 0);
+    char file[strlen(name) + sizeof(".fs")];        // a font is in the file named for it
+    sprintf(file, "%s.fs", name);
+    int count = table(file, name, &numbers, 0);
     font f = { 0 };
     if (count >= 5) {
         f.rows = (int)numbers[0], f.first = (int)numbers[1], f.count = (int)numbers[2], f.across = (int)numbers[3];
@@ -106,7 +108,7 @@ font font_named(const char* name) {
         f.strike = f.starts + f.count + 1;
     }
     if (count < 5 || count != 5 + f.count + 1 + f.rows * f.across) {
-        fprintf(stderr, "%s/font.fs: %s is not a font as that file says one is\n", forth, name);
+        fprintf(stderr, "%s/%s: %s is not a font as that file says one is\n", forth, file, name);
         exit(EXIT_FAILURE);
     }
     return(f);

@@ -2,8 +2,8 @@
 // The system's tables, read from its source.
 //
 // A font, a pattern and where the windows go are tables in the Forth,
-// written as source to be read (forth/font.fs, display.fs, paint.fs,
-// desk.fs), and a test that needs one reads it from there: it has no
+// written as source to be read (forth/mono.fs and sans.fs, display.fs,
+// paint.fs, desk.fs), and a test that needs one reads it from there: it has no
 // glyph, no pattern and no place of its own.
 //
 
@@ -25,7 +25,8 @@ void tables_are(const char* dir);
 // there are, and are whoever asked's to free.
 int table(const char* file, const char* name, int64_t** numbers, int count);
 
-// A font, as font.fs says one is: how high, the first character, how many,
+// A font, as mono.fs says one is, read from the file named for it (mono.fs,
+// sans.fs): how high, the first character, how many,
 // the numbers in a row of the strike, a cell the system uses; then where
 // each glyph starts and where the last ends; then the strike a row at a
 // time, 64 pixels to a number with the leftmost highest.

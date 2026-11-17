@@ -19,6 +19,11 @@
 #16 constant disk-picture-block
 #1024 constant disk-names-block
 #1152 constant disk-canvas-block
+#1168 constant disk-masks-block
+#1170 constant disk-mask32-block
+#1171 constant disk-bayer-block
+#64 constant disk-mask-width
+#4 constant disk-mask-planes
 
 \ the codes of a name, from vm_opcodes.h
 create n-direct  #45 c, #33 c, #63 c,

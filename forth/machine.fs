@@ -28,7 +28,7 @@ header reg64! : reg64! ( x pa -- ) h# c0 io!  h# c8 io! ;
 \
 \ On the machine of 64K cells the image itself has data up there, after
 \ the display: the fonts opened out, and tables.  What is given out starts
-\ after that, and system.fs says where when it has all been laid down.
+\ after that, and nuc.fs says where when the system has all been laid down.
 header himem create himem  meta display-end target ,     \ the next cell to give out
 
 \ himem is always an even cell, so what is given is the cell it says, and

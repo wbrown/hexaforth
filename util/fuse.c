@@ -794,11 +794,17 @@ static void start(named* m) {
     m->fetches = m->unsaid = 0;
 }
 
-// A fetch of what the last store put there is what was stored.
+// A fetch of what the last store put there is what was stored.  Where it
+// fetched from is kept once, however often it fetched there: what is said
+// of it is only whether it fetched there (fetched_from).
 static int t_fetch(named* m, int at) {
     at = t_whole(at);
-    if (m->fetches == FETCHES) { lost = 1; return(0); }
-    m->fetched[m->fetches++] = at;
+    int had = 0;
+    for(int idx=0; idx < m->fetches; idx++) had |= m->fetched[idx] == at;
+    if (!had) {
+        if (m->fetches == FETCHES) { lost = 1; return(0); }
+        m->fetched[m->fetches++] = at;
+    }
     const term* mem = &KNOWN[m->M];
     if (mem->kind == STORED && mem->of[1] == at) return(mem->of[2]);
     int of[2] = { m->M, at };
@@ -850,7 +856,7 @@ static void step_named(named* m, uint16_t x) {
     m->T = T; m->R = R; m->SP = SP; m->RSP = RSP;
 }
 
-// Where a sequence fetched from, each place once and in order.  A place it
+// Where a sequence fetched from, in order.  A place it
 // also stored to is left out: where the store does not stop the machine,
 // the fetch does not.
 static int fetched_from(const named* m, int* out) {

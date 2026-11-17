@@ -517,6 +517,7 @@ data-base cell-bytes + tdp !
 small [if] $4000 [else] $8000 [then] constant code-base
 small [if] $4000 [else] $8000 [then] constant code-size
 code-base 2* page-min !
+: sys-page ( n -- ) code-base $1000 / + code-page ;    \ the nth page after the data and the headers, for a system's list
 
 \ One instruction fetches or stores a cell in the 4,096 from var-base, and
 \ the data is there so that a variable is such a cell.  Where a cell is
@@ -591,12 +592,18 @@ variable sizes      0 sizes !
     r> base !
 ;
 
-:: include
-    parse-name save-mem { a u }
+: include-measured ( a u -- ) \ a file, saved where it stays, and what it laid down
+    { a u }
     tcp @ tdp @ thp @ + tbp @ + hdr-bytes @ lbl-bytes @ { c d h l }
     a u included-whole
     a u  tcp @ c -  tdp @ thp @ + tbp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  c 2/  size-line
 ;
+:: include  parse-name save-mem include-measured ;
+
+\ The system a machine with a display has: the list of files that SYSTEM
+\ names, a file of forth/ (SYSTEM=picture.fs gforth ...), or system.fs, the
+\ desktop, if it names none.  nuc.fs includes it.
+:: include-system  s" SYSTEM" getenv dup 0= if 2drop s" system.fs" then save-mem include-measured ;
 
 :: bulk ( -- ) \ what is laid down from here is not variables
     in-bulk @ abort" bulk within bulk"  true in-bulk !
@@ -1786,6 +1793,19 @@ warnings on
 :: PICTURE-BLK disk-picture-block literal ;     \ what is where on the disk: vm_constants.h
 :: NAMES-BLK   disk-names-block literal ;
 :: CANVAS-BLK  disk-canvas-block literal ;
+:: MASK64-BLK  disk-masks-block literal ;       \ the threshold masks: blue noise of 64 by 64,
+:: MASK32-BLK  disk-mask32-block literal ;      \ of 32 by 32,
+:: BAYER-BLK   disk-bayer-block literal ;       \ and Bayer's of 8 by 8
+\ A row of a mask on the disk is its planes, the lowest first, each a row
+\ of a bitmap MASK-WIDTH pixels across: MASK-CELLS cells of this machine,
+\ and the row MASK-ROW cells.  A block is as many rows as 1 MASK-ROWS-SHIFT
+\ lshift.
+:: MASK-WIDTH  disk-mask-width literal ;
+:: MASK-CELLS  disk-mask-width cell-bits / literal ;
+:: MASK-ROW    disk-mask-width cell-bits / disk-mask-planes * literal ;
+:: MASK-ROWS-SHIFT
+    disk-block 8 * disk-mask-width / disk-mask-planes /
+    0 begin 2dup 1 swap lshift > while 1+ repeat nip literal ;
 :: DATA-LIMIT data-limit literal ;              \ where data must stop: there, or where the bulk starts
 \ The cell after the last of memory.  Where memory is as many cells as a
 \ cell can count that is nothing, and is still right to take from.

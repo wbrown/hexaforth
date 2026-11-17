@@ -1,5 +1,6 @@
 //
 // check picture PICTURE.tiff own|half MEMORY CONSOLE TIMED WHAT ON [PIECE ...]
+// check gray PICTURE.tiff SHIFT DSHIFT N MEMORY CONSOLE TIMED WHAT ON [PIECE ...]
 // check display MEMORY MEMORY TIMED WHAT ON [PIECE ...]
 //
 // What a benchmark made, looked at, and then what it cost: one that has
@@ -13,10 +14,15 @@
 //     b @ . b 1+ @ .
 // was typed last: where the bitmap is, and the cells of a row of it.  The
 // picture was dithered at its own size, or at half of it.  A machine that
-// has not the memory for the picture says so at its console, and then
-// that is what is printed, and nothing is wrong.
+// could not do the work (an error at its console) has measured nothing,
+// and that is a FAIL like any other.
 //
-// The second is the display, in the memory of two machines that were
+// The second is the same for a bitmap the machine made of the picture kept as gray, a
+// sample to 1 << SHIFT of its pixels a side, and the whole of it drawn a
+// sample to 1 << DSHIFT pixels a side through blue noise of N by N
+// (forth/gray.fs), against the same a pixel at a time (test/gray.h).
+//
+// The last is the display, in the memory of two machines that were
 // typed the same at: the reference VM (main.c writes its memory) and the
 // Verilog CPU.  Every cell of it is to be the same in both, and something
 // is to have been drawn.
@@ -44,6 +50,8 @@
 #include <string.h>
 #include "../vm_constants.h"
 #include "../test/dither.h"
+#include "../test/gray.h"
+#include "../util/bluenoise.c"
 #include "figure.c"
 #include "tiff.h"
 
@@ -110,17 +118,10 @@ static char* could_not(const char* said) {
     return(is);
 }
 
-// A bitmap the machine made of a picture, against the dither a pixel at a
-// time.  What is wrong with it, or nothing.
-static char* pictures(const char* is_picture, bool half, const char* is_memory, const char* said) {
-    tiff picture = read_tiff(is_picture);
-    int w, h, stride;
-    int* gray = grays_of(picture.bytes, picture.w, picture.h, picture.samples, half, &w, &h);
-    uint8_t* black = calloc((size_t)w * h + 1, 1);
-    dither(gray, w, h, black);
-    uint64_t* want = cells_of(black, w, 0, 0, w, h, CELL_BITS, DISP_LEFT_LOW, DISP_INK_BLACK, &stride);
+// A bitmap the machine made, w by h, against the cells it is to be, a row
+// being stride of them.  What is wrong with it, or nothing.
+static char* bitmaps(const uint64_t* want, int stride, int w, int h, const char* is_memory, const char* said) {
     int total = stride * h;
-
     size_t len;
     uint8_t* memory = (uint8_t*)read_all(is_memory, &len);
     static const char asked[] = "b @ . b 1+ @ . ";
@@ -129,6 +130,7 @@ static char* pictures(const char* is_picture, bool half, const char* is_memory, 
     char* why = NULL;
     if (at == NULL) {
         text_more(&why, "NOT CHECKED: the machine was not asked where its bitmap is");
+        free(memory);
         return(why);
     }
     uint64_t bitmap = ucell(strtoll(at + strlen(asked), &end, 10));
@@ -136,6 +138,7 @@ static char* pictures(const char* is_picture, bool half, const char* is_memory, 
     if (row != (uint64_t)stride || (bitmap + total) * CELL_BYTES > len) {
         text_more(&why, "NOT CHECKED: a bitmap of %d cells a row at cell %llu, where %d cells a row were wanted",
                   (int)row, (unsigned long long)bitmap, stride);
+        free(memory);
         return(why);
     }
 
@@ -147,6 +150,42 @@ static char* pictures(const char* is_picture, bool half, const char* is_memory, 
     }
     fprintf(stderr, "%d by %d: %d cells of bitmap compared, %d differ\n", w, h, total, differ);
     if (differ || !total) text_more(&why, "%d by %d: %d cells of bitmap compared, %d differ", w, h, total, differ);
+    free(memory);
+    return(why);
+}
+
+// A bitmap the machine made of a picture, against the dither a pixel at a
+// time.
+static char* pictures(const char* is_picture, bool half, const char* is_memory, const char* said) {
+    tiff picture = read_tiff(is_picture);
+    int w, h, stride;
+    int* gray = grays_of(picture.bytes, picture.w, picture.h, picture.samples, half, &w, &h);
+    uint8_t* black = calloc((size_t)w * h + 1, 1);
+    dither(gray, w, h, black);
+    uint64_t* want = cells_of(black, w, 0, 0, w, h, CELL_BITS, DISP_LEFT_LOW, DISP_INK_BLACK, &stride);
+    char* why = bitmaps(want, stride, w, h, is_memory, said);
+    free(picture.bytes), free(gray), free(black), free(want);
+    return(why);
+}
+
+// A bitmap the machine made of a picture kept as gray, a sample to 1 <<
+// shift of its pixels a side in sixteen levels, and the whole of it drawn
+// through blue noise of n by n, a sample to 1 << dshift pixels a side;
+// against the same a pixel at a time (test/gray.h), through the thresholds
+// as what makes the disk's masks makes them (util/bluenoise.c).
+static char* grays(const char* is_picture, int shift, int dshift, int n, const char* is_memory, const char* said) {
+    tiff picture = read_tiff(is_picture);
+    int fw, fh, gw, gh, stride;
+    int* gray = grays_of(picture.bytes, picture.w, picture.h, picture.samples, false, &fw, &fh);
+    int* level = gray_kept(gray, fw, fh, shift, 4, &gw, &gh);
+    uint8_t* mask = malloc((size_t)n * n);
+    blue_bytes(n, mask);
+    int w = gw << dshift, h = gh << dshift;
+    uint8_t* black = calloc((size_t)w * h + 1, 1);
+    gray_drawn(level, gw, 4, mask, n, 0, dshift, 0, 0, w, h, black);
+    uint64_t* want = cells_of(black, w, 0, 0, w, h, CELL_BITS, DISP_LEFT_LOW, DISP_INK_BLACK, &stride);
+    char* why = bitmaps(want, stride, w, h, is_memory, said);
+    free(picture.bytes), free(gray), free(level), free(mask), free(black), free(want);
     return(why);
 }
 
@@ -167,14 +206,17 @@ static int table(char** results, int count) {
 int main(int argc, char *argv[]) {
     if (argc >= 3 && !strcmp(argv[1], "table")) return(table(argv + 2, argc - 2));
     bool display = argc >= 7 && !strcmp(argv[1], "display"), picture = argc >= 9 && !strcmp(argv[1], "picture");
-    if (!display && !picture) {
+    bool gray = argc >= 11 && !strcmp(argv[1], "gray");
+    if (!display && !picture && !gray) {
         fprintf(stderr, "Usage: %s picture PICTURE.tiff own|half MEMORY CONSOLE TIMED WHAT ON [PIECE ...]\n"
+                        "       %s gray PICTURE.tiff SHIFT DSHIFT N MEMORY CONSOLE TIMED WHAT ON [PIECE ...]\n"
                         "       %s display MEMORY MEMORY TIMED WHAT ON [PIECE ...]\n"
-                        "       %s table RESULT ...\n", argv[0], argv[0], argv[0]);
+                        "       %s table RESULT ...\n", argv[0], argv[0], argv[0], argv[0]);
         return(1);
     }
-    char** rest = argv + (display ? 4 : 6);             // TIMED WHAT ON, and the pieces
-    int pieces = argc - (display ? 7 : 9);
+    int before = display ? 4 : picture ? 6 : 8;         // what is said before TIMED
+    char** rest = argv + before;                        // TIMED WHAT ON, and the pieces
+    int pieces = argc - before - 3;
     const char* timed = rest[0];
     const char* what = rest[1];
     const char* on = rest[2];
@@ -184,13 +226,10 @@ int main(int argc, char *argv[]) {
         why = displays(argv[2], argv[3]);
     } else {
         size_t said_len;
-        char* said = read_all(argv[5], &said_len);
-        char* could = could_not(said);
-        if (could) {
-            figure(what, NULL, on, could);
-            return(0);
-        }
-        why = pictures(argv[2], !strcmp(argv[3], "half"), argv[4], said);
+        char* said = read_all(argv[before - 1], &said_len);
+        why = could_not(said);
+        if (!why && picture) why = pictures(argv[2], !strcmp(argv[3], "half"), argv[4], said);
+        if (!why && gray) why = grays(argv[2], atoi(argv[3]), atoi(argv[4]), atoi(argv[5]), argv[6], said);
     }
     if (why) {
         char* failed = NULL;

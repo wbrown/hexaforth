@@ -10,15 +10,17 @@
 \ 8,192 bytes, as build/nuc.sizes gives them.  Where memory is more than
 \ 64K cells there are eight such pages, from page 8, and this takes three
 \ and the nucleus's peephole a fourth.  Where it is 64K cells there are
-\ four, from page 4, of which this and the peephole are packed into two,
-\ so that definitions made at run time have the other two:
+\ four, from page 4, of which this and the peephole take three, so that
+\ definitions made at run time have the last:
 \
 \                   more than 64K cells             64K cells
-\   page 1          machine blocks font display     and region
-\   the next        region tiff atkinson            tiff atkinson keymap gfx wm
-\                     keymap gfx wm                   term edit view calc
-\   the next        term edit view calc see         see desk join
-\   the next        paint (virtio mandrill) desk
+\   page 1          machine blocks fonts display    the same
+\                     region
+\   the next        tiff atkinson keymap gfx wm     tiff atkinson keymap gfx wm
+\                                                     term edit
+\   the next        term edit see view calc         see
+\   the next        paint (virtio mandrill) gray    view calc gray viewmenu desk join
+\                     viewmenu desk
 \   the next        join
 \   the kernel's                                    paint, in its upper half
 \
@@ -32,7 +34,6 @@
 \ in it.
 
 meta
-: sys-page ( n -- ) code-base $1000 / + code-page ; \ the nth page after the data and the headers
 : big-page ( n -- ) addr-bits #16 > if sys-page else drop then ;
 : small-page ( n -- ) addr-bits #16 > if drop else sys-page then ;
 variable low-back       \ where code was going, while it goes to the upper half of the kernel's page
@@ -50,16 +51,16 @@ target
 include machine.fs      \ device registers, high memory, byte-order helpers
 include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD
 include vmdisk.fs       \ block driver for the reference VM's disk
-include font.fs         \ the fonts
+include mono.fs         \ the fonts: what the applications write in,
+include sans.fs         \ and what titles and the menu are in
+: plain-font ( -- font ) mono ;                     \ what a port writes in until it is told otherwise
 include display.fs      \ the display: a bitmap in memory, and text on it
 
 \ Regions, the picture, and the window manager.
 
-meta 0 big-page target
-
 include region.fs       \ shapes that are not rectangles, to clip to
 
-meta 0 small-page target
+meta 0 sys-page target
 
 include tiff.fs         \ uncompressed TIFF from blocks, a row at a time
 include atkinson.fs     \ Atkinson dithering to the display
@@ -73,13 +74,16 @@ meta 1 big-page target
 
 include term.fs         \ text area and the Forth window
 include edit.fs         \ block editor
-include view.fs         \ image viewer
-include calc.fs         \ RPN calculator
 
 meta 1 small-page target
 
 include fused.fs        \ fused instructions as words, for the decompiler
 include see.fs          \ decompiler and the dictionary browser
+
+meta 2 small-page target
+
+include view.fs         \ image viewer
+include calc.fs         \ RPN calculator
 
 \ HexaPaint.  Where there are pages to spare it has one, with the desktop.
 \ Where there are not, it is in the upper half of the kernel's page, which
@@ -103,6 +107,8 @@ include virtio-input.fs \ keyboard and pointer driver
 include mandrill.fs     \ the demo, without the desktop
 [then]
 
+include gray.fs         \ a picture kept as gray, drawn through a mask
+include viewmenu.fs     \ the viewer's menu: how the picture is drawn
 include desk.fs         \ the desktop itself
 
 \ The nucleus's peephole, which the kernel reaches through a vector.
@@ -110,11 +116,6 @@ include desk.fs         \ the desktop itself
 meta 3 big-page target
 
 include join.fs         \ instructions joined as they are compiled, and the rules
-
-\ What the image has above its display is all laid down: what is given out
-\ at run time starts after it, at an even cell.
-
-meta lofty [if]  thi @ byte-shift rshift 1+ -2 and  t' himem tvar!  [then] target
 
 \ Every word is where it will be: the tables of names for the decompiler,
 \ which go to a file for the disk (build/nuc.tables).

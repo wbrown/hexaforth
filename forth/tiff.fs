@@ -23,7 +23,7 @@
 
 create img 0 ,          \ the image in hand: its record
 
-$16 constant IMG-CELLS
+$18 constant IMG-CELLS          \ an even number, as hreuse gives
 
 header tw : tw     ( -- a ) img @ ;                 \ width, height
 header th : th     ( -- a ) img @ 1+ ;
@@ -47,20 +47,24 @@ header th : th     ( -- a ) img @ 1+ ;
 header 'pixel : 'pixel ( -- a ) img @ c# 19 + ;     \ ( -- g )  the next pixel's gray
 header 'grays : 'grays ( -- a ) img @ c# 20 + ;     \ ( lanes -- )  a row's grays, or 0: see below
 header 'pairs : 'pairs ( -- a ) img @ c# 21 + ;     \ ( lanes -- )  the same, two pixels to a lane, or 0
+: traw      ( -- a ) img @ c# 22 + ;                \ the cells the window is, of a file
 
 meta
 :: BLKCELLS  #1024 cell-bytes / literal ;           \ cells in a block
 :: BLKSHIFT  #10 byte-shift - literal ;             \ from a count of cells to a count of blocks
 :: BITSHIFT  byte-shift 3 + literal ;               \ from a count of bits to a count of cells
 :: HALFMASK  1 cell-bits 2/ lshift 1- literal ;     \ the lower half of a cell
-\ The grays of a cell of the row, each two added into a lane.  A cell of 16
-\ bits is two grays and one lane: the upper is what is left when it is
-\ shifted down, and only the lower is masked.
-:: GRAY-PAIR ( x -- y )
+\ The grays of the cell of the row at p, each two added into a lane.  A
+\ cell of 16 bits is two grays and one lane: the upper is what is left when
+\ it is shifted down, and only the lower is masked.  The cell is wanted by
+\ both, so it is fetched onto the return stack, where each takes it as its
+\ input; the 255 is set out under the 8, where the mask finds it, and the
+\ add that joins the two drops it with the upper and takes the cell off.
+:: GRAY-PAIR ( p -- p y )
     cell-bits #16 = if
-        s" dup d# 8 rshift swap h# ff and +" evaluate
+        s" dup @ >r  d# 255 d# 8  r@ swap rshift  over r@ and  + nip rdrop" evaluate
     else
-        s" dup d# 8 rshift gray-mask @ and  swap gray-mask @ and  +" evaluate
+        s" dup @  dup d# 8 rshift gray-mask @ and  swap gray-mask @ and  +" evaluate
     then
 ;
 target
@@ -116,9 +120,13 @@ target
     >r over = if over r@ ! then rdrop
 ;
 
+\ What reading a file has, its record and its window, is wanted only while
+\ it is read, and is had where memory was given back if there is enough
+\ (hreuse): whoever is done reading gives it back (tiff-close).
 header tiff-open
 : tiff-open ( blk# -- img ) \ read the directory of the TIFF starting at a block
-    new-image
+    IMG-CELLS >c hreuse  dup img !
+    d# 0 swap IMG-CELLS cells-fill
     tiff-base !
     d# 1 tspp !  d# 1 tcomp !  d# 1 tphoto !
     d# 0 t16@
@@ -145,8 +153,15 @@ header tiff-open
     tcomp @ d# 1 <> d# 38 -throw                    \ uncompressed only
     tstrips @ 0= d# 38 -throw
     trps @ 1- th @ u< 0= if th @ trps ! then        \ a file that does not say has one strip
-    tw @ tspp @ *  d# 1024 +  CELLB + halloc raw !  \ the window: a row, a block, and a cell
+    tw @ tspp @ *  d# 1024 +  CELLB +               \ the window: a row, a block, and a cell,
+    CELLB 1- + c> 1+ d# -2 and  dup traw !          \ in an even number of cells
+    >c hreuse raw !
     img @
+;
+
+header tiff-close
+: tiff-close ( img -- ) \ what reading a file had, given back: its window, and then its record
+    img !  raw @ traw @ hgive  img @ IMG-CELLS hgive
 ;
 
 : selem ( i -- lo hi ) \ where strip i starts in the file
@@ -296,6 +311,13 @@ W64? [if]
 \ same two places and multiplied by theirs, and the three added, which is
 \ each pixel's gray times 256 with nothing carried from one to the other.
 \ Four pixels' grays are then a cell of four lanes.
+\
+\ (A pixel's gray can be one multiplication and not three: its samples
+\ moved sixteen bits apart, and multiplied by 29, 150 at sixteen and 77 at
+\ thirty-two, put its gray times 256 at bit 32 with nothing carried into
+\ it.  Tried, it was slower (bench-gray): the masks that move the samples
+\ apart, the weights and the lanes' masks are a fetch each for every
+\ pixel, and cost more than the two multiplications they save.)
 
 : pair ( w -- y ) \ two pixels, the first lowest: their grays, in two lanes
     dup h# ff0000ff and d# 77 *
@@ -381,13 +403,15 @@ W32+? [if] [else]
 \ With cells of 16 bits a cell of lanes is one gray, and the two are added
 \ as they are.
 W64? [if]
-: fold ( y -- z ) \ four grays in four lanes: each two added, in the lower two lanes
+header fold-pairs
+: fold-pairs ( y -- z ) \ four grays in four lanes: each two added, in the lower two lanes
     dup d# 16 rshift +  pair-mask @ and
     dup d# 16 rshift or  HALFMASK and
 ;
 [then]
 W32? [if]
-: fold ( y -- z ) \ two grays in two lanes: added, in the lower lane
+header fold-pairs
+: fold-pairs ( y -- z ) \ two grays in two lanes: added, in the lower lane
     dup d# 16 rshift +  HALFMASK and
 ;
 [then]
@@ -399,7 +423,7 @@ W32? [if]
         2dupxor
     while
 W32+? [if]
-        r@ lanes-a fold  r@ lanes-b fold HALFBITS lshift or
+        r@ lanes-a fold-pairs  r@ lanes-b fold-pairs HALFBITS lshift or
 [else]
         r@ lanes-a  r@ lanes-b +
 [then]
@@ -466,7 +490,7 @@ W32+? [if]
     begin
         2dupxor
     while
-        dup @ GRAY-PAIR
+        GRAY-PAIR
         over r@ + +!
         1+
     repeat

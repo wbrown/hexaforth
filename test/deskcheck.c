@@ -9,7 +9,8 @@
 // character cell at a time, by matching each cell against the glyphs of
 // the fixed-width font, which is read from the Forth that says it
 // (tables.h).  The rest is looked at by a function of its own: the picture
-// against a dither done here of the same file (dither.c), HexaPaint's
+// against a dither done here of the same file (dither.c), and against the
+// same kept as gray and drawn through a mask as its menu asks (gray.h), HexaPaint's
 // canvas against what its tools are to draw, drawn here a pixel at a time,
 // and the menu, a window's title, and what may not change.
 //
@@ -31,7 +32,9 @@
 #include "../bench/tiff.h"
 #include "deskcheck.h"
 #include "dither.h"
+#include "gray.h"
 #include "tables.h"
+#include "../util/bluenoise.c"
 
 #define W       DISP_W
 #define H       DISP_H
@@ -67,6 +70,9 @@ static bool sees_all(char* why), memory(char* why), menu_down(char* why), line_s
 static bool calc_picked(char* why), words_held(char* why), menu_whole(char* why), menu_away(char* why);
 static bool menu_gone(char* why), paint_front(char* why), canvas_right(char* why), shape_shown(char* why);
 static bool on_disk(char* why), from_disk(char* why), listed_both(char* why);
+static bool as_picked(char* why), picture_marked(char* why);
+static int picture_title(void), picture_line(const char* name);
+static void picture_picked(int line), picture_made(void);
 
 static check CHECKS[] = {
     {"the desktop comes up", "", "1-desktop", .also = came_up},
@@ -91,6 +97,23 @@ static check CHECKS[] = {
     {"the viewer shows the picture as it is dithered a pixel at a time", "front:viewer away", "6-viewer",
      .also = dithered},
     {"a window moves when it is dragged by its title", "drag:viewer+40+42 away", "7-dragged", .also = moved},
+    // While the viewer is in front its menu is in the bar after the
+    // windows', with a mark by how the picture is drawn.  A line of it has
+    // the viewer's task make the picture again, a part at each of its
+    // turns, while the desktop goes on: kept as gray and drawn through blue
+    // noise, darker, through Bayer's mask, coarser, lighter and finer
+    // again, and dithered again.  Each is compared with the same made here
+    // a pixel at a time (gray.h).
+    {"the picture's menu is in the bar, and marks how the picture is drawn", "pmenu away", "7-menu",
+     .also = picture_marked},
+    {"a line of it has the picture kept as gray and drawn through blue noise",
+     "backspace picture:blue away", "7-blue", .also = as_picked},
+    {"and darker", "picture:darker away", "7-darker", .also = as_picked},
+    {"and through Bayer's mask", "picture:ordered away", "7-ordered", .also = as_picked},
+    {"and coarser", "picture:coarser away", "7-coarser", .also = as_picked},
+    {"and lighter and finer again", "picture:lighter picture:finer away", "7-finer", .also = as_picked},
+    {"and the mark is by the line picked", "pmenu away", "7-marked", .also = picture_marked},
+    {"and dithered again", "backspace picture:atkinson away", "7-dithered", .also = as_picked},
 
     // ^W brings the window at the back to the front, until it is the Words
     // window.  Its list is 2 in from its content and the definition 112.
@@ -677,6 +700,9 @@ static int numbers(const char* at, int* out, int most) {
 //   pick:NAME          a window's line of the menu is clicked
 //   hold:NAME          the button goes down on the title and up on a window's line
 //   over:NAME          the pointer is put on a window's line of the menu
+//   pmenu              the picture's title in the bar is clicked, which brings its menu down
+//   picture:LINE       a line of the picture's menu is picked (atkinson, ordered, blue, finer,
+//                      coarser, darker or lighter), and the picture looked at until it is so
 //   find:A,B           PgDn, until the Words window lists both names
 //   name:A             a name in the Words window's list is clicked
 //   tool:N pattern:N   HexaPaint's tool or pattern is clicked
@@ -761,6 +787,14 @@ static void does(const char* said) {
             to_front(w);                        // a click in a window brings it to the front
         } else if (!strncmp(word, "point:", 6) && count == 2) {
             desk_pointer(n[0], n[1]);
+        } else if (!strcmp(word, "pmenu")) {
+            click(picture_title() + 12, 8);
+        } else if (!strncmp(word, "picture:", 8)) {
+            int line = picture_line(of);
+            click(picture_title() + 12, 8);
+            click(picture_title() + 12, 20 + 16 * line + 8);
+            picture_picked(line);
+            picture_made();
         } else if (!strncmp(word, "pick:", 5)) {
             int w = window(of, name);
             click(32, 20 + 16 * menu_line(w) + 8);
@@ -841,25 +875,39 @@ static bool saved(char* why) {
 static uint8_t* dither_black;   // a byte a pixel of the picture, 1 if black;
 static int pw, ph;              // how big it is, at the size it is shown;
 static int kw, kh, px0, py0;    // and the part of it that the window shows
+static bool half;               // whether it is shown at half its size
+static uint8_t* shown_black;    // the picture as it is to be shown now: as dithered, or as the menu has it
 
 static void picture(void) {
+    if (dither_black) return;
     tiff file = read_tiff(machine->picture);
     int show_w = rect[VIEWER].w - 2, show_h = rect[VIEWER].h - 20;
-    int* gray = grays_of(file.bytes, file.w, file.h, file.samples, file.w > show_w || file.h > show_h, &pw, &ph);
+    half = file.w > show_w || file.h > show_h;
+    int* gray = grays_of(file.bytes, file.w, file.h, file.samples, half, &pw, &ph);
     dither_black = calloc((size_t)pw * ph + 1, 1);
     dither(gray, pw, ph, dither_black);
-    free(gray);
+    free(file.bytes), free(gray);
     kw = low(show_w, pw), kh = low(show_h, ph);
     px0 = (pw - kw) / 2 / CELL_BITS * CELL_BITS, py0 = (ph - kh) / 2;
+    shown_black = dither_black;
 }
 
 // The pixels of the picture, between two corners of the screen, that are
-// not as dithered.
+// not as it is to be shown; and where they are in the picture as shown:
+// the first, and the least and most of each way.
+static struct { int x, y, x0, y0, x1, y1; } wrong_at;
+
 static int picture_wrong(int x0, int y0, int x1, int y1) {
     int vx = content_x(VIEWER), vy = content_y(VIEWER), wrong = 0;
     for(int y=high(y0, vy); y < low(low(y1, vy + kh), H); y++) {
         for(int x=high(x0, vx); x < low(low(x1, vx + kw), W); x++) {
-            if (black(x, y) != (bool)dither_black[(size_t)(y - vy + py0) * pw + (x - vx + px0)]) wrong++;
+            int px = x - vx + px0, py = y - vy + py0;
+            if (black(x, y) != (bool)shown_black[(size_t)py * pw + px]) {
+                if (!wrong) wrong_at.x = wrong_at.x0 = wrong_at.x1 = px, wrong_at.y = wrong_at.y0 = wrong_at.y1 = py;
+                wrong_at.x0 = low(wrong_at.x0, px), wrong_at.x1 = high(wrong_at.x1, px);
+                wrong_at.y0 = low(wrong_at.y0, py), wrong_at.y1 = high(wrong_at.y1, py);
+                wrong++;
+            }
         }
     }
     return(wrong);
@@ -871,6 +919,115 @@ static bool dithered(char* why) {
     snprintf(why, WHY, "%d pixels differ, of the %d by %d from %d, %d of the picture as %d by %d",
              wrong, kw, kh, px0, py0, pw, ph);
     return(!wrong && kw > 0 && kh > 0);
+}
+
+// The picture's menu (forth/viewmenu.fs), as the checks pick its lines: how
+// the picture is drawn (dithered, through Bayer's mask, or through blue
+// noise), how many of its pixels a side a sample of the gray is as drawn,
+// as a shift, and what is added to the mask's thresholds.  A sample is 4
+// by 4 of the picture's pixels to start with.
+static const char* PICTURE_LINES[] = { "atkinson", "ordered", "blue", "finer", "coarser", "darker", "lighter" };
+enum { PICTURE_LINE_COUNT = sizeof(PICTURE_LINES) / sizeof(PICTURE_LINES[0]) };
+static int pic_mode, pic_d = -1, pic_br;
+
+static int text_width(const char* text, const font* f) {
+    int w = 0;
+    for(; *text; text++) {
+        int width;
+        glyph_of(f, (unsigned char)*text, &width);
+        w += width;
+    }
+    return(w);
+}
+
+// Where the picture's title starts in the bar: after the windows'.
+static int picture_title(void) { return(text_width("hexaforth", &sans) + 16); }
+
+static int picture_line(const char* name) {
+    for(int line=0; line < PICTURE_LINE_COUNT; line++) if (!strcmp(name, PICTURE_LINES[line])) return(line);
+    fprintf(stderr, "deskcheck: the picture's menu has no line %s\n", name);
+    exit(EXIT_FAILURE);
+}
+
+static void picture_picked(int line) {
+    picture();
+    if (pic_d < 0) pic_d = half ? 1 : 2;
+    if (line < 3) pic_mode = line;
+    else if (line == 3) pic_d = high(pic_d - 1, 0);
+    else if (line == 4) pic_d = low(pic_d + 1, 2);
+    else pic_br = high(low(pic_br + (line == 5 ? 1 : -1), 15), -15);
+}
+
+// The picture as the menu has it drawn: kept as gray at its own size, a
+// sample to 1 << (d + half) of its pixels a side, in 4 bits, and drawn
+// through the mask, a sample to 1 << d pixels a side.  Blue noise is of 64
+// by 64, or 32 by 32 where a cell is 16 bits: its thresholds as what makes
+// the disk makes them (util/bluenoise.c), and not as the disk has them.
+static void picture_expected(void) {
+    picture();
+    if (pic_mode == 0) {
+        shown_black = dither_black;
+        return;
+    }
+    tiff file = read_tiff(machine->picture);
+    int fw, fh, gw, gh;
+    int* gray = grays_of(file.bytes, file.w, file.h, file.samples, false, &fw, &fh);
+    int* level = gray_kept(gray, fw, fh, pic_d + half, 4, &gw, &gh);
+    int n = pic_mode == 1 ? 8 : CELL_BITS > 16 ? 64 : 32;
+    static uint8_t* masks[65];      // by n, made once
+    if (!masks[n]) {
+        masks[n] = malloc((size_t)n * n);
+        if (pic_mode == 1) {
+            for(int y=0; y < 8; y++) for(int x=0; x < 8; x++) masks[n][y * 8 + x] = gray_bayer(x, y);
+        } else {
+            blue_bytes(n, masks[n]);
+        }
+    }
+    const uint8_t* mask = masks[n];
+    static uint8_t* gray_black;
+    free(gray_black);
+    gray_black = calloc((size_t)pw * ph + 1, 1);
+    gray_drawn(level, gw, 4, mask, n, pic_br, pic_d, 0, 0, pw, ph, gray_black);
+    shown_black = gray_black;
+    free(file.bytes), free(gray), free(level);
+}
+
+// The picture is made again by the viewer's task while the desktop goes
+// on: it is looked at until it is as picked, which is when the task has
+// made its last rows and left the ring, or until it has had so many turns.
+static void picture_made(void) {
+    picture_expected();
+    for(int tries=0; tries < 100; tries++) {
+        look(NULL);
+        if (!picture_wrong(0, 0, W, H)) return;
+    }
+}
+
+static bool as_picked(char* why) {
+    if (pic_mode == 0) return(dithered(why));
+    int wrong = picture_wrong(0, 0, W, H);
+    snprintf(why, WHY, "%d pixels differ, of the %d by %d from %d, %d of the picture as %d by %d, "
+             "kept a sample to %d by %d and drawn %d by %d through %s, %+d; the first at %d, %d, "
+             "and all from %d, %d to %d, %d",
+             wrong, kw, kh, px0, py0, pw, ph, 1 << (pic_d + half), 1 << (pic_d + half), 1 << pic_d, 1 << pic_d,
+             pic_mode == 1 ? "Bayer's mask" : "blue noise", pic_br, wrong_at.x, wrong_at.y,
+             wrong_at.x0, wrong_at.y0, wrong_at.x1, wrong_at.y1);
+    return(!wrong && kw > 0 && kh > 0);
+}
+
+// The menu down, with a mark by how the picture is drawn and by no other line.
+static bool picture_marked(char* why) {
+    picture();
+    int x = picture_title(), marks = 0, at = -1;
+    for(int line=0; line < 3; line++) {
+        bool all = true;
+        for(int dy=0; dy < 4; dy++) for(int dx=0; dx < 4; dx++) all = all && black(x + 6 + dx, 20 + 16 * line + 6 + dy);
+        if (all) marks++, at = line;
+    }
+    bool titled = shows("Picture", x + 8, 2, &sans, true);
+    snprintf(why, WHY, "%d lines are marked, the last %d, and %d is to be; the title is%s shown as down",
+             marks, at, pic_mode, titled ? "" : " not");
+    return(titled && marks == 1 && at == pic_mode);
 }
 
 static bool moved(char* why) {

@@ -30,6 +30,11 @@ void generate_basewords_fs(const char* path) {
     fprintf(out, "#%d constant disk-picture-block\n", DISK_PICTURE_BLOCK);
     fprintf(out, "#%d constant disk-names-block\n", DISK_NAMES_BLOCK);
     fprintf(out, "#%d constant disk-canvas-block\n", DISK_CANVAS_BLOCK);
+    fprintf(out, "#%d constant disk-masks-block\n", DISK_MASKS_BLOCK);
+    fprintf(out, "#%d constant disk-mask32-block\n", DISK_MASK32_BLOCK);
+    fprintf(out, "#%d constant disk-bayer-block\n", DISK_BAYER_BLOCK);
+    fprintf(out, "#%d constant disk-mask-width\n", DISK_MASK_WIDTH);
+    fprintf(out, "#%d constant disk-mask-planes\n", DISK_MASK_PLANES);
 
     // The characters of a name that are not letters, a lot to a table: the
     // characters as their numbers, and how many there are.
