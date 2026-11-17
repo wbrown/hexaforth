@@ -76,39 +76,42 @@ AtkRow:
         moveq   #0,d5                           | what the pixel before gave
         moveq   #0,d6                           | and that with what the one before it gave
         moveq   #1,d0                           | the flag bit, in the data word
-        bra.s   MORE                            | go to main loop start
+        subq.w  #1,d1                           | dbra runs one more than it is given
 
-NXTPIXEL:
-        clr.w   d2                              | get ready for byte
-        move.b  (a1)+,d2                        | D2 := this pixel's gray
-        add.w   (a2)+,d2                        | and what the rows above owe it
-        add.w   d6,d2                           | and the two pixels before
-        cmp.w   d7,d2                           | is it more than 127 ?
-        bgt.s   ItsWhite                        | yes, a white pixel
-ItsBlack:
-        neg.w   d3                              | Set the X flag
+| A pixel, three times over, so that no value is moved from register to
+| register: w is worked in, q is what the two before gave and p what the
+| one before gave.  After a pixel q is what the next is owed (p and this
+| one) and is in p's register, and p is this one, in w's: so the next
+| copy has them in other registers.  Each path tests the flag bit itself.
+        .macro  pixel w,q,p,k,n
+P\k:    clr.w   \w                              | get ready for byte
+        move.b  (a1)+,\w                        | this pixel's gray
+        add.w   (a2)+,\w                        | and what the rows above owe it
+        add.w   \q,\w                           | and the two pixels before
+        cmp.w   d7,\w                           | is it more than 127 ?
+        bgt.s   W\k                             | yes, a white pixel
+        neg.w   d3                              | black: set the X flag
         addx.w  d0,d0                           | shift x-bit in, flag bit out
-        bra.s   Shifted
-ItsWhite:
-        sub.w   d4,d2                           | it is out by what it is short of white
+        bcs.s   B\k                             | br if time to write
+T\k:    asr.w   #3,\w                           | an eighth of what it is out by
+        move.w  \w,(a4)+                        | to the pixel two rows below
+        add.w   \w,\q                           | with the two before: the three the pixel
+        add.w   \q,(a3)+                        | below the one before is owed by
+        add.w   \w,\p                           | this and the one before
+        dbra    d1,P\n                          | loop for all pixels
+        add.w   \p,(a3)                         | the last pixel below has only two over it
+        bra.w   CLEANUP
+W\k:    sub.w   d4,\w                           | it is out by what it is short of white
         add.w   d0,d0                           | shift a zero in, flag bit out
-Shifted:
-        bcc.s   NoWrite                         | br if not time to write
-        or.w    d0,(a0)+                        | or a word into dst
+        bcc.s   T\k                             | br if not time to write
+B\k:    or.w    d0,(a0)+                        | or a word into dst
         moveq   #1,d0                           | and reset flag bit
+        bra.s   T\k
+        .endm
 
-NoWrite:
-        asr.w   #3,d2                           | an eighth of what it is out by
-        move.w  d2,(a4)+                        | to the pixel two rows below
-        add.w   d2,d6                           | with the two before: the three the pixel
-        add.w   d6,(a3)+                        | below the one before is owed by
-        add.w   d2,d5                           | this and the one before,
-        move.w  d5,d6                           | which the next pixel is owed,
-        move.w  d2,d5                           | and this one by itself
-
-MORE:   dbra    d1,NXTPIXEL                     | loop for all pixels
-
-        add.w   d6,(a3)                         | the last pixel below has only two over it
+        pixel   d2,d6,d5,0,1
+        pixel   d6,d5,d2,1,2
+        pixel   d5,d2,d6,2,0
 
 CLEANUP:
         add.w   d0,d0                           | shift left
