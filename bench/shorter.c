@@ -10,14 +10,16 @@
 //
 // COUNTS is the work by place, as bench/profile.c leaves it
 // (build/profile/desktop.counts; work.c).  ONLY in the environment is
-// words, with commas between, whose loops alone are looked at; NODES is
-// the states a search looks at before it is given up, and LONGEST the
-// instructions in a turn that is looked at.
+// words, with commas between, whose loops alone are looked at.  Every loop
+// that ran and calls nothing is looked at, however long its turn; how
+// long a search may take is said once, in CMakeLists.txt (SEARCH_STATES,
+// which fewer.c has).
 //
 // The report is build/shorter.txt if none is named: for each loop, the
-// turn as it is, and each way that fewer do it.  A line a loop is printed
-// as it is done, with how many instructions the turn is and the fewest
-// found.  It fails if no loop ran.
+// turn as it is, each way that fewer do it, and for each way it was looked
+// for how many searches were made and how many of them were given up.  A
+// line a loop is printed as it is done, with how many instructions the
+// turn is and the fewest found.  It fails if no loop ran.
 //
 
 #include "../util/fuse.c"
@@ -28,11 +30,6 @@
 #include "../util/fewer.c"
 #include "../util/turns.c"
 #include "work.c"
-
-// How much is looked at, if the environment does not say: chosen, so that
-// the desktop's loops are done in about a minute.
-#define NODES   20000                   // the states a search looks at before it is given up
-#define LONGEST 12                      // the instructions in a turn that is looked at
 
 static cut_image IMAGE;
 static double* work;                    // how often each of the image's instructions ran
@@ -91,8 +88,6 @@ int main(int argc, char *argv[]) {
     }
     const char* report = argc > 4 ? argv[4] : "build/shorter.txt";
     const char* only = getenv("ONLY");
-    long states = getenv("NODES") ? atol(getenv("NODES")) : NODES;
-    int longest = getenv("LONGEST") ? atoi(getenv("LONGEST")) : LONGEST;
     get_ready();
     list_kinds();
     fewer_ready();
@@ -112,7 +107,8 @@ int main(int argc, char *argv[]) {
     for(long at=0; at < n; at++) all += IMAGE.code[at] ? work[at] : 0;
     for(int idx=0; idx < loops; idx++) if (work[LOOPS[idx].tail] >= 1) order[ran_loops++] = idx;
     qsort(order, ran_loops, sizeof(int), by_work);
-    fprintf(out, "%s: loops that call nothing, by how often they ran.\n\n", argv[1]);
+    fprintf(out, "%s: loops that call nothing, by how often they ran.  A search is given up after %ld states.\n\n",
+            argv[1], (long)SEARCH_STATES);
 
     for(int idx=0; idx < ran_loops; idx++) {
         const loop* l = &LOOPS[order[idx]];
@@ -126,19 +122,26 @@ int main(int argc, char *argv[]) {
         if (only && !named_in(only, word)) continue;
         snprintf(title, sizeof(title), "%s  %04lx-%04lx: %.0f turns", word, l->head, l->tail, turns);
         if (!turn_of(&IMAGE, l, &is)) {
-            fprintf(out, "%s: not looked at (it calls a word, or branches inside)\n", title);
+            fprintf(out, "%s: not looked at (it branches inside, or calls a word that does or that touches where it "
+                    "returns to)\n", title);
             continue;
         }
-        if (turn_now(&is) > longest) {
-            fprintf(out, "%s, %d instructions a turn: not looked at (more than %d)\n", title, turn_now(&is), longest);
+        if (is.bodies + is.tests > LAID) {
+            fprintf(out, "%s, %d instructions a turn: not looked at (with the words it calls in place it is %d, and a run "
+                    "vm.c is given is no more than %d: fuse.c, LAID)\n", title, turn_now(&is), is.bodies + is.tests, LAID);
+            free(is.own);
             continue;
         }
-        if (!shorten(&is, states, &s)) {
+        if (!shorten(&is, SEARCH_STATES, &s)) {
             fprintf(out, "%s: not looked at (the step cannot follow a turn)\n", title);
+            free(is.own);
             continue;
         }
         looked++;
-        fprintf(out, "%s, %d instructions a turn\n", title, s.turn.now);
+        fprintf(out, "%s, %d instructions a turn", title, s.turn.now);
+        if (is.placed) fprintf(out, ", with %d calls: the words are put in place, and the %d instructions that call and "
+                               "return are not", is.placed, is.called);
+        fprintf(out, "\n");
         fprintf(out, "    now:  begin ");
         if (is.tests_at == TESTS_AT_TOP) {
             text = run_said(is.test, is.tests, 1);
@@ -148,15 +151,21 @@ int main(int argc, char *argv[]) {
         text = run_said(is.body, is.bodies, 1);
         fprintf(out, "%s %s\n", text, is.tests_at == TESTS_AT_TOP ? "repeat" : "until");
         free(text);
-        static const char* const kept[] = { "where they are", "anywhere" };
-        for(int anywhere=0; anywhere < COUNT(kept); anywhere++) {
+        free(is.own);
+        static const char* const WAY[] = {
+            [KEPT_HERE] = "with the values where they are", [KEPT_ANYWHERE] = "with the values anywhere",
+            [TEST_AT_BOTTOM] = "with the test at the bottom", [A_PART_AT_A_TIME] = "a part at a time",
+            [NUMBER_IN_R] = "with a number kept in R" };
+        for(int how=0; how < COUNT(WAY); how++) {
             int found = 0;
-            for(int w=0; w < s.n; w++) found |= s.found[w].how == (anywhere ? KEPT_ANYWHERE : KEPT_HERE);
-            if (found) continue;
-            if (s.gave_up[anywhere]) {
-                fprintf(out, "    (values %s: %d searches were given up, so fewer may do)\n", kept[anywhere], s.gave_up[anywhere]);
+            for(int w=0; w < s.n; w++) found |= s.found[w].how == how;
+            if (!s.searched[how]) continue;
+            if (s.gave_up[how]) {
+                fprintf(out, "    (%s: %ld searches, %ld of them given up%s)\n", WAY[how], s.searched[how], s.gave_up[how],
+                        found ? "" : ", so fewer may do");
             } else {
-                fprintf(out, "    (values %s: no fewer instructions do it)\n", kept[anywhere]);
+                fprintf(out, "    (%s: %ld searches, every one to the end%s)\n", WAY[how], s.searched[how],
+                        found ? "" : ": no fewer do it");
             }
         }
         for(int w=0; w < s.n; w++) say_way(out, &s.turn, &s.found[w]);

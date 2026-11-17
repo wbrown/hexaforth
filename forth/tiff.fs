@@ -53,6 +53,16 @@ meta
 :: BLKSHIFT  #10 byte-shift - literal ;             \ from a count of cells to a count of blocks
 :: BITSHIFT  byte-shift 3 + literal ;               \ from a count of bits to a count of cells
 :: HALFMASK  1 cell-bits 2/ lshift 1- literal ;     \ the lower half of a cell
+\ The grays of a cell of the row, each two added into a lane.  A cell of 16
+\ bits is two grays and one lane: the upper is what is left when it is
+\ shifted down, and only the lower is masked.
+:: GRAY-PAIR ( x -- y )
+    cell-bits #16 = if
+        s" dup d# 8 rshift swap h# ff and +" evaluate
+    else
+        s" dup d# 8 rshift gray-mask @ and  swap gray-mask @ and  +" evaluate
+    then
+;
 target
 
 : new-image ( -- ) \ a record with nothing in it, in hand
@@ -456,7 +466,7 @@ W32+? [if]
     begin
         2dupxor
     while
-        dup @  dup d# 8 rshift gray-mask @ and  swap gray-mask @ and  +
+        dup @ GRAY-PAIR
         over r@ + +!
         1+
     repeat

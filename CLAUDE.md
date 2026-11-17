@@ -522,7 +522,9 @@ The machine, in C:
   `vm_debug.c`: the trace. `vm_opcodes.c`: makes instructions of the
   definitions, and reads an image's dictionary (`read_header`)
 - `util/`: `baseword_fs_gen.c` (writes `basewords.fs`), `disasm_hex.c`
-  (an image's code, an instruction to a line), `stack.c` (the stacks
+  (an image's code word by word, laid out and named as `see` does it, with
+  every instruction's place, number and fields; in colour on a terminal),
+  `stack.c` (the stacks
   printed, for the trace),
   `hex2bin.c` and `memimage.c` (an image as bytes for the kernels, and as
   what the Verilog loads; `image.c` reads one), `mkdisk.c` (a disk),
@@ -713,10 +715,12 @@ header quit : quit halt ;
 `cd forth && gforth ./cross.fs ./basewords.fs ./yourprogram.fs` writes
 `build/yourprogram.hex`, for the machine with cells of 64 bits.
 `build/cmake/hexaforth-64 build/yourprogram.hex` runs it, and
-`build/cmake/disasm_hex-64 build/yourprogram.hex 0 0x20 build/yourprogram.lst`
-shows its first instructions, one to a line with the words' names (CMake
-builds the two for each machine). With no range the disassembler prints
-all of memory.
+`build/cmake/disasm_hex-64 build/yourprogram.hex` shows its code, a word
+at a time and an instruction to a line (CMake builds the two for each
+machine). Words named after the image show only those, and two places
+(`0 0x20`) only the words with code between them.
+`build/cmake/disasm_hex-16 build/16/nuc.hex apixels` is a word of the
+nucleus; `less -R` keeps the colour, and `--no-color` leaves it out.
 
 ## Adding to the machine
 

@@ -1,5 +1,3 @@
-: tb-read 29 emit 4 0 do dup emit 8 rshift loop drop 4 0 do dup emit 8 rshift loop drop ;
-' tb-read 'blk-read !
 : mark 30 emit ;
 create b 0 , 0 ,
 : rows 0 do dup dither-row loop drop ;

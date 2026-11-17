@@ -8,7 +8,9 @@
 // When the machine stops, the counts are written to the file that the
 // environment's RUN_COUNTS names: a count of 64 bits for each place, up
 // to one past the highest that was run.  Whoever reads them has how many
-// there are from how long the file is.
+// there are from how long the file is.  RUN_WORK names a file for the
+// same counts as the work of a profile (work.c), which what says what work
+// costs reads (costs.c): it is all work, and an idle turn runs nothing.
 //
 // A test that has the VM in it is built with this in place of vm.c, and
 // with COUNTING_A_TEST said: then this is the VM alone, and the test has
@@ -20,6 +22,7 @@
 #include <stdlib.h>
 #include "counting.h"
 #include "../util/room.c"
+#include "work.c"
 
 uint64_t* RAN;
 long RAN_TO;
@@ -47,6 +50,15 @@ void counts_written(void) {
             perror(path);
             exit(EXIT_FAILURE);
         }
+    }
+    path = getenv("RUN_WORK");
+    if (path) {
+        double* work = room_for(RAN_TO, sizeof(double));
+        double* idle = room_for(RAN_TO, sizeof(double));       // nothing
+        for(long at=0; at < RAN_TO; at++) work[at] = (double)RAN[at];
+        if (!work_written(path, work, idle, RAN_TO)) exit(EXIT_FAILURE);
+        free(work);
+        free(idle);
     }
 }
 

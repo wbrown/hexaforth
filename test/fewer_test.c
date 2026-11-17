@@ -75,9 +75,9 @@ static turn_check TURNS[] = {
     {"a number stored to every cell up to an end", NULL, "7 over ! 1+ over over =", 0, 0, 4},
     {NULL}};
 
-// A search here is of a few instructions, and is never to be given up: no
-// search of these looks at as many states as this.
-#define STATES_AT_MOST 1000000
+// A search here is of a few instructions, and is never to be given up: none
+// of these looks at as many states as a search may (SEARCH_STATES, which
+// CMakeLists.txt says and fewer.c has).
 
 // Words as their instructions: how many.  A number is the instruction
 // that pushes it, as the step found them (kinds.c).
@@ -122,7 +122,7 @@ int main(void) {
         }
         for(int length=1; length < len && fewest == len; length++) {
             int given_up = 0;
-            if (exactly(&OF_RUN, NULL, length, STATES_AT_MOST, found, &given_up)) {
+            if (exactly(&OF_RUN, NULL, length, SEARCH_STATES, found, &given_up)) {
                 fewest = length;
                 agrees = agree_on_machine(code, len, found, length, NULL, NULL, 0, c->tops, 0, 0) > 0;
             }
@@ -142,12 +142,14 @@ int main(void) {
                     body, compiled(c->body, body) };
         static shortened s;
         checks++;
-        if (!shorten(&is, STATES_AT_MOST, &s)) {
+        if (!shorten(&is, SEARCH_STATES, &s)) {
             printf("FAIL %s: the step cannot follow a turn\n", c->label);
             failed++;
             continue;
         }
-        int here = s.turn.now, anywhere, in_r = 0, gave_up = s.gave_up[0] + s.gave_up[1];
+        int here = s.turn.now, anywhere, in_r = 0;
+        long gave_up = 0;
+        for(int how=0; how < COUNT(s.gave_up); how++) gave_up += s.gave_up[how];
         for(int n=0; n < s.n; n++) if (s.found[n].how == KEPT_HERE) here = s.found[n].len + 1;
         anywhere = here;
         for(int n=0; n < s.n; n++) {

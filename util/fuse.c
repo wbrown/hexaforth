@@ -85,11 +85,13 @@
 #define DATA_CELLS  (LOW + (1 << ADDR_BITS) - DATA)
 #define WHERE(nth)  ((nth) < LOW ? (nth) : DATA + (nth) - LOW)  // the cell that the nth of the data is
 #define SEQ         3               // the most instructions in a sequence that is joined
-#define RUN         32              // the most in one that is only compared with another
-#define FIRST_CELL  96              // where the first of two sequences is; each has
-                                    // forty cells
-#define AT(which)   ((FIRST_CELL + 40 * (which)) * (CELL_BYTES / 2))    // as an instruction
-#define LEAD(which) ((LOW + 8 * (which)) * (CELL_BYTES / 2))    // where what leads to each starts
+#define RUN         32              // the most in a run cross.fs asks about (fl-room)
+#define LEADS       8               // the cells of what leads to each of two sequences, at the start of the ROM;
+#define FIRST_CELL  (LOW + 2 * LEADS)                   // and after them the two, which have the rest of it,
+#define SEQ_CELLS   ((DATA - FIRST_CELL) / 2)           // so many cells each
+#define LAID        (SEQ_CELLS * (CELL_BYTES / 2) - 1)  // the most instructions in one: one that does nothing is after it
+#define AT(which)   ((FIRST_CELL + SEQ_CELLS * (which)) * (CELL_BYTES / 2))     // as an instruction
+#define LEAD(which) ((LOW + LEADS * (which)) * (CELL_BYTES / 2))    // where what leads to each starts
 #define DEPTH       8               // of each stack, when the sequence starts
 #define FILLED      16              // cells of each stack that a state gives
 #define STATES      96
@@ -258,10 +260,11 @@ static void lay_leads(void) {
 }
 
 // Put a sequence in memory, as the first or the second.
+_Static_assert(LAID >= RUN, "fuse.c: a run cross.fs asks about is longer than there is room to lay it");
 static int after[2];                // the instruction after each
 static void lay(int which, const uint16_t* seq, int len) {
     uint16_t* code = machine.memory + AT(which);
-    memset(code, 0, (RUN + 1) * 2);
+    memset(code, 0, (LAID + 1) * 2);
     memcpy(code, seq, len * 2);
     after[which] = AT(which) + len;
 }

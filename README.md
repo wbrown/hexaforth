@@ -5,8 +5,39 @@ Forth operating system with windows, a pointer and menus that runs on it,
 and the Verilog to build it from.
 
 The CPU with cells of 16 bits is 7,458 gates, which is fewer than a Z80
-counted the same way, with the memory of its two stacks left out.  Drawing, it takes 1.06 to 1.36 clocks an instruction,
-so at 1.2 MHz it runs 0.88 to 1.13 million instructions a second.
+counted the same way, with the memory of its two stacks left out.  Drawing,
+it takes 1.06 to 1.36 clocks an instruction, so at 1.2 MHz it runs 0.88 to
+1.13 million instructions a second.
+
+1.2 MHz is the floor it is held to, to show how little it needs, and not
+what it can do.  An instruction takes its input from a stack, the return
+stack or memory, does its operation, sends the result to a stack or to
+memory, and moves both stacks, all at once: one clock, and one more for a
+read of memory or a shift.  A 68000's instruction takes four clocks at the
+least, and often twelve or more.
+
+The same step of the same dither shows it.  A pixel's sum is thresholded,
+and an eighth of what it is out by is kept to pass on.  On a 68000, as
+`bench/m68k/atk.s` does it after MacPaint, that is four instructions and a
+branch, and about 30 clocks:
+
+    cmp.w   d7,d2           ;  4   is it more than 127?
+    bgt.s   ItsWhite        ; 10
+    sub.w   d4,d2           ;  4   out by what it is short of white
+    asr.w   #3,d2           ; 12   an eighth of it
+
+With cells of 16 bits hexaforth does it with no branch, the black kept in
+the number it passes on (`forth/atkinson.fs`): nine instructions and 10
+clocks.
+
+    dup 896 <  h# 80ff and + 1+  3 rshift
+
+So the Mandrill dithered in colour takes 21.7 million clocks with cells of
+64 bits, read from its disk, where a 68000 takes 63.2 million with the
+picture already in its memory: at the Mac 128K's 8 MHz, 2.7 seconds against
+7.9.  The design is meant for 10 to 14 MHz built of TTL, and on an FPGA the
+system with cells of 64 bits places and routes at 30 MHz, where the same
+picture takes 0.7 seconds.
 
 ![The desktop: the Forth window, the editor, the Words window, the calculator and the picture, with HexaPaint in front](doc/desktop.png)
 
@@ -14,6 +45,8 @@ so at 1.2 MHz it runs 0.88 to 1.13 million instructions a second.
 
 - How much a machine of 7,458 gates does at 1.2 MHz: fewer gates than the
   Z80 of 1976, at a clock the microcomputers of 1979 ran at
+- How much more it does with each clock than the processors of its time,
+  so that at their clocks it is the quicker machine
 - What could have been: a desktop on a machine of that size and speed
 - A Forth operating system with a desktop.  Overlapping windows, regions, a
   menu, a pointer, proportional text, and programs: the Forth prompt in a
@@ -94,6 +127,27 @@ put through the same count.
 memory that answers in one cycle, an instruction takes 1.36 clocks drawing
 text, 1.16 scrolling and 1.06 filling.  An instruction is one clock, and one
 more for a read of memory or a shift, and two more for a multiply.
+
+**Beside a 68000** (`bench-dither`, `bench-m68k`).  The Mandrill, 512 by
+512, read from the disk a block at a time as the system reads it and
+dithered, on the Verilog CPU with memory that answers in one cycle; and the
+same dither on a 68000, in code written for it, with the picture already in
+its memory.  Every bitmap is compared with the dither a pixel at a time
+before a figure is printed for it.  In millions of clocks:
+
+| | 68000 | cells of 64 bits | of 32 | of 16 |
+|---|---|---|---|---|
+| in colour, at its own size | 63.2 | 21.7 | 32.1 | (no room) |
+| in colour, at half its size | 40.3 | 13.3 | 19.7 | 17.9 |
+| its grays, at its own size | 31.7 | 15.0 | 21.6 | (no room) |
+| its grays, at half its size | 13.3 | 4.4 | 6.8 | 8.0 |
+
+The machine with cells of 16 bits has 128KB, which has no room for the
+bitmap of the picture at its own size and what it is made from.
+
+**On an FPGA** (`synth`).  The system with cells of 64 bits, placed and
+routed for an ECP5 of 85k: 14,989 LUTs and 986 flip-flops, and a clock of
+30.21 MHz.
 
 **The system** (`examine-16`), on the machine with cells of 16 bits: 65,536
 of them, which is 128KB, and a display of 512 by 342.
@@ -226,7 +280,75 @@ against the first:
 The system is Forth (`forth/`), built by a cross-compiler that is itself
 Forth.  The image it builds is called the nucleus, after `nuc.fs`: the
 kernel, which is the part in ROM, and the system that file includes.  The
-tests, the tools and the benchmarks are C.
+tests, the tools and the benchmarks are C.  All of it, at cells of 64, 32
+and 16 bits, is built by CMake.
+
+**The cross-compiler** (`forth/cross.fs`) runs on gforth and lays down the
+image.  Code is paged: a branch is relative to its page, and a call to
+another page goes by execution token.  Its peephole joins a run of
+instructions into one wherever one does the same work, and it has no table
+of which runs those are: it asks the machine.  `util/fuse.c`, which gforth
+builds and calls, finds each answer by stepping the machine on symbols in
+place of numbers (`vm_step.h`, the step `vm.c` runs on cells), and the
+answer is then run on `vm.c` before it is used.  A word without a header
+keeps its name as a label, for the tools and the decompiler, and a small
+word is compiled in place of a call to it where that is no longer than the
+call.
+
+**The nucleus** is a Forth at its prompt: an interpreter and a compiler,
+`create` and `does>`, `catch` and `throw`, comments, blocks loaded as Forth
+reads them, and names stored at five bits a character.  It has cooperative
+tasks, each with its own part of the two stacks, and the Forth window and
+the picture's dither run as tasks.  What is typed at it is compiled by a
+peephole of its own (`forth/join.fs`), which works numbers out by running
+them, and keeps only the rules that measured worth their room.
+
+**The desktop** is drawn in the manner of QuickDraw, on a display of one
+bit a pixel in the machine's memory: transfer modes and patterns,
+`copy-bits`, a port for each window, fonts as strikes with proportional
+text, and regions.  Each window is painted only where it can be seen, and
+only what is out of date.  A word keeps what it is working on on the
+stacks, not in variables, and the two that need too many values for that,
+`copy-bits` and `draw-text`, set theirs aside when they are run while
+busy, so drawing can be begun again while it is under way.  The programs
+on it are the Forth window, a block editor, the Words window and a
+decompiler that shows each instruction as the words that make it, a
+calculator, a viewer that reads a TIFF from the disk and dithers it a row
+at a time, and HexaPaint, whose canvas is kept on the disk.
+
+**The CPU** is built along the lines of the J1a: one read port, the top
+cells of each stack in registers and the rest in two small memories, and
+the costly operations taking more cycles rather than setting the clock.
+Its memory can answer in one cycle or two, and the kernel can be a ROM, from
+which a jump costs nothing more.
+
+## How it is checked
+
+    cmake --build build/cmake --target check
+
+runs every test, a line each:
+
+- each instruction test compiled by a C compiler and by `cross.fs`, and the
+  two compared instruction for instruction, then run
+- the image built with the peephole against the image built without: every
+  straight-line run is to leave what the plain one leaves, and every call,
+  jump and branch go where the plain one goes
+- on the machines with cells of 64, 32 and 16 bits: the nucleus at its
+  prompt, comments and a block read as source, regions against their
+  pixels, every drawing word against a model of it drawn a pixel at a time,
+  the dither and the TIFF reader against a dither a pixel at a time, and the
+  desktop worked with keys and a pointer and its screen looked at
+- each AArch64 kernel against `vm.c`, on eight thousand cases, and the
+  desktop on QEMU with each, its screens checked
+- the Verilog against `vm.c` at every size of cell, with memory that answers
+  in one cycle and in two, and with the kernel in a ROM: on the same cases,
+  and on a session typed at the nucleus
+- nothing in the kernel that nothing comes to
+
+`vm.c` is the machine, and everything else is held to it.  The reports say
+where the work goes and what a change costs: `profile`, `peephole`,
+`phrases`, `subtracts`, `examine` and `hits`.  `CLAUDE.md` says what each
+is.
 
 ## Where it stands
 

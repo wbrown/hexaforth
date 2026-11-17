@@ -391,11 +391,15 @@ target_link_libraries(kernel_test m)
 
 # The search for the fewest instructions that do the work of a run, and of
 # a turn of a loop (util/fewer.c, util/turns.c), held to runs whose fewest
-# is known.  It has fuse.c in it, which has the machine.
+# is known.  It has fuse.c in it, which has the machine.  How long a search
+# may take, in what it looks at, is said here and nowhere else: what is
+# looked for, how deep and how long, is the run's or the turn's to say.
+set(SEARCH_STATES 1000000 CACHE STRING "the states a search for fewer instructions looks at before it is given up (util/fewer.c)")
 add_executable(fewer_test
         test/fewer_test.c
         util/image.c)
 target_compile_options(fewer_test PRIVATE -UDEBUG -w)
+target_compile_definitions(fewer_test PRIVATE SEARCH_STATES=${SEARCH_STATES})
 target_link_libraries(fewer_test m)
 
 # What an image is made of: its pages of code, the source files its code is
@@ -572,9 +576,21 @@ function(machine NAME)
     add_custom_target(plain-${NAME} DEPENDS ${PLAIN})
 
     machine_tool(hexaforth ${NAME} main.c ${VM_SOURCES})
-    # An image's code, an instruction to a line, with the words' names
-    # (util/disasm_hex.c): disasm_hex-NAME IMAGE.hex [FROM TO].
-    machine_tool(disasm_hex ${NAME} util/disasm_hex.c vm_opcodes.c vm_debug.c)
+    # An image's code, word by word, as the decompiler shows it, with every
+    # instruction's place, number and fields (util/disasm_hex.c, which says
+    # at its top what it shows): disasm_hex-NAME IMAGE.hex [NAME... | FROM TO].
+    # It has the machine in it, for where a branch goes.
+    machine_tool(disasm_hex ${NAME} util/disasm_hex.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
+    # The reference VM of the machine, counting how often the instruction at
+    # each place is run (bench/counting.c): counting-NAME IMAGE.hex
+    # [DISK.img [MEMORY.out]], and the counts written where RUN_COUNTS says.
+    machine_tool(counting ${NAME} bench/counting.c vm_opcodes.c vm_debug.c util/stack.c)
+    # What work counted that way costs (bench/costs.c): costs-NAME; and its
+    # loops, each with the fewest instructions found that do a turn of it
+    # (bench/shorter.c): shorter-NAME.
+    stepping_tool(costs ${NAME} bench/costs.c util/image.c)
+    stepping_tool(shorter ${NAME} bench/shorter.c util/image.c)
+    target_compile_definitions(shorter-${NAME} PRIVATE SEARCH_STATES=${SEARCH_STATES})
 endfunction()
 
 # When all that is made for a machine has been said.
@@ -738,10 +754,9 @@ set(TABLES ${OF}/nuc.tables)
 set(SIZES ${OF}/nuc.sizes)
 
 # The reference VM that counts how often the instruction at each place is
-# run (bench/counting.c), in place of vm.c: by itself, and as the VM the
-# desktop is worked on.
+# run (bench/counting.c), in place of vm.c, as the VM the desktop is worked
+# on; by itself it is counting-NAME, which every machine has (machine).
 set(COUNTED_SOURCES test/nucleus.c bench/counting.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
-machine_tool(counting ${FIRST} bench/counting.c vm_opcodes.c vm_debug.c util/stack.c)
 machine_tool(desktop_test_counted ${FIRST} test/desktop_test.c ${DESK_SOURCES} ${COUNTED_SOURCES})
 target_compile_definitions(desktop_test_counted-${FIRST} PRIVATE COUNTING_A_TEST)
 machine_tool(profile ${FIRST} bench/profile.c ${DESK_SOURCES} ${COUNTED_SOURCES})
@@ -810,9 +825,7 @@ add_dependencies(screenshot machine-${FIRST})
 # (bench/shorter.c).
 set(PROFILE ${BUILD}/profile)
 set(PROFILE_FILES "" CACHE STRING "the source files whose variables the profile says the cost of: all, if none")
-stepping_tool(costs ${FIRST} bench/costs.c util/image.c)
 stepping_tool(survey ${FIRST} util/survey.c util/image.c)
-stepping_tool(shorter ${FIRST} bench/shorter.c util/image.c)
 set(PROFILED profile-${FIRST} ${NUC} ${TABLES} ${SIZES} ${OF}/disk.img ${PICTURE} forth)    # and where it leaves the work
 add_custom_target(profile
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${PROFILE}
@@ -1609,19 +1622,50 @@ function(bench_on NAME)
                 set(J ${BB}/dither-${PIC}-${SIZE}-${NAME}-${LAT})
                 add_custom_command(
                         OUTPUT            ${J}.txt
-                        COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/blocks.fs ${BENCH}/dither.fs
+                        COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/blocks.fs ${BENCH}/tb-disk.fs ${BENCH}/dither.fs
                                             ${BB}/asks-${PIC}-${SIZE}.fs > ${J}.fs
                         COMMAND           ${T}/tb run ${NUC} ${BB}/disk.img ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
                         COMMAND           check-${NAME} picture ${PICTURE} ${SIZE} ${J}.mem ${J}.out ${J}.err
                                             "dither ${PIC} ${SIZE}" "${ON}" > ${J}.txt 2> ${J}.check
                         COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem
-                        DEPENDS           ${WANTS} ${BB}/blocks.fs bench/dither.fs picture ${PICTURE}
+                        DEPENDS           ${WANTS} ${BB}/blocks.fs bench/tb-disk.fs bench/dither.fs picture ${PICTURE}
                         VERBATIM)
                 set_property(GLOBAL APPEND PROPERTY DITHER_FIGURES ${J}.txt)
             endforeach()
         endforeach()
     endforeach()
+
+    # Where the dither's clocks go (dither-costs-NAME): the same work, at
+    # half the picture's size, typed at the machine's counting VM with the
+    # VM's own disk, and then what each word costs with all it calls, its
+    # loops and its variables (bench/costs.c, in clocks by bench/cycles.h),
+    # and the fewest instructions found that do a turn of each loop
+    # (bench/shorter.c, in shorter.txt).  What is kept is in
+    # build/bench/costs-NAME-PIC/, what the machine printed in typed.out
+    # there.
+    set(WORKS)
+    set(COSTED)
+    foreach(PIC ${PICTURES})
+        set(K ${BB}/costs-${NAME}-${PIC})
+        add_custom_command(
+                OUTPUT            ${K}/work
+                COMMAND           ${CMAKE_COMMAND} -E make_directory ${K}
+                COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/vm-disk.fs ${BB}/blocks.fs ${BENCH}/dither.fs
+                                    ${BB}/asks-${PIC}-half.fs > ${K}/typed.fs
+                COMMAND           ${CMAKE_COMMAND} -E env RUN_WORK=${K}/work
+                                    $<TARGET_FILE:counting-${NAME}> ${NUC} ${BB}/disk.img < ${K}/typed.fs > ${K}/typed.out 2>&1
+                DEPENDS           counting-${NAME} machine-${NAME} ${NUC} ${BB}/disk.img ${BB}/blocks.fs
+                                  bench/dither.fs picture ${PICTURE}
+                VERBATIM)
+        list(APPEND WORKS ${K}/work)
+        list(APPEND COSTED COMMAND ${CMAKE_COMMAND} -E echo "dither ${PIC} half, cells of ${CELL} bits:"
+                           COMMAND costs-${NAME} ${NUC} ${BUILD}/${NAME}/nuc.tables ${BUILD}/${NAME}/nuc.sizes ${K}/work ${K}
+                           COMMAND shorter-${NAME} ${NUC} ${BUILD}/${NAME}/nuc.tables ${K}/work ${K}/shorter.txt)
+    endforeach()
+    add_custom_target(dither-costs-${NAME} ${COSTED} DEPENDS ${WORKS} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    add_dependencies(dither-costs-${NAME} costs-${NAME} shorter-${NAME})
 endfunction()
+file(WRITE ${BB}/vm-disk.fs "vmdisk-init\n")       # the reference VM's disk, in place of the test bench's
 foreach(NAME ${MACHINES})
     bench_on(${NAME})
 endforeach()

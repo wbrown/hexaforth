@@ -32,12 +32,16 @@
 // and the cells they are left in renamed.
 //
 
-// How much is looked at is not the machine's to say: these were chosen.
-#define FEW_SEEN_BITS   16              // there is room to begin with for two to this many states come to
-#define FEW_LIVE        6               // the most cells a turn may keep things in, to be run from few numbers,
-#define FEW_FROM        4               // and the states of fuse.c's that they are given in
-#define FEW_STORES      32              // the most stores in what is wanted
-#define FEW_DEEPER      3               // a line of search goes no more than so many cells deeper than it is to end
+// How far a search goes is the problem's to say: a line of it is given up
+// when what is left to do cannot be done in the instructions left
+// (at_least), and the stacks are as deep as the step has names for.  How
+// long one may take is said once, in CMakeLists.txt (SEARCH_STATES): the
+// states a search looks at before it is given up, the same for every
+// search.
+#ifndef SEARCH_STATES
+#error "fewer.c: the states a search looks at are said in CMakeLists.txt (SEARCH_STATES)"
+#endif
+#define FEW_SEEN_BITS   16              // there is room to begin with for two to this many states come to: it grows
 #define FEW_NEVER       INT_MAX         // how many instructions it takes to do what cannot be done
 
 #include <limits.h>
@@ -270,10 +274,10 @@ typedef struct {
     int stores;
     int final[CELL_TERMS], finals;      // the terms its stacks have, each once
     cell_set cells;                     // the cells its stacks are made of, and what is asked of the top,
-    cell_set cells_from[FEW_STORES + 1];        // and those its stores are, after so many of them are made
+    cell_set cells_from[ROOM + 1];      // and those its stores are, after so many of them are made
     int places[FETCHES], n_places;      // where it fetches from
     uint16_t pushes[ROOM], adds[ROOM];  // the instructions for its numbers: no more than the terms there can be,
-    uint16_t fetches[FETCHES], stores_var[FEW_STORES];  // and for its variables: than its places, and its stores
+    uint16_t fetches[FETCHES], stores_var[ROOM];        // and for its variables: than its places, and its stores
     int n_pushes, n_adds, n_fetches, n_stores_var;
     int nothing_of[ROOM];               // of the terms there were: the flag for whether each is nothing, when asked
 } wanted;
@@ -307,8 +311,7 @@ static int want(wanted* w, const named* left, int fact) {
     memset(w->stores_to, -1, sizeof(w->stores_to));
     int chain[ROOM], links = 0;
     for(int mem=left->M; KNOWN[mem].kind == STORED && links < ROOM; mem = KNOWN[mem].of[0]) chain[links++] = mem;
-    if (links > FEW_STORES) return(0);
-    w->stores = links;
+    w->stores = links;                  // a store is a term, and there are no more than ROOM
     w->stores_to[MEMORY_TERM] = 0;
     for(int idx=0; idx < links; idx++) w->stores_to[chain[links - 1 - idx]] = idx + 1;
 
@@ -510,8 +513,7 @@ static int look(wanted* w, const named* m, int left, uint16_t* path, int at);
 static int on(wanted* w, const named* m, uint16_t x, int left, uint16_t* path, int at) {
     named s = *m;
     step_named(&s, x);
-    if (s.unsaid || lost || s.next >= 0) { lost = 0; return(0); }
-    if (s.SP > DEEP + FEW_DEEPER || s.RSP > w->left.RSP + FEW_DEEPER) return(0);
+    if (s.unsaid || lost || s.next >= 0) { lost = 0; return(0); }     // the step says when a stack is deeper than it names
     if (s.M != m->M && (s.M >= ROOM || w->stores_to[s.M] < 0)) return(0);       // a store that is not the next one wanted
     for(int idx=m->fetches; idx < s.fetches; idx++) if (!fetch_is_wanted(w, m, s.fetched[idx])) return(0);
     if (seen_with(&s, left - 1)) return(0);
@@ -664,7 +666,7 @@ static int agree_from(int alen, int blen, const state* from, const int* to, int 
 // they do not agree; less than nothing if they ran from too few to say.
 static int agree_on_machine(const uint16_t* a, int alen, const uint16_t* b, int blen,
                             const int* to, const int* kept, int n_kept, int tops, int other_way, int over) {
-    if (alen > RUN || blen > RUN) return(-1);
+    if (alen > LAID || blen > LAID) return(-1);
     // The cells the two name as numbers are given to the machine, as
     // fuse.c gives them (tried).
     int had = known, was_lost = lost;
@@ -689,12 +691,13 @@ static int agree_on_machine(const uint16_t* a, int alen, const uint16_t* b, int 
         ran_from += is > 0;
     }
     static const int64_t FEW[] = { 0, 1, TRUE };
-    int ways = 1;
-    for(int idx=0; idx < n_kept && idx < FEW_LIVE; idx++) ways *= COUNT(FEW);
-    for(int base=0; base < FEW_FROM && n_kept; base++) {
-        for(int way=0; way < ways; way++) {
+    uint64_t ways = 1;
+    for(int idx=0; idx < n_kept; idx++) ways *= COUNT(FEW);
+    for(int base=0; base < STATES && n_kept; base++) {
+        for(uint64_t way=0; way < ways; way++) {
             state with = STATE[base];
-            for(int idx=0, rest=way; idx < n_kept && idx < FEW_LIVE; idx++, rest /= COUNT(FEW)) {
+            uint64_t rest = way;
+            for(int idx=0; idx < n_kept; idx++, rest /= COUNT(FEW)) {
                 int64_t* given = cell_in(&with, kept[idx]);
                 if (given) *given = cell(FEW[rest % COUNT(FEW)]);
             }
