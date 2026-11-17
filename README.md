@@ -180,8 +180,26 @@ of `CMakeLists.txt` lists them all.
     cmake --build build/cmake --target bench     # the benchmarks, on the Verilog CPU
     cmake --build build/cmake --target gates     # the gates
 
-`cmake -DMIPS=1 build/cmake` before `demo` holds the machine to a million
-instructions a second.
+`demo` is the machine the project is here to show: a million instructions
+a second, a disk as fast as an 8-inch floppy, and each pixel drawn twice
+across and down.  What it is, and what `run`, `demo-test` and `demo-time`
+are of, is said to CMake when it is configured, and kept until it is said
+otherwise:
+
+| | | unless said |
+|---|---|---|
+| `MIPS` | the million instructions a second it runs at; nothing for as fast as the host can | 1 |
+| `DISK` | the thousand bytes a second its disk gives and takes; nothing for no limit | 40 |
+| `SCALE` | how many times across and down each pixel is drawn | 2 |
+| `KERNEL` | `hexaforth`, the small one, or `hexaforth-fast` | `hexaforth` |
+| `STRICT` | the kernel halts on a fetch or a store outside memory | `OFF` |
+
+    cmake -DMIPS= -DDISK= -DSCALE=1 build/cmake    # as fast as the host, at its own size
+    cmake -USCALE -UMIPS -UDISK build/cmake        # the defaults again
+    cmake --build build/cmake --target demo
+
+They are not arguments of `cmake --build`: a setting written after
+`--target demo` is not seen.  The tests `check` runs set their own.
 
 `demo` wants a QEMU that has a display.  Without one:
 

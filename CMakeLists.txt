@@ -38,10 +38,15 @@ endif()
 #   FOR text            what it is for
 #   BREW formula        the package that has it, of Homebrew's
 #   APT package         and of apt's
+#   BUILT_HERE          where no package has it, it is built from its source,
+#                       which the part of this file that wants it fetches
+#   WITHOUT name        it is needed only where that other need is not here
+#                       and no package has it: it is what the other is built
+#                       from
 function(needs NAME)
-    cmake_parse_arguments(IT "" "HEADER;FOR;BREW;APT" "PROGRAM" ${ARGN})
+    cmake_parse_arguments(IT "BUILT_HERE" "HEADER;FOR;BREW;APT;WITHOUT" "PROGRAM" ${ARGN})
     set_property(GLOBAL APPEND PROPERTY NEEDED ${NAME})
-    foreach(PART PROGRAM HEADER FOR BREW APT)
+    foreach(PART PROGRAM HEADER FOR BREW APT BUILT_HERE WITHOUT)
         set_property(GLOBAL PROPERTY NEEDED_${NAME}_${PART} "${IT_${PART}}")
     endforeach()
 endfunction()
@@ -78,8 +83,14 @@ needs(VERILATOR     PROGRAM verilator           APT verilator                   
       FOR "the Verilog: the verilog- tests and the benchmarks")
 needs(YOSYS         PROGRAM yosys               APT yosys                       BREW yosys
       FOR "gates and synth")
-needs(NEXTPNR       PROGRAM nextpnr-ecp5        APT nextpnr-ecp5
+needs(NEXTPNR       PROGRAM nextpnr-ecp5        APT nextpnr-ecp5                BUILT_HERE
       FOR "synth")
+needs(TRELLIS       PROGRAM ecppack             BREW prjtrellis                 WITHOUT NEXTPNR
+      FOR "synth, where nextpnr-ecp5 is built here: the ECP5's database, which its own is made from")
+needs(BOOST_HEADER  HEADER boost/version.hpp    BREW boost                      WITHOUT NEXTPNR
+      FOR "synth, where nextpnr-ecp5 is built here: it is built with it")
+needs(EIGEN_HEADER  HEADER eigen3/Eigen/Core    BREW eigen                      WITHOUT NEXTPNR
+      FOR "synth, where nextpnr-ecp5 is built here: it is built with it")
 needs(M68K_AS       PROGRAM m68k-elf-as m68k-linux-gnu-as           APT binutils-m68k-linux-gnu BREW m68k-elf-binutils
       FOR "bench-m68k: the 68000's assembler")
 needs(M68K_LD       PROGRAM m68k-elf-ld m68k-linux-gnu-ld           APT binutils-m68k-linux-gnu BREW m68k-elf-binutils
@@ -111,18 +122,39 @@ function(look_for NAME)
     endif()
 endfunction()
 
+# The package that has a need, of whichever of the two is here: none, if
+# neither is, or the one that is has no package of it.
+function(package_of RESULT NAME)
+    set(PACKAGE)
+    if(BREW)
+        get_property(PACKAGE GLOBAL PROPERTY NEEDED_${NAME}_BREW)
+    elseif(APT)
+        get_property(PACKAGE GLOBAL PROPERTY NEEDED_${NAME}_APT)
+    endif()
+    set(${RESULT} "${PACKAGE}" PARENT_SCOPE)
+endfunction()
+
+# Is a need wanted here?  One that is needed only WITHOUT another is not,
+# where that other is here or a package has it.
+function(needed_here RESULT NAME)
+    set(${RESULT} TRUE PARENT_SCOPE)
+    get_property(OTHER GLOBAL PROPERTY NEEDED_${NAME}_WITHOUT)
+    if(NOT OTHER)
+        return()
+    endif()
+    package_of(PACKAGED ${OTHER})
+    if(${OTHER} OR PACKAGED)
+        set(${RESULT} FALSE PARENT_SCOPE)
+    endif()
+endfunction()
+
 get_property(NEEDED GLOBAL PROPERTY NEEDED)
 set(ASKED)
 foreach(NAME ${NEEDED})
     look_for(${NAME})
-    if(NOT ${NAME})
-        if(BREW)
-            get_property(PACKAGE GLOBAL PROPERTY NEEDED_${NAME}_BREW)
-        elseif(APT)
-            get_property(PACKAGE GLOBAL PROPERTY NEEDED_${NAME}_APT)
-        else()
-            set(PACKAGE)
-        endif()
+    needed_here(HERE ${NAME})
+    if(HERE AND NOT ${NAME})
+        package_of(PACKAGE ${NAME})
         list(APPEND ASKED ${PACKAGE})
     endif()
 endforeach()
@@ -152,23 +184,38 @@ if(ASKED AND INSTALL_NEEDED)
     endforeach()
 endif()
 foreach(NAME ${NEEDED})
-    if(NOT ${NAME})
+    needed_here(HERE ${NAME})
+    if(HERE AND NOT ${NAME})
         get_property(PROGRAM GLOBAL PROPERTY NEEDED_${NAME}_PROGRAM)
         get_property(HEADER GLOBAL PROPERTY NEEDED_${NAME}_HEADER)
         get_property(FOR GLOBAL PROPERTY NEEDED_${NAME}_FOR)
         get_property(FORMULA GLOBAL PROPERTY NEEDED_${NAME}_BREW)
         get_property(PACKAGE GLOBAL PROPERTY NEEDED_${NAME}_APT)
+        get_property(BUILT GLOBAL PROPERTY NEEDED_${NAME}_BUILT_HERE)
         if(HEADER)
             set(WHAT "The library that has ${HEADER}")
         else()
             list(GET PROGRAM 0 WHAT)
         endif()
+        set(HAS "apt has no package of it")
+        if(PACKAGE)
+            set(HAS "apt's package of it is ${PACKAGE}")
+        endif()
+        if(FORMULA)
+            string(APPEND HAS ", and Homebrew's is ${FORMULA}")
+        else()
+            string(APPEND HAS ", and Homebrew has none")
+        endif()
         if(BREW AND NOT FORMULA)
+            if(BUILT)                   # which is not a thing to warn of
+                message(STATUS "${WHAT} is not here, and Homebrew has no package of it: it is built from its source when ${FOR} is first asked for")
+                continue()
+            endif()
             set(HOW "Homebrew has no package of it")
         elseif(NOT BREW AND NOT APT)
-            set(HOW "Neither Homebrew nor apt is here to ask: apt's package of it is ${PACKAGE}, and Homebrew's ${FORMULA}")
+            set(HOW "Neither Homebrew nor apt is here to ask: ${HAS}")
         elseif(NOT INSTALL_NEEDED)
-            set(HOW "It was not asked for, since INSTALL_NEEDED is off: apt's package of it is ${PACKAGE}, and Homebrew's ${FORMULA}")
+            set(HOW "It was not asked for, since INSTALL_NEEDED is off: ${HAS}")
         else()
             set(HOW "It was asked for and did not come")
         endif()
@@ -924,12 +971,21 @@ add_custom_target(tables
 #               it is the rate and no more: no head moves and nothing has
 #               to come round.  demo and demo-time take it
 #
+# Unless they are said, the machine is the one the project is there to
+# show: the small kernel, each pixel drawn twice across and down, a million
+# instructions a second, and an 8-inch floppy.  MIPS and DISK said as
+# nothing hold the machine to no speed (cmake -DMIPS= -DDISK= -DSCALE=1
+# build/cmake is the machine as fast as the host makes it).  A value said
+# once is kept: cmake -USCALE -UMIPS -UDISK build/cmake has these defaults
+# again.  The tests the target `check` runs are not of these: they say
+# their own.
+#
 set(KERNELS_OF 64)
 set(KERNEL hexaforth CACHE STRING "which kernel run, demo, demo-test, demo-time and size are of: hexaforth or hexaforth-fast")
 option(STRICT "that kernel halts on a fetch or a store outside memory" OFF)
-set(SCALE 1 CACHE STRING "how many across and down the bridge draws each pixel of the display")
-set(MIPS "" CACHE STRING "the million instructions a second that kernel is held to, if any")
-set(DISK "" CACHE STRING "the thousand bytes a second the disk is held to, if any")
+set(SCALE 2 CACHE STRING "how many across and down the bridge draws each pixel of the display")
+set(MIPS 1 CACHE STRING "the million instructions a second that kernel is held to; none, if it is said as nothing")
+set(DISK 40 CACHE STRING "the thousand bytes a second the disk is held to; none, if it is said as nothing")
 
 if(KERNELS_OF IN_LIST MACHINES)
 
@@ -1390,6 +1446,60 @@ if(SYNTH_KROM)
     set(SYNTH_IS 1)
 endif()
 string(REPLACE ";" " " SYNTH_READ "${SYNTH_READ}")
+
+# nextpnr-ecp5, where it is not here and no package has it, as Homebrew has
+# none: nextpnr's source, fetched as it was at the release Homebrew builds
+# its nextpnr-ice40 from (0.11.1), and built for the one ECP5 that `synth`
+# places for.  It is built when `synth` is first asked for, in
+# build/nextpnr/, and that takes a while; what it says is kept there.
+#
+# The chip's database is made from Project Trellis's, by a Python program
+# that has Trellis's own module in it (pytrellis).  That module is built
+# for one Python and no other, so the Python is found by asking each that
+# is beside Trellis whether it can have it.
+set(NEXTPNR_BUILT)
+if(NOT NEXTPNR AND TRELLIS AND BOOST_HEADER AND EIGEN_HEADER)
+    get_filename_component(TRELLIS_AT ${TRELLIS} DIRECTORY)
+    get_filename_component(TRELLIS_AT ${TRELLIS_AT} DIRECTORY)
+    file(GLOB PYTHONS ${TRELLIS_AT}/bin/python3.*)
+    list(FILTER PYTHONS INCLUDE REGEX "/python3\\.[0-9]+$")
+    list(SORT PYTHONS COMPARE NATURAL ORDER DESCENDING)
+    set(TRELLIS_PYTHON)
+    foreach(PYTHON ${PYTHONS})
+        execute_process(COMMAND ${PYTHON} -c "import pytrellis"
+                        WORKING_DIRECTORY ${TRELLIS_AT}/lib/trellis
+                        RESULT_VARIABLE FAILED OUTPUT_QUIET ERROR_QUIET)
+        if(NOT FAILED)
+            set(TRELLIS_PYTHON ${PYTHON})
+            break()
+        endif()
+    endforeach()
+    if(TRELLIS_PYTHON)
+        include(ExternalProject)
+        set(NB ${BUILD}/nextpnr)
+        ExternalProject_Add(nextpnr
+                GIT_REPOSITORY    https://github.com/YosysHQ/nextpnr
+                GIT_TAG           62e659ed6748e9f60b2a4aa25dd4fe79a9605881
+                GIT_SUBMODULES    ""
+                SOURCE_DIR        ${NB}/source
+                BINARY_DIR        ${NB}/made
+                CMAKE_ARGS        -DARCH=ecp5 -DECP5_DEVICES=85k -DBUILD_PYTHON=OFF
+                                  -DTRELLIS_INSTALL_PREFIX=${TRELLIS_AT} -DCMAKE_PREFIX_PATH=${TRELLIS_AT}
+                                  -DPython3_EXECUTABLE=${TRELLIS_PYTHON}
+                BUILD_COMMAND     ${CMAKE_COMMAND} --build <BINARY_DIR> --target nextpnr-ecp5 -j 4
+                INSTALL_COMMAND   ""
+                LOG_DIR           ${NB}
+                LOG_CONFIGURE     TRUE
+                LOG_BUILD         TRUE
+                LOG_OUTPUT_ON_FAILURE TRUE
+                EXCLUDE_FROM_ALL  TRUE)
+        set(NEXTPNR ${NB}/made/nextpnr-ecp5)
+        set(NEXTPNR_BUILT nextpnr)
+    else()
+        message(WARNING "nextpnr-ecp5 cannot be built here: no Python in ${TRELLIS_AT}/bin has Project Trellis's module, which is in ${TRELLIS_AT}/lib/trellis.")
+    endif()
+endif()
+
 tool(synth_said rtl/synth.c)
 add_custom_target(synth
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${S}
@@ -1404,7 +1514,7 @@ add_custom_target(synth
         COMMAND           ${CMAKE_COMMAND} -E cat ${S}/result.txt
         WORKING_DIRECTORY ${RTL}
         VERBATIM)
-add_dependencies(synth machine-default-${SYNTH_CELL})
+add_dependencies(synth machine-default-${SYNTH_CELL} ${NEXTPNR_BUILT})
 
 #
 # The benchmarks: what the machine costs to do its work, in clocks.

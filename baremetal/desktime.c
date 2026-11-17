@@ -16,7 +16,10 @@
 // the disk the machine is given is kept in OUT.
 //
 // The screen is looked at for the prompt, as the desktop's checks read it
-// (test/deskcheck.h).  How many rows of the picture are made is read out
+// (test/deskcheck.h), once the console has said the desktop is up, as
+// guitest does: until the kernel has told QEMU's display how big it is,
+// QEMU has a screen of its own size, and the prompt cannot be on the
+// screen before the desktop is.  How many rows of the picture are made is read out
 // of the machine's memory, which is in QEMU's where the kernel's symbol
 // `image` is (symbols.c): `vw` in view.fs is the viewer in hand, and the
 // third cell of a viewer's record is the rows of its bitmap that are made
@@ -78,7 +81,7 @@ int main(int argc, char *argv[]) {
         if (rows) note(FIRST);
         if (2 * rows >= height) note(HALF);
         if (rows >= height) note(ALL);
-        if (when[PROMPT] < 0 && desk_sees(&watched, desk_screen(), "forth", 0, "ok")) note(PROMPT);
+        if (when[UP] >= 0 && when[PROMPT] < 0 && desk_sees(&watched, desk_screen(), "forth", 0, "ok")) note(PROMPT);
         desk_turns(0);
     }
 
