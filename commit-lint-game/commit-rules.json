@@ -1,0 +1,106 @@
+
+{
+  "version": 1,
+  "rules": [
+    {
+      "name": "capitalized-first-letter",
+      "type": "regex",
+      "pattern": "^[\\s]*[A-Z]",
+      "flags": [],
+      "message": "Your commit must begin with a capital letter."
+    },
+    {
+      "name": "sentence-ending-punctuation",
+      "type": "regex",
+      "pattern": "[.!?]\\s*$",
+      "flags": [],
+      "message": "Your commit must end with a period, exclamation mark, or question mark."
+    },
+    {
+      "name": "word-colon-sentence",
+      "type": "regex",
+      "pattern": "\\b[A-Za-z]+:\\s+[A-Z].+",
+      "flags": [],
+      "message": "Your commit must contain a structure like 'Feature: Implemented something.'"
+    },
+    {
+      "name": "geographic-reference",
+      "type": "regex",
+      "pattern": "\\b(Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming|Anhui|Fujian|Gansu|Guangdong|Guizhou|Hainan|Hebei|Heilongjiang|Henan|Hubei|Hunan|Jiangsu|Jiangxi|Jilin|Liaoning|Qinghai|Shaanxi|Shandong|Shanxi|Sichuan|Yunnan|Zhejiang|Beijing|Chongqing|Shanghai|Tianjin|Guangxi|Inner Mongolia|Ningxia|Tibet|Xinjiang|Hong Kong|Macau)\\b",
+      "flags": ["IGNORECASE"],
+      "message": "Your commit must mention at least one US state or Chinese provincial-level region."
+    },
+    {
+      "name": "european-capital",
+      "type": "regex",
+      "pattern": "\\b(Amsterdam|Andorra la Vella|Athens|Belgrade|Berlin|Bern|Bratislava|Brussels|Bucharest|Budapest|Chisinau|Copenhagen|Dublin|Helsinki|Kyiv|Lisbon|Ljubljana|London|Luxembourg|Madrid|Minsk|Monaco|Moscow|Oslo|Paris|Podgorica|Prague|Pristina|Reykjavik|Riga|Rome|San Marino|Sarajevo|Skopje|Sofia|Stockholm|Tallinn|Tirana|Vaduz|Valletta|Vatican City|Vienna|Vilnius|Warsaw|Zagreb)\\b",
+      "flags": ["IGNORECASE"],
+      "message": "Your commit must reference at least one European capital."
+    },
+    {
+      "name": "even-alphanumeric-count",
+      "type": "alphanumeric_even",
+      "message": "Your commit must contain an even number of alphanumeric characters. Punctuation and whitespace do not count."
+    },
+    {
+      "name": "triple-letter",
+      "type": "regex",
+      "pattern": "([a-zA-Z])\\1\\1",
+      "flags": ["IGNORECASE"],
+      "message": "Your commit must contain three consecutive identical letters. Go on, make it awkward."
+    },
+    {
+      "name": "positive-descriptors",
+      "type": "word_list",
+      "file": "positives.json",
+      "min_matches": 2,
+      "distinct": true,
+      "flags": ["IGNORECASE"],
+      "message": "Your commit must include at least two different positive descriptors. Try being more optimistic."
+    },
+    {
+      "name": "dog-name",
+      "type": "regex",
+      "pattern": "\\b(Max|Bella|Charlie|Lucy|Cooper|Daisy|Milo|Luna|Bailey|Rocky|Sadie|Tucker|Buddy|Molly|Duke|Lola|Bear|Maggie|Teddy|Winston|Oliver|Rosie|Coco|Jack|Ruby|Winnie|Biscuit|Fido)\\b",
+      "flags": ["IGNORECASE"],
+      "message": "Your commit must mention a dog by name. Any dog. Just name one."
+    },
+    {
+      "name": "uppercase-vowels",
+      "type": "regex",
+      "pattern": "^[^aeiouy]*$",
+      "message": "Every vowel, including Y, must be uppercase. LOWERCASE VOWELS ARE UNACCEPTABLE."
+    },
+    {
+      "name": "capitalization-limit",
+      "type": "capitalization_limit",
+      "max_percentage": 75,
+      "message": "No more than 75% of alphabetical characters may be uppercase. Stop shouting."
+    },
+    {
+      "name": "palindrome",
+      "type": "palindrome",
+      "min_length": 5,
+      "message": "Your commit must contain a palindrome of at least five letters. You can do this."
+    },
+    {
+      "name": "orange-rhyme",
+      "type": "regex",
+      "pattern": "(?<![a-zA-Z])door\\s+hinge(?![a-zA-Z])",
+      "flags": ["IGNORECASE"],
+      "message": "Your commit must contain a word that rhymes with orange. Linguistic precision is optional."
+    },
+    {
+      "name": "digit-sum",
+      "type": "digit_sum",
+      "target": 25,
+      "message": "The individual digits in your commit must add up to exactly 25."
+    },
+    {
+      "name": "unique-commit-title",
+      "type": "unique_commit_title",
+      "limit": 50,
+      "message": "This commit title has already been used in the last 50 commits. Be more original."
+    }
+  ]
+}
