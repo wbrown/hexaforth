@@ -92,6 +92,13 @@ header cursor-show : cursor-show ( -- ) cur-on @ 0= if cursor-xor true cur-on ! 
 \ is drawn straight onto the screen by inverting, so drawing it again
 \ removes it.  refresh takes it off before painting and puts it back after,
 \ so a window repainted under it does not leave pieces of it behind.
+\
+\ The outline is moved once a turn of the event loop (drag-follow), to
+\ where the pointer is by then, not once for every report the pointer
+\ sends.  QEMU's driver hands over every report that is waiting in one
+\ call, and a pointer moved quickly sends more reports than the outline
+\ can be redrawn for; redrawing for each kept the event loop from coming
+\ round, and the screen froze.
 
 create dragging 0 ,     \ true while a window is being dragged by its title
 create dx0 0 ,          \ where the pointer was when the drag started
@@ -115,12 +122,22 @@ create drag-y 0 ,
 
 : drag-off ( -- ) drag-on @ if frame-xor d# 0 drag-on ! then ;
 
+: drag-at ( -- x y ) \ where the pointer has taken the dragged window's top left
+    mx @ dx0 @ -  top @ +
+    my @ dy0 @ -  top CELL + @ +
+;
+
 : drag-show ( -- ) \ draw the outline where the pointer has taken the window, if a window is being dragged
     dragging @  drag-on @ 0=  and if
-        mx @ dx0 @ -  top @ +  drag-x !
-        my @ dy0 @ -  top CELL + @ +  drag-y !
+        drag-at drag-y ! drag-x !
         frame-xor  true drag-on !
     then
+;
+
+: drag-follow ( -- ) \ once a turn of the event loop: move the outline, if the pointer has moved it
+    dragging @ 0= if exit then
+    drag-at  drag-y @ =  swap drag-x @ =  and  drag-on @ and  if exit then
+    drag-off drag-show
 ;
 
 \ A window may want to know that the pointer has moved, to show something
@@ -671,7 +688,7 @@ header on-event : on-event ( type code value -- )
     \ A device says where the pointer is an axis at a time, and then that it
     \ has said all there is to say (an event of type 0): only then is the
     \ pointer somewhere it has been, and whoever follows it is told.
-    dup 0= if drop 2drop  held @ if track then  drag-off drag-show  exit then
+    dup 0= if drop 2drop  held @ if track then  exit then
     d# 1 <> if 2drop exit then                      \ otherwise keys only
     over h# 110 = if nip if press else release then exit then
     over shift-key? if nip 0<> shift ! exit then
@@ -700,6 +717,7 @@ header event-loop : event-loop ( -- )
     repaint
     begin
         'poll @ execute
+        drag-follow
         disk-light
         refresh
         pause                                       \ the other tasks' turn
