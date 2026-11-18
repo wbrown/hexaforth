@@ -16,17 +16,20 @@ create t-up   ," desktop"
 \ picture, the editor, the Words window, the calculator and the Forth
 \ window, which are opened in that order, the last in front, and for
 \ HexaPaint, which is opened before them all and so is at the back.  There are
-\ two arrangements.  One is for a screen of 768 by 576.  The other is for
+\ two arrangements.  One is for a screen of 768 by 576, where the Words
+\ window shows 23 lines of a definition's 45 characters: a little more than
+\ the 1,024 characters of a block.  The other is for
 \ a smaller one, down to 512 by 342, where a window is as big as it was
-\ but for the picture's, which shows 256 by 256 of it: they lie over each
-\ other more, each with some of its title to be seen, and the editor,
+\ but for the picture's, which shows 256 by 256 of it, and the Words
+\ window's, which is 18 lines, as many as fit under the bar: they lie over
+\ each other more, each with some of its title to be seen, and the editor,
 \ whose 64 characters are as wide as the screen, has its frame off both
 \ sides of it.
 
 create big-desk
     #250 , #40 , #514 , #532 ,
-    #30 , #270 , #518 , #300 ,
-    #140 , #296 , #482 , #276 ,
+    #250 , #150 , #518 , #300 ,
+    #140 , #184 , #482 , #388 ,
     #626 , #300 , #138 , #238 ,
     #12 , #32 , #406 , #280 ,
     #180 , #140 , #431 , #297 ,
@@ -34,7 +37,7 @@ create big-desk
 create small-desk
     #246 , #22 , #258 , #276 ,
     -3 , #40 , #518 , #300 ,
-    #4 , #60 , #482 , #276 ,
+    #4 , #34 , #482 , #308 ,
     #366 , #96 , #138 , #238 ,
     #6 , #26 , #406 , #280 ,
     #110 , #30 , #287 , #193 ,

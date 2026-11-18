@@ -830,6 +830,49 @@ header copy-bits : copy-bits ( bitmap sx sy dx dy w h -- )
     true copy-busy !  (copy-bits)  d# 0 copy-busy !
 ;
 
+\ What is under a rectangle of the screen, kept aside and put back: the cells it
+\ is in, whole, a row of the bitmap for a row of the screen, the first of them
+\ the bitmap's first cell.  As much of the rectangle as is on the screen is
+\ kept, and it is put back with copy-bits, in the port's clip and region: the
+\ two line up, so whole cells go straight across (move-row).
+: screen-rect ( x y w h -- x0 y0 x1 y1 ) \ the rectangle on the screen, cut to it
+    >r >r >screen  over r> +  over r> +             ( X0 Y0 X1 Y1 )
+    fb-h @ min >r  fb-w @ min >r
+    d# 0 max swap d# 0 max swap                     ( x0 y0 ) ( R: Y1 X1 )
+    over r> max  over r> max
+;
+
+: kept-cells ( x0 x1 -- c0 n ) \ the cells from the one x0 is in to the one x1 - 1 is in
+    1- PXSHIFT rshift  swap PXSHIFT rshift  tuck - 1+
+;
+
+: keep-row ( c0 n a y -- ) \ n cells of row y from its cell c0, to a
+    row  >r rot r> +  -rot swap  cells-move
+;
+
+header keep-bits : keep-bits ( bitmap x y w h -- ) \ the screen's cells under the rectangle, into the bitmap
+    screen-rect                                     ( bm x0 y0 x1 y1 )
+    >r  rot swap kept-cells                         ( bm y0 c0 n ) ( R: y1 )
+    dup 0> 0= if 2drop 2drop rdrop exit then
+    2swap swap  dup 1+ @  r> swap >r >r  @ swap     ( c0 n a y0 ) ( R: stride y1 )
+    begin
+        dup r@ <
+    while
+        2over 2over keep-row
+        swap  r> r@ swap >r  +  swap  1+
+    repeat
+    2drop 2drop  rdrop rdrop
+;
+
+header put-bits : put-bits ( bitmap x y w h -- ) \ what keep-bits kept of the rectangle, back where it was
+    screen-rect
+    rot tuck - >r                                   ( bm x0 x1 y0 ) ( R: h )
+    -rot over - >r                                  ( bm y0 x0 ) ( R: h w )
+    swap oy @ -  swap dup PXMASK and  swap ox @ -   ( bm dy sx dx )
+    rot  >r >r d# 0 r> r>                           ( bm sx 0 dx dy )
+    r> r>  copy-bits
+;
+
 \ Eight pixels at x: the part of them in the cell x is in, and the part
 \ that runs over into the next, which is nothing unless x is in the last
 \ seven pixels of the cell.

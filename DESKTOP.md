@@ -166,6 +166,16 @@ they are.
   this way
 - To be told whenever the pointer moves, a program stores a word of
   `( -- )` in `'moved`. The Words window shows its box this way
+- To draw over its window straight onto the screen, as the pointer is
+  drawn, a program stores a word of `( on? -- )` in `'overlay`. It is
+  run with false before anything is painted, to take off what it drew,
+  and with true after, to put it back. To change what it shows, it calls
+  `overlays-off`, changes it, and calls `overlays-on`. It draws in its
+  window with `win-port ( win -- )`, which shows only where the window
+  can be seen, and goes back with `screen-port @ port!`.
+  `keep-bits ( bitmap x y w h -- )` keeps the screen's cells under a
+  rectangle and `put-bits` puts them back. The Words window's box is
+  drawn this way, so moving it does not paint the window again
 - To be told when its window comes to the front, a program stores a word of
   `( win -- )` in the window's `win-front ( win -- a )`; to be told when
   another window comes in front of it, one in `win-back ( win -- a )`. Each

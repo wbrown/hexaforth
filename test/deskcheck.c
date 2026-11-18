@@ -41,6 +41,7 @@
 #define SCREEN  ((size_t)W * H)
 #define ROWS    16              // the rows of a window's text, and of a glyph
 #define COLS    64              // the most columns a window's text has
+#define MOST_LINES (H / ROWS)   // the most lines of text a window can show: as many as the screen
 
 typedef struct {
     const char* grid;           // where: a window's text (GRIDS, below)
@@ -457,20 +458,25 @@ static bool under(int x, int y, int n) {
 
 // A point of a window's title bar that no window in front covers, from
 // which the pointer can go dx and dy further and still be on the screen.
+// The bar is 18 rows under the frame's top, and a press on any of them is
+// on the title: its middle row is tried first, then the others.
 static void title_of(int n, int dx, int dy, int* tx, int* ty) {
+    static const int ROWS_OF_TITLE[] = { 8, 4, 12, 2, 16 };
     int at = 0;
     while (order[at] != n) at++;
-    *ty = rect[n].y + 8;
-    for(*tx = rect[n].x + rect[n].w - 12; *tx > rect[n].x + 4; *tx -= 4) {
-        if (!(*tx >= 0 && *tx < W - 8 - dx && *ty >= 20 && *ty < H - 12 - dy)) continue;
-        bool covered = false;
-        for(int ahead=at + 1; ahead < WINDOWS; ahead++) {
-            int a = order[ahead];
-            if (*tx >= rect[a].x && *tx < rect[a].x + rect[a].w && *ty >= rect[a].y && *ty < rect[a].y + rect[a].h) {
-                covered = true;
+    for(int r=0; r < (int)(sizeof(ROWS_OF_TITLE) / sizeof(ROWS_OF_TITLE[0])); r++) {
+        *ty = rect[n].y + ROWS_OF_TITLE[r];
+        for(*tx = rect[n].x + rect[n].w - 12; *tx > rect[n].x + 4; *tx -= 4) {
+            if (!(*tx >= 0 && *tx < W - 8 - dx && *ty >= 20 && *ty < H - 12 - dy)) continue;
+            bool covered = false;
+            for(int ahead=at + 1; ahead < WINDOWS; ahead++) {
+                int a = order[ahead];
+                if (*tx >= rect[a].x && *tx < rect[a].x + rect[a].w && *ty >= rect[a].y && *ty < rect[a].y + rect[a].h) {
+                    covered = true;
+                }
             }
+            if (!covered) return;
         }
-        if (!covered) return;
     }
     fprintf(stderr, "deskcheck: no part of the title of %s can be seen\n", NAMED[n]);
     exit(EXIT_FAILURE);
@@ -509,15 +515,15 @@ typedef struct {
     const char* name;
     int window;
     int dx, dy;                 // where its first cell is, from the window's content
-    int cols, rows;
+    int cols, rows;             // rows: 0 for as many as the window is tall
 } grid;
 
 static const grid GRIDS[] = {
     {"forth", FORTH, 2, 2, 50, 16},
     {"calc", CALC, 6, 4, 14, 5},
     {"editor", EDITOR, 2, 2, 64, 16},
-    {"names", WORDS, 2, 0, 13, 16},         // the Words window's list,
-    {"source", WORDS, 112, 0, 45, 16},      // and the definition beside it
+    {"names", WORDS, 2, 0, 13, 0},          // the Words window's list,
+    {"source", WORDS, 112, 0, 45, 0},       // and the definition beside it
     {NULL}};
 
 static const grid* grid_named(const char* name) {
@@ -530,6 +536,13 @@ static const grid* grid_named(const char* name) {
 
 static int grid_x(const grid* g) { return(content_x(g->window) + g->dx); }
 static int grid_y(const grid* g) { return(content_y(g->window) + g->dy); }
+
+// The rows a window's text has: as many as it says, or as many lines as
+// its content is tall.
+static int grid_rows(const grid* g) {
+    int rows = g->rows ? g->rows : (rect[g->window].h - 20) / ROWS;
+    return(rows < MOST_LINES ? rows : MOST_LINES);
+}
 
 static void read_grid(const char* name, int row, char* text) {
     const grid* g = grid_named(name);
@@ -680,11 +693,11 @@ static int canvas_wrong(const uint8_t* should, bool but, int but_x, int but_y, i
 
 // ---- what is done
 
-static char names[ROWS][COLS + 1];      // the Words window's list, when it was last looked for names in
-static bool both;                       // and whether both of those looked for were in it
+static char names[MOST_LINES][COLS + 1];        // the Words window's list, when it was last looked for names in
+static bool both;                               // and whether both of those looked for were in it
 
 static int listed(const char* name) {   // the row a name is on, or -1
-    for(int row=0; row < ROWS; row++) {
+    for(int row=0; row < grid_rows(grid_named("names")); row++) {
         if (!strcmp(names[row], name)) return(row);
     }
     return(-1);
@@ -719,6 +732,7 @@ static struct { int w, x, y, dx, dy; uint8_t before[SCREEN]; } grabbed;
 //   click:NAME+X+Y     a click in a window, from the top left of its content;
 //   click:NAME-X-Y     or back from the bottom right of its frame
 //   point:X,Y          the pointer is put at a place of the screen
+//   at:NAME+X+Y        or of a window, from the top left of its content
 //   away               the pointer is put where it is off everything
 //   menu               the title in the bar is clicked, which brings the menu down
 //   pick:NAME          a window's line of the menu is clicked
@@ -825,6 +839,9 @@ static void does(const char* said) {
             to_front(w);                        // a click in a window brings it to the front
         } else if (!strncmp(word, "point:", 6) && count == 2) {
             desk_pointer(n[0], n[1]);
+        } else if (!strncmp(word, "at:", 3) && count == 2) {
+            int w = window(of, name);
+            desk_pointer(content_x(w) + n[0], content_y(w) + n[1]);
         } else if (!strcmp(word, "pmenu")) {
             click(picture_title() + 12, 8);
         } else if (!strncmp(word, "picture:", 8)) {
@@ -850,14 +867,26 @@ static void does(const char* said) {
             const char* second = of[comma] ? of + comma + 1 : "";
             first[comma] = '\0';
             // a page of the list at a time, until both are on one, or a
-            // page down shows the page there was: that was the last
-            static char before[ROWS][COLS + 1];
+            // page down shows the page there was: that was the last.  Two
+            // that are next to each other may be the last of a page and the
+            // first of the next: when one is on the last line and the other
+            // is not listed, the choice goes down a line at a time, which
+            // moves the list a line once the choice is on its last line.
+            static char before[MOST_LINES][COLS + 1];
+            const int rows = grid_rows(grid_named("names"));
             bool last = false;
             for(int page=0; !last; page++) {
                 look("10-list");
                 memcpy(before, names, sizeof(names));
-                for(int row=0; row < ROWS; row++) read_grid("names", row, names[row]);
+                for(int row=0; row < rows; row++) read_grid("names", row, names[row]);
                 both = listed(first) >= 0 && listed(second) >= 0;
+                for(int line=0; !both && line < rows && (listed(first) == rows - 1 || listed(second) == rows - 1 ||
+                                                         (line && (listed(first) >= 0 || listed(second) >= 0))); line++) {
+                    desk_key("down", NULL);
+                    look("10-list");
+                    for(int row=0; row < rows; row++) read_grid("names", row, names[row]);
+                    both = listed(first) >= 0 && listed(second) >= 0;
+                }
                 last = both || (page && !memcmp(before, names, sizeof(names)));
                 if (!last) desk_key("pgdn", NULL);
             }
@@ -1142,7 +1171,7 @@ static int bold_row = -1, bold_col;
 static bool bold(char* why) {
     const grid* g = grid_named("source");
     bold_row = -1;
-    for(int row=0; row < g->rows && bold_row < 0; row++) {
+    for(int row=0; row < grid_rows(g) && bold_row < 0; row++) {
         for(int col=0; col < g->cols && bold_row < 0; col++) {
             uint8_t cell[ROWS], any = 0;
             cell_at_screen(grid_x(g) + col * 8, grid_y(g) + row * 16, cell);
@@ -1166,7 +1195,7 @@ static bool told(int row, int col, const char* shot_name, const char* form, char
     regcomp(&is, form, REG_EXTENDED | REG_NOSUB);
     desk_pointer(grid_x(g) + col * 8 + 4, grid_y(g) + row * 16 + 1);
     look(shot_name);
-    int y = grid_y(g) + (row < 14 ? (row + 1) * 16 + 1 : row * 16 - 17);
+    int y = grid_y(g) + (row < grid_rows(g) - 2 ? (row + 1) * 16 + 1 : row * 16 - 17);
     bool found = false;
     for(int x=grid_x(g) + 1 + col * 8; x > grid_x(g) - 3 && !found; x--) {
         read_row(x, y, low(40, (W - x) / 8), text);
@@ -1184,10 +1213,10 @@ static bool fused_told(char* why) {
 
 // The definition as it is, to look in and to see that it is so again; and
 // the screen as it is, to see what of it changes.
-static char source[ROWS][COLS + 1];
+static char source[MOST_LINES][COLS + 1];
 static bool remember(char* why) {
     (void)why;
-    for(int row=0; row < ROWS; row++) read_grid("source", row, source[row]);
+    for(int row=0; row < grid_rows(grid_named("source")); row++) read_grid("source", row, source[row]);
     return(true);
 }
 
@@ -1216,7 +1245,7 @@ static bool word_told(char* why) {
 }
 
 static bool box_gone(char* why) {
-    for(int row=0; row < ROWS; row++) {
+    for(int row=0; row < grid_rows(grid_named("source")); row++) {
         char text[COLS + 1];
         read_grid("source", row, text);
         snprintf(why, WHY, "row %d of the definition is now: %s", row, text);

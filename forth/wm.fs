@@ -22,7 +22,9 @@
 \ of date.  So no window is painted over another, and the order they are
 \ painted in does not matter.  A key or a click
 \ puts the whole of the front window out of date, unless the window's
-\ routine said more exactly what changed.
+\ routine said more exactly what changed.  The pointer, a dragged window's
+\ outline and a window's overlay are drawn straight onto the screen instead,
+\ and are taken off before anything is painted and put back after.
 
 create wins #64 allot
 header nwin create nwin 0 ,
@@ -419,6 +421,24 @@ create vsum -1 ,
     rwin @ rcov @ rdesk @ rgn-diff
 ;
 
+\ A window may draw over its content straight onto the screen, as the pointer
+\ and a dragged window's outline are drawn over everything: the Words window's
+\ box.  It stores a word in 'overlay, which is told false before anything is
+\ painted, to take off what it drew, and true after, to put it back.  It draws
+\ in its port with win-port, which shows only where the window can be seen.
+header 'overlay create 'overlay 0 ,     \ ( on? -- )
+
+: overlay ( on? -- ) 'overlay @ ?dup if execute else drop then ;
+header overlays-off : overlays-off ( -- ) cursor-off drag-off false overlay ;
+header overlays-on  : overlays-on  ( -- ) true overlay drag-show cursor-show ;
+
+header win-port : win-port ( win -- ) \ draw in its content where it can be seen, until screen-port @ port!
+    visible  dup cw !
+    dup c# 8 + @ port!  dup content origin!
+    d# 0 d# 0 cw.w d# 2 - cw.h d# 20 - clip!
+    c# 9 + @ rgn-clip!
+;
+
 \ What a window says has changed is out of date only where the window can
 \ be seen.  Where another window lies over it there is nothing of this one
 \ to paint, and to put that out of date would have the one on top painted
@@ -444,7 +464,7 @@ header refresh : refresh ( -- ) \ paint what is out of date
     rd @ ru @ rd ! ru !                             \ paint this; start another
     rd @ rgn-none
     visible
-    cursor-off  drag-off                            \ while the clip is still the whole screen
+    overlays-off                                    \ while the clip is still the whole screen
     ru @ rdesk @ rpaint @ rgn-and
     rpaint @ rgn-empty? 0= if
         uclip  rpaint @ rgn-clip!
@@ -470,7 +490,7 @@ header refresh : refresh ( -- ) \ paint what is out of date
         then
     then
     noclip
-    drag-show  cursor-show
+    overlays-on
 ;
 
 : repaint ( -- ) d# 0 d# 0 fb-w @ fb-h @ inval-rect ;

@@ -701,7 +701,8 @@ header see
 \ Up and Down move through the dictionary, PgUp and PgDn by a
 \ page.  A click on a name shows it.  A click on an underlined
 \ word follows it, and Backspace comes back.  Left and Right
-\ scroll a long definition by half a window.
+\ scroll a long definition by half a window.  The list and the
+\ definition are as many lines as the window is tall.
 
 $2d constant SCOLS      \ characters across the definition
 
@@ -718,10 +719,11 @@ create srow 0 ,
 
 \ What is drawn of a definition is noted, so that the pointer
 \ can be told what it is on: a place is the column, the line
-\ (from bit 6) and how many characters (from bit 10), which a
-\ cell of any size holds.  A link is its place and the execution
-\ token it goes to, and an instruction its place and the
-\ instruction: two cells each, 96 links and 192 instructions, in
+\ (from bit 6) and how many characters (from bit 11), which a
+\ cell of any size holds if a token is noted as 31 characters at
+\ the most.  A link is its place and the execution token it goes
+\ to, and an instruction its place and the instruction: two
+\ cells each, six links a line and twelve instructions, in
 \ memory that is asked for when the window is first drawn.
 create lk 0 ,    \ links drawn
 create nlk 0 ,
@@ -731,6 +733,7 @@ create lku 0 ,
 create crow 0 ,
 create ccol 0 ,
 create wtmp 0 ,
+
 create wwin 0 ,  \ the window
 
 create mt 0 ,    \ instructions drawn
@@ -782,11 +785,17 @@ header t-words create t-words ," Words"
     2drop d# -1
 ;
 
+: wlines ( -- n ) \ how many lines the window shows
+    wwin @ c# 3 + @ d# 20 - d# 4 rshift ;
+
+: wlinks ( -- n ) wlines d# 6 * ;    \ the most links noted,
+: winstrs ( -- n ) wlines d# 12 * ;  \ and instructions
+
 : wpick ( i -- ) \ show the i'th word, and keep it in the list
     d# 0 max nwords 1- min
     dup nth hxt wxt !  d# 0 wsrc !
     dup wtop @ < if dup wtop ! then
-    dup wtop @ d# 15 + > if dup d# 15 - wtop ! then
+    dup wtop @ wlines + < 0= if dup wlines - 1+ wtop ! then
     wsel !
 ;
 
@@ -794,7 +803,7 @@ header t-words create t-words ," Words"
     dup wxt !  d# 0 wsrc !
     xt>hdr ?dup if
         hdr>i dup 0< 0= if
-            dup wtop @ - d# 16 u< 0= if dup wtop ! then
+            dup wtop @ - wlines u< 0= if dup wtop ! then
         then
         drop
     then
@@ -834,13 +843,13 @@ header t-words create t-words ," Words"
 \ characters before the token, and is as many longer.
 : gplace ( n -- place )
     >r  scol @ r@ -  srow @ wsrc @ - d# 6 lshift or
-    lku @ r> + d# 10 lshift or
+    lku @ r> + d# 31 min d# 11 lshift or
 ;
 
 : glink ( xt -- ) \ a link to xt: underlined, and noted
     dup 0< if drop exit then
     false lkx @ lky @ d# 15 + lku @ d# 3 lshift hline
-    nlk @ d# 96 < if
+    nlk @ wlinks < if
         d# 0 gplace nlk @ 2* lk @ + !
         nlk @ 2* lk @ + 1+ !
         d# 1 nlk +!
@@ -856,7 +865,7 @@ header t-words create t-words ," Words"
     sbold @  sgap @ srow @ =  and
     dup if false lkx @ d# 8 - lky @ d# 15 + d# 8 hline then
     negate                     ( 1 if the space is its too )
-    nmt @ d# 192 < if
+    nmt @ winstrs < if
         gplace nmt @ 2* mt @ + !
         smach @ nmt @ 2* mt @ + 1+ !
         d# 1 nmt +!
@@ -867,7 +876,7 @@ header t-words create t-words ," Words"
 
 : gtok ( addr u xt -- )
     >r dup lku !  gwrap
-    srow @ wsrc @ - dup d# 16 u< if
+    srow @ wsrc @ - dup wlines u< if
         gdraw  r@ glink  smach @ if ginstr then
     else
         drop 2drop
@@ -927,13 +936,14 @@ header t-words create t-words ," Words"
     sbn @ d# 3 lshift d# 6 + hovw !
     hovp @ h# 3f and d# 3 lshift d# 110 +
     wwin @ CELL2 + @ d# 2 - hovw @ - min  d# 108 max  hovx !
-    hovp @ d# 6 rshift h# f and
-    dup d# 14 < if 1+ d# 4 lshift else d# 4 lshift d# 18 - then
+    hovp @ d# 6 rshift h# 1f and
+    dup wlines d# 2 - < if
+        1+ d# 4 lshift
+    else
+        d# 4 lshift d# 18 -
+    then
     hovy !
 ;
-
-: hov-inval ( -- )
-    hov @ if hovx @ hovy @ hovw @ d# 18 wwin @ win-inval then ;
 
 : hov-draw ( -- )
     hov @ 0= if exit then
@@ -943,12 +953,48 @@ header t-words create t-words ," Words"
     hovx @ d# 3 + hovy @ 1+ sb-draw
 ;
 
+\ The box is not part of what the window draws.  It is drawn
+\ over it straight onto the screen, as the pointer is, while the
+\ window is in front: what is under it is kept, whole cells a
+\ row at a time, and put back when it goes (wm.fs, 'overlay).
+\ If the window has moved since, where it was is painted again,
+\ and nothing is put back.
+create hovk 0 , 0 ,  \ what is under it: a bitmap of its cells
+create hovon 0 ,     \ true while it is on the screen,
+create hovox 0 ,     \ and where the window's content was then
+create hovoy 0 ,
+
+: hrect ( -- x y w h )
+    \ the box, as much of it as is in the window
+    hovx @ hovy @
+    wwin @ CELL2 + @ d# 2 - hovx @ -  hovw @ min  d# 18 ;
+
+: hov-on ( -- ) \ what is under it kept, and it drawn
+    hovon @  hov @ 0=  or  top wwin @ <>  or if exit then
+    wwin @ content hovoy ! hovox !
+    wwin @ win-port  hovk hrect keep-bits  hov-draw
+    screen-port @ port!  true hovon !
+;
+
+: hmoved? ( -- f ) \ has the window moved since it was put on?
+    wwin @ content  hovoy @ <>  swap hovox @ <>  or ;
+
+: hov-off ( -- ) \ what was under it put back
+    hovon @ 0= if exit then
+    d# 0 hovon !
+    hmoved? if exit then
+    wwin @ win-port  copy-mode  hovk hrect put-bits
+    screen-port @ port!
+;
+
+: hov-overlay ( on? -- ) if hov-on else hov-off then ;
+
 \ what the pointer is on, of the instructions drawn; or
 \ nothing twice
 : at? ( place -- f )
     \ the pointer's line and column, in the place
-    dup d# 6 rshift h# f and crow @ =  swap
-    ccol @ over h# 3f and -  swap d# 10 rshift u<  and
+    dup d# 6 rshift h# 1f and crow @ =  swap
+    ccol @ over h# 3f and -  swap d# 11 rshift u<  and
 ;
 
 : hover ( -- place ins )
@@ -968,22 +1014,22 @@ header t-words create t-words ," Words"
     drop d# 0 d# 0
 ;
 
-\ The window manager runs this when the pointer has moved.  The
-\ box is part of what the window draws, so it is put out of date
-\ where it was and where it is to be, and painted with the rest.
+\ The window manager runs this when the pointer has moved: the
+\ box is taken off where it was, and put on where it is to be.
 : words-moved ( -- )
     hover
     over hovp @ =  over hov @ =  and if 2drop exit then
-    hov-inval
-    hov !  hovp !
-    hov @ if hov-box hov-inval then
+    overlays-off  hov !  hovp !  hov @ if hov-box then
+    overlays-on
 ;
 
 : wfirst ( -- ) \ the first time it is drawn
     true winit !  d# 0 wpick
-    d# 192 >c halloc lk !  d# 384 >c halloc mt !
+    wlinks 2* >c halloc lk !  winstrs 2* >c halloc mt !
+    wwin @ CELL2 + @ PXSHIFT rshift d# 2 +  dup hovk 1+ !
+    d# 18 * >c halloc hovk !
     ['] words-front wwin @ win-front !
-    ['] words-moved 'moved !
+    ['] words-moved 'moved !  ['] hov-overlay 'overlay !
 ;
 
 : wlist ( -- ) \ the words, the one chosen white on black
@@ -991,7 +1037,7 @@ header t-words create t-words ," Words"
     d# 0 wi !
     wtop @ nth
     begin
-        dup 0<> wi @ d# 16 < and
+        dup 0<> wi @ wlines < and
     while
         wi @ wtop @ + wsel @ = inverse !
         dup hname d# 13 min
@@ -1004,7 +1050,7 @@ header t-words create t-words ," Words"
 ;
 
 : wdef ( -- ) \ the definition, on the right
-    false d# 108 d# 0 d# 1 d# 256 fill-rect
+    false d# 108 d# 0 d# 1 wlines d# 4 lshift fill-rect
     d# 0 scol !  d# 0 srow !  d# 0 nlk !  d# 0 nmt !
     ['] gtok 'tok !  ['] gnl 'nl !
     wxt @ sdecomp
@@ -1016,7 +1062,7 @@ header words-draw : words-draw ( win -- )
     winit @ 0= if wfirst then
     names-load  \ in for as long as it is drawn, if not
                 \ in already
-    wlist  wdef  hov-draw
+    wlist  wdef
     top wwin @ <> if names-unload then  \ drawn behind another:
                                         \ the tables can go
 ;
@@ -1040,7 +1086,7 @@ create wtop0 0 ,
 ;
 
 : wline ( i -- ) \ a line of the list
-    wtop @ - dup d# 16 u< if
+    wtop @ - dup wlines u< if
         >r d# 0 r> d# 4 lshift d# 108 d# 16 wwin @ win-inval
     else
         drop
@@ -1050,7 +1096,7 @@ create wtop0 0 ,
 : wbefore ( win -- )
     \ before a key or a click, which takes the box away
     wwin !  wsel @ wsel0 !  wtop @ wtop0 !
-    hov-inval  d# 0 hov !  d# 0 hovp !
+    overlays-off  d# 0 hov !  d# 0 hovp !  overlays-on
 ;
 
 : wpicked ( -- ) \ after wpick
@@ -1058,18 +1104,23 @@ create wtop0 0 ,
     wsel0 @ wline  wsel @ wline  wpane
 ;
 
+: whalf ( -- n ) wlines d# 1 rshift ;  \ half the lines shown
+
+: wscroll ( n -- ) \ the definition from its nth line
+    d# 0 max  wrows @ 1- min  wsrc !  wpane ;
+
 header words-key : words-key ( c win -- )
     wbefore
     dup d# 128 = if drop wsel @ 1- wpick wpicked exit then
     dup d# 129 = if drop wsel @ 1+ wpick wpicked exit then
-    dup d# 132 = if drop wsel @ d# 16 - wpick wpicked exit then
-    dup d# 133 = if drop wsel @ d# 16 + wpick wpicked exit then
-    dup d# 130 = if
-        drop wsrc @ d# 8 - d# 0 max wsrc ! wpane exit
+    dup d# 132 = if
+        drop wsel @ wlines - wpick wpicked exit
     then
-    dup d# 131 = if
-        drop wsrc @ d# 8 + wrows @ 1- min wsrc ! wpane exit
+    dup d# 133 = if
+        drop wsel @ wlines + wpick wpicked exit
     then
+    dup d# 130 = if drop wsrc @ whalf - wscroll exit then
+    dup d# 131 = if drop wsrc @ whalf + wscroll exit then
     d# 8 = if wback then
     wall
 ;

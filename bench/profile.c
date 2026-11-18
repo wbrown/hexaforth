@@ -46,6 +46,18 @@ static const struct { const char* name; const char* does; } DONE[] = {
     {"raising the calculator", "front:calc"},
     {"the calculator: keys and buttons", "'12\r34+' click:calc+17+108 click:calc+119+132"},
     {"bringing windows to the front in turn, until it is the Words window", "cycle:words"},
+    {"the Words window: finding dither-row, and choosing it",
+     "click:words+10+8 away down find:dither-row,dither-start name:dither-row"},
+    // The Words window's definition starts 112 across its content, 8 by 16
+    // a character: the pointer is put on every other character of the
+    // definition's second and third lines.
+    {"the Words window: the pointer over the definition, from one word to the next",
+     "at:words+116+18 at:words+132+18 at:words+148+18 at:words+164+18 at:words+180+18 at:words+196+18 "
+     "at:words+212+18 at:words+228+18 at:words+244+18 at:words+260+18 at:words+276+18 at:words+292+18 "
+     "at:words+308+18 at:words+324+18 "
+     "at:words+116+34 at:words+132+34 at:words+148+34 at:words+164+34 at:words+180+34 at:words+196+34 "
+     "at:words+212+34 at:words+228+34 at:words+244+34 at:words+260+34 at:words+276+34 at:words+292+34 "
+     "at:words+308+34 at:words+324+34"},
     {"the Words window: choosing a word", "click:words+10+72"},
     {"the Words window: six words down, and a page", "down down down down down down pgdn"},
     {"raising the Forth window, and dragging it away and back", "front:forth drag:forth+60+50 drag:forth-60-50"},

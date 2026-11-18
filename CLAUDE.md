@@ -228,7 +228,10 @@ test is CMake's to build and run.
   word's name, so `cross.fs` refuses such a macro. A baseword is the
   one macro a word may be named for, since that is how it is given a body
 - Nothing draws when something changes: it says what is out of date
-  (`inval-rect`, `win-inval`) and the event loop paints it. Everything
+  (`inval-rect`, `win-inval`) and the event loop paints it. The pointer,
+  a dragged window's outline and a window's overlay (`'overlay`, wm.fs)
+  are drawn straight onto the screen instead, and are taken off before
+  anything is painted and put back after. Everything
   that draws takes coordinates in the port, and nothing outside
   `display.fs` knows how the display is laid out. (A port here is the
   record of how drawing is done, its origin, clip, pattern and font, which
