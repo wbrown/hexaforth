@@ -1699,11 +1699,14 @@ meta
 target
 
 \ The nucleus's peephole (join.fs) is in every size of machine.  A machine
-\ with a display, whatever its cell, has all of system.fs, the desktop,
-\ with the peephole after everything else.  One with no display has the
-\ peephole alone.
+\ with a display, whatever its cell, has a system: system.fs, the desktop,
+\ or another list that SYSTEM names (picture.fs), with the peephole after
+\ everything else.  One with no display has the peephole alone.
 DISPLAY? [if]
-include system.fs
+include-system
+\ What the image has above its display is all laid down: what is given out
+\ at run time starts after it, at an even cell.
+meta lofty [if]  thi @ byte-shift rshift 1+ -2 and  t' himem tvar!  [then] target
 [else]
 include join.fs
 [then]

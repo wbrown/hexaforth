@@ -1,2 +1,20 @@
 build/
 forth/test_cases.fs
+
+# What CMake makes when it is configured in the source's own directory, and
+# not in build/cmake: its cache and makefiles, and what it builds there.
+/CMakeCache.txt
+/CMakeFiles/
+/Makefile
+/cmake_install.cmake
+/basewords-fs-gen
+/examine-image
+/fewer_test
+/generate-test-cases
+/hexaforth
+/hexaforth-debug
+/hexaforth_test
+/hexaforth_test.debug
+/kernel_test
+/libvm_core.a
+/libvm_core_debug.a

@@ -2,24 +2,28 @@
 // shorter IMAGE.hex IMAGE.tables COUNTS [REPORT]
 //
 // Fewer instructions that do what a loop does, wherever its values are
-// kept: for each loop of the image that ran and calls nothing, what a turn
-// costs now, and the fewest instructions found that do a turn.  What a
-// loop and its turn are is loops.c's to say, the ways fewer are looked for
-// turns.c's, and the search fewer.c's; this orders the loops by the work
-// done in them and says what was found.
+// kept: for each loop of the image that ran, with the words it calls put in
+// place, what a turn costs now, and the fewest instructions found that do a
+// turn.  What a loop and its turn are is loops.c's to say, the ways fewer
+// are looked for turns.c's, and the search fewer.c's; this orders the loops
+// by the work done in them and says what was found.
 //
 // COUNTS is the work by place, as bench/profile.c leaves it
 // (build/profile/desktop.counts; work.c).  ONLY in the environment is
 // words, with commas between, whose loops alone are looked at.  Every loop
-// that ran and calls nothing is looked at, however long its turn; how
-// long a search may take is said once, in CMakeLists.txt (SEARCH_STATES,
-// which fewer.c has).
+// that ran and has a turn is looked at, however long its turn; how long a
+// search may take is said once, in CMakeLists.txt (SEARCH_STATES, which
+// fewer.c has).
 //
 // The report is build/shorter.txt if none is named: for each loop, the
 // turn as it is, each way that fewer do it, and for each way it was looked
-// for how many searches were made and how many of them were given up.  A
-// line a loop is printed as it is done, with how many instructions the
-// turn is and the fewest found.  It fails if no loop ran.
+// for how many searches were made and how many of them were given up.  It
+// is written a line at a time, so what is done can be read while the rest
+// is looked for.  A line a loop is printed as it is done, with how many
+// instructions the turn is and the fewest found; and a line a search to
+// stderr as each is made, with the loop, the way, how many instructions
+// were looked for of how many, and whether it was given up, so that a long
+// loop says how far it has got.  It fails if no loop ran.
 //
 
 #include "../util/fuse.c"
@@ -52,6 +56,18 @@ static int named_in(const char* list, const char* name) {
         if (!strncmp(at, name, len) && (at[len] == ',' || !at[len])) return(1);
     }
     return(0);
+}
+
+// A search as it is made, a line to stderr (turns.c, a_search).
+static const char* searching_in;        // the loop: its word and places
+static long searches;                   // made of it so far
+
+static void a_search_said(int how, int length, int of, int given_up) {
+    static const char* const WAYS[] = {
+        [KEPT_HERE] = "where they are", [KEPT_ANYWHERE] = "anywhere", [TEST_AT_BOTTOM] = "test at the bottom",
+        [A_PART_AT_A_TIME] = "a part at a time", [NUMBER_IN_R] = "a number in R" };
+    fprintf(stderr, "%s: search %ld, %s, %d of %d%s\n", searching_in, ++searches, WAYS[how], length, of,
+            given_up ? ": given up" : "");
 }
 
 // A way that fewer instructions do a turn, as a line of the report.
@@ -100,6 +116,8 @@ int main(int argc, char *argv[]) {
     free(counts);
     FILE* out = fopen(report, "w");
     if (!out) { perror(report); return(1); }
+    setvbuf(out, NULL, _IOLBF, 0);                      // a line at a time, to be read while the rest is looked for
+    a_search = a_search_said;
 
     int loops = loops_of(&IMAGE, &LOOPS), ran_loops = 0, looked = 0;
     int* order = room_for(loops, sizeof(int));
@@ -107,8 +125,8 @@ int main(int argc, char *argv[]) {
     for(long at=0; at < n; at++) all += IMAGE.code[at] ? work[at] : 0;
     for(int idx=0; idx < loops; idx++) if (work[LOOPS[idx].tail] >= 1) order[ran_loops++] = idx;
     qsort(order, ran_loops, sizeof(int), by_work);
-    fprintf(out, "%s: loops that call nothing, by how often they ran.  A search is given up after %ld states.\n\n",
-            argv[1], (long)SEARCH_STATES);
+    fprintf(out, "%s: the loops that ran, with the words they call put in place, by how often they ran.  A search is "
+            "given up after %ld states.\n\n", argv[1], (long)SEARCH_STATES);
 
     for(int idx=0; idx < ran_loops; idx++) {
         const loop* l = &LOOPS[order[idx]];
@@ -132,6 +150,8 @@ int main(int argc, char *argv[]) {
             free(is.own);
             continue;
         }
+        searching_in = title;
+        searches = 0;
         if (!shorten(&is, SEARCH_STATES, &s)) {
             fprintf(out, "%s: not looked at (the step cannot follow a turn)\n", title);
             free(is.own);

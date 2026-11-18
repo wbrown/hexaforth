@@ -89,12 +89,10 @@ create pstate 0 ,       \ 0 not looked at yet, 1 the disk has the canvas, 2 it h
     swap rows-of pcv CELL + @ *
 ;
 
-: (with-blk) ( xt -- ) d# 1024 halloc pblk !  execute ;
+: (with-blk) ( xt a -- ) pblk !  execute ;
 
-: with-blk ( xt -- ok? ) \ run it with memory for a block in hand; false if the disk would not
-    himem @ >r
-    ['] (with-blk) catch if drop false else true then
-    r> himem !
+: with-blk ( xt -- ok? ) \ run it with a block of memory at pblk; false if that failed
+    d# 1024 ['] (with-blk) with-room
 ;
 
 : mark? ( -- f ) \ the block in hand says there is a canvas of this machine's
@@ -178,14 +176,13 @@ create pstate 0 ,       \ 0 not looked at yet, 1 the disk has the canvas, 2 it h
     d# 0 pcv !
 ;
 
-: paint-front ( -- ) \ the window in front has changed
+: paint-front ( win -- ) \ HexaPaint's window has come to the front: read the canvas in
+    drop
     paged? 0= if exit then
-    top pwin @ = if
-        pstate @ d# 1 = if canvas then              \ one that has not been drawn in is asked for when it is
-    else
-        page-out
-    then
+    pstate @ d# 1 = if canvas then                  \ a canvas not on the disk yet is made when first drawn in
 ;
+
+: paint-back ( win -- ) drop page-out ;            \ another window has come in front: write the canvas out
 
 : paint-init ( -- ) \ once
     cv-w @ if exit then
@@ -196,7 +193,8 @@ create pstate 0 ,       \ 0 not looked at yet, 1 the disk has the canvas, 2 it h
     p-white ppats !  p-black ppats 1+ !  p-dkgray ppats CELL2 + !  p-gray ppats c# 3 + !
     p-ltgray ppats c# 4 + !  p-brick ppats c# 5 + !  p-diag ppats c# 6 + !  p-dots ppats c# 7 + !
     p-black ppat !
-    ['] paint-front on-front  paint-front
+    ['] paint-front pwin @ win-front !  ['] paint-back pwin @ win-back !
+    top pwin @ = if pwin @ paint-front then
 ;
 
 \ ---- a run of pixels, in the canvas

@@ -8,13 +8,18 @@
 // block to be.  The picture is a TIFF as it is.  NAMES is the names the
 // build made to go with the image
 // (build/nuc.tables).  After them are the blocks kept for HexaPaint's
-// canvas, which are nothing until it is drawn in.
+// canvas, which are nothing until it is drawn in, and then the threshold
+// masks that a picture kept as gray is drawn through: blue noise of 64 by
+// 64 and of 32 by 32, and Bayer's of 8 by 8, as planes of bits
+// (util/bluenoise.c, mask_planes).  Last are the blocks the viewer writes
+// its dithered bitmap to, which start out empty.
 //
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "../vm_constants.h"
+#include "bluenoise.c"
 
 // A disk is a whole number of these, as a disk that is a file is made.
 #define DISK_ROUND 64
@@ -86,9 +91,27 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Usage: %s PICTURE.tiff OUT.img [SOURCE.fs [NAMES]]\n", argv[0]);
         return(1);
     }
-    int blocks = DISK_CANVAS_BLOCK + DISK_CANVAS_BLOCKS;
+    _Static_assert(DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS <= DISK_VIEW_BLOCK, "the viewer's bitmap is after the masks");
+    int blocks = DISK_VIEW_BLOCK + DISK_VIEW_BLOCKS;
     while (blocks % DISK_ROUND) blocks++;
     disk = calloc(blocks, DISK_BLOCK);
+
+    // Each mask, a row of its planes being so many bytes, up to the block of the next.
+    #define MASK_BYTES(n) ((n) * DISK_MASK_PLANES * DISK_MASK_WIDTH / 8)
+    _Static_assert(DISK_CANVAS_BLOCK + DISK_CANVAS_BLOCKS <= DISK_MASKS_BLOCK, "the masks are after the canvas");
+    _Static_assert(DISK_MASKS_BLOCK * DISK_BLOCK + MASK_BYTES(64) <= DISK_MASK32_BLOCK * DISK_BLOCK,
+                   "the mask of 64 by 64 is before the one of 32 by 32");
+    _Static_assert(DISK_MASK32_BLOCK * DISK_BLOCK + MASK_BYTES(32) <= DISK_BAYER_BLOCK * DISK_BLOCK,
+                   "and that before Bayer's");
+    _Static_assert(DISK_BAYER_BLOCK * DISK_BLOCK + MASK_BYTES(8) <= (DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS) * DISK_BLOCK,
+                   "the masks are in their blocks");
+    uint8_t thresholds[64 * 64];
+    blue_bytes(64, thresholds);
+    mask_planes(thresholds, 64, disk + (size_t)DISK_MASKS_BLOCK * DISK_BLOCK);
+    blue_bytes(32, thresholds);
+    mask_planes(thresholds, 32, disk + (size_t)DISK_MASK32_BLOCK * DISK_BLOCK);
+    bayer_bytes(thresholds);
+    mask_planes(thresholds, 8, disk + (size_t)DISK_BAYER_BLOCK * DISK_BLOCK);
 
     uint8_t* bytes;
     size_t len;

@@ -13,7 +13,7 @@
 // and shifts.  Nothing is built from what is here.
 //
 // FORTH is where the system's source is.  The fonts and the patterns are
-// tables there (font.fs, display.fs), written as source to be read, and
+// tables there (mono.fs, sans.fs, display.fs), written as source to be read, and
 // they are read from there: the test has no glyph and no pattern of its
 // own.
 //

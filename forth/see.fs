@@ -667,7 +667,7 @@ header t-words create t-words ," Words"
 \ window four times the work of leaving any other.  And what it shows is
 \ the same whenever it is drawn: a word with no header by its name, where
 \ behind another window it was a number.
-: words-front ( -- ) top wwin @ = if names-load then ;
+: words-front ( win -- ) drop names-load ;         \ when the Words window comes to the front
 
 : nwords ( -- n )
     d# 0 forth @
@@ -863,7 +863,7 @@ header words-draw : words-draw ( win -- )
     winit @ 0= if
         true winit !  d# 0 wpick
         d# 192 >c halloc lk !  d# 384 >c halloc mt !
-        ['] words-front on-front  words-front
+        ['] words-front wwin @ win-front !
         ['] words-moved 'moved !
     then
     names-load                                      \ in for as long as it is drawn, if not in already

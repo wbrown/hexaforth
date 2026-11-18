@@ -226,6 +226,13 @@ static int by_parts(uint16_t* code, int len, long states, int* searched, int* gi
 
 enum { KEPT_HERE, KEPT_ANYWHERE, TEST_AT_BOTTOM, A_PART_AT_A_TIME, NUMBER_IN_R };
 
+// Each search as it is made, for whoever wants to say how far it has got:
+// the way (above), how many instructions were looked for, of how many in
+// what is being made shorter, and whether it was given up.  Nothing is
+// said if it is not set.
+static void (*a_search)(int how, int length, int of, int given_up);
+#define SEARCHED(how, length, of, given_up) do { if (a_search) a_search((how), (length), (of), (given_up)); } while (0)
+
 typedef struct {
     int how;                            // which way it was found
     uint16_t code[LAID];                // the instructions before the branch that goes back,
@@ -279,6 +286,7 @@ static int shorten(const turn* is, long states, shortened* s) {
                 }
                 s->searched[how]++;
                 s->gave_up[how] += given_up;
+                SEARCHED(how, length, t->now - 1, given_up);
             }
         }
         if (!way_found) continue;
@@ -302,6 +310,7 @@ static int shorten(const turn* is, long states, shortened* s) {
         int searched, given_up;
         uint16_t turned = at_top ? test_turned(is, states, &searched, &given_up) : 0;
         if (at_top) s->searched[TEST_AT_BOTTOM] += searched, s->gave_up[TEST_AT_BOTTOM] += given_up;
+        if (at_top && searched) SEARCHED(TEST_AT_BOTTOM, 1, is->tests, given_up);
         memcpy(known_to, is->body, is->bodies * sizeof(uint16_t));
         known_len = is->bodies;
         if (at_top && turned) known_to[known_len++] = turned;
@@ -334,6 +343,7 @@ static int shorten(const turn* is, long states, shortened* s) {
             int given_up = 0, is = turn_with(t, pushed[n], puts, length, states, found, &given_up);
             s->searched[NUMBER_IN_R]++;
             s->gave_up[NUMBER_IN_R] += given_up;
+            SEARCHED(NUMBER_IN_R, length, s->fewest - 1, given_up);
             if (is) {
                 a_way(s, NUMBER_IN_R, found, length)->number = pushed[n];
                 break;
@@ -364,6 +374,7 @@ static int by_parts(uint16_t* code, int len, long states, int* searched, int* gi
                     int gave_up_this, is = exactly(&WANTED, NULL, length, states, found, &gave_up_this);
                     ++*searched;
                     *given_up += gave_up_this;
+                    SEARCHED(A_PART_AT_A_TIME, length, size, gave_up_this);
                     if (!is) continue;
                     if (agree_on_machine(code + at, size, found, length, NULL, NULL, 0, last, 0, 0) <= 0) continue;
                     memmove(code + at + length, code + at + size, (len - at - size) * sizeof(uint16_t));

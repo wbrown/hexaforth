@@ -156,8 +156,10 @@ header p-ltgray create p-ltgray  $88 prow, $22 prow, $88 prow, $22 prow, $88 pro
 header p-dkgray create p-dkgray  $77 prow, $dd prow, $77 prow, $dd prow, $77 prow, $dd prow, $77 prow, $dd prow,
 
 \ The n leftmost pixels of a cell are looked up, not made: making them is a
-\ shift by a whole cell less n, and one of none is a shift the machine does
-\ not promise.
+\ shift by a whole cell less n, and for none that is a shift by the width
+\ of a cell.  A shift is taken modulo 64 (MODEL.md), so with cells of 16
+\ and 32 bits that gives nothing, but with 64 it shifts by nothing, and
+\ would be every pixel.
 create lefts  lefts,
 
 : leftn ( n -- mask ) lefts + @ ;
@@ -729,7 +731,7 @@ header copy-end create copy-end
     while
         \ Where the cell comes from goes on the return stack, where it is
         \ what the store reads from: two instructions for a cell moved, and
-        \ the test that ends the turn takes it off again.
+        \ the second takes it off again, the rdrop being joined to it.
         over  meta R->IN IN+N ->R d-1 r+1 alu target    ( R: dist from )
         meta R->IN [IN] ->[T] alu target
         1+ rdrop
@@ -839,6 +841,74 @@ header xor8
     ?dup if r@ 1+ x! then
     r> x!
 ;
+
+\ A column one pixel wide, inverted where the port's pattern has ink: the
+\ sides of a window's outline while it is dragged (wm.fs).  pat-rect would
+\ do the same, but goes through its whole setup for every row.  It is in
+\ screen coordinates, as xor8 is, and leaves out what is off the screen.
+\
+\ The pattern repeats every 8 rows, so the column is done in 8 passes, one
+\ per pattern row.  Each pass works out its bits and its first cell once,
+\ then inverts that cell every 8 rows by adding 8 rows' stride; a pattern
+\ row with no ink in the column is skipped.  On a banked display the rows
+\ are not a fixed stride apart, and each row is found with `row`.
+
+: (column-bits) ( x y -- bits a ) \ the column's pixel in row y, masked by the pattern's row for y; and its cell
+    tuck prow >r                                    ( y n ) ( R: the cell )
+    d# 1 leftn swap PIXR                            ( y pixel )
+    swap d# 7 and pattern @ + @ and  r>
+;
+
+BANKED? [if]
+
+header xor-column
+: xor-column ( x y n -- ) \ invert column x for n rows from y, where the pattern has ink
+    over + fb-h @ min >r  d# 0 max                  ( x y ) ( R: the row after the last )
+    over fb-w @ u< 0= if 2drop rdrop exit then      \ the column is off the screen
+    begin
+        dup r@ <
+    while
+        2dup (column-bits) x!
+        1+
+    repeat
+    2drop rdrop
+;
+
+[else]
+
+: column-run ( bits end a -- ) \ invert bits in the cell at a, and in the same cell every 8 rows down, before end
+    rot ?dup 0= if 2drop exit then  >r              ( end a ) ( R: bits )
+    begin
+        2dup u>
+    while
+        r@ over x!
+        DISP-STRIDE d# 3 lshift +
+    repeat
+    2drop rdrop
+;
+
+: column-pass ( x k end -- ) \ the pass for pattern row k & 7: rows k, k + 8, ... before row end
+    >r  over >r  (column-bits)                      ( bits a ) ( R: end x )
+    r> PXSHIFT rshift  r> row +                     ( bits a end-cell )
+    swap column-run
+;
+
+header xor-column
+: xor-column ( x y n -- ) \ invert column x for n rows from y, where the pattern has ink
+    over + fb-h @ min  swap d# 0 max swap           ( x y end ) \ clipped to the screen's rows
+    rot dup fb-w @ u< 0= if drop 2drop exit then  -rot      \ the column is off the screen
+    d# -8 >r                                        ( R: passes left, as less than nothing )
+    begin
+        r@
+    while
+        3dup column-pass
+        swap 1+ swap
+        r> 1+ >r
+    repeat
+    rdrop drop 2drop
+;
+
+[then]
 
 \ ---- text
 \
@@ -1366,9 +1436,9 @@ header port! : port! ( port -- ) \ put the port in use away, and take up another
     reclip
 ;
 
-header new-port : new-port ( -- port ) \ the whole screen, black, copying, plain text in mono
+header new-port : new-port ( -- port ) \ the whole screen, black, copying, plain text in the system's plain font
     PORT-CELLS cells >c halloc >r
-    mono r@ c# 11 + !
+    plain-font r@ c# 11 + !
     fb-w @ r@ c# 4 + !  fb-h @ r@ c# 5 + !
     fb-w @ r@ c# 15 + !  fb-h @ r@ c# 16 + !
     p-black r@ c# 6 + !

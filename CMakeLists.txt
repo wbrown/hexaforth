@@ -234,8 +234,11 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-set(CMAKE_C_FLAGS_RELEASE "-save-temps -O2 -fverbose-asm -fcommon")
-set(CMAKE_C_FLAGS_DEBUG "-save-temps -g -fverbose-asm -fcommon")
+# What the compiler made on the way, the assembly among it, is kept beside
+# each object: a source is compiled for each machine, often at once, and
+# kept where it was compiled from they would be written over each other.
+set(CMAKE_C_FLAGS_RELEASE "-save-temps=obj -O2 -fverbose-asm -fcommon")
+set(CMAKE_C_FLAGS_DEBUG "-save-temps=obj -g -fverbose-asm -fcommon")
 
 if(DEBUG)
    add_compile_definitions(DEBUG)
@@ -486,6 +489,14 @@ function(wanted)
     set_property(GLOBAL APPEND PROPERTY WANTED ${ARGN})
 endfunction()
 
+# How long a test may run before it is stopped and fails, so that a hung
+# test (a machine running wild, a desktop that never comes up) does not
+# hang check.  Tests on the host take seconds and QEMU's take minutes; each
+# limit is at least ten times that.  A test that hits its limit has hung,
+# or has got much slower, which is worth looking into either way.
+set(TEST_SECONDS 60)
+set(QEMU_TEST_SECONDS 600)
+
 # The three that the target `tests` runs are tests like any other.
 add_custom_target(test-cases DEPENDS ${BUILD}/test_cases.hex)
 add_test(NAME instructions COMMAND hexaforth_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
@@ -504,6 +515,44 @@ add_custom_command(
                             "https://sipi.usc.edu/database/download.php?vol=misc&img=4.2.03"
         VERBATIM)
 add_custom_target(picture DEPENDS ${PICTURE})
+
+# The Mandrill as one-sample gray TIFFs, using the dither's own grays: at
+# full size, and at half size.  bench/disk.c writes them, along with the
+# benchmarks' disk.
+set(GRAYS ${BUILD}/mandrill-grays.tiff)
+set(SMALL ${BUILD}/mandrill-small.tiff)
+
+# A disk for the desktop, made as QEMU's is: block 1 for the editor, a
+# picture, and an image's tables of names.  mkdisk's output goes to a .log
+# file of the same name beside it.
+function(desk_disk DISK FROM TABLES)
+    get_filename_component(AT ${DISK} DIRECTORY)
+    get_filename_component(LOG ${DISK} NAME_WE)
+    add_custom_command(
+            OUTPUT            ${DISK}
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}
+            COMMAND           mkdisk ${FROM} ${DISK} ${CMAKE_SOURCE_DIR}/baremetal/block1.fs ${TABLES}
+                                > ${AT}/${LOG}.log 2>&1
+            DEPENDS           mkdisk picture ${FROM} baremetal/block1.fs ${TABLES})
+endfunction()
+
+# Two more of that database, smoother than the Mandrill, for what is
+# measured of pictures (tiles-report): Peppers and the F-16.  Nothing else
+# reads them.
+set(PEPPERS ${BUILD}/peppers.tiff)
+set(AIRPLANE ${BUILD}/airplane.tiff)
+add_custom_command(
+        OUTPUT            ${PEPPERS}
+        COMMAND           ${MAKE_BUILD_DIR}
+        COMMAND           ${CURL} -sSfL --remove-on-error -o ${PEPPERS}
+                            "https://sipi.usc.edu/database/download.php?vol=misc&img=4.2.07"
+        VERBATIM)
+add_custom_command(
+        OUTPUT            ${AIRPLANE}
+        COMMAND           ${MAKE_BUILD_DIR}
+        COMMAND           ${CURL} -sSfL --remove-on-error -o ${AIRPLANE}
+                            "https://sipi.usc.edu/database/download.php?vol=misc&img=4.2.05"
+        VERBATIM)
 
 # The seeds the tests that try things by chance are each run with.
 set(SEEDS 3 4 CACHE STRING "the seeds the tests that try things by chance are run with")
@@ -574,6 +623,22 @@ function(machine NAME)
             COMMENT           "The nucleus for the machine ${NAME}, with the peephole off (${AT}/plain/cross.log)"
             DEPENDS           machine-${NAME} ${NUCLEUS})
     add_custom_target(plain-${NAME} DEPENDS ${PLAIN})
+
+    # A machine with a display has a second system too: the picture alone
+    # (forth/picture.fs), which picture-system-NAME makes in a directory of
+    # its own.  It is made after the nucleus, since both write what fuse.c
+    # keeps in build/.
+    if("${ARGN}" MATCHES "DISP_W=")
+        add_custom_command(
+                OUTPUT            ${AT}/picture/nuc.hex
+                COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}/picture
+                COMMAND           ${CMAKE_COMMAND} -E env BUILD=${AT}/picture/ SYSTEM=picture.fs
+                                    ${RUN_GFORTH} ./cross.fs ${AT}/basewords.fs ./nuc.fs > ${AT}/picture/cross.log 2>&1
+                WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
+                COMMENT           "The system with the picture alone, for the machine ${NAME} (${AT}/picture/cross.log)"
+                DEPENDS           machine-${NAME} ${NUCLEUS})
+        add_custom_target(picture-system-${NAME} DEPENDS ${AT}/picture/nuc.hex)
+    endif()
 
     machine_tool(hexaforth ${NAME} main.c ${VM_SOURCES})
     # An image's code, word by word, as the decompiler shows it, with every
@@ -662,20 +727,18 @@ function(machine_tests NAME)
     endif()
 
     machine_tool(display_test ${NAME} test/display_test.c test/tables.c ${TYPED_SOURCES})
+    machine_tool(gray_test ${NAME} test/gray_test.c test/dither.c ${TYPED_SOURCES})
     foreach(SEED ${SEEDS})
         machine_test(display-${NAME}-${SEED} ${NAME} display_test ${NUC} forth ${SEED})
+        machine_test(gray-${NAME}-${SEED} ${NAME} gray_test ${NUC} ${SEED})
     endforeach()
 
     # The desktop, with a disk made as QEMU's is: block 1 for the editor,
     # the Mandrill, and the names that go with this image.  The test keeps
     # its screens, and its copy of the disk, in a directory of its own.
     machine_tool(desktop_test ${NAME} test/desktop_test.c ${DESK_SOURCES} ${TYPED_SOURCES})
-    add_custom_command(
-            OUTPUT            ${AT}/disk.img
-            COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}/desktop
-            COMMAND           mkdisk ${PICTURE} ${AT}/disk.img ${CMAKE_SOURCE_DIR}/baremetal/block1.fs ${AT}/nuc.tables
-                                > ${AT}/disk.log 2>&1
-            DEPENDS           mkdisk picture ${PICTURE} baremetal/block1.fs ${AT}/nuc.tables)
+    file(MAKE_DIRECTORY ${AT}/desktop)
+    desk_disk(${AT}/disk.img ${PICTURE} ${AT}/nuc.tables)
     machine_test(desktop-${NAME} ${NAME} desktop_test ${NUC} ${AT}/disk.img ${PICTURE} forth ${AT}/desktop names)
     made(${NAME} ${AT}/disk.img)
 endfunction()
@@ -963,7 +1026,9 @@ add_custom_target(tables
 #               desktop for the serial prompt
 #   demo-test   drives that desktop with no display and checks its screen,
 #               as check does, on the kernel that is said here
-#   demo-time   says when the desktop is ready and when its picture is made
+#   demo-time   says when the desktop is ready and when its picture is made,
+#               with the Mandrill on its disk, its grays, and its grays at
+#               half its size
 #   size        how big the kernel is
 #
 # and what those five are of is said when CMake is run, and kept until it
@@ -1183,6 +1248,7 @@ function(qemu_test WHICH)
              COMMAND ${CMAKE_COMMAND} -E env --unset=DISK SCALE=1
                      $<TARGET_FILE:guitest> ${KERNEL_FILE}.elf ${OF_KERNEL}/disk.img ${PICTURE} forth ${KB}/screens-${NAME}
              WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(qemu-${NAME} PROPERTIES TIMEOUT ${QEMU_TEST_SECONDS})
     set_property(GLOBAL APPEND PROPERTY SCREENS ${KB}/screens-${NAME})
     wanted(kernel-${NAME})
 endfunction()
@@ -1259,11 +1325,34 @@ if(MIPS)
 endif()
 kernel(${KERNEL} DISPLAY ${HELD})
 get_filename_component(TIMED_KERNEL ${KERNEL_FILE} NAME)
-add_custom_target(demo-time
-        COMMAND           ${CMAKE_COMMAND} -E make_directory ${KB}/timed
-        COMMAND           ${CMAKE_COMMAND} -E env DISK=${DISK}
-                            $<TARGET_FILE:desktime> ${KERNEL_FILE}.elf ${KERNEL_FILE}.symbols ${OF_KERNEL}/disk.img ${PICTURE}
-                            forth ${OF_KERNEL}/nuc.tables ${KB}/timed
+# demo-time runs three times, with a different picture on the disk each
+# time: the Mandrill, its grays, and its grays at half size.  The gray
+# files are smaller to read, and dither to the same bitmaps as the Mandrill
+# at full and half size.  Each run's files are in build/kernel/timed-PIC.
+set(TIMES)
+set(TIMED_DISKS)
+foreach(PIC colour gray small)
+    set(DISK_OF ${OF_KERNEL}/disk.img)
+    set(FROM ${PICTURE})
+    if(PIC STREQUAL "gray")
+        set(FROM ${GRAYS})
+    elseif(PIC STREQUAL "small")
+        set(FROM ${SMALL})
+    endif()
+    if(NOT PIC STREQUAL "colour")
+        set(DISK_OF ${KB}/disk-${PIC}.img)
+        desk_disk(${DISK_OF} ${FROM} ${OF_KERNEL}/nuc.tables)
+    endif()
+    list(APPEND TIMES
+         COMMAND ${CMAKE_COMMAND} -E make_directory ${KB}/timed-${PIC}
+         COMMAND ${CMAKE_COMMAND} -E echo "${PIC}: ${FROM}"
+         COMMAND ${CMAKE_COMMAND} -E env DISK=${DISK}
+                 $<TARGET_FILE:desktime> ${KERNEL_FILE}.elf ${KERNEL_FILE}.symbols ${DISK_OF} ${FROM}
+                 forth ${OF_KERNEL}/nuc.tables ${KB}/timed-${PIC})
+    list(APPEND TIMED_DISKS ${DISK_OF})
+endforeach()
+add_custom_target(demo-time ${TIMES}
+        DEPENDS           ${TIMED_DISKS}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 add_dependencies(demo-time kernel-${TIMED_KERNEL} machine-${KERNELS_OF})
 
@@ -1544,10 +1633,19 @@ add_dependencies(synth machine-default-${SYNTH_CELL} ${NEXTPNR_BUILT})
 #   bench-dither    bench/dither.fs: the Mandrill read from a disk a block
 #                   at a time, as the system reads it, and dithered, from
 #                   its three samples and from its grays, at its own size
-#                   and at half of it.  Each bitmap is compared with the
+#                   and at half of it, and from its half-size grays at their
+#                   own size and at twice it.  Each bitmap is compared with the
 #                   dither a pixel at a time (test/dither.c).  A machine
 #                   that has not the memory for one says so, and that is
 #                   what is printed
+#   bench-gray      bench/gray.fs: keeping the Mandrill as gray in sixteen
+#                   levels, one sample per 4 by 4 pixels (forth/gray.fs);
+#                   loading the blue noise mask from the disk; drawing the
+#                   whole picture through it at half size; and copying the
+#                   bitmap to the display (copy-bits): a figure for each.
+#                   The bitmap, and the display where it was copied, are
+#                   compared with the same done a pixel at a time
+#                   (test/gray.h)
 #
 # and two things are there to compare the machine with:
 #
@@ -1558,7 +1656,7 @@ add_dependencies(synth machine-default-${SYNTH_CELL} ${NEXTPNR_BUILT})
 #                   and fetches Musashi, which is the 68000
 #   gates           how big the CPU is beside a Z80 and a 68000
 #
-#   bench           the first three
+#   bench           the first four
 #
 # A figure is printed by what checked the work it is of (bench/check.c),
 # and nothing is printed for work that was not checked.  Everything is
@@ -1569,25 +1667,131 @@ add_dependencies(synth machine-default-${SYNTH_CELL} ${NEXTPNR_BUILT})
 set(BB ${BUILD}/bench)
 set(BENCH ${CMAKE_SOURCE_DIR}/bench)
 
-# The disk: the system's, and the picture's grays as a file after it
-# (bench/disk.c, which also writes what says where the two pictures are).
+# The benchmarks' disk: the system's disk, then the picture's grays, then
+# its grays at half size (bench/disk.c).  It also writes blocks.fs, which
+# says which block each picture starts at, and the two gray TIFFs as files.
 tool(picture-disk bench/disk.c bench/tiff.c test/dither.c)
 add_custom_command(
-        OUTPUT            ${BB}/disk.img ${BB}/blocks.fs
+        OUTPUT            ${BB}/disk.img ${BB}/blocks.fs ${GRAYS} ${SMALL}
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${BB}
         COMMAND           mkdisk ${PICTURE} ${BB}/system.img > ${BB}/disk.log 2>&1
-        COMMAND           picture-disk ${PICTURE} ${BB}/system.img ${BB}/disk.img ${BB}/blocks.fs >> ${BB}/disk.log 2>&1
+        COMMAND           picture-disk ${PICTURE} ${BB}/system.img ${BB}/disk.img ${BB}/blocks.fs ${GRAYS} ${SMALL}
+                            >> ${BB}/disk.log 2>&1
         DEPENDS           mkdisk picture-disk picture ${PICTURE})
 
-# What is typed after bench/dither.fs to dither one picture at one size,
-# say where its bitmap is, and stop.
-set(PICTURES gray colour)
-set(PICTURE_SIZES own half)
-foreach(PIC ${PICTURES})
-    foreach(SIZE ${PICTURE_SIZES})
-        file(WRITE ${BB}/asks-${PIC}-${SIZE}.fs "mark ${PIC}-picture ${SIZE} mark\nb @ . b 1+ @ .\n8000 execute\n")
+# How often each cell of the dithered picture occurs, cut into cells of 16,
+# 32 and 64 pixels (bench/patterns.c): the target cell-patterns prints it
+# for the picture at its own size and at half, and keeps it in
+# build/bench/patterns-own.txt and patterns-half.txt.
+tool(patterns bench/patterns.c bench/tiff.c test/dither.c)
+add_custom_target(cell-patterns
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${BB}
+        COMMAND           patterns ${PICTURE} own > ${BB}/patterns-own.txt
+        COMMAND           patterns ${PICTURE} half > ${BB}/patterns-half.txt
+        COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/patterns-own.txt ${BB}/patterns-half.txt
+        DEPENDS           patterns picture ${PICTURE})
+
+# What a picture would be stored as a codebook of tiles and a tile's number
+# for each place, drawn as a font is (bench/tiles.c): the target
+# tiles-report prints how small and how near the dither each is, for the
+# Mandrill, Peppers and the F-16 at their own size and at half, and leaves
+# each as a picture in build/bench/tiles/NAME-SIZE/.
+tool(tiles bench/tiles.c bench/tiff.c test/dither.c)
+set(TILED)
+foreach(SOURCE ${PICTURE} ${PEPPERS} ${AIRPLANE})
+    get_filename_component(PIC ${SOURCE} NAME_WE)
+    foreach(SIZE own half)
+        set(T ${BB}/tiles/${PIC}-${SIZE})
+        add_custom_command(
+                OUTPUT            ${T}.txt
+                COMMAND           ${CMAKE_COMMAND} -E make_directory ${T}
+                COMMAND           tiles ${SOURCE} ${SIZE} ${T} > ${T}.txt
+                DEPENDS           tiles ${SOURCE})
+        list(APPEND TILED ${T}.txt)
     endforeach()
 endforeach()
+add_custom_target(tiles-report
+        COMMAND           ${CMAKE_COMMAND} -E cat ${TILED}
+        DEPENDS           ${TILED})
+
+# What a picture would be kept as gray, in few bits and at less than its
+# size, and drawn black and white through a threshold mask (bench/masks.c):
+# the target masks-report prints how small each is, for the same pictures,
+# and leaves each as a picture in build/bench/masks/NAME-SIZE/.
+tool(masks bench/masks.c bench/tiff.c test/dither.c)
+set(MASKED)
+foreach(SOURCE ${PICTURE} ${PEPPERS} ${AIRPLANE})
+    get_filename_component(PIC ${SOURCE} NAME_WE)
+    foreach(SIZE own half)
+        set(T ${BB}/masks/${PIC}-${SIZE})
+        add_custom_command(
+                OUTPUT            ${T}.txt
+                COMMAND           ${CMAKE_COMMAND} -E make_directory ${T}
+                COMMAND           masks ${SOURCE} ${SIZE} ${T} > ${T}.txt
+                DEPENDS           masks ${SOURCE})
+        list(APPEND MASKED ${T}.txt)
+    endforeach()
+endforeach()
+add_custom_target(masks-report
+        COMMAND           ${CMAKE_COMMAND} -E cat ${MASKED}
+        DEPENDS           ${MASKED})
+
+# Ways to store one byte per 2 by 2 block of a picture, each expanded back
+# to full size and dithered (bench/quads.c).  The target quads-report
+# prints each one's size and how far it is from the picture's grays, for
+# the same three pictures, and writes each dither as a PNG in
+# build/bench/quads/NAME/.
+tool(quads bench/quads.c bench/tiff.c test/dither.c)
+set(QUADS)
+foreach(SOURCE ${PICTURE} ${PEPPERS} ${AIRPLANE})
+    get_filename_component(PIC ${SOURCE} NAME_WE)
+    set(Q ${BB}/quads/${PIC})
+    add_custom_command(
+            OUTPUT            ${Q}.txt
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${Q}
+            COMMAND           quads ${SOURCE} ${Q} > ${Q}.txt
+            DEPENDS           quads ${SOURCE})
+    list(APPEND QUADS ${Q}.txt)
+endforeach()
+add_custom_target(quads-report
+        COMMAND           ${CMAKE_COMMAND} -E cat ${QUADS}
+        DEPENDS           ${QUADS})
+
+# The dithers that are timed, each as PICTURE:SIZE:CHECKED.  PICTURE is
+# one of the pictures in blocks.fs, SIZE is the size it is dithered at, and
+# CHECKED is which dither of the Mandrill the bitmap must match.  The small
+# grays are the Mandrill at half size: dithered at their own size they
+# match the Mandrill dithered at half, and dithered at twice their size,
+# with each gray as a 2 by 2, they match "doubled" (see bench/check.c).
+# asks-PIC-SIZE.fs is what is typed after bench/dither.fs to run one: it
+# dithers, prints where the bitmap is, and stops.  dither-costs counts the
+# Mandrill and its grays at half size (PICTURES).
+set(PICTURES gray colour)
+set(DITHERS gray:own:own gray:half:half colour:own:own colour:half:half small:own:half small:twice:doubled)
+foreach(DITHER ${DITHERS})
+    string(REPLACE ":" ";" DITHER ${DITHER})
+    list(GET DITHER 0 PIC)
+    list(GET DITHER 1 SIZE)
+    file(WRITE ${BB}/asks-${PIC}-${SIZE}.fs "mark ${PIC}-picture ${SIZE} mark\nb @ . b 1+ @ .\n8000 execute\n")
+endforeach()
+
+# What is typed after bench/gray.fs: keep the colour picture as gray, one
+# sample per 1 << GRAY_KEEP pixels a side; load the GRAY_MASK by GRAY_MASK
+# blue noise mask; draw the whole picture through it, each sample 1 <<
+# GRAY_DRAW pixels a side; copy the bitmap to the display at GRAY_AT pixels
+# across at the top, as a window shows it (its content is a pixel in from
+# the frame, so rarely on a cell boundary); print where the bitmap is; and
+# stop.  This is the viewer's work on the 16-bit machine, which lacks the
+# memory to draw the gray at full size.  check is given the same numbers.
+set(GRAY_KEEP 2)
+set(GRAY_DRAW 1)
+set(GRAY_MASK 64)
+set(GRAY_AT 1)
+file(WRITE ${BB}/asks-gray.fs
+     "display-init\n"
+     "mark colour-picture ${GRAY_KEEP} keep mark 0 mask-blue${GRAY_MASK} m ! mark ${GRAY_DRAW} draw mark "
+     "${GRAY_DRAW} ${GRAY_AT} show mark\n"
+     "b @ . b 1+ @ .\n8000 execute\n")
 
 # The work on a machine: its nucleus, the reference VM, the Verilog CPU
 # with as much memory, and what checks a bitmap of its kind.
@@ -1617,22 +1821,51 @@ function(bench_on NAME)
                 VERBATIM)
         set_property(GLOBAL APPEND PROPERTY DRAW_FIGURES ${J}.txt)
 
-        foreach(PIC ${PICTURES})
-            foreach(SIZE ${PICTURE_SIZES})
-                set(J ${BB}/dither-${PIC}-${SIZE}-${NAME}-${LAT})
-                add_custom_command(
-                        OUTPUT            ${J}.txt
-                        COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/blocks.fs ${BENCH}/tb-disk.fs ${BENCH}/dither.fs
-                                            ${BB}/asks-${PIC}-${SIZE}.fs > ${J}.fs
-                        COMMAND           ${T}/tb run ${NUC} ${BB}/disk.img ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
-                        COMMAND           check-${NAME} picture ${PICTURE} ${SIZE} ${J}.mem ${J}.out ${J}.err
-                                            "dither ${PIC} ${SIZE}" "${ON}" > ${J}.txt 2> ${J}.check
-                        COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem
-                        DEPENDS           ${WANTS} ${BB}/blocks.fs bench/tb-disk.fs bench/dither.fs picture ${PICTURE}
-                        VERBATIM)
-                set_property(GLOBAL APPEND PROPERTY DITHER_FIGURES ${J}.txt)
-            endforeach()
+        foreach(DITHER ${DITHERS})
+            string(REPLACE ":" ";" DITHER ${DITHER})
+            list(GET DITHER 0 PIC)
+            list(GET DITHER 1 SIZE)
+            list(GET DITHER 2 MADE)
+            set(J ${BB}/dither-${PIC}-${SIZE}-${NAME}-${LAT})
+            # The machine of 64K cells, with the whole desktop, has not the
+            # memory for a bitmap of the Mandrill's size: that is dithered
+            # on its system with the picture alone (forth/picture.fs), and
+            # its line says so.
+            set(SYSTEM_IMAGE ${NUC})
+            set(SAYS "${ON}")
+            set(SYSTEM_WANTS)
+            if(NOT MADE STREQUAL "half" AND ADDR EQUAL 16)
+                set(SYSTEM_IMAGE ${BUILD}/${NAME}/picture/nuc.hex)
+                set(SAYS "${ON}, picture.fs")
+                set(SYSTEM_WANTS picture-system-${NAME} ${SYSTEM_IMAGE})
+            endif()
+            add_custom_command(
+                    OUTPUT            ${J}.txt
+                    COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/blocks.fs ${BENCH}/tb-disk.fs ${BENCH}/dither.fs
+                                        ${BB}/asks-${PIC}-${SIZE}.fs > ${J}.fs
+                    COMMAND           ${T}/tb run ${SYSTEM_IMAGE} ${BB}/disk.img ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
+                    COMMAND           check-${NAME} picture ${PICTURE} ${MADE} ${J}.mem ${J}.out ${J}.err
+                                        "dither ${PIC} ${SIZE}" "${SAYS}" > ${J}.txt 2> ${J}.check
+                    COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem
+                    DEPENDS           ${WANTS} ${SYSTEM_WANTS} ${BB}/blocks.fs bench/tb-disk.fs bench/dither.fs
+                                        picture ${PICTURE}
+                    VERBATIM)
+            set_property(GLOBAL APPEND PROPERTY DITHER_FIGURES ${J}.txt)
         endforeach()
+
+        set(J ${BB}/gray-${NAME}-${LAT})
+        add_custom_command(
+                OUTPUT            ${J}.txt
+                COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/blocks.fs ${BENCH}/tb-disk.fs ${BENCH}/gray.fs
+                                    ${BB}/asks-gray.fs > ${J}.fs
+                COMMAND           ${T}/tb run ${NUC} ${BB}/disk.img ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
+                COMMAND           check-${NAME} gray ${PICTURE} ${GRAY_KEEP} ${GRAY_DRAW} ${GRAY_MASK} ${GRAY_AT}
+                                    ${J}.mem ${J}.out ${J}.err "gray colour" "${ON}" keep mask draw copy
+                                    > ${J}.txt 2> ${J}.check
+                COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem
+                DEPENDS           ${WANTS} ${BB}/blocks.fs bench/tb-disk.fs bench/gray.fs picture ${PICTURE}
+                VERBATIM)
+        set_property(GLOBAL APPEND PROPERTY GRAY_FIGURES ${J}.txt)
     endforeach()
 
     # Where the dither's clocks go (dither-costs-NAME): the same work, at
@@ -1664,6 +1897,27 @@ function(bench_on NAME)
     endforeach()
     add_custom_target(dither-costs-${NAME} ${COSTED} DEPENDS ${WORKS} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     add_dependencies(dither-costs-${NAME} costs-${NAME} shorter-${NAME})
+
+    # The same for the gray (gray-costs-NAME): bench/gray.fs's work typed at
+    # the counting VM, then the cost of each word, loop and variable, in
+    # build/bench/gray-costs-NAME/.
+    set(K ${BB}/gray-costs-${NAME})
+    add_custom_command(
+            OUTPUT            ${K}/work
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${K}
+            COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/vm-disk.fs ${BB}/blocks.fs ${BENCH}/gray.fs
+                                ${BB}/asks-gray.fs > ${K}/typed.fs
+            COMMAND           ${CMAKE_COMMAND} -E env RUN_WORK=${K}/work
+                                $<TARGET_FILE:counting-${NAME}> ${NUC} ${BB}/disk.img < ${K}/typed.fs > ${K}/typed.out 2>&1
+            DEPENDS           counting-${NAME} machine-${NAME} ${NUC} ${BB}/disk.img ${BB}/blocks.fs
+                              bench/gray.fs picture ${PICTURE}
+            VERBATIM)
+    add_custom_target(gray-costs-${NAME}
+            COMMAND           ${CMAKE_COMMAND} -E echo "the gray, cells of ${CELL} bits:"
+            COMMAND           costs-${NAME} ${NUC} ${BUILD}/${NAME}/nuc.tables ${BUILD}/${NAME}/nuc.sizes ${K}/work ${K}
+            DEPENDS           ${K}/work
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    add_dependencies(gray-costs-${NAME} costs-${NAME})
 endfunction()
 file(WRITE ${BB}/vm-disk.fs "vmdisk-init\n")       # the reference VM's disk, in place of the test bench's
 foreach(NAME ${MACHINES})
@@ -1741,11 +1995,14 @@ endif()
 # targets that print are of those.
 get_property(DRAW_FIGURES GLOBAL PROPERTY DRAW_FIGURES)
 get_property(DITHER_FIGURES GLOBAL PROPERTY DITHER_FIGURES)
+get_property(GRAY_FIGURES GLOBAL PROPERTY GRAY_FIGURES)
 add_custom_target(draw-figures DEPENDS ${DRAW_FIGURES})
 add_custom_target(dither-figures DEPENDS ${DITHER_FIGURES})
+add_custom_target(gray-figures DEPENDS ${GRAY_FIGURES})
 add_custom_target(m68k-figures DEPENDS ${M68K_FIGURES})
 add_dependencies(draw-figures bench-parts)
 add_dependencies(dither-figures bench-parts)
+add_dependencies(gray-figures bench-parts)
 function(figures TARGET)                                # and the kinds it prints
     set(PRINTED)
     foreach(KIND ${ARGN})
@@ -1759,8 +2016,9 @@ function(figures TARGET)                                # and the kinds it print
 endfunction()
 figures(bench-draw DRAW)
 figures(bench-dither DITHER)
+figures(bench-gray GRAY)
 figures(bench-m68k M68K)
-figures(bench DRAW DITHER M68K)
+figures(bench DRAW DITHER GRAY M68K)
 
 #
 # `gates`: how big the CPU is, beside a Z80 and a 68000.
@@ -1881,9 +2139,23 @@ endif()
 # `ctest -V -R NAME` there runs the ones whose names have that in them,
 # and prints what they say.
 #
+# The tests run in parallel, one per host thread.  That is safe because no
+# test writes a file another test uses: each writes to its own directory
+# (QEMU's tests to a fresh temporary one), and what the Verilog and the
+# kernels are compared with is made at build time.  A new test that writes
+# files needs a directory of its own too.
+#
 get_property(WANTED GLOBAL PROPERTY WANTED)
+get_property(EVERY_TEST DIRECTORY PROPERTY TESTS)
+foreach(TEST ${EVERY_TEST})                             # each that has not been given longer
+    get_test_property(${TEST} TIMEOUT GIVEN)
+    if(NOT GIVEN)
+        set_tests_properties(${TEST} PROPERTIES TIMEOUT ${TEST_SECONDS})
+    endif()
+endforeach()
+cmake_host_system_information(RESULT HOST_THREADS QUERY NUMBER_OF_LOGICAL_CORES)
 add_custom_target(check
-        COMMAND           ${CMAKE_CTEST_COMMAND} --output-on-failure
+        COMMAND           ${CMAKE_CTEST_COMMAND} --output-on-failure -j ${HOST_THREADS}
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
         USES_TERMINAL)
 add_dependencies(check ${WANTED})

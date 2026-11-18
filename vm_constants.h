@@ -43,6 +43,15 @@
 #define DISK_NAMES_BLOCK    1024    // the names that go with the image
 #define DISK_CANVAS_BLOCK   1152    // HexaPaint's canvas,
 #define DISK_CANVAS_BLOCKS  16      // and how many blocks are kept for it
+#define DISK_MASKS_BLOCK    1168    // threshold masks, as planes of bits (util/bluenoise.c says how):
+                                    // blue noise of 64 by 64 from this block,
+#define DISK_MASK32_BLOCK   1170    // blue noise of 32 by 32 from this,
+#define DISK_BAYER_BLOCK    1171    // and Bayer's of 8 by 8 from this,
+#define DISK_MASKS_BLOCKS   4       // which is all the blocks they are
+#define DISK_MASK_WIDTH     64      // pixels across a row of a mask's plane, a narrower mask repeated across it
+#define DISK_MASK_PLANES    4       // planes to a mask: a threshold is one of sixteen levels
+#define DISK_VIEW_BLOCK     1172    // the viewer's dithered bitmap, while it is not in memory,
+#define DISK_VIEW_BLOCKS    32      // and how many blocks are kept for it
 
 // Each of the two stacks is this many cells.  The stacks are not part of
 // memory: they are reached by pushing, popping and the depth ports.  Going
