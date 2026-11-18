@@ -15,10 +15,9 @@
 \
 \                   more than 64K cells             64K cells
 \   page 1          machine blocks fonts display    the same
-\                     region
-\   the next        tiff atkinson keymap gfx wm     tiff atkinson keymap gfx wm
-\                                                     term
-\   the next        term edit see view calc         edit see
+\                     region gfx
+\   the next        tiff atkinson keymap wm         the same
+\   the next        term edit see view calc         term edit see
 \   the next        paint (virtio mandrill) gray    view calc gray viewmenu desk join
 \                     viewmenu desk
 \   the next        join
@@ -60,23 +59,20 @@ include display.fs      \ the display: a bitmap in memory, and text on it
 \ Regions, the picture, and the window manager.
 
 include region.fs       \ shapes that are not rectangles, to clip to
+include gfx.fs          \ rectangles, and text from the output words
 
 meta 0 sys-page target
 
 include tiff.fs         \ uncompressed TIFF from blocks, a row at a time
 include atkinson.fs     \ Atkinson dithering to the display
 include keymap.fs       \ key codes to ASCII
-include gfx.fs          \ rectangles, and text from the output words
 include wm.fs           \ windows, pointer, event loop
 
 \ The applications.
 
-meta 1 big-page target
+meta 1 sys-page target
 
 include term.fs         \ text area and the Forth window
-
-meta 1 small-page target
-
 include edit.fs         \ block editor
 include fused.fs        \ fused instructions as words, for the decompiler
 include see.fs          \ decompiler and the dictionary browser

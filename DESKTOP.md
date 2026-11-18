@@ -33,12 +33,15 @@ writes out when it stops (the target `seen` builds them).
   keys
 - Pressing on a window's title, dragging, and letting go moves the window
   by as far as the pointer moved
+- Clicking on the `x` at the right of a window's title closes it
 - Pressing on `hexaforth`, at the top left, drops down a menu of the
-  windows, the front one first. Letting go on a line brings that window to
-  the front. Letting go on the title leaves the menu open, and the next click
-  either picks a line or closes the menu
+  windows, in bold if the window is open and plain if it is closed. Letting
+  go on a line brings that window to the front, opening it if it was closed.
+  Letting go on the title leaves the menu open, and the next click either
+  picks a line or closes the menu
 - `^W` brings the window at the back to the front
-- `^Q` leaves the desktop for the serial prompt
+- `^Q` closes the window in front, or with none open leaves the desktop for
+  the serial prompt
 
 At the right of the menu bar is the disk light: a floppy whose spindle
 turns while blocks are being read or written, with an up arrow beside it
