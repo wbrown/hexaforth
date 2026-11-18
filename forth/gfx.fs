@@ -43,3 +43,9 @@ create sb-old 0 ,
 header sb-begin : sb-begin ( -- ) d# 0 sbn !  'emit @ sb-old !  ['] sb-emit 'emit ! ;
 header sb-end : sb-end   ( -- ) sb-old @ 'emit ! ;
 header sb-draw : sb-draw  ( x y -- ) >r >r sbuf d# 0 sbn @ r> r> draw-chars ;
+
+\ Where the character at a column and a row of a text area is: in
+\ cells of 8 by 16 pixels, from 2 in from the corner.  The Forth
+\ window's text and the editor's block are such areas.
+header char-xy : char-xy ( col row -- x y )
+    d# 4 lshift d# 2 +  swap d# 3 lshift d# 2 +  swap ;

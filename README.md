@@ -55,7 +55,7 @@ picture takes 0.7 seconds.
 - The instruction set. An instruction is a control word: where the ALU's
   input comes from, the operation, where the result goes, and how each
   stack moves
-- How little code it takes. The kernel is 3,332 bytes, in a 4,096-byte ROM.
+- How little code it takes. The kernel is 3,326 bytes, in a 4,096-byte ROM.
   The paint program is 2,270 bytes. The whole machine, written in AArch64
   assembler, is 880 bytes
 
@@ -156,7 +156,7 @@ ECP5: 14,989 LUTs and 986 flip-flops, at 30.21 MHz.
 
 | | words | bytes of code |
 |---|---|---|
-| The kernel, in a 4,096-byte ROM | 258 | 3,332 |
+| The kernel, in a 4,096-byte ROM | 257 | 3,326 |
 | All drawing: fills, copying, text | 127 | 5,068 |
 | Regions | 30 | 1,390 |
 | The window manager | 61 | 2,566 |
@@ -194,7 +194,7 @@ instructions.
 
 The kernel is the first 4KB of page 0. It is the part that sits in ROM, and
 it is everything needed to type Forth at the machine and have it compiled.
-It has 258 words, of which these 202 have names you can type:
+It has 257 words, of which these 203 have names you can type:
 
 - **The stacks**: `dup drop swap over nip tuck rot -rot ?dup 2dup 2drop 2swap
   2over 2rot 3dup depth adepth`, and `>r r> r@ rdrop @r swap>r swapr> i j
@@ -216,7 +216,7 @@ It has 258 words, of which these 202 have names you can type:
   , c, w, s, compile, literal 2literal postpone recurse exit ' ['] inline:
   join-rules`, and `if else then ahead begin again until while repeat do ?do
   loop +loop leave`
-- **The dictionary**: `forth labels sfind name> words here allot dp cp`
+- **The dictionary**: `forth sfind >key samename? name> words here allot dp cp`
 - **Errors**: `catch throw -throw`
 - **Tasks**: `up sbase spawn pause`
 - **Blocks**: `blk`

@@ -416,6 +416,10 @@ header clip-to : clip-to ( x y w h -- ) \ what is in both this and the clip rect
     reclip
 ;
 
+header clip-rows : clip-rows ( -- top bottom )
+    \ the clip's rows, in the port: from top up to bottom
+    clip CELL + @ oy @ -  clip c# 3 + @ oy @ - ;
+
 : clip-span ( x n -- x' n' ) \ n' is not positive if nothing is left
     over clip @ < if + clip @ tuck - then
     over + clip CELL2 + @ min over -

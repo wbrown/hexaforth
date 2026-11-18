@@ -272,16 +272,26 @@ if(BREW)
 endif()
 set(RUN_GFORTH ${WITH_HEADERS} ${GFORTH})
 
-# hexaforth nucleus image from swapforth
+# The nucleus of the default machine, and the two files of Forth that are
+# made from the machine and from it, and checked in.  forth/folds.fs is what
+# the nucleus's peephole is told of numbers, asked of the machine
+# (util/joins.c).  forth/fused.fs is the words the decompiler shows an
+# instruction as (util/fused.c): it is made from the image and is in it, so
+# util/tables.cmake builds the image and makes the table of it until the
+# table stops changing.  Each is written only when it changes.  Every
+# machine's own nucleus is built after this one (forth-env, in machine), so
+# that it has them as they are now.
 add_custom_command(
         COMMAND           ${MAKE_BUILD_DIR}
-        COMMAND           ${RUN_GFORTH} cross.fs basewords.fs nuc.fs
+        COMMAND           joins forth/folds.fs
+        COMMAND           ${WITH_HEADERS} ${CMAKE_COMMAND} -DGFORTH=${GFORTH} -DFUSED=$<TARGET_FILE:fused>
+                            -P util/tables.cmake
         OUTPUT            ${CMAKE_SOURCE_DIR}/build/nuc.hex
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         DEPENDS           forth/basewords.fs
                           ${FORTH_SOURCES}
                           ${MACHINE_SOURCES}
-                          basewords-fs-gen)
+                          basewords-fs-gen joins fused util/tables.cmake)
 
 # basewords.fs opcode description for forth environment
 add_custom_command(
@@ -507,6 +517,18 @@ wanted(hexaforth_test kernel_test fewer_test test-cases forth-env)
 # What makes a disk, and the Mandrill, as the USC-SIPI image database has
 # it: a TIFF that is not compressed, which is what the system reads.
 tool(mkdisk util/mkdisk.c)
+
+# The applications: the source that is to be kept on the disk and compiled
+# when it is wanted, so is written to the width of a block's line.  The
+# target `wrap` fits them to it (util/wrap.c), writing the files again; what
+# it changed is read in git's diff before it is kept.
+set(APPLICATIONS term.fs edit.fs see.fs view.fs calc.fs paint.fs icons.fs gray.fs viewmenu.fs)
+tool(wrap-source util/wrap.c)
+add_custom_target(wrap
+        COMMAND           wrap-source ${APPLICATIONS}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
+        DEPENDS           wrap-source
+        VERBATIM)
 set(PICTURE ${BUILD}/mandrill.tiff)
 add_custom_command(
         OUTPUT            ${PICTURE}
@@ -612,7 +634,8 @@ function(machine NAME)
             COMMENT           "The nucleus for the machine ${NAME} (what cross.fs says is in ${AT}/cross.log)"
             DEPENDS           ${AT}/basewords.fs
                               ${FORTH_SOURCES}
-                              ${MACHINE_SOURCES})
+                              ${MACHINE_SOURCES}
+                              forth-env)
     made(${NAME} ${NUCLEUS})
     add_custom_command(
             OUTPUT            ${PLAIN}
@@ -991,22 +1014,12 @@ add_custom_target(phrases
         COMMAND           ${WITH_HEADERS} $<TARGET_FILE:phrase-book> ${BUILD}/phrases.txt
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth)
 
-# `tables`: the files that are made from the machine and from an image, and
-# checked in, made again.  forth/folds.fs is what the nucleus's peephole is
-# told of numbers, asked of the machine (util/joins.c).  forth/fused.fs is
-# the words the decompiler shows an instruction as, made from a built image
-# (util/fused.c); the table is in the image, so util/tables.cmake builds
-# the image and makes the table of it until the table stops changing.  The
-# image is the default machine's (build/nuc.hex).
+# What makes forth/folds.fs and forth/fused.fs, which the build of the
+# default machine's nucleus runs (above, at build/nuc.hex).
 tool(joins util/joins.c)
 tool(fused util/fused.c util/image.c)
 target_include_directories(fused PRIVATE util)
 target_compile_definitions(fused PRIVATE GFORTH="${GFORTH}")
-add_custom_target(tables
-        COMMAND           joins forth/folds.fs
-        COMMAND           ${WITH_HEADERS} ${CMAKE_COMMAND} -DGFORTH=${GFORTH} -DFUSED=$<TARGET_FILE:fused>
-                            -P util/tables.cmake
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 #
 # The AArch64 kernels, for QEMU's virt machine: baremetal/hexaforth.S, the
@@ -2139,12 +2152,15 @@ endif()
 # `ctest -V -R NAME` there runs the ones whose names have that in them,
 # and prints what they say.
 #
-# The tests run in parallel, one per host thread.  That is safe because no
-# test writes a file another test uses: each writes to its own directory
-# (QEMU's tests to a fresh temporary one), and what the Verilog and the
-# kernels are compared with is made at build time.  A new test that writes
-# files needs a directory of its own too.
+# The tests run in parallel, CHECK_JOBS at a time: 4 unless CMake is told
+# otherwise (cmake -DCHECK_JOBS=8 build/cmake), so that the machine is left
+# room for other work while they run.  That is safe because no test writes
+# a file another test uses: each writes to its own directory (QEMU's tests
+# to a fresh temporary one), and what the Verilog and the kernels are
+# compared with is made at build time.  A new test that writes files needs
+# a directory of its own too.
 #
+set(CHECK_JOBS 4 CACHE STRING "how many tests the target check runs at once")
 get_property(WANTED GLOBAL PROPERTY WANTED)
 get_property(EVERY_TEST DIRECTORY PROPERTY TESTS)
 foreach(TEST ${EVERY_TEST})                             # each that has not been given longer
@@ -2153,9 +2169,8 @@ foreach(TEST ${EVERY_TEST})                             # each that has not been
         set_tests_properties(${TEST} PROPERTIES TIMEOUT ${TEST_SECONDS})
     endif()
 endforeach()
-cmake_host_system_information(RESULT HOST_THREADS QUERY NUMBER_OF_LOGICAL_CORES)
 add_custom_target(check
-        COMMAND           ${CMAKE_CTEST_COMMAND} --output-on-failure -j ${HOST_THREADS}
+        COMMAND           ${CMAKE_CTEST_COMMAND} --output-on-failure -j ${CHECK_JOBS}
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
         USES_TERMINAL)
 add_dependencies(check ${WANTED})

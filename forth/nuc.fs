@@ -218,7 +218,6 @@ create "error:"
 
 \ forth, the newest word of the dictionary, is the first cell of the data in
 \ every image, and cross.fs says so: it is not laid down here.
-create labels   0 ,         \ names of definitions that have no header, while they are read in (see.fs)
 create cp       0 ,         \ Code pointer, grows up
 create dp       0 ,         \ Data pointer, grows up
 create hdp      0 ,         \ where the next dictionary header goes
@@ -236,7 +235,6 @@ header dp    :noname dp ;
 header cp    :noname cp ;
 header state :noname state ;
 header forth :noname forth ;
-header labels :noname labels ;
 
 header -        : -         negate + ;
 header abs      : abs       dup 0< if negate then ;
@@ -598,6 +596,7 @@ create kcode codes-of-chars,    \ what each of the 128 characters is in a name: 
 
 : kcode@ ( c -- what ) h# 7f and kcode >c + c@ ;
 
+header >key
 : >key ( c-addr u -- n ) \ pack a name into skey; n is its size in cells
     d# 63 min
     skey d# 5 NAME-BITS pack>
@@ -617,6 +616,7 @@ create kcode codes-of-chars,    \ what each of the 128 characters is in a name: 
     pto @ skey - 1+
 ;
 
+header samename?
 : samename? ( wp -- f ) \ are the name's cells the key's, as far as the key's last?
     CELL2 + skey                            ( name key )
     begin

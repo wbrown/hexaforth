@@ -977,9 +977,8 @@ variable nksh                               \ and how far along the cell in hand
 ;
 
 \ Labels.  A definition with no header still has a name in the source, and
-\ on a 64-bit machine that name is kept in a second chain, laid out as the
-\ dictionary is, which the prompt does not search but the decompiler does.
-\ A label for code holds its execution token.  A label for something made
+\ that name is kept in the file of names, which the prompt does not search
+\ but the decompiler does.  A label for code holds its execution token.  A label for something made
 \ with create holds the address of its data, with the top bit set.
 \
 \ `named` is set by a header and is still true, with the code pointer where
@@ -1022,11 +1021,11 @@ wordlist constant headers-wordlist
 : wants-label? ( -- f ) named? 0= labelling and ;
 
 \ The labels are not in the image.  They are laid down here, as headers
-\ are, and go to the file of names for the disk (name-tables): a label is
+\ are, until the file of names is made of them (name-tables): a label is
 \ the place of the one before, its value, and its name.  A place is how
-\ many cells it is from the start of them all, where the first cell holds
-\ the place of the newest; the decompiler makes addresses of them when it
-\ has read them in.  The cells are the machine's, as a header's are.
+\ many cells it is from the start of them all, and the first cell is no
+\ label's, so that a place of nothing ends them.  The cells are the
+\ machine's, as a header's are.
 65536 allocate throw constant lflash
 lflash 65536 erase
 variable lp  cell-bytes lp !                \ where the next goes, in bytes
@@ -1425,29 +1424,29 @@ variable in-picture     false in-picture !
 \ every word is where it will be: the words and the labels by execution
 \ token, and those that are a number (a word whose code only pushes one,
 \ which a variable or anything made with create is, and a label for data)
-\ by the number.  A table is how many entries it has, then their keys, in
-\ order so that one is found by halving, and then, in the same order,
-\ where the name of each is: the address of the header, or for a label
-\ how far it is into the labels, with the top bit of the cell set.  A key
-\ and a name are a cell each, so the tables are the same for a cell of
-\ any size.  The names are looked for as a search would find them, the
-\ dictionary before the labels and the newest first, and the first with a
-\ key is kept.
+\ by the number.  Each is a run of records in the order of their keys, and
+\ no record is across two blocks of the disk, so that a key is looked for
+\ in the one block that has it.  A record is the address of a word's
+\ header, or a label's place with the top bit set; then the key; then for
+\ a label its name.  So a label is laid out as a header is.  The names are
+\ put in as a search would find them, the dictionary before the labels and
+\ the newest first.  Records with one key are in one block, and the first
+\ of them is the one the decompiler shows.
 \
 \ The tables are not part of the image.  They go to a file, which is put
-\ on the disk, and the decompiler reads them in when it has work to do.
+\ on the disk, and the decompiler reads it a block at a time.
 
-create ntk 8192 cells allot                 \ the keys,
-create ntn 8192 cells allot                 \ and where each one's name is
+8192 constant nt-room                       \ the most entries, and the most cells of the file
+create ntk nt-room cells allot              \ the keys,
+create ntn nt-room cells allot              \ and where each one's name is
 variable nt#  0 nt# !
+1 cell-bits 1- lshift constant top-bit
 
 : nt-add ( hdr label? key -- )
     dup cell-mask and over <> if drop 2drop exit then   \ a number a cell does not hold is nobody's key
-    nt# @ 0 ?do
-        dup ntk i cells + @ = if drop 2drop unloop exit then
-    loop
+    nt# @ nt-room = abort" there are more names than the tables have room for"
     ntk nt# @ cells + !
-    if 1 cell-bits 1- lshift or then
+    if top-bit or then
     ntn nt# @ cells + !  1 nt# +!
 ;
 : nt-sort ( -- )
@@ -1464,23 +1463,71 @@ variable nt#  0 nt# !
         tuck cells ntn + !  cells ntk + !
     loop
 ;
-create ntf 8192 cells allot                 \ the file: its cells
-variable ntf#  0 ntf# !
-: ntf, ( x -- ) ntf ntf# @ cells + !  1 ntf# +! ;
-: nt-lay ( -- ) \ a table into the file: how many, the keys, and where their names are
-    nt-sort
-    nt# @ ntf,
-    nt# @ 0 ?do ntk i cells + @ ntf, loop
-    nt# @ 0 ?do ntn i cells + @ ntf, loop
-    0 nt# !
-;
-
 : hdr-link ( a -- a' ) byte-shift lshift tflash + @ cell-mask and ;
 : hdr-val  ( a -- x )  byte-shift lshift cell-bytes + tflash + @ cell-mask and ;
 : hdr-xt   ( a -- xt ) hdr-val  1 cell-bits 1- lshift invert and  $ffff and ;   \ less the immediate flag
-: lbl-link ( n -- n' ) byte-shift lshift lflash + @ cell-mask and ;    \ a label, by its place
-: lbl-val  ( n -- x )  1+ byte-shift lshift lflash + @ cell-mask and ;
+: lbl-cell ( n -- x )  byte-shift lshift lflash + @ cell-mask and ;    \ cell n of the labels
+: lbl-link ( n -- n' ) lbl-cell ;                                      \ a label, by its place
+: lbl-val  ( n -- x )  1+ lbl-cell ;
 : lbl-data? ( x -- f ) 1 cell-bits 1- lshift and 0<> ;                 \ is its value an address of data?
+
+\ The file is cells of the machine, a block of them at a time: the
+\ first block says where the rest is (name-tables), and then the
+\ runs, each block of which is how many records it has and the records.
+disk-block cell-bytes / constant nt-blk     \ cells in a block of the disk
+create ntf nt-room cells allot              \ the file: its cells
+variable ntf#
+: ntf, ( x -- )
+    ntf# @ nt-room = abort" the file of names is longer than there is room for"
+    ntf ntf# @ cells + !  1 ntf# +!
+;
+create nti nt-blk cells allot               \ the first key of each block of the runs
+variable nti#
+variable nt-at                              \ the cell the block being filled starts at
+
+: nt-key  ( i -- key ) cells ntk + @ ;
+: nt-name ( i -- x )   cells ntn + @ ;
+: lbl-name ( x -- n ) top-bit invert and 2 + ;     \ where a label's name is, from its place
+: name-cells ( n -- m ) \ how many cells the name from cell n of the labels is
+    0 begin 2dup + lbl-cell top-bit and 0= while 1+ repeat 1+ nip
+;
+: rec-cells ( i -- n ) \ how many cells the i'th entry's record is
+    nt-name dup top-bit and if lbl-name name-cells 2 + else drop 2 then
+;
+: key-cells ( i -- n ) \ how many cells the records from the i'th that have its key are
+    dup nt-key >r  0 swap
+    begin dup nt# @ < if dup nt-key r@ = else false then while
+        tuck rec-cells + swap 1+
+    repeat
+    drop rdrop
+;
+: nt-block ( key -- ) \ the next block of the file is begun, with no records, by one of this key
+    nti# @ 3 + nt-blk = abort" the first keys of the blocks of names do not fit a block"
+    nti nti# @ cells + !  1 nti# +!
+    ntf# @ nt-blk + 1- nt-blk / nt-blk * ntf# !
+    ntf# @ nt-at !  0 ntf,
+;
+: rec, ( i -- ) \ the i'th entry's record, in the block being filled
+    dup nt-name dup ntf,  swap nt-key ntf,
+    dup top-bit and if
+        lbl-name begin dup lbl-cell dup ntf, top-bit and 0= while 1+ repeat
+    then
+    drop
+    1 nt-at @ cells ntf + +!
+;
+: nt-lay ( -- ) \ a table into the file: a run of blocks of records
+    nt-sort
+    nt# @ 0 ?do
+        i if i nt-key i 1- nt-key <> else true then if      \ the first record of its key
+            i 0=  ntf# @ nt-at @ -  i key-cells +  nt-blk >  or if
+                i nt-key nt-block
+                i key-cells 1+ nt-blk > abort" the records of a key are more than a block"
+            then
+        then
+        i rec,
+    loop
+    0 nt# !
+;
 
 : tlv ( w -- n ) dup $fff and swap 12 rshift 3 and 12 * lshift ;
 : lit? ( w kind -- f ) over $c000 and =  swap $3000 and $3000 <> and ;
@@ -1963,12 +2010,13 @@ next-arg 2dup .trim >str constant prefix.
 : out-suffix ( s -- h ) \ Create an output file h with suffix s
     out-name create-output-file
 ;
-\ The file of names is two cells and then the rest: a stamp, which the
-\ image has too, so that names made for another build are not used; how
-\ many cells follow; the two tables; and the labels.  forth0 is told the
-\ newest word of the dictionary, and stamp the stamp.  The file is beside
-\ the image and has its name (build/nuc.tables), and the tools that read an
-\ image for its labels look for it there.
+\ The first block of the file of names is a stamp, which the image has
+\ too, so that names made for another build are not used; how many blocks
+\ the run by execution token is, and how many the run by number; and the
+\ first key of each of those blocks.  The runs are after it.  forth0 is
+\ told the newest word of the dictionary, and stamp the stamp.  The file is
+\ beside the image and has its name (build/nuc.tables), and the tools that
+\ read an image for its labels look for it there.
 create ntb 8 allot                          \ a cell of the file, as its bytes
 : cell>file ( x fid -- ) \ a cell of the machine's, its lowest byte first
     swap cell-bytes 0 do dup $ff and ntb i + c!  8 rshift loop drop
@@ -1978,14 +2026,14 @@ create ntb 8 allot                          \ a cell of the file, as its bytes
     link @  tcp @ 16 lshift xor  lp @ 7 lshift xor  cell-mask and   ( forth0 stamp x )
     dup rot tvar!                                       ( forth0 x )
     link @ rot tvar!                                    ( x )
-    0 ntf# !
-    ntf,  0 ntf,
-    xt-table number-table
-    llink @  lp @  0 lp !  swap lcell,  lp !            \ the newest label, in the first cell of them
-    ntf# @ 2 -  lp @ byte-shift rshift +  ntf cell+ !
+    ntf nt-room cells erase  nt-blk ntf# !  0 nti# !    \ the first block is written last
+    xt-table  nti# @  number-table                      ( x blocks )
+    ntf# @ >r  0 ntf# !
+    swap ntf,  dup ntf,  nti# @ swap - ntf,
+    nti# @ 0 ?do nti i cells + @ ntf, loop
+    r> ntf# !
     s" tables" out-suffix
     ntf# @ 0 ?do ntf i cells + @ over cell>file loop
-    dup lflash lp @ rot write-file throw
     close-file throw
 ;
 

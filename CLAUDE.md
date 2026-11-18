@@ -189,6 +189,10 @@ test is CMake's to build and run.
 
 ## Writing Forth here
 
+- Source is laid out as `doc/formatting.md` says: lines of 64
+  characters, definitions that fit a block, stack comments after the
+  name, lines cut only where a phrase ends. Read it before laying out
+  Forth, and before changing `util/wrap.c`, which follows it
 - An address is the number of a cell, and `@` and `!` fetch and store one
   cell. A branch, a call and an execution token are the number of an
   instruction (`i@`, `i!`). Nothing in the machine counts bytes
@@ -380,8 +384,8 @@ are made in `build/kernel/`; the Verilog is made in `build/rtl/`, and
 tested on the machine `vm_constants.h` gives each size of cell when
 nothing else is said (`build/default-32/`). None of that is built until
 a target wants it: `check`, which builds every test and runs them; the
-reports, `profile`, `subtracts`, `peephole`, `hits`, `phrases` and
-`tables`, and `examine-16` and the like; `screenshot`, which makes the
+reports, `profile`, `subtracts`, `peephole`, `hits` and `phrases`, and
+`examine-16` and the like; `screenshot`, which makes the
 README's picture of the desktop again (`doc/desktop.png`), `hello`, and
 `seen`, which builds what shows a machine's display from the memory the
 reference VM writes (`screen-64`, `png`); `bench`
@@ -435,9 +439,11 @@ from `vm_constants.h` and `vm_opcodes.h`); `forth/folds.fs` (what the
 nucleus's peephole is told of numbers, by `util/joins.c`, which reads no
 image); and `forth/fused.fs` (the words the decompiler shows an
 instruction as, by `util/fused.c`, from a built image). Both have
-`fuse.c` in them and ask the machine. The target `tables` makes the two
-again: the decompiler's table is in the image it is made from, so
-`util/tables.cmake` builds until the table stops changing.
+`fuse.c` in them and ask the machine. The build of the default machine's
+nucleus (`build/nuc.hex`) makes the two again, and every other nucleus is
+built after it: the decompiler's table is in the image it is made from,
+so `util/tables.cmake` builds until the table stops changing. Each is
+written only when it changes.
 
 `forth/joins.fs`, the rules of the nucleus's peephole, is not generated:
 it is the rules that are kept, and says at its top which and why. The
@@ -530,7 +536,10 @@ The machine, in C:
   `stack.c` (the stacks
   printed, for the trace),
   `hex2bin.c` and `memimage.c` (an image as bytes for the kernels, and as
-  what the Verilog loads; `image.c` reads one), `mkdisk.c` (a disk),
+  what the Verilog loads; `image.c` reads one), `mkdisk.c` (a disk, and
+  source laid out as its blocks), `lines.c` (a line of Forth source as
+  what lays source out reads it: its words, strings and comments),
+  `wrap.c` (source fitted to the lines of a block: the target `wrap`),
   `fuse.c` (which instruction does the work of others: found by the
   machine's step on terms, and each answer then run on `vm.c`; what it
   trusts and why is said at its top), `joins.c` and `fused.c` (the two
@@ -697,7 +706,9 @@ The other two machines:
   given, which is the block the editor opens on)
 - `doc/`: `desktop.png` (the README's picture of the desktop, which the
   target `screenshot` makes), `hello.fs` (the window `DESKTOP.md` is
-  about, which the target `hello` types at the reference VM) and
+  about, which the target `hello` types at the reference VM),
+  `formatting.md` (how Forth source is laid out, from *Thinking Forth*:
+  what is written by hand and what `util/wrap.c` does) and
   `superoptimizations.md` (each way the machine's work has been made
   shorter or faster, by hand or by the tools: where it is used, what it
   replaced, why in the machine's terms, and the commit that measured it;

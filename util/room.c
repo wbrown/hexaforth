@@ -126,6 +126,22 @@ static size_t file_bytes(const char* path, unsigned char** bytes) {
     return(have);
 }
 
+// Text that is to be a file's, written there unless the file has it
+// already: a file that is made by the build, and that what the build makes
+// is made from, is not newer than what is made from it for nothing.  False
+// if it could not be written.
+static int write_if_new(const char* path, const char* text, size_t len) {
+    unsigned char* had;
+    size_t have = file_bytes(path, &had);
+    int same = had && have == len && !memcmp(had, text, len);
+    free(had);
+    if (same) return(1);
+    FILE* out = fopen(path, "wb");
+    if (!out) return(0);
+    int all = fwrite(text, 1, len, out) == len;
+    return(!fclose(out) && all);
+}
+
 // A line of a file, however long: the text, which is made here and is the
 // same room the next time, or nothing at the end of the file.
 static char* line_of(FILE* in, char** line, long* room) {

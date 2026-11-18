@@ -5,8 +5,8 @@
 //
 // A header is in the image (read_header, vm_opcodes.c).  A label is not:
 // cross.fs writes the labels to the file of names beside the image
-// (build/nuc.tables), after a stamp, a count and the decompiler's two
-// tables, and says there how they are laid out (name-tables and (label)).
+// (build/nuc.tables), in the decompiler's records, and says there how
+// they are laid out (name-tables).
 // A word is as long as it is to the next word of its page, or for the last
 // of a page to the end of the page, less what is nothing at the end of
 // that: code is not always laid down against the code before it.  Where
@@ -42,25 +42,47 @@ static uint64_t cell_of(const uint8_t* cells, size_t which) {
 }
 
 // The labels the file of names has, of code or of data, put after what a
-// list has: how many the list then has.  A label of data has the top bit
-// of its place set, which is taken off here.
+// list has: how many the list then has.  The file's first block is a
+// stamp, how many blocks the run by execution token is and how many the
+// run by number, and the first key of each; the runs are after it.  A
+// block of a run is how many records it has, and the records: a word's
+// header and its key, or a label's place with the top bit set, its key
+// and its name.  The labels of data are those of the run by number.  They
+// are put in newest first, as the labels were made: by place, which is
+// kept where the size goes until they are in order.
+static int newest_first(const void* a, const void* b) {
+    const word* x = a;
+    const word* y = b;
+    return(x->size == y->size ? 0 : x->size > y->size ? -1 : 1);
+}
+
 static long labels_of(const char* tables, int of_data, word** list, long n, long* room) {
     uint8_t* cells;
     size_t have = tables ? file_bytes(tables, &cells) / CELL_BYTES : 0;
     if (!have) return(n);
-    size_t at = 2;                                      // past the stamp and the count
-    if (have > at) at += 1 + 2 * cell_of(cells, at);    // and the two tables
-    if (have > at) at += 1 + 2 * cell_of(cells, at);
-    for(uint64_t place = have > at ? cell_of(cells, at) : 0; place && at + place + 2 < have;
-        place = cell_of(cells, at + place)) {
-        uint64_t value = cell_of(cells, at + place + 1), data = value >> (CELL_BITS - 1);
-        if (!data != !of_data) continue;
-        ONE_MORE(*list, n, *room);
-        decode_name(cells + (at + place + 2) * CELL_BYTES, (have - at - place - 2) * CELL_BYTES, (*list)[n].name);
-        (*list)[n].at = (long)(value & ~(1ull << (CELL_BITS - 1)));
-        (*list)[n++].size = 0;
+    const size_t block = DISK_BLOCK / CELL_BYTES;
+    const uint64_t top = 1ull << (CELL_BITS - 1);
+    long start = n;
+    uint64_t runs = have > 2 ? cell_of(cells, 1) : 0, numbers = have > 2 ? cell_of(cells, 2) : 0;
+    uint64_t from = of_data ? 1 + runs : 1, to = from + (of_data ? numbers : runs);
+    for(uint64_t b=from; b < to && b * block < have; b++) {
+        size_t at = b * block;
+        uint64_t records = cell_of(cells, at++);
+        for(uint64_t r=0; r < records && at + 1 < have; r++) {
+            uint64_t first = cell_of(cells, at), key = cell_of(cells, at + 1);
+            at += 2;
+            if (!(first & top)) continue;                       // a word that has a header
+            ONE_MORE(*list, n, *room);
+            decode_name(cells + at * CELL_BYTES, (have - at) * CELL_BYTES, (*list)[n].name);
+            (*list)[n].at = (long)key;
+            (*list)[n++].size = (long)(first & ~top);
+            while (at < have && !(cell_of(cells, at) & top)) at++;
+            at++;                                               // past the name's last cell
+        }
     }
     free(cells);
+    if (n > start) qsort(*list + start, n - start, sizeof(word), newest_first);
+    for(long idx=start; idx < n; idx++) (*list)[idx].size = 0;
     return(n);
 }
 

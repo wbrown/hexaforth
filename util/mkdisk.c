@@ -1,12 +1,11 @@
 //
 // mkdisk PICTURE.tiff OUT.img [SOURCE.fs [NAMES]]
+// mkdisk --pack SOURCE.fs...
 //
 // A disk for the system: each file from the block that vm_constants.h says
-// is its own.  The Forth source is one block, as `load` reads it and the
-// editor shows it: a line of the file is a line of the block, DISK_LINE
-// characters with spaces to its end, which is what \ takes a line of a
-// block to be.  The picture is a TIFF as it is.  NAMES is the names the
-// build made to go with the image
+// is its own.  The Forth source is blocks, as `load` reads them and the
+// editor shows them (pack, below), up to the picture's.  The picture is a
+// TIFF as it is.  NAMES is the names the build made to go with the image
 // (build/nuc.tables).  After them are the blocks kept for HexaPaint's
 // canvas, which are nothing until it is drawn in, and then the threshold
 // masks that a picture kept as gray is drawn through: blue noise of 64 by
@@ -14,12 +13,18 @@
 // (util/bluenoise.c, mask_planes).  Last are the blocks the viewer writes
 // its dithered bitmap to, which start out empty.
 //
+// With --pack it makes no disk: it lays each file as blocks, and says how
+// many blocks it took or why it does not go into blocks.
+//
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "../vm_constants.h"
 #include "bluenoise.c"
+#include "lines.c"
+
+#define BLOCK_LINES (DISK_BLOCK / DISK_LINE)
 
 // A disk is a whole number of these, as a disk that is a file is made.
 #define DISK_ROUND 64
@@ -56,39 +61,137 @@ void place(const char* what, int block, int limit, const uint8_t* bytes, size_t 
     memcpy(disk + (size_t)block * DISK_BLOCK, bytes, len);
 }
 
-// Source as a block has it: each line of the text is a line of the block,
-// which is spaces already.  A line too long for a block's, or more lines
-// than a block has, is said and nothing is made.
-void lines_of(const char* what, const uint8_t* text, size_t len, uint8_t* block) {
-    size_t line = 0, column = 0;
-    for(size_t idx=0; idx < len; idx++) {
-        if (text[idx] == '\n') {
-            line++;
-            column = 0;
-        } else if (text[idx] != '\r') {
-            if (column >= DISK_LINE || line >= DISK_BLOCK / DISK_LINE) {
-                fprintf(stderr, "mkdisk: %s: line %d does not fit a block, which is %d lines of %d characters\n",
-                        what, (int)line + 1, DISK_BLOCK / DISK_LINE, DISK_LINE);
-                exit(EXIT_FAILURE);
+// Source as blocks have it, from the block `block` and not reaching the
+// block `limit`: a line of the text is a line of a block, DISK_LINE
+// characters with spaces to its end, which is what \ takes a line of a
+// block to be.  Whoever writes the source keeps to that width, and the
+// blocks are this one's doing:
+//
+// - A run of lines with no line of nothing in it, that has code in it, is
+//   laid in one block, so that nothing that runs over lines is cut by the
+//   end of one.  If it does not fit in what is left of a block it starts
+//   the next, and if it is longer than a block it is said.
+// - A run of nothing but comments goes on into the next block as it is.
+// - A line of nothing is laid as it is, but at the top of a block.
+//
+// A block that is laid in is spaces to its end.  It says how many blocks
+// the source took, or what does not fit and then -1.
+int pack(const char* what, const uint8_t* text, size_t len, uint8_t* disk, int block, int limit) {
+    char** lines = NULL;
+    long n = 0, room = 0;
+    for(size_t from=0, idx=0; idx <= len; idx++) {
+        if (idx < len && text[idx] != '\n') continue;
+        if (idx == len && idx == from) break;
+        ONE_MORE(lines, n, room);
+        char* line = lines[n++] = room_for(idx - from + 1, 1);
+        size_t at = 0;
+        for(size_t k=from; k < idx; k++) if (text[k] != '\r') line[at++] = text[k] == '\t' ? ' ' : text[k];
+        from = idx + 1;
+    }
+    // Which lines start in a comment in brackets, and which are nothing
+    // but comments.
+    char* starts_in = room_for(n + 1, 1);
+    char* only = room_for(n + 1, 1);
+    piece* pieces = NULL;
+    long had = 0;
+    int brackets = 0;
+    for(long i=0; i < n; i++) {
+        starts_in[i] = brackets;
+        only[i] = only_comments(lines[i], brackets);
+        pieces_of(lines[i], &brackets, &pieces, &had);
+    }
+    free(pieces);
+
+    int at = block, line = 0, last = block, fails = 0;
+    long before = -1;                           // the line of the text laid just above, in this block
+    memset(disk + (size_t)block * DISK_BLOCK, ' ', DISK_BLOCK);
+    for(long i=0; i < n && !fails; ) {
+        if (!line_length(lines[i])) {           // a line of nothing
+            if (line) line++, before = -1;
+            if (line == BLOCK_LINES) at++, line = 0;
+            i++;
+            continue;
+        }
+        long end = i;
+        int code = 0;
+        while (end < n && line_length(lines[end])) code |= !only[end++];
+        if (code && end - i > BLOCK_LINES) {
+            fprintf(stderr, "mkdisk: %s: lines %ld to %ld have code in them and no line of nothing between them, "
+                    "and are more than the %d lines of a block\n", what, i + 1, end, BLOCK_LINES);
+            fails = 1;
+            break;
+        }
+        if (code && line + (end - i) > BLOCK_LINES) at++, line = 0, before = -1;
+        for(; i < end && !fails; i++) {
+            if (line == BLOCK_LINES) at++, line = 0, before = -1;
+            if (at >= limit) {
+                fprintf(stderr, "mkdisk: %s: line %ld runs into block %d\n", what, i + 1, limit);
+                fails = 1;
+                break;
             }
-            block[line * DISK_LINE + column++] = text[idx] == '\t' ? ' ' : text[idx];
+            int wide = line_length(lines[i]);
+            if (wide > DISK_LINE) {
+                fprintf(stderr, "mkdisk: %s: line %ld is %d characters, and a block's line is %d\n",
+                        what, i + 1, wide, DISK_LINE);
+                fails = 1;
+                break;
+            }
+            // A block has nothing between its lines.  The last word of a
+            // line that is full and the first of the next, if that starts
+            // in its first column, are one word to whatever reads the
+            // block, and two in the file; unless the first is in a comment
+            // to the end of its line.
+            if (before >= 0 && line_length(lines[before]) == DISK_LINE && lines[i][0] != ' ' &&
+                !ends_in_comment(lines[before], DISK_LINE, starts_in[before])) {
+                fprintf(stderr, "mkdisk: %s: line %ld is all %d characters of a block's line, and line %ld starts in "
+                        "its first column: in a block they run on\n", what, before + 1, DISK_LINE, i + 1);
+                fails = 1;
+                break;
+            }
+            uint8_t* to = disk + (size_t)at * DISK_BLOCK;
+            if (at > last) {
+                memset(to, ' ', DISK_BLOCK);
+                last = at;
+            }
+            memcpy(to + line * DISK_LINE, lines[i], wide);
+            before = i;
+            line++;
         }
     }
-    // A block has nothing between its lines.  The last word of a line that
-    // is full and the first of the next, if that starts in its first
-    // column, are one word to whatever reads the block, and two in the file.
-    for(line = 1; line < DISK_BLOCK / DISK_LINE; line++) {
-        if (block[line * DISK_LINE - 1] != ' ' && block[line * DISK_LINE] != ' ') {
-            fprintf(stderr, "mkdisk: %s: line %d is all %d characters of a block's line, and line %d starts in "
-                    "its first column: in a block they run on\n", what, (int)line, DISK_LINE, (int)line + 1);
-            exit(EXIT_FAILURE);
-        }
+    for(long i=0; i < n; i++) free(lines[i]);
+    free(lines);
+    free(starts_in);
+    free(only);
+    return(fails ? -1 : last - block + 1);
+}
+
+// Each file laid as blocks somewhere of its own, and what it took said.
+int pack_only(int files, char* paths[]) {
+    if (!files) {
+        fprintf(stderr, "mkdisk --pack: no files were given to lay as blocks\n");
+        return(1);
     }
+    int failed = 0;
+    for(int f=0; f < files; f++) {
+        uint8_t* bytes;
+        size_t len = read_file(paths[f], &bytes);
+        long lines = len && bytes[len - 1] != '\n';         // a block for each line is room enough
+        for(size_t idx=0; idx < len; idx++) lines += bytes[idx] == '\n';
+        uint8_t* blocks = room_for(lines + 1, DISK_BLOCK);
+        int took = pack(paths[f], bytes, len, blocks, 0, (int)lines + 1);
+        if (took < 0) failed = 1;
+        else printf("%s: %ld lines in %d blocks\n", paths[f], lines, took);
+        free(blocks);
+        free(bytes);
+    }
+    return(failed);
 }
 
 int main(int argc, char *argv[]) {
+    if (argc > 1 && !strcmp(argv[1], "--pack")) return(pack_only(argc - 2, argv + 2));
     if (argc < 3) {
-        fprintf(stderr, "Usage: %s PICTURE.tiff OUT.img [SOURCE.fs [NAMES]]\n", argv[0]);
+        fprintf(stderr, "Usage: %s PICTURE.tiff OUT.img [SOURCE.fs [NAMES]]\n"
+                        "       %s --pack SOURCE.fs...\n", argv[0], argv[0]);
         return(1);
     }
     _Static_assert(DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS <= DISK_VIEW_BLOCK, "the viewer's bitmap is after the masks");
@@ -119,7 +222,7 @@ int main(int argc, char *argv[]) {
     memset(disk + DISK_SOURCE_BLOCK * DISK_BLOCK, ' ', DISK_BLOCK);
     if (argc > 3) {
         len = read_file(argv[3], &bytes);
-        lines_of(argv[3], bytes, len, disk + DISK_SOURCE_BLOCK * DISK_BLOCK);
+        if (pack(argv[3], bytes, len, disk, DISK_SOURCE_BLOCK, DISK_PICTURE_BLOCK) < 0) exit(EXIT_FAILURE);
         free(bytes);
     }
 

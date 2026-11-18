@@ -1,5 +1,5 @@
 \ icons.fs - the pictures of HexaPaint's tools
-\
+
 \ They are drawn here, 16 pixels by 16 each, in the order the
 \ tools have in paint.fs.  In memory they are side by side: one
 \ bitmap of 128 pixels by 16, as the display is.  That is wider
@@ -8,6 +8,7 @@
 
 bulk
 create icon-bits
+
 picture[
 \    pencil           brush            eraser
 row| ................ ................ ................
@@ -63,4 +64,5 @@ row| .....######..... .....######.....
 row| ................ ................
 row| ................ ................
 ]picture
+
 unbulk

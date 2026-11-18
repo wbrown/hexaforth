@@ -1,11 +1,13 @@
-# forth/fused.fs, the words the decompiler shows an instruction as, made
-# again (the target `tables` runs this, from where the source is, and tells
-# it where gforth is, GFORTH, and the tool that makes the table, FUSED).
+# The default machine's image (build/nuc.hex), and forth/fused.fs, the
+# words the decompiler shows an instruction as, made from it.  The build of
+# that image runs this, from where the source is, and tells it where gforth
+# is, GFORTH, and the tool that makes the table, FUSED.
 #
 # The table is in the image it is made from.  So the image is built with
 # the table there is, the table made of that image, and the image built
-# again, until the table stops changing.  The image is the default
-# machine's (build/nuc.hex), and what cross.fs says is build/cross.log.
+# again, until the table stops changing.  The table is written only when it
+# changes, so once it has stopped the image is newer than it.  What cross.fs
+# says is build/cross.log.
 foreach(TURN RANGE 1 6)
     execute_process(
             COMMAND           ${GFORTH} ./cross.fs ./basewords.fs ./nuc.fs

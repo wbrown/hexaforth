@@ -49,27 +49,15 @@ if echo "$command" | grep -qE '(^|&&|;)[[:space:]]*grep\b'; then
     exit 2
 fi
 
-# 'git grep' is grep wearing a git costume: it searches the working tree, which
-# is the Grep/Read tool's job. Permit it ONLY when it names a commit to search
-# (genuine history archaeology): 'git grep <pattern> <commit>'. A bare
-# 'git grep <pattern> [-- <path>]' has ONE positional before '--'; the commit
-# form has TWO. Fewer than two positionals ⇒ working-tree search ⇒ reject.
-# (A quoted multi-word pattern can inflate the count and fail open — acceptable;
-# the common bare form is what we're catching.)
-if echo "$command" | grep -qE '\bgit[[:space:]]+(--no-pager[[:space:]]+)?grep\b'; then
-    after=$(echo "$command" | sed -E 's/.*[[:space:]]grep[[:space:]]+//')
-    before_dashdash=${after%% -- *}
-    positional=0
-    for tok in $before_dashdash; do
-        case "$tok" in
-            -*) ;;  # flag, not a commit
-            *) positional=$((positional + 1)) ;;
-        esac
-    done
-    if [ "$positional" -lt 2 ]; then
-        echo "ERROR: 'git grep' without a commit searches the working tree — use the Grep tool, the Read tool, or delegate the search to the Agent tool. Only 'git grep <pattern> <commit>' (history archaeology) is permitted." >&2
-        exit 2
-    fi
+# 'git grep' in any form ('git -C dir grep', 'git --no-index grep', on a
+# commit or not, 'git log --grep') is grep by another name. A command that
+# has both 'git' and 'grep' anywhere in it is refused, with no exception.
+# Case is ignored: the Mac's filesystem runs 'GIT' as 'git'.
+shopt -s nocasematch
+if [[ "$command" == *git* && "$command" == *grep* ]]; then
+    echo "ERROR: A command may not have both 'git' and 'grep' in it, in any form. Read files with the Read tool." >&2
+    exit 2
 fi
+shopt -u nocasematch
 
 exit 0

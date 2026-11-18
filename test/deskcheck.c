@@ -67,6 +67,7 @@ static bool fused_told(char* why), a_number(char* why), word_told(char* why), bo
 static bool one_cursor(char* why), prints_behind(char* why), keep(char* why), others_same(char* why);
 static bool remember(char* why);
 static bool sees_all(char* why), memory(char* why), menu_down(char* why), line_shown(char* why);
+static bool sees_label(char* why), data_place(char* why), see_blocks(char* why);
 static bool calc_picked(char* why), words_held(char* why), menu_whole(char* why), menu_away(char* why);
 static bool menu_gone(char* why), paint_front(char* why), canvas_right(char* why), shape_shown(char* why);
 static bool on_disk(char* why), from_disk(char* why), listed_both(char* why);
@@ -179,14 +180,14 @@ static check CHECKS[] = {
     {"a full repaint leaves the other windows as they were", "'0 0 %W %H inval-rect\r'", "12-repainted",
      .also = others_same},
 
-    // The tables of names for the decompiler are on the disk.  They are
-    // read into memory, which says they were found and are this image's,
-    // and the memory is given back.  A disk without them says so.
+    // The tables of names for the decompiler are on the disk, and are read
+    // through a buffer that is kept only if they are this image's, and then
+    // given back.  A disk without them says so.
     {"the tables of names load from the disk and unload", "'names-load names? . names-unload names? .\r'",
      "13-names", {{"forth", 14, '=', "-1 0  ok"}}, .when = NAMES},
     {"with no tables of names on the disk, none are loaded", "'names-load names? . names-unload names? .\r'",
      "13-names", {{"forth", 14, '=', "0 0  ok"}}, .when = NO_NAMES},
-    // see has them in memory for as long as it runs, and what it prints
+    // see has them in for as long as it runs, and what it prints
     // scrolls the window, which wants memory of its own for as long as a
     // scroll takes: there has to be room for both.  The word decompiled is
     // long enough to scroll, and near its end calls a word with no header,
@@ -201,6 +202,16 @@ static check CHECKS[] = {
      "'0 halloc . names-load 0 halloc . names-unload\r'", "13-memory", .also = memory, .when = NAMES},
     {"with no tables of names on the disk, loading them takes no memory",
      "'0 halloc . names-load 0 halloc . names-unload\r'", "13-memory", .also = memory, .when = NO_NAMES},
+    // see finds a word with no header by its label, which is on the disk,
+    // and for a label on data says where the data is.
+    {"see finds a word with no header by its label", "'see in-port\r'", "13-see-label", .also = sees_label,
+     .when = NAMES},
+    {"and a label on data by where the data is", "'see img\r'", "13-see-data", .also = data_place, .when = NAMES},
+    // What it reads of the disk to show a word, which blk-moved counts.
+    {"see reads the disk for the names", "'blk-moved @ see scroll-rect blk-moved @ swap - .\r'", "13-see-blocks",
+     .also = see_blocks, .when = NAMES},
+    {"with no tables of names on the disk, a word with no header is not found", "'see in-port\r'",
+     "13-see-label", {{"forth", 14, '^', "? -13"}}, .when = NO_NAMES},
     // The picture was read and dithered by a task of its own, a row at a
     // turn, which took itself out of the ring when the last row was made.
     // The tasks round the ring are counted: the desktop's and the Forth
@@ -259,7 +270,7 @@ static check CHECKS[] = {
     {"behind another window it is painted from the disk", "", "16-behind", .also = from_disk},
     {"what was drawn is there when the window has been under another", "menu pick:paint away", "16-again",
      .also = paint_front},
-    // The tables of names are memory while the Words window is drawn, and
+    // The names' buffer is memory while the Words window is drawn, and
     // the canvas is while HexaPaint is in front.  The Words window, brought
     // to the front, has its names.
     {"there is room for the canvas and the tables of names", "menu pick:words away", "17-names",
@@ -1275,6 +1286,47 @@ static bool sees_all(char* why) {
     return(!error && (label || !machine->names));
 }
 
+static bool sees_label(char* why) {
+    bool error = false, named = false;
+    for(int row=0; row < ROWS; row++) {
+        char text[COLS + 1];
+        read_grid("forth", row, text);
+        if (strstr(text, "? -")) error = true;
+        if (!strcmp(text, ": in-port")) named = true;
+    }
+    snprintf(why, WHY, "%s", error ? "an error was printed" : "no line is : in-port");
+    return(!error && named);
+}
+
+// The last line is a number, and then ok.
+static bool data_place(char* why) {
+    char text[COLS + 1];
+    regex_t is;
+    read_grid("forth", 14, text);
+    regcomp(&is, "^[0-9]+  ok$", REG_EXTENDED | REG_NOSUB);
+    bool placed = !regexec(&is, text, 0, NULL, 0);
+    regfree(&is);
+    snprintf(why, WHY, "the last line is: %s", text);
+    return(placed);
+}
+
+// The last line ends with how many blocks were read, and then ok.
+static bool see_blocks(char* why) {
+    char text[COLS + 1];
+    read_grid("forth", 14, text);
+    size_t len = strlen(text), at = len;
+    long blocks = -1;
+    if (len > 4 && !strcmp(text + len - 4, "  ok")) {
+        at = len - 4;
+        while (at && isdigit((unsigned char)text[at - 1])) at--;
+        if (at < len - 4) blocks = strtol(text + at, NULL, 10);
+    }
+    snprintf(why, WHY, "how many blocks were read is not on the last line: %s", text);
+    if (blocks <= 0) return(false);
+    printf("note see read %ld blocks of the disk to show scroll-rect\n", blocks);
+    return(true);
+}
+
 static bool memory(char* why) {
     char text[COLS + 1];
     long long out = 0, in = 0;
@@ -1284,8 +1336,8 @@ static bool memory(char* why) {
         return(false);
     }
     if (CELL_BITS < 64) out &= (1ll << CELL_BITS) - 1, in &= (1ll << CELL_BITS) - 1;
-    printf("note the next cell to be given out is %lld, and with the tables of names in memory %lld: "
-           "they are %lld cells\n", out, in, in - out);
+    printf("note the next cell to be given out is %lld, and with the names in %lld: "
+           "they take %lld cells\n", out, in, in - out);
     snprintf(why, WHY, "the next cell is %lld with the names out and %lld with them in", out, in);
     return(machine->names ? in > out : in == out);
 }
