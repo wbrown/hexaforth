@@ -4,3 +4,4 @@ create g 0 ,
 create m 0 ,
 : keep ( blk shift -- ) swap tiff-open swap gray-keep g ! ;
 : draw ( dshift -- ) >r  b g @ r@ gray-bitmap  b m @ g @ r> gray-draw ;
+: show ( dshift dx -- ) swap >r >r  copy-mode b 0 0 r> 0  g @ gray-cols r@ lshift  g @ gray-rows r> lshift  copy-bits ;

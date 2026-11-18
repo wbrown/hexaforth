@@ -40,6 +40,11 @@ writes out when it stops (the target `seen` builds them).
 - `^W` brings the window at the back to the front
 - `^Q` leaves the desktop for the serial prompt
 
+At the right of the menu bar is the disk light: a floppy whose spindle
+turns while blocks are being read or written, with an up arrow beside it
+after a read and a down arrow after a write. The arrow goes away once the
+disk has been idle for a few turns of the event loop.
+
 The windows:
 
 - **Forth**: a prompt. It runs as its own task, so its stack is kept from
@@ -48,7 +53,12 @@ The windows:
   overwrites, the cursor keys move, PgUp and PgDn change block, `^S` writes
   the block, and `^L` writes it and loads it as Forth
 - **Mandrill**: a picture read from a TIFF on the disk and dithered. A task
-  does it a row at a time, and the picture appears down the window
+  does it a row at a time, and the picture appears down the window. Once
+  it is dithered, the bitmap is written to the disk and its memory freed;
+  the window is then repainted from the disk, reading only the blocks it
+  needs. The Picture menu in the bar redraws it in other ways: dithered,
+  or kept as gray and drawn through Bayer's mask or blue noise, finer or
+  coarser, darker or lighter
 - **Calculator**: digits make a number; Enter or the space bar pushes it, or
   duplicates the top if no number is being typed; `+ - * /` work on the top
   two; `n` negates, `x` swaps, `d` drops, Backspace removes a digit. The
@@ -156,9 +166,12 @@ they are.
   this way
 - To be told whenever the pointer moves, a program stores a word of
   `( -- )` in `'moved`. The Words window shows its box this way
-- To be told when another window comes to the front, a program gives a word
-  of `( -- )` to `on-front`. There is room for three. HexaPaint saves its
-  canvas to disk this way
+- To be told when its window comes to the front, a program stores a word of
+  `( win -- )` in the window's `win-front ( win -- a )`; to be told when
+  another window comes in front of it, one in `win-back ( win -- a )`. Each
+  is 0 until a word is stored there. HexaPaint reads its canvas from the
+  disk when it comes to the front, and saves it and gives back its memory
+  when it goes behind, this way
 - `win-data ( win -- a )` is a cell of the window's record for the
   program's own use. The picture viewer keeps its record there
 
@@ -272,4 +285,4 @@ the form Linux input devices use:
 
 `calc.fs` is the shortest program that has keys, a click and its own
 rectangle marked out of date. `view.fs` has a task and `win-data`.
-`paint.fs` has `'track`, `on-front` and the disk.
+`paint.fs` has `'track`, `win-front`, `win-back` and the disk.

@@ -78,6 +78,18 @@ header hreuse
     dup hole +!  negate hole CELL + +!
 ;
 
+\ Temporary memory for one word: allocated before it runs and freed after,
+\ even if it throws.  Used to read a block somewhere other than the block
+\ buffer, so that the editor's block is left alone.
+: (with-room) ( x u xt -- ) swap halloc swap execute ;
+
+header with-room
+: with-room ( x u xt -- ok? ) \ run xt ( x a -- ) with u bytes at a; false if there was no room or it threw
+    himem @ >r
+    ['] (with-room) catch if 2drop drop false else true then
+    r> himem !
+;
+
 \ 32-bit fields in ordinary memory, as parts of the cells they are in.  Like
 \ c@ and uw@, these and the big-endian words take the address of a byte.
 

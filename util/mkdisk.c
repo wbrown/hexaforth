@@ -11,7 +11,8 @@
 // canvas, which are nothing until it is drawn in, and then the threshold
 // masks that a picture kept as gray is drawn through: blue noise of 64 by
 // 64 and of 32 by 32, and Bayer's of 8 by 8, as planes of bits
-// (util/bluenoise.c, mask_planes).
+// (util/bluenoise.c, mask_planes).  Last are the blocks the viewer writes
+// its dithered bitmap to, which start out empty.
 //
 
 #include <stdio.h>
@@ -90,7 +91,8 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Usage: %s PICTURE.tiff OUT.img [SOURCE.fs [NAMES]]\n", argv[0]);
         return(1);
     }
-    int blocks = DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS;
+    _Static_assert(DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS <= DISK_VIEW_BLOCK, "the viewer's bitmap is after the masks");
+    int blocks = DISK_VIEW_BLOCK + DISK_VIEW_BLOCKS;
     while (blocks % DISK_ROUND) blocks++;
     disk = calloc(blocks, DISK_BLOCK);
 

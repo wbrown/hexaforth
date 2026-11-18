@@ -1,14 +1,15 @@
 //
 // A picture kept as gray and drawn through a mask, a pixel at a time, as
-// forth/gray.fs says it does.
+// forth/gray.fs describes.
 //
-// It is what gray.fs is compared with, by its test (gray_test.c) and by the
-// desktop's checks of the picture's menu (deskcheck.c).  It is made apart
-// from the machine's, which keeps its levels in planes of bits and draws a
-// cell at a time, and nothing of the machine's is built from it.
+// It is the reference that gray.fs is compared with, by its test
+// (gray_test.c) and by the desktop's checks of the picture's menu
+// (deskcheck.c).  It is written independently of the machine's version,
+// which keeps levels in bit planes and draws a cell at a time; nothing of
+// the machine's is built from it.
 //
-// It is had by #include, as dither.c is not: gray_test.c and deskcheck.c
-// each have it in them.
+// Unlike dither.c, it is used by #include: gray_test.c and deskcheck.c
+// each include it.
 //
 
 #ifndef HEXAFORTH_GRAY_H
@@ -18,25 +19,25 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// Bayer's threshold of 8 by 8, as a byte: as bench/masks.c has it, four
-// times.
+// The 8 by 8 Bayer threshold at x, y, as a byte: bench/masks.c's value
+// times four.
 static int gray_bayer(int x, int y) {
     int v = 0, xx = x & 7, yy = (y ^ x) & 7;
     for(int b=0; b < 3; b++) v = (v << 2) | ((yy >> b & 1) << 1) | (xx >> b & 1);
     return(v * 4);
 }
 
-// A floored, as an arithmetic shift is: an eighth below nothing too.
+// e / 8 rounded down, as an arithmetic shift does, for negative e too.
 static int gray_eighth(int e) {
     return(e >= 0 ? e / 8 : -((-e + 7) / 8));
 }
 
-// The levels a picture of w by h grays is kept as: a sample to 1 << sh
-// pixels a side, the average of its pixels to the nearest, each the nearest
-// of 1 << bits levels to it and what it is owed, and what it is out by is
-// passed on, an eighth to each of six, as the dither passes it on.  A pixel
-// or a row that is over is left out.  There are *gw by *gh of them, and the
-// memory is the caller's to free.
+// The levels a w by h picture of grays is kept as.  Each sample covers
+// 1 << sh pixels a side and is their rounded average; it is rounded, with
+// what it was passed, to the nearest of 1 << bits levels, and the error
+// passed on as the dither does, an eighth to each of six neighbours.
+// Pixels or rows left over at the edges are ignored.  Returns *gw by *gh
+// levels, which the caller frees.
 static int* gray_kept(const int* gray, int w, int h, int sh, int bits, int* gw, int* gh) {
     int sw = w >> sh, shh = h >> sh, levels = 1 << bits, step = 255 / (levels - 1);
     int* level = calloc((size_t)sw * shh + 1, sizeof(int));
@@ -71,12 +72,12 @@ static int* gray_kept(const int* gray, int w, int h, int sh, int bits, int* gw, 
     return(level);
 }
 
-// The levels drawn through a mask of n by n thresholds, a byte each, laid
-// over the picture as drawn in tiles: each threshold cut to a level, and
-// br levels added to it, no further than the first level or the last.  A
-// sample is 1 << dsh pixels a side as drawn, and what is drawn is the bw by
-// bh pixels from x0, y0 of that.  A pixel is white if its level is more
-// than the threshold there; black[] is a byte a pixel, 1 for black.
+// Draw the levels through an n by n mask of byte thresholds, tiled over
+// the picture as drawn.  Each threshold is scaled to a level, then br
+// levels are added, clamped to the lowest and highest level.  A sample is
+// drawn as 1 << dsh pixels a side, and the bw by bh pixels from x0, y0 are
+// drawn.  A pixel is white if its level is above the threshold there.
+// black[] gets a byte per pixel, 1 for black.
 static void gray_drawn(const int* level, int gw, int bits, const uint8_t* mask, int n, int br,
                        int dsh, int x0, int y0, int bw, int bh, uint8_t* black) {
     int levels = 1 << bits;

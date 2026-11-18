@@ -6,8 +6,12 @@
 header 'blk-read create 'blk-read  0 ,   \ ( buf blk# -- )
 header 'blk-write create 'blk-write 0 ,   \ ( buf blk# -- )
 
-: blk-read  ( buf blk# -- ) 'blk-read  @ dup 0= d# 37 -throw execute ;
-: blk-write ( buf blk# -- ) 'blk-write @ dup 0= d# 37 -throw execute ;
+\ Counted for the disk light in the menu bar (wm.fs).
+header blk-moved create blk-moved 0 ,   \ blocks read and written so far
+header blk-wrote create blk-wrote 0 ,   \ true if the last was a write
+
+: blk-read  ( buf blk# -- ) 'blk-read  @ dup 0= d# 37 -throw execute  d# 1 blk-moved +!  d# 0 blk-wrote ! ;
+: blk-write ( buf blk# -- ) 'blk-write @ dup 0= d# 37 -throw execute  d# 1 blk-moved +!  true blk-wrote ! ;
 
 \ One block buffer.  `block` gives the address of its first byte, so it has
 \ to be where the address of a byte can say: with cells of 16 bits that is

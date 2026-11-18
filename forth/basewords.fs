@@ -24,6 +24,8 @@
 #1171 constant disk-bayer-block
 #64 constant disk-mask-width
 #4 constant disk-mask-planes
+#1172 constant disk-view-block
+#32 constant disk-view-blocks
 
 \ the codes of a name, from vm_opcodes.h
 create n-direct  #45 c, #33 c, #63 c,

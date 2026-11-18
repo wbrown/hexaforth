@@ -50,6 +50,8 @@
 #define DISK_MASKS_BLOCKS   4       // which is all the blocks they are
 #define DISK_MASK_WIDTH     64      // pixels across a row of a mask's plane, a narrower mask repeated across it
 #define DISK_MASK_PLANES    4       // planes to a mask: a threshold is one of sixteen levels
+#define DISK_VIEW_BLOCK     1172    // the viewer's dithered bitmap, while it is not in memory,
+#define DISK_VIEW_BLOCKS    32      // and how many blocks are kept for it
 
 // Each of the two stacks is this many cells.  The stacks are not part of
 // memory: they are reached by pushing, popping and the depth ports.  Going

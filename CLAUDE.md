@@ -219,7 +219,9 @@ test is CMake's to build and run.
 - A name has one case, on the machine and in `cross.fs`: `LINE` and
   `line` are one name. A macro (`::`) and a word are looked up in the
   same place, so a word that took a macro's name would take it from every
-  file after: `cross.fs` stops at the file that does. A baseword is the
+  file after: `cross.fs` stops at the file that does. The other way round,
+  a macro defined after a word of the same name would take over that
+  word's name, so `cross.fs` refuses such a macro. A baseword is the
   one macro a word may be named for, since that is how it is given a body
 - Nothing draws when something changes: it says what is out of date
   (`inval-rect`, `win-inval`) and the event loop paints it. Everything
@@ -505,9 +507,9 @@ each name means what it means in gforth. The profile ends with the
 encoding laid out against the work (`util/survey.c`): the instructions
 the image uses, and the runs that fewer would do, which are what
 `cross.fs` left; and then with the loops that ran (`bench/shorter.c`):
-for each, with the words it calls put in place, the fewest instructions
-found that do a turn of it, wherever its values are kept, which the
-peephole cannot find.
+for each, with the words it calls inlined, the fewest instructions found
+that do one turn of it, wherever its values are kept, which the peephole
+cannot find.
 
 ## Where things are
 
@@ -554,7 +556,8 @@ The machine, in C:
   pages of code, the tables after them, what each file has, the
   dictionary and the data) and `examine.c` (which prints it), `screen.c`
   (a machine's display, out of the memory the reference VM writes when it
-  stops) and `png.c` (a screen as a PNG)
+  stops) and `png.c` (a screen as a PNG; the writer itself is
+  `png_file.c`, which a tool with a bitmap of its own includes)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `nucleus.c` (the
   nucleus on `vm.c`, typed at its prompt, once or again as it was left,
@@ -563,9 +566,9 @@ The machine, in C:
   `dither_test.c` (the dither against a dither a pixel at a time, read
   out of the machine's memory); `dither.c` (that dither a pixel at a
   time, which the test and the benchmarks share); `gray_test.c` (a
-  picture kept as gray and drawn through a mask, against the same a
-  pixel at a time: `gray.h`, which the desktop's checks of the viewer's
-  menu have too); `source_test.c` and
+  picture kept as gray and drawn through a mask, compared with the same
+  done a pixel at a time in `gray.h`, which the desktop's checks of the
+  viewer's menu also use); `source_test.c` and
   `source.fs` (comments, at the prompt and in a block of a disk that
   `mkdisk` made of that file); `prompt_test.c` (the nucleus at its
   prompt: its compiler, its arithmetic, variables, tasks and names, each
@@ -644,10 +647,10 @@ The toolchain and the nucleus, in Forth (`forth/`):
   is left with a call
 
 The system (`forth/system.fs` includes it, and says where each code page
-starts; `nuc.fs` includes the list `SYSTEM` names, and `system.fs` when
-nothing is said). `forth/picture.fs` is another list: the system with
-the picture alone, which has the room on the machine with cells of 16
-bits to dither the picture at its own size:
+starts; `nuc.fs` includes the list `SYSTEM` names, or `system.fs` if none
+is named). `forth/picture.fs` is another list: a system with only the
+picture viewer, which leaves the 16-bit machine enough memory to dither
+the picture at full size:
 
 - `machine.fs`: device registers through the ports, memory above the
   image (`halloc`, `hfree`, `hreuse`, `hgive`), byte order
@@ -655,27 +658,28 @@ bits to dither the picture at its own size:
   `cblock`, `blk-read`, `load`). `vmdisk.fs`: the reference VM's disk.
   `virtio.fs`, `virtio-blk.fs`, `virtio-input.fs`: QEMU's devices
 - `display.fs`: the display and all drawing on it: the port, fills,
-  `copy-bits`, fonts and text. `mono.fs` and `sans.fs` (a font each, in
-  the file named for it), `keymap.fs`, `icons.fs`: the fonts, the keys,
-  the tools' pictures
+  `copy-bits`, fonts and text. `mono.fs` and `sans.fs` (one font each, in
+  the file named for it), `spin.fs` (the disk light's glyphs),
+  `keymap.fs`, `icons.fs`: the fonts, the keys, the tools' pictures
 - `region.fs`: regions, and `scroll-rect`. The form of a region is said at
   its top; only `display.fs` reads it besides
 - `tiff.fs`, `atkinson.fs`: the TIFF reader and the dither, a row at a
   time, to black and white or to sixteen levels. `gray.fs`: a picture
-  kept as gray, in planes of bits, by the dither to sixteen levels, and
-  drawn through a mask, which the disk has as planes too (Bayer's, or
-  blue noise: `util/bluenoise.c` makes them and says how they are laid
-  out).
+  kept as gray in bit planes, made by the 16-level dither, and drawn
+  through a mask stored on the disk as bit planes too (Bayer's, or blue
+  noise; `util/bluenoise.c` makes them and describes the layout).
   `mandrill.fs`: the picture by itself
 - `gfx.fs`, `wm.fs`: rectangles; windows, the pointer, the menu, the
-  event loop (`'poll`, `on-event`, `on-front`, `'track`, `'moved`)
+  event loop (`'poll`, `on-event`, `win-front`, `win-back`, `'track`,
+  `'moved`)
 - `term.fs`, `edit.fs`, `view.fs`, `calc.fs`, `paint.fs`: the Forth
   window, the block editor, the picture's viewer, the calculator,
-  HexaPaint. `viewmenu.fs`: the viewer's menu, which has its task make
-  the picture again, dithered or kept as gray and drawn through a mask
+  HexaPaint. `viewmenu.fs`: the viewer's menu, whose lines have the
+  viewer's task remake the picture, dithered or kept as gray and drawn
+  through a mask
 - `see.fs`: the decompiler and the Words window
 - `desk.fs`: `windows`, `desktop`, `cold`; `viewdesk.fs`: `windows` for
-  the system of `picture.fs`, the picture's window alone
+  the `picture.fs` system, which opens only the picture's window
 
 The other two machines:
 
@@ -694,12 +698,11 @@ The other two machines:
 - `doc/`: `desktop.png` (the README's picture of the desktop, which the
   target `screenshot` makes), `hello.fs` (the window `DESKTOP.md` is
   about, which the target `hello` types at the reference VM) and
-  `superoptimizations.md` (the ways the machine's work has been made
-  shorter or quicker, by hand and by the tools, each with where it is
-  used, what it replaced, why in the machine's terms, and the commit that
-  says what it saved; and what the search for fewer instructions,
-  `bench/shorter.c`, has found, each turn before and after with the
-  stacks)
+  `superoptimizations.md` (each way the machine's work has been made
+  shorter or faster, by hand or by the tools: where it is used, what it
+  replaced, why in the machine's terms, and the commit that measured it;
+  and what the search for fewer instructions, `bench/shorter.c`, has
+  found, each loop turn before and after, with the stacks)
 - `rtl/`: `hexaforth.v` (the CPU), `hf_mem.v` (the memory), `soc.v`, and
   the test benches. `tb.cpp` is also what times a piece of work: it says
   at its top how marks are made and how it is a disk. `session.fs` is

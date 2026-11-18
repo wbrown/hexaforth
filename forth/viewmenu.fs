@@ -1,29 +1,28 @@
 \ viewmenu.fs - the picture's menu: how the picture is drawn
 \
-\ While the picture's window is in front its menu is in the bar.  The
-\ picture is dithered (Atkinson), or kept as gray and drawn through a mask
-\ (gray.fs): Bayer's, or blue noise from the disk.  Finer and Coarser are
-\ how many of the picture's pixels a sample of the gray is, and Darker and
-\ Lighter a level more or less on the mask's thresholds; they change the
-\ picture when it is drawn through a mask.
+\ The menu is in the bar while the picture's window is in front.  It
+\ chooses how the picture is drawn: dithered (Atkinson), or kept as gray
+\ and drawn through a mask (gray.fs), Bayer's or blue noise from the disk.
+\ Finer and Coarser change how many of the picture's pixels a gray sample
+\ covers; Darker and Lighter move the mask's thresholds a level.  These
+\ only matter when drawing through a mask.
 \
-\ The work is done by the viewer's task, a part of it at each turn, into
-\ the bitmap the viewer has, over what was there.  Kept as gray, a row of
-\ samples is read and kept at a turn, and the rows of the bitmap it makes
-\ are drawn at once: so the picture comes down the window as it does when
-\ it is dithered.  Darker, Lighter, and the other mask draw the gray that
-\ is kept again, sixteen rows at a turn, and do not read the picture.
+\ The viewer's task does the work, a part per turn, into the viewer's
+\ bitmap, over what was there.  When keeping the gray, each turn reads and
+\ keeps one row of samples and draws the bitmap rows it makes at once, so
+\ the picture comes down the window as it does when dithered.  Darker,
+\ Lighter and switching masks redraw from the kept gray, sixteen rows a
+\ turn, without reading the picture.
 \
-\ The memory the work has is the viewer's (view.fs), all had when a line is
-\ picked: the gray, then the mask and what drawing has, then what keeping
-\ the gray has, which is given back when the last row is kept.  It is had
-\ again from where it started each time, so that one picture made after
-\ another takes no more, and is given back when the picture is dithered
-\ again, which keeps nothing but the bitmap.  If there is not enough for
-\ the gray as fine as it is asked for, it is kept coarser.  What is in hand
-\ while the gray is kept or drawn is gray.fs's and atkinson.fs's, in
-\ variables, so one viewer at a time has it: a pick while another's is at
-\ work does nothing, as does one while the viewer's own task is.
+\ The memory used is the viewer's arena (view.fs), all allocated when a
+\ line is picked: the gray, then the mask and drawing, then what making
+\ the gray needs, which is freed after the last row.  Each pick starts the
+\ arena again from its start, so making one picture after another takes
+\ no more memory; dithering again frees it all except the bitmap.  If
+\ there is not enough memory for the gray as fine as asked, it is kept
+\ coarser.  The gray, mask and drawing are per-viewer records, so viewers
+\ can work at the same time; a pick while the viewer's task is busy does
+\ nothing.
 
 create t-picture ," Picture"
 create t-atkinson ," Atkinson"
@@ -36,55 +35,53 @@ create t-lighter ," Lighter"
 
 create pic-menu 0 , 0 , 0 , 0 , 0 ,     \ the menu (made by view-menu)
 create pic-lines 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
-create pic-busy 0 ,     \ the viewer whose picture is being kept or drawn as gray, or 0
 
-: pic-vw ( -- viewer|0 ) top win-data @ dup vw ! ;      \ the viewer whose menu it is, in hand
+: pic-vw ( -- viewer|0 ) top win-data @ dup vw ! ;      \ make the front window's viewer the one in use
 : pic-n ( -- n ) d# 7 ;
 : pic-line ( i -- title ) pic-lines + @ ;
-: pic-mark ( i -- f ) pic-vw if vmode @ = else drop false then ;   \ how it is drawn
+: pic-mark ( i -- f ) pic-vw if vmode @ = else drop false then ;   \ marks the way it is drawn now
 
-: pic-ks ( -- shift ) vd @ vhalf @ if 1+ then ;     \ pixels of the picture a side to a sample, as a shift
+: pic-ks ( -- shift ) vd @ vhalf @ if 1+ then ;     \ pixels of the picture per side of a sample, as a shift
 
 W32+? [if]
-: mask-blue ( -- mask ) mask-blue64 ;
+: mask-blue ( bright -- mask ) mask-blue64 ;
 [else]
-: mask-blue ( -- mask ) mask-blue32 ;               \ a quarter of the 64 by 64, where memory is less
+: mask-blue ( bright -- mask ) mask-blue32 ;        \ a quarter the size of the 64 by 64, to save memory
 [then]
 
 \ ---- what the task does
 
-: pic-rows ( n -- ) \ as many as n rows more of the bitmap, of those whose samples are kept
+: pic-rows ( n -- ) \ draw up to n more bitmap rows, as far as the samples kept so far allow
     begin
         dup  made vkh @ < and  bmh @ vd @ rshift vrow @ < and
     while
-        made gray-draw-row  d# 1 bmh +!  1-
+        made vdrw @ gray-draw-row  d# 1 bmh +!  1-
     repeat
     drop  view-shown
 ;
 
-: pic-turn ( -- ) \ what a viewer's task does at each of its turns, for its menu
+: pic-turn ( -- ) \ one turn of a viewer's task doing the menu's work
     up @ VTASK-AT - vw !
-    vstate @ d# 1 = if                              \ keeping the gray: a row of samples, and what it draws
+    vstate @ d# 1 = if                              \ making the gray: keep a row of samples, and draw what it allows
         vgray @ gray-row  d# 1 vrow +!  d# 16 pic-rows
-        vrow @ grows @ < if exit then
-        himem @ vtop @ = if gdth @ vdone then       \ what keeping it had, given back if nothing has been had since
+        vrow @ vgray @ gray-rows < if exit then
+        himem @ vtop @ = if vgray @ gray-dither vdone then  \ free what making it used, if nothing was allocated since
         d# 0 vimg !  d# 2 vstate !  exit
     then
     d# 16 pic-rows
     made vkh @ < if exit then
-    d# 0 pic-busy !  view-done
+    view-done
 ;
 
 \ ---- what a pick does
 
-: pic-mask ( -- ) \ the mask, and what drawing has, after what is there: and to draw from the bitmap's first row
-    vbr @ gbright !
-    vmode @ d# 1 = if mask-bayer else mask-blue then vmask !
-    bm vmask @ vgray @ vd @ vleft @ vy0 @ gray-draw-start
+: pic-mask ( -- ) \ load the mask and start a drawing, after what is allocated, from the bitmap's first row
+    vbr @  vmode @ d# 1 = if mask-bayer else mask-blue then vmask !
+    bm vmask @ vgray @ vd @ vleft @ vy0 @ gray-draw-start vdrw !
     vy0 @ bmh !  d# 0 vseen !
 ;
 
-: pic-start ( -- ) \ from the start of the menu's memory: the gray, the mask, and what keeping the gray has
+: pic-start ( -- ) \ from the start of the arena: allocate the gray, the mask, and what making the gray needs
     varena @ himem !
     vpw @ vph @ pic-ks gray-new vgray !  pic-ks vks !
     himem @ vmark !
@@ -93,19 +90,20 @@ W32+? [if]
     himem @ vtop !
 ;
 
-: pic-go ( state -- ) vstate !  vw @ pic-busy !  ['] pic-turn view-spawn ;
+: pic-go ( state -- ) vstate !  ['] pic-turn view-spawn ;
 
-: pic-gray ( -- ) \ the picture to be drawn through the mask: the gray kept, unless it is kept already as it is to be
+: pic-gray ( -- ) \ draw the picture through the mask, making the gray first unless it is already kept at this fineness
+    view-in                                         \ the gray is drawn into the bitmap
     vkept? if vgray @ if vks @ pic-ks = if
         vmark @ himem !  pic-mask  himem @ vtop !
-        vgray @ gry !  grows @ vrow !  d# 2 pic-go  exit
+        vgray @ gray-rows vrow !  d# 2 pic-go  exit
     then then then
-    begin                                           \ as finely as there is memory for
+    begin                                           \ as fine as memory allows
         d# 0 vimg !
         ['] pic-start catch
     while
-        vimg @ ?dup if                              \ what reading had, if it was had where memory was
-            dup varena @ u<  over himem @ u< 0=  or if tiff-close else drop then    \ given back
+        vimg @ ?dup if                              \ free the reader, if it came from freed memory
+            dup varena @ u<  over himem @ u< 0=  or if tiff-close else drop then    \ outside the arena
         then
         vd @ d# 2 < 0= if d# -8 throw then
         d# 1 vd +!
@@ -113,12 +111,13 @@ W32+? [if]
     d# 0 vrow !  d# 1 pic-go
 ;
 
-: pic-dither ( -- ) \ the picture to be dithered again
+: pic-dither ( -- ) \ dither the picture again
+    view-in                                         \ the dither writes into the bitmap
     vkept? drop  varena @ himem !  d# 0 vgray !
     view-dither
 ;
 
-: pic-do ( i -- ) \ what line i asks, if it changes what is shown
+: pic-do ( i -- ) \ do what line i asks, if it changes what is shown
     dup d# 3 < if
         dup vmode @ = if drop exit then
         dup vmode !  if pic-gray else pic-dither then
@@ -138,9 +137,9 @@ W32+? [if]
 
 : pic-pick ( i -- )
     pic-vw 0= if drop exit then
-    vbusy @  pic-busy @ or  vparts @ 0= or if drop exit then    \ one thing at a time
+    vbusy @  vparts @ 0= or if drop exit then       \ ignore it while busy, or with no free part of the stacks
     vmode @ >r  vd @ >r  vbr @ >r
-    ['] pic-do catch if                             \ there was no memory for it: it is as it was
+    ['] pic-do catch if                             \ out of memory: put the settings back
         drop  r> vbr !  r> vd !  r> vmode !  d# 0 vgray !
         exit
     then
@@ -148,7 +147,7 @@ W32+? [if]
 ;
 
 header view-menu
-: view-menu ( win -- ) \ the picture's menu, in the bar while its window is in front
+: view-menu ( win -- ) \ give the window the picture's menu
     t-atkinson pic-lines !  t-ordered pic-lines 1+ !  t-blue pic-lines CELL2 + !
     t-finer pic-lines c# 3 + !  t-coarser pic-lines c# 4 + !
     t-darker pic-lines c# 5 + !  t-lighter pic-lines c# 6 + !

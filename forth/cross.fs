@@ -391,32 +391,39 @@ wordlist constant target-wordlist
 \ one case, here as on the machine: a word named line takes the name of the
 \ macro LINE from every file after it, which goes on compiling with the
 \ word where it wrote the macro.  So the macros are kept in a list, and
-\ after each file every one of them is looked up again.  The basewords are
-\ not in the list: the nucleus gives each that it needs a body, under the
-\ baseword's own name, so that it can be called.
-variable macros  0 macros !             \ each is a link, its xt, and its name with its length before it
-variable listing  false listing !       \ true while what is defined is put in the list
+\ after each file every one of them is looked up again.  The other way
+\ round is caught when the macro is defined: a macro DISK-HELD after a
+\ variable disk-held would turn every later disk-held into the macro.  The
+\ basewords are in the list but not checked after each file, since the
+\ nucleus gives each one it needs a body under the baseword's own name.
+variable macros  0 macros !             \ each entry: link, xt, checked after each file?, length and name
+variable listing  false listing !       \ true once the basewords are read: macros defined now are checked
 
-: macro, ( "name" -- a ) \ a place in the list for the macro that is about to be named
-    >in @  parse-name  rot >in !                ( c-addr u )
-    align here >r  macros @ ,  0 ,  dup ,  here swap dup allot move
-    r> dup macros !
-;
-: :: ( "name" -- )
-    listing @ if macro, else 0 then >r
-    get-current >r target-wordlist set-current : r> set-current
-    r> ?dup if latestxt swap cell+ ! then
-;
 : macro? ( xt -- f )
     macros @ begin dup while 2dup cell+ @ = if 2drop true exit then @ repeat nip
 ;
-: macro-name ( a -- c-addr u ) 2 cells + dup cell+ swap @ ;
+: macro, ( "name" -- a ) \ add the macro about to be defined to the list
+    >in @  parse-name  rot >in !                ( c-addr u )
+    2dup target-wordlist search-wordlist if     \ refuse a name that a word of the program has
+        macro? 0= if cr type ."  is a word of the program, and a macro may not take its name" abort then
+    then
+    align here >r  macros @ ,  0 ,  listing @ ,  dup ,  here swap dup allot move
+    r> dup macros !
+;
+: :: ( "name" -- )
+    macro, >r
+    get-current >r target-wordlist set-current : r> set-current
+    latestxt r> cell+ !
+;
+: macro-name ( a -- c-addr u ) 3 cells + dup cell+ swap @ ;
 : ?macros ( c-addr u -- ) \ after the file named: each macro's name still finds a macro
     macros @ begin dup while
-        dup macro-name target-wordlist search-wordlist
-        0= abort" a macro's name finds nothing"
-        macro? 0= if
-            cr macro-name type ."  is a macro, and " type ."  has named a word of its own that" abort
+        dup 2 cells + @ if
+            dup macro-name target-wordlist search-wordlist
+            0= abort" a macro's name finds nothing"
+            macro? 0= if
+                cr macro-name type ."  is a macro, and " type ."  has named a word of its own that" abort
+            then
         then
         @
     repeat
@@ -1255,6 +1262,14 @@ variable key-at
 \ the display, and the strike is not in the image at all.  The font's
 \ record says where it is opened out, and the machine finds it so.
 \
+\ Most rows of most glyphs are blank: those above and below the black, and
+\ all of a space.  Drawing reads row r of a glyph at r cells past its row
+\ pointer, for every row, so blank rows cannot be left out.  But blank rows
+\ can share cells.  Each glyph's rows start early enough that its blank
+\ rows at the top overlap the blank rows at the end of the glyph before
+\ it.  An all-blank glyph takes no new cells if enough blank rows are
+\ already at the end.
+\
 \ In the source a font's record and table are between font[ and the strike,
 \ and ]font is after the strike.
 : tcell@ ( a -- x ) 0  cell-bytes 0 do over i + tc@ i 8 * lshift or loop  nip ;
@@ -1265,6 +1280,8 @@ variable in-font    false in-font !
 variable fh         variable fn             \ its height, and how many glyphs
 variable fruns                              \ runs of 64 pixels in a row of the strike
 variable fkc                                \ the cell it is opened out from
+variable frows                              \ the cell after the rows laid down so far,
+variable fnone                              \ and how many blank rows they end with
 
 : fpixel ( x y -- bit )
     fruns @ * over 6 rshift + cells fstrike + @
@@ -1282,13 +1299,15 @@ variable fkc                                \ the cell it is opened out from
     { g }
     font-rec @ 5 g + cell-bytes * + tcell@
     font-rec @ 6 g + cell-bytes * + tcell@ over -
-    fkc @ fn @ 4 * + g fh @ * +
-    0 0 { x0 w rows first last }
-    fh @ 0 ?do
-        x0 w i frow
-        dup if  last 0= if i to first then  i 1+ to last  then
-        rows i + fcell!
+    0 0 { x0 w first last }
+    fh @ 0 ?do                                      \ find the first and last rows with black
+        x0 w i frow if  last 0= if i to first then  i 1+ to last  then
     loop
+    last if first else fh @ then  fnone @ min       ( blank rows shared with the glyph before )
+    frows @ swap - { rows }
+    fh @ 0 ?do  x0 w i frow  rows i + fcell!  loop
+    rows fh @ + frows !
+    last if fh @ last - else fnone @ fh @ max then fnone !
     rows   fkc @ g 4 * +      fcell!
     w      fkc @ g 4 * + 1+   fcell!
     first  fkc @ g 4 * + 2 +  fcell!
@@ -1303,8 +1322,9 @@ variable fkc                                \ the cell it is opened out from
     fstrike# @ fh @ / fruns !
     thi @ byte-shift rshift fkc !
     fkc @ font-rec @ 4 cell-bytes * + tcell!        \ the record says where it is opened out
+    fkc @ fn @ 4 * + frows !  0 fnone !             \ rows start after the glyphs' four cells each
     fn @ 0 ?do i fglyph loop
-    fn @ 4 fh @ + * cell-bytes * thi +!
+    frows @ fkc @ - 1+ -2 and cell-bytes * thi +!   \ rounded to an even cell, as halloc keeps himem
 ;
 
 \ 64 pixels of a bitmap, written with the leftmost highest, as the cells
@@ -1796,6 +1816,8 @@ warnings on
 :: MASK64-BLK  disk-masks-block literal ;       \ the threshold masks: blue noise of 64 by 64,
 :: MASK32-BLK  disk-mask32-block literal ;      \ of 32 by 32,
 :: BAYER-BLK   disk-bayer-block literal ;       \ and Bayer's of 8 by 8
+:: VIEW-BLK    disk-view-block literal ;        \ the viewer's bitmap,
+:: VIEW-BLKS   disk-view-blocks literal ;       \ and how many blocks are kept for it
 \ A row of a mask on the disk is its planes, the lowest first, each a row
 \ of a bitmap MASK-WIDTH pixels across: MASK-CELLS cells of this machine,
 \ and the row MASK-ROW cells.  A block is as many rows as 1 MASK-ROWS-SHIFT

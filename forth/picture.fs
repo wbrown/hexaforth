@@ -1,27 +1,27 @@
-\ picture.fs - the system with the picture alone: blocks, the display,
-\ regions, windows, the TIFF reader, the dither, and the picture's viewer.
+\ picture.fs - a system with only the picture viewer: blocks, the display,
+\ regions, windows, the TIFF reader, the dither, and the viewer.
 \
-\ It is a list of the files of system.fs, the whole desktop, less the
-\ applications: the Forth window, the editor, the calculator, the
-\ decompiler and HexaPaint.  nuc.fs includes it in place of system.fs when
-\ cross.fs is told SYSTEM=picture.fs.
+\ It is system.fs's list of files without the applications: the Forth
+\ window, the editor, the calculator, the decompiler and HexaPaint.  nuc.fs
+\ includes it instead of system.fs when cross.fs is run with
+\ SYSTEM=picture.fs.
 \
-\ What it is for is the machine with cells of 16 bits.  What that machine
-\ gives out at run time (halloc) is what is above its display and above
-\ the data laid down there: the fonts opened out, and the decompiler's
-\ table of instructions as words.  With the whole desktop that leaves too
-\ little for the bitmap of the picture at its own size, 32KB, and the rows
-\ the dither works in.  This has no decompiler, and one font: windows'
-\ titles and the menu are in sans, and with nothing else to write, sans is
-\ what a port writes in.
+\ It is for the 16-bit machine.  There, halloc gives out the memory above
+\ the display and the data placed there: the opened-out fonts and the
+\ decompiler's table of instructions as words.  With the whole desktop,
+\ that leaves too little for the picture's full-size bitmap (32KB) plus
+\ the dither's rows.  This system has no decompiler and only one text
+\ font, sans, used for titles, the menu and everything else.  (The disk
+\ light in the menu bar is a small font of its own.)
 \
-\ The pages of code are as system.fs has them, without what is not here.
+\ The code pages are laid out as in system.fs, minus the missing files.
 
 include machine.fs      \ device registers, high memory, byte-order helpers
 include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD
 include vmdisk.fs       \ block driver for the reference VM's disk
 include sans.fs         \ the font
-: plain-font ( -- font ) sans ;                     \ what a port writes in until it is told otherwise
+include spin.fs         \ the disk light in the menu bar
+: plain-font ( -- font ) sans ;                     \ a port's font until it is set
 include display.fs      \ the display: a bitmap in memory, and text on it
 include region.fs       \ shapes that are not rectangles, to clip to
 

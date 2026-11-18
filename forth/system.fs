@@ -17,8 +17,8 @@
 \   page 1          machine blocks fonts display    the same
 \                     region
 \   the next        tiff atkinson keymap gfx wm     tiff atkinson keymap gfx wm
-\                                                     term edit
-\   the next        term edit see view calc         see
+\                                                     term
+\   the next        term edit see view calc         edit see
 \   the next        paint (virtio mandrill) gray    view calc gray viewmenu desk join
 \                     viewmenu desk
 \   the next        join
@@ -53,6 +53,7 @@ include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD
 include vmdisk.fs       \ block driver for the reference VM's disk
 include mono.fs         \ the fonts: what the applications write in,
 include sans.fs         \ and what titles and the menu are in
+include spin.fs         \ the disk light in the menu bar
 : plain-font ( -- font ) mono ;                     \ what a port writes in until it is told otherwise
 include display.fs      \ the display: a bitmap in memory, and text on it
 
@@ -73,10 +74,10 @@ include wm.fs           \ windows, pointer, event loop
 meta 1 big-page target
 
 include term.fs         \ text area and the Forth window
-include edit.fs         \ block editor
 
 meta 1 small-page target
 
+include edit.fs         \ block editor
 include fused.fs        \ fused instructions as words, for the decompiler
 include see.fs          \ decompiler and the dictionary browser
 

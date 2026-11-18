@@ -70,8 +70,9 @@ static bool sees_all(char* why), memory(char* why), menu_down(char* why), line_s
 static bool calc_picked(char* why), words_held(char* why), menu_whole(char* why), menu_away(char* why);
 static bool menu_gone(char* why), paint_front(char* why), canvas_right(char* why), shape_shown(char* why);
 static bool on_disk(char* why), from_disk(char* why), listed_both(char* why);
-static bool as_picked(char* why), picture_marked(char* why);
+static bool as_picked(char* why), picture_marked(char* why), view_on_disk(char* why), outlined(char* why);
 static int picture_title(void), picture_line(const char* name);
+static uint64_t disk_cell(const uint8_t* bytes, size_t n);
 static void picture_picked(int line), picture_made(void);
 
 static check CHECKS[] = {
@@ -96,7 +97,13 @@ static check CHECKS[] = {
     // The picture: brought forward, and compared with a dither done here.
     {"the viewer shows the picture as it is dithered a pixel at a time", "front:viewer away", "6-viewer",
      .also = dithered},
-    {"a window moves when it is dragged by its title", "drag:viewer+40+42 away", "7-dragged", .also = moved},
+    // Once dithered, the bitmap is written to the disk and painted from there.
+    {"and the dithered bitmap is on the disk", "", NULL, .also = view_on_disk},
+    // While a window is dragged, a gray outline of its frame follows the
+    // pointer, and the window stays where it was until the button goes up.
+    {"while a window is dragged, a gray outline of it follows the pointer", "grab:viewer+40+42", "7-dragging",
+     .also = outlined},
+    {"a window moves when it is dragged by its title", "drop away", "7-dragged", .also = moved},
     // While the viewer is in front its menu is in the bar after the
     // windows', with a mark by how the picture is drawn.  A line of it has
     // the viewer's task make the picture again, a part at each of its
@@ -168,7 +175,7 @@ static check CHECKS[] = {
      {{"forth", 12, '=', "18"}, {"forth", 13, '=', "19"}, {"forth", 14, '=', " ok"}}, keep},
     // The whole screen is put out of date from the prompt.  Every window is
     // painted again, each only where it can be seen, so nothing outside the
-    // Forth window may change.
+    // Forth window may change, except the disk light in the bar.
     {"a full repaint leaves the other windows as they were", "'0 0 %W %H inval-rect\r'", "12-repainted",
      .also = others_same},
 
@@ -684,6 +691,10 @@ static int numbers(const char* at, int* out, int most) {
     return(n);
 }
 
+// A window being dragged (grab:): which, where the pointer pressed on its
+// title, how far it was moved, and the screen just before the press.
+static struct { int w, x, y, dx, dy; uint8_t before[SCREEN]; } grabbed;
+
 // What a check does, a word at a time:
 //
 //   'text'             typed, a key a character; \r is the return key
@@ -692,6 +703,8 @@ static int numbers(const char* at, int* out, int most) {
 //   front:NAME         a window's title is clicked, which brings it to the front
 //   cycle:NAME         ^W, which brings the window at the back, until it is that one
 //   drag:NAME+DX+DY    a window is dragged by its title
+//   grab:NAME+DX+DY    the same, but the button is still down
+//   drop               and it goes up
 //   click:NAME+X+Y     a click in a window, from the top left of its content;
 //   click:NAME-X-Y     or back from the bottom right of its frame
 //   point:X,Y          the pointer is put at a place of the screen
@@ -780,6 +793,20 @@ static void does(const char* said) {
             title_of(w, n[0], n[1], &x, &y);
             drag(x, y, x + n[0], y + n[1]);
             rect[w].x += n[0], rect[w].y += n[1];
+        } else if (!strncmp(word, "grab:", 5) && count == 2) {
+            grabbed.w = window(of, name);
+            title_of(grabbed.w, n[0], n[1], &x, &y);
+            desk_pointer(x, y);
+            look(NULL);
+            memcpy(grabbed.before, shot, SCREEN);
+            grabbed.x = x, grabbed.y = y, grabbed.dx = n[0], grabbed.dy = n[1];
+            desk_button(true);
+            desk_pointer(x + n[0], y + n[1]);
+            desk_turns(6);
+        } else if (!strcmp(word, "drop")) {
+            desk_button(false);
+            desk_turns(6);
+            rect[grabbed.w].x += grabbed.dx, rect[grabbed.w].y += grabbed.dy;
         } else if (!strncmp(word, "click:", 6) && count == 2) {
             int w = window(of, name);
             if (of[name] == '-') click(rect[w].x + rect[w].w + n[0], rect[w].y + rect[w].h + n[1]);
@@ -921,6 +948,34 @@ static bool dithered(char* why) {
     return(!wrong && kw > 0 && kh > 0);
 }
 
+// The viewer's bitmap on the disk, from DISK_VIEW_BLOCK: as many whole rows
+// to a block as fit, laid out as the display is.  Every pixel is compared
+// with the part of the dither the window shows.
+static bool view_on_disk(char* why) {
+    picture();
+    int stride = (kw + CELL_BITS - 1) / CELL_BITS;
+    int rows_a_block = DISK_BLOCK / CELL_BYTES / stride;
+    int blocks = (kh + rows_a_block - 1) / rows_a_block;
+    if (kw <= 0 || kh <= 0 || blocks > DISK_VIEW_BLOCKS) {
+        snprintf(why, WHY, "a bitmap of %d by %d does not fit the %d blocks kept for it", kw, kh, DISK_VIEW_BLOCKS);
+        return(false);
+    }
+    uint8_t* bytes = malloc((size_t)blocks * DISK_BLOCK);
+    desk_block(DISK_VIEW_BLOCK, blocks, bytes);
+    int differ = 0;
+    for(int y=0; y < kh; y++) {
+        size_t row = (size_t)(y / rows_a_block) * (DISK_BLOCK / CELL_BYTES) + (size_t)(y % rows_a_block) * stride;
+        for(int x=0; x < kw; x++) {
+            int bit = x % CELL_BITS;
+            bool set = disk_cell(bytes, row + x / CELL_BITS) >> (DISP_LEFT_LOW ? bit : CELL_BITS - 1 - bit) & 1;
+            if ((DISP_INK_BLACK ? set : !set) != (bool)dither_black[(size_t)(py0 + y) * pw + px0 + x]) differ++;
+        }
+    }
+    free(bytes);
+    snprintf(why, WHY, "%d pixels of the %d by %d bitmap on the disk differ from the dither", differ, kw, kh);
+    return(!differ);
+}
+
 // The picture's menu (forth/viewmenu.fs), as the checks pick its lines: how
 // the picture is drawn (dithered, through Bayer's mask, or through blue
 // noise), how many of its pixels a side a sample of the gray is as drawn,
@@ -1028,6 +1083,37 @@ static bool picture_marked(char* why) {
     snprintf(why, WHY, "%d lines are marked, the last %d, and %d is to be; the title is%s shown as down",
              marks, at, pic_mode, titled ? "" : " not");
     return(titled && marks == 1 && at == pic_mode);
+}
+
+// While a window is grabbed, the screen is as it was before the press,
+// except on the one-pixel frame of the window moved by how far the pointer
+// went, where it is inverted wherever the gray pattern has ink (wm.fs,
+// frame-xor).  The pointer, before and after it moved, and the disk light
+// are left out.
+static bool in_box(int x, int y, int bx, int by, int bw, int bh) {
+    return(x >= bx && x < bx + bw && y >= by && y < by + bh);
+}
+static bool outlined(char* why) {
+    int64_t* corner;
+    table("wm.fs", "disk-corner", &corner, 2);
+    int fx = rect[grabbed.w].x + grabbed.dx, fy = rect[grabbed.w].y + grabbed.dy;
+    int fw = rect[grabbed.w].w, fh = rect[grabbed.w].h;
+    int differ = 0, inverted = 0;
+    for(int y=0; y < H; y++) {
+        for(int x=0; x < W; x++) {
+            if (in_box(x, y, grabbed.x, grabbed.y, 8, 12) || in_box(x, y, grabbed.x + grabbed.dx, grabbed.y + grabbed.dy, 8, 12)) continue;
+            if (x >= W - corner[0] && y < corner[1]) continue;
+            bool edge = in_box(x, y, fx, fy, fw, fh) && !in_box(x, y, fx + 1, fy + 1, fw - 2, fh - 2);
+            bool flip = edge && pattern_pixel(&patterns[3], x, y);
+            bool was = grabbed.before[(size_t)y * W + x];
+            if (flip) inverted++;
+            if ((bool)shot[(size_t)y * W + x] != (was != flip)) differ++;
+        }
+    }
+    free(corner);
+    snprintf(why, WHY, "%d pixels differ from the screen before the press with the outline at %d, %d inverted (%d of its pixels)",
+             differ, fx, fy, inverted);
+    return(!differ && inverted > 0);
 }
 
 static bool moved(char* why) {
@@ -1158,16 +1244,22 @@ static bool prints_behind(char* why) {
     return(!wrong && cols > 2 && !strcmp(text[0], "18") && !strcmp(text[1], "19") && !strcmp(text[2], " ok"));
 }
 
+// The disk light at the right of the bar changes whenever blocks are read
+// or written, so it is left out.  Its size is disk-corner in wm.fs.
 static bool others_same(char* why) {
+    int64_t* corner;
+    table("wm.fs", "disk-corner", &corner, 2);
     int changed = 0;
     for(int y=0; y < H; y++) {
         for(int x=0; x < W; x++) {
             bool in_forth = x >= rect[FORTH].x && x < rect[FORTH].x + rect[FORTH].w &&
                             y >= rect[FORTH].y && y < rect[FORTH].y + rect[FORTH].h;
-            if (!in_forth && kept[(size_t)y * W + x] != shot[(size_t)y * W + x]) changed++;
+            bool in_disk = x >= W - corner[0] && y < corner[1];
+            if (!in_forth && !in_disk && kept[(size_t)y * W + x] != shot[(size_t)y * W + x]) changed++;
         }
     }
-    snprintf(why, WHY, "%d pixels outside the Forth window changed", changed);
+    free(corner);
+    snprintf(why, WHY, "%d pixels outside the Forth window and the disk light changed", changed);
     return(!changed);
 }
 

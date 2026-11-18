@@ -1,12 +1,15 @@
 \ wm.fs - windows, the pointer, and the event loop
 \
-\ A window is twelve cells: x, y, width, height, title (a counted string),
-\ three routines, its port, the region of it that can be seen, a cell for
-\ whoever draws it (win-data), and its menu, or 0 (win-menu).  The
-\ routines:
+\ A window is fourteen cells: x, y, width, height, title (a counted
+\ string), three routines, its port, its visible region, a cell for its
+\ program's own use (win-data), its menu or 0 (win-menu), and two optional
+\ hooks, each a word or 0 (win-front, win-back).  The routines:
 \     draw   ( win -- )         paint the content, in the window's port
 \     key    ( c win -- )       a key, when this window is in front
 \     click  ( x y win -- )     a click in the content, or 0 for none
+\ and the two hooks:
+\     front  ( win -- )         the window has come to the front
+\     back   ( win -- )         another window has come in front of it
 \
 \ `wins` holds the windows from back to front.  The front one has the
 \ keyboard.
@@ -27,19 +30,21 @@ create cw 0 ,           \ the window being drawn
 
 header top : top ( -- win ) nwin @ 1- cells wins + @ ;
 
-\ A window is twelve cells: where it is and how big, its title, the words
-\ that draw it and take its keys and clicks, its port, what can be seen of
-\ it, a cell for whoever draws it to keep what it is a window on, and the
-\ menu that is in the bar while it is in front.
-header win-data : win-data ( win -- a ) c# 10 + ;
-header win-menu : win-menu ( win -- a ) c# 11 + ;
+\ A window is fourteen cells: position and size, title, the words that
+\ draw it and take its keys and clicks, its port, its visible region, a
+\ cell for its program's own use, the menu shown in the bar while it is in
+\ front, and the hooks run when it comes to the front and goes behind.
+header win-data  : win-data  ( win -- a ) c# 10 + ;
+header win-menu  : win-menu  ( win -- a ) c# 11 + ;
+header win-front : win-front ( win -- a ) c# 12 + ;
+header win-back  : win-back  ( win -- a ) c# 13 + ;
 
 header window
 : window ( x y w h title draw key click -- win )
-    d# 12 >c halloc >r
+    d# 14 >c halloc >r
     new-port r@ c# 8 + !
     new-rgn r@ c# 9 + !
-    d# 0 r@ win-data !  d# 0 r@ win-menu !
+    d# 0 r@ win-data !  d# 0 r@ win-menu !  d# 0 r@ win-front !  d# 0 r@ win-back !
     r@ c# 7 + !  r@ c# 6 + !  r@ c# 5 + !  r@ c# 4 + !
     r@ c# 3 + !  r@ CELL2 + !  r@ CELL + !  r@ !
     r@ nwin @ cells wins + !
@@ -79,6 +84,45 @@ create arrow            \ twelve rows of eight pixels, a cell each
 header cursor-off : cursor-off  ( -- ) cur-on @ if cursor-xor d# 0 cur-on ! then ;
 header cursor-show : cursor-show ( -- ) cur-on @ 0= if cursor-xor true cur-on ! then ;
 
+\ ---- the outline of a window being dragged
+\
+\ While a window is dragged by its title, a gray outline of its frame
+\ follows the pointer, as on the classic Macintosh, and the window itself
+\ moves only when the button is released.  Like the pointer, the outline
+\ is drawn straight onto the screen by inverting, so drawing it again
+\ removes it.  refresh takes it off before painting and puts it back after,
+\ so a window repainted under it does not leave pieces of it behind.
+
+create dragging 0 ,     \ true while a window is being dragged by its title
+create dx0 0 ,          \ where the pointer was when the drag started
+create dy0 0 ,
+create drag-on 0 ,      \ true while the outline is on the screen
+create drag-x 0 ,       \ the outline's top left
+create drag-y 0 ,
+
+: drag-w ( -- w ) top CELL2 + @ ;                   \ the dragged window's size: it is the front window
+: drag-h ( -- h ) top c# 3 + @ ;
+
+: frame-xor ( -- ) \ invert a one-pixel gray frame the size of the dragged window, at drag-x drag-y
+    pattern @ >r  'mode @ >r
+    xor-mode  p-gray pattern !
+    drag-x @  drag-y @  drag-w  d# 1  pat-rect                         \ top
+    drag-x @  drag-y @ drag-h + 1-  drag-w  d# 1  pat-rect             \ bottom
+    drag-x @  drag-y @ 1+  drag-h d# 2 -  xor-column                  \ left
+    drag-x @ drag-w + 1-  drag-y @ 1+  drag-h d# 2 -  xor-column      \ right
+    r> 'mode !  r> pattern !
+;
+
+: drag-off ( -- ) drag-on @ if frame-xor d# 0 drag-on ! then ;
+
+: drag-show ( -- ) \ draw the outline where the pointer has taken the window, if a window is being dragged
+    dragging @  drag-on @ 0=  and if
+        mx @ dx0 @ -  top @ +  drag-x !
+        my @ dy0 @ -  top CELL + @ +  drag-y !
+        frame-xor  true drag-on !
+    then
+;
+
 \ A window may want to know that the pointer has moved, to show something
 \ about what it is on.
 header 'moved create 'moved 0 ,     \ ( -- )
@@ -95,31 +139,30 @@ header 'moved create 'moved 0 ,     \ ( -- )
 
 create t-menu ," hexaforth"
 
-\ A title in the bar is a menu.  The first is the windows, the one in
-\ front first; after it is the menu of the window in front, if it has one.
-\ The button going down on a title brings its menu down under it.  If the
-\ button goes up on a line of it, that line is picked; if it goes up on
-\ the title the menu stays, and the next press picks a line or, anywhere
-\ else, takes the menu away.  So it works held down and dragged, or with
-\ a click and then a click.
+\ Each title in the bar is a menu.  The first lists the windows, the front
+\ one first; after it comes the front window's own menu, if it has one.
+\ Pressing the button on a title drops its menu.  Releasing on a line
+\ picks it; releasing on the title leaves the menu open, and the next
+\ press picks a line or, anywhere else, closes it.  So it works by holding
+\ and dragging, or by two clicks.
 \
-\ A menu is five cells: its title (a counted string), and the words that
-\ say how many lines it has ( -- n ), what a line says ( i -- title ), what
-\ is done when a line is picked ( i -- ), and whether a line is marked
-\ ( i -- f ), or 0 if none is.
+\ A menu is five cells: its title (a counted string), and words that give
+\ its number of lines ( -- n ), a line's text ( i -- title ), the action
+\ for a picked line ( i -- ), and whether a line is marked ( i -- f ), or
+\ 0 if no line is ever marked.
 \
 \ While it is down it is in front of every window.  It is counted with
 \ what covers them, so that none of them paints or scrolls where it is,
 \ and it is painted after them where it is out of date.
-header menu-open create menu-open 0 ,   \ the menu that is down, or 0
+header menu-open create menu-open 0 ,   \ the menu that is open, or 0
 create menu-held 0 ,    \ true while the button that brought it down is still down
 create menu-hot -1 ,    \ the line of it the pointer is on, or -1
 create menu-w 0 ,       \ how wide it is,
 create menu-x 0 ,       \ and where its title starts in the bar
-create menu-tw 0 ,      \ how much of the bar the windows' title has,
-create menu-tw2 0 ,     \ and the front window's after it
+create menu-tw 0 ,      \ the width of the windows' title in the bar,
+create menu-tw2 0 ,     \ and of the front window's title after it
 
-: menu-n ( -- n ) menu-open @ 1+ @ execute ;    \ lines of the menu that is down
+: menu-n ( -- n ) menu-open @ 1+ @ execute ;    \ lines in the open menu
 : menu-box ( -- x y w h ) menu-x @ d# 4 +  d# 19  menu-w @  menu-n d# 4 lshift d# 2 + ;
 
 \ ---- what is out of date
@@ -138,7 +181,7 @@ create rtmp 0 ,
 create rwin 0 ,         \ a rectangle
 
 header wm-regions
-: wm-regions ( -- ) \ the regions the window manager works in, the first time it is asked
+: wm-regions ( -- ) \ allocate the window manager's regions, the first time only
     rd @ if exit then
     new-rgn rd !  new-rgn ru !  new-rgn rpaint !  new-rgn rdesk !
     new-rgn rcov !  new-rgn rtmp !  new-rgn rwin !
@@ -216,13 +259,13 @@ header inval-window : inval-window ( win -- ) \ frame and all
     screen-port @ port!
 ;
 
-create sysmenu 0 , 0 , 0 , 0 , 0 ,      \ the windows' menu (made by sysmenu!)
+create sysmenu 0 , 0 , 0 , 0 , 0 ,      \ the windows' menu (filled in by sysmenu!)
 
 : top-menu ( -- menu|0 ) nwin @ if top win-menu @ else d# 0 then ;
 
-create bt 0 , 0 ,       \ the title being drawn: where it starts in the bar, and how wide it is
+create bt 0 , 0 ,       \ the title being drawn: its x in the bar, and its width
 
-: bar-title ( menu x -- w ) \ a menu's title, white on black while it is down
+: bar-title ( menu x -- w ) \ draw a menu's title in the bar, inverted while it is open
     bt !  dup >r  @ ctext chars-width d# 16 + bt 1+ !
     r@ menu-open @ = if
         false  bt @ d# 4 +  d# 1  bt 1+ @ d# 8 -  d# 17  fill-rect
@@ -233,18 +276,63 @@ create bt 0 , 0 ,       \ the title being drawn: where it starts in the bar, and
     bt 1+ @
 ;
 
+\ The disk light, at the right of the bar: a floppy (the font spin) whose
+\ spindle turns a quarter each time the event loop sees that blocks have
+\ moved (blocks.fs counts them), with an up arrow to its left after a read
+\ and a down arrow after a write.  The arrow stays until the event loop has
+\ gone round eight times with no blocks moved.  There is no clock, so a
+\ turn of the loop is however long the tasks run between pauses.
+\
+\ disk-corner is how far from the right of the bar the light starts, and
+\ how tall it is.  The desktop's checks read it from here
+\ (test/deskcheck.c), to leave the light out of their comparisons.
+create disk-corner
+    #28 , #19 ,
+create disk-seen 0 ,    \ blk-moved when the event loop last looked
+create disk-held 0 ,    \ minus the turns the arrow is still shown for, or 0
+create disk-turn 0 ,    \ which of the floppy's glyphs is shown
+
+meta
+:: IN-USE-TURNS  #-8 literal ;
+target
+
+: disk-x ( -- x ) fb-w @ disk-corner @ - ;          \ left edge of the light: the arrow, then the floppy
+: disk-inval ( -- ) disk-x d# 0 disk-corner @ disk-corner 1+ @ inval-rect ;
+
+: disk-light ( -- ) \ called each turn of the event loop: mark the light for repaint if it changed
+    blk-moved @ dup disk-seen @ <> if
+        disk-seen !  IN-USE-TURNS disk-held !
+        disk-turn @ 1+ d# 3 and  disk-turn !
+        disk-inval  exit
+    then
+    drop
+    disk-held @ if
+        d# 1 disk-held +!  disk-held @ 0= if disk-inval then
+    then
+;
+
+: draw-disk ( -- ) \ draw the floppy, and the arrow while the disk is in use
+    'blk-read @ 0= if exit then
+    spin font !
+    disk-turn @  disk-x d# 10 +  d# 2  draw-char
+    disk-held @ if
+        blk-wrote @ if d# 5 else d# 4 then  disk-x  d# 2  draw-char
+    then
+;
+
 : draw-desk ( -- ) \ menu bar, then grey
     true d# 0 d# 0 fb-w @ d# 19 fill-rect
     false d# 0 d# 19 fb-w @ hline
     sans font !
     sysmenu d# 0 bar-title menu-tw !
     top-menu ?dup if menu-tw @ bar-title else d# 0 then menu-tw2 !
+    draw-disk
     plain-font font !
     p-gray pattern !
     d# 0 d# 20 fb-w @ fb-h @ d# 20 - pat-rect
 ;
 
-: draw-menu ( -- ) \ a line for each of the menu's, marked if it says so
+: draw-menu ( -- ) \ draw the open menu's lines, with a mark by any that are marked
     true menu-box fill-rect  false menu-box frame-rect
     sans font !
     d# 0
@@ -256,7 +344,7 @@ create bt 0 , 0 ,       \ the title being drawn: where it starts in the bar, and
             false  menu-x @ d# 5 +  r@ d# 4 lshift d# 20 +  menu-w @ d# 2 -  d# 16  fill-rect
             true inverse !
         then
-        menu-open @ c# 4 + @ ?dup if                \ a mark before it, if it is marked
+        menu-open @ c# 4 + @ ?dup if                \ a mark before the line, if it is marked
             r@ swap execute if
                 inverse @  menu-x @ d# 6 +  r@ d# 4 lshift d# 26 +  d# 4 d# 4  fill-rect
             then
@@ -339,7 +427,7 @@ header refresh : refresh ( -- ) \ paint what is out of date
     rd @ ru @ rd ! ru !                             \ paint this; start another
     rd @ rgn-none
     visible
-    cursor-off
+    cursor-off  drag-off                            \ while the clip is still the whole screen
     ru @ rdesk @ rpaint @ rgn-and
     rpaint @ rgn-empty? 0= if
         uclip  rpaint @ rgn-clip!
@@ -365,7 +453,7 @@ header refresh : refresh ( -- ) \ paint what is out of date
         then
     then
     noclip
-    cursor-show
+    drag-show  cursor-show
 ;
 
 : repaint ( -- ) d# 0 d# 0 fb-w @ fb-h @ inval-rect ;
@@ -389,17 +477,6 @@ header refresh : refresh ( -- ) \ paint what is out of date
     1-
 ;
 
-\ A window may want to know when the one in front has changed: to take
-\ something into memory while it is in front, and give it back after.
-\ It says so once (on-front), and its word is run each time: there is
-\ room for three.
-create fronts 0 , 0 , 0 , 0 ,       \ the words, ( -- ) each, and nothing after the last
-header on-front : on-front ( xt -- ) fronts begin dup @ while 1+ repeat ! ;
-: fronted ( -- ) \ and the bar, whose second menu is the front window's
-    d# 0 d# 0 fb-w @ d# 19 inval-rect
-    fronts begin dup @ ?dup while execute 1+ repeat drop
-;
-
 : raise ( i -- )
     dup cells wins + @ >r
     begin
@@ -411,25 +488,39 @@ header on-front : on-front ( xt -- ) fronts begin dup @ while 1+ repeat ! ;
     cells wins + r> swap !
 ;
 
+\ A program can be told when its window comes to the front and when
+\ another window comes in front of it, for instance to load something into
+\ memory only while it is in front.  It stores a word in the window's
+\ win-front or win-back hook; the word is called with the window.
+: told ( win a -- ) @ ?dup if execute else drop then ;      \ call a window's hook, if it has one
+
+: forward ( i -- ) \ bring window i to the front: repaint it and the old front window, and call their hooks
+    drag-off                                        \ the outline is the old front window's size
+    top >r  redraw-top raise redraw-top
+    d# 0 d# 0 fb-w @ d# 19 inval-rect               \ and the bar, which shows the front window's menu
+    r@ dup win-back told  rdrop
+    top dup win-front told
+;
+
 \ ---- the menu: bringing it down, and what the button does while it is
 
-: menu-inval ( -- ) menu-box inval-rect  d# 0 d# 0 fb-w @ d# 19 inval-rect ;      \ it, and the bar
+: menu-inval ( -- ) menu-box inval-rect  d# 0 d# 0 fb-w @ d# 19 inval-rect ;      \ the menu and the bar
 
 : menu-line ( -- i ) \ the line of it the pointer is on, or -1
     mx @ menu-x @ - d# 4 - menu-w @ u<  my @ d# 20 - menu-n d# 4 lshift u<  and
     if my @ d# 20 - d# 4 rshift else d# -1 then
 ;
 
-: title-at ( -- x menu | 0 ) \ the title in the bar the pointer is on: where it starts, and its menu
+: title-at ( -- x menu | 0 ) \ the bar title under the pointer: its x and its menu, or 0
     my @ d# 19 < 0= if d# 0 exit then
     mx @ menu-tw @ < if d# 0 sysmenu exit then
     mx @ menu-tw @ - menu-tw2 @ u< if top-menu ?dup if menu-tw @ swap exit then then
     d# 0
 ;
 
-: on-title? ( -- f ) title-at ?dup if nip menu-open @ = else false then ;    \ the title of the menu that is down
+: on-title? ( -- f ) title-at ?dup if nip menu-open @ = else false then ;    \ is the pointer on the open menu's title?
 
-: menu-down ( x menu -- ) \ as wide as its longest line wants
+: menu-down ( x menu -- ) \ open a menu, as wide as its longest line
     menu-open !  menu-x !
     sans font !
     d# 0 d# 0
@@ -448,21 +539,17 @@ header on-front : on-front ( xt -- ) fronts begin dup @ while 1+ repeat ! ;
 
 : menu-up ( -- ) menu-inval  d# 0 menu-open !  d# 0 menu-held ! ;
 
-: menu-pick ( i -- ) \ what the menu does with that line
+: menu-pick ( i -- ) \ close the menu and run its action for line i
     menu-open @ >r  menu-up  r> c# 3 + @ execute
 ;
 
-\ The windows' menu: a line for each, the one in front first, and the one
-\ picked comes to the front.
+\ The windows' menu: a line per window, the front one first; picking one
+\ brings it to the front.
 : wins-n ( -- n ) nwin @ ;
 : wins-line ( i -- title ) nwin @ 1- swap - cells wins + @ c# 4 + @ ;
 : wins-pick ( i -- )
     nwin @ 1- swap -                                ( where it is among the windows )
-    dup 1+ nwin @ <> if
-        redraw-top raise redraw-top  fronted
-    else
-        drop
-    then
+    dup 1+ nwin @ <> if forward else drop then
 ;
 : sysmenu! ( -- )
     t-menu sysmenu !  ['] wins-n sysmenu 1+ !  ['] wins-line sysmenu CELL2 + !  ['] wins-pick sysmenu c# 3 + !
@@ -484,9 +571,6 @@ header on-front : on-front ( xt -- ) fronts begin dup @ while 1+ repeat ! ;
 header held create held 0 ,         \ true while the button is down
 header 'track create 'track 0 ,     \ ( x y win -- )
 
-create dragging 0 ,
-create dx0 0 ,
-create dy0 0 ,
 
 : track ( -- ) \ the pointer has moved with the button down, or the button has gone up
     'track @ ?dup if
@@ -504,15 +588,10 @@ create dy0 0 ,
     title-at ?dup if menu-down exit then
     true held !  d# 0 'track !
     win-at dup 0< if drop exit then
-    dup 1+ nwin @ <> if
-        redraw-top raise redraw-top                 \ the one that was in front, and the one that is
-        fronted
-    else
-        drop
-    then
+    dup 1+ nwin @ <> if forward else drop then      \ bring it to the front, unless it is already
     top cw !
     my @ cw.y - d# 19 < if
-        true dragging !  mx @ dx0 !  my @ dy0 !
+        true dragging !  mx @ dx0 !  my @ dy0 !  drag-show
         exit
     then
     top c# 7 + @ ?dup if
@@ -536,7 +615,7 @@ create dy0 0 ,
     then
     d# 0 held !  track  d# 0 'track !               \ whoever was following the pointer is told it is over
     dragging @ if
-        d# 0 dragging !
+        drag-off  d# 0 dragging !
         redraw-top                                  \ where it was
         mx @ dx0 @ - top +!
         my @ dy0 @ - top CELL + +!
@@ -555,7 +634,7 @@ create quitting 0 ,
     dup d# 17 = if drop true quitting ! exit then   \ ^Q: leave the desktop
     dup d# 23 = if                                  \ ^W: next window
         drop
-        nwin @ d# 1 > if redraw-top d# 0 raise redraw-top fronted then
+        nwin @ d# 1 > if d# 0 forward then
         exit
     then
     true auto !
@@ -592,7 +671,7 @@ header on-event : on-event ( type code value -- )
     \ A device says where the pointer is an axis at a time, and then that it
     \ has said all there is to say (an event of type 0): only then is the
     \ pointer somewhere it has been, and whoever follows it is told.
-    dup 0= if drop 2drop  held @ if track then  exit then
+    dup 0= if drop 2drop  held @ if track then  drag-off drag-show  exit then
     d# 1 <> if 2drop exit then                      \ otherwise keys only
     over h# 110 = if nip if press else release then exit then
     over shift-key? if nip 0<> shift ! exit then
@@ -621,6 +700,7 @@ header event-loop : event-loop ( -- )
     repaint
     begin
         'poll @ execute
+        disk-light
         refresh
         pause                                       \ the other tasks' turn
         quitting @
