@@ -191,6 +191,67 @@ static check CHECKS[] = {
      "true copy-busy !  screen 0 0 300 300 64 64 copy-bits  0 copy-busy !\n"
      "copy-state @  copy-end 1- @  copied?", 6, {77, 77, -1, 77, 77, -1}, NULL, 64},
 
+    // A text (text.fs) is lines of characters packed into cells, each line
+    // from where a cell starts to an EOL (10).  What is put in crosses
+    // cells on every machine: "hello world" is eleven characters.  A code
+    // is a character of its line, and one taken back leaves the EOL where
+    // it was.  A line of one character is a cell on every machine, so four
+    // cells hold four such lines: a text that rolls loses its first line to
+    // make room for a fifth, and one that does not takes no more.
+    {"a line put in a text, and read back",
+     "create tt 0 , 0 , 0 , 0 , 0 , 0 ,  create tc 64 >c allot  tc 64 false tt text-new\n"
+     "create s 104 c, 101 c, 108 c, 108 c, 111 c, 32 c, 119 c, 111 c, 114 c, 108 c, 100 c, align\n"
+     "s 0 5 tt text-add  s 5 6 tt text-add  tt text-nl  s 3 4 tt text-add\n"
+     "0 tt text-line 80 char@  0 tt text-line 88 char@  1 tt text-line 24 char@  1 tt text-line 32 char@\n"
+     "tt tb.lines @  tt tb.len @", 6, {100, 10, 119, 10, 2, 4}},
+    {"codes in a line, and one taken back",
+     "create tt 0 , 0 , 0 , 0 , 0 , 0 ,  create tc 64 >c allot  tc 64 false tt text-new\n"
+     "create s 104 c, 101 c, align\n"
+     "9 tt text-code  s 0 2 tt text-add  33 tt text-code  tt text-back\n"
+     "tt tb.len @  0 tt text-line 0 char@  0 tt text-line 16 char@  0 tt text-line 24 char@", 4, {3, 9, 101, 10}},
+    {"a text that rolls loses its first line, and one that does not takes no more",
+     "create tt 0 , 0 , 0 , 0 , 0 , 0 ,  create tc 4 >c allot\n"
+     "create s 104 c, 101 c, 108 c, 108 c, 111 c, align\n"
+     ": lines ( -- ) 4 0 do s i 1 tt text-add tt text-nl loop ;\n"
+     "tc 4 true tt text-new  lines  s 4 1 tt text-add\n"
+     "tt tb.lines @  0 tt text-line 0 char@  3 tt text-line 0 char@\n"
+     "tc 4 false tt text-new  lines\n"
+     "tt tb.lines @  0 tt text-line 0 char@  3 tt text-line 0 char@", 6, {4, 101, 111, 4, 104, 108}},
+    // Ninety-one lines, of every length from none to eleven, into a text of
+    // sixteen cells that rolls: the lines left are the last ones, whole.
+    // Line k is the first k mod 12 characters of "hello world": its EOL is
+    // where it ends, and its last character is the string's.
+    {"a text that rolls keeps its last lines whole",
+     "create tt 0 , 0 , 0 , 0 , 0 , 0 ,  create tc 16 >c allot  tc 16 true tt text-new\n"
+     "create s 104 c, 101 c, 108 c, 108 c, 111 c, 32 c, 119 c, 111 c, 114 c, 108 c, 100 c, align\n"
+     ": put ( k -- ) s 0 rot 12 u/mod drop tt text-add ;\n"
+     ": lines ( -- ) 90 0 do i put tt text-nl loop  90 put ;\n"
+     "variable li\n"
+     ": m ( -- m ) 91 tt tb.lines @ - li @ + 12 u/mod drop ;\n"
+     ": at ( n -- c ) li @ tt text-line swap 3 lshift char@ ;\n"
+     ": whole? ( -- f ) m at 10 =  m if m 1- at  s m 1- 3 lshift char@ = and then ;\n"
+     ": ok? ( -- f ) true  tt tb.lines @ 0 do i li ! whole? and loop ;\n"
+     "lines  tt tb.lines @ 1 >  ok?", 2, {-1, -1}},
+    // As the Forth window fills its text: a code at a time, a line ended at
+    // fifty, into sixteen lines' room.  Two hundred lines, line k of k mod
+    // 50 characters, all of them the letter of their line, a to z over
+    // again: every line left is whole, its last character its letter and
+    // its EOL after, and the cell after the text is as it was.
+    {"a text filled a code at a time rolls its lines whole",
+     "create tt 0 , 0 , 0 , 0 , 0 , 0 ,\n"
+     ": room ( -- n ) 50 1 >c + 1 >c u/mod nip 16 * ;\n"
+     "create tc room >c allot  create guard 12345 ,  tc room true tt text-new\n"
+     ": put ( c -- ) tt text-code  tt tb.len @ 50 = if tt text-nl then ;\n"
+     ": n ( k -- n ) 50 u/mod drop ;\n"
+     ": line ( k -- ) dup 26 u/mod drop 97 +  swap n 0 ?do dup put loop drop  tt text-nl ;\n"
+     ": lines ( -- ) 200 0 do i line loop ;\n"
+     "variable li\n"
+     ": k ( -- k ) 200 tt tb.lines @ - 1+ li @ + ;\n"
+     ": at ( j -- c ) li @ tt text-line swap 3 lshift char@ ;\n"
+     ": whole? ( -- f ) k n at 10 =  k n if k n 1- at  k 26 u/mod drop 97 + = and then ;\n"
+     ": ok? ( -- f ) true  tt tb.lines @ 1- 0 do i li ! whole? and loop ;\n"
+     "lines  tt tb.lines @ 1 >  ok?  guard @", 3, {-1, -1, 12345}},
+
     // Tasks: one that counts, and a loop that keeps its index across pauses.
     // The record is the eleven cells a task's is, with what is counted
     // straight after it: a spawn that went past its record would be seen.

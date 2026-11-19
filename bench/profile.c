@@ -43,6 +43,7 @@
 static const struct { const char* name; const char* does; } DONE[] = {
     {"typing two lines in the Forth window", "'2 3 + .\r' ': sq dup * ; 12 sq .\r'"},
     {"printing 40 lines, which scroll", "': p 40 0 do i . cr loop ; p\r'"},
+    {"the Forth window: a page back, and forward again", "pgup pgdn"},
     {"raising the calculator", "front:calc"},
     {"the calculator: keys and buttons", "'12\r34+' click:calc+17+108 click:calc+119+132"},
     {"bringing windows to the front in turn, until it is the Words window", "cycle:words"},
@@ -59,7 +60,9 @@ static const struct { const char* name; const char* does; } DONE[] = {
      "at:words+212+34 at:words+228+34 at:words+244+34 at:words+260+34 at:words+276+34 at:words+292+34 "
      "at:words+308+34 at:words+324+34"},
     {"the Words window: choosing a word", "click:words+10+72"},
-    {"the Words window: six words down, and a page", "down down down down down down pgdn"},
+    {"the Words window: a long definition, a page down and back",
+     "find:tiff-open,tiff-close name:tiff-open pgdn pgup"},
+    {"the Words window: six words down, and a page", "down down down down down down right"},
     {"raising the Forth window, and dragging it away and back", "front:forth drag:forth+60+50 drag:forth-60-50"},
     {"raising the editor", "front:editor"},
     {"typing eleven characters in the editor", "'hello there'"},

@@ -7,21 +7,22 @@
 \ This is compiled into code page 1 and the pages after the data and the
 \ headers.  cross.fs compiles calls between pages as calls by execution
 \ token, so the split needs no care beyond each page's code fitting in its
-\ 8,192 bytes, as build/nuc.sizes gives them.  Where memory is more than
-\ 64K cells there are eight such pages, from page 8, and this takes three
-\ and the nucleus's peephole a fourth.  Where it is 64K cells there are
-\ four, from page 4, of which this and the peephole take three, so that
-\ definitions made at run time have the last:
+\ 8,192 bytes, as build/nuc.sizes gives them.  A page's files are
+\ included one after another, since a page is begun again from its start
+\ when it is gone to.  Where memory is more than 64K cells there are eight
+\ such pages, from page 8, and this and the nucleus's peephole take four.
+\ Where it is 64K cells there are four, from page 4, of which this and the
+\ peephole take three, so that definitions made at run time have the
+\ last:
 \
 \                   more than 64K cells             64K cells
 \   page 1          machine blocks fonts display    the same
 \                     region
 \   the next        tiff atkinson keymap gfx wm     tiff atkinson keymap gfx wm
-\                                                     term
-\   the next        term edit see view calc         edit see
-\   the next        paint (virtio mandrill) gray    view calc gray viewmenu desk join
-\                     viewmenu desk
-\   the next        join
+\   the next        text term edit see              text term edit see
+\   the next        view calc paint (virtio         view calc gray viewmenu desk join
+\                     mandrill) gray
+\   the next        viewmenu desk join
 \   the kernel's                                    paint, in its upper half
 \
 \ Storage is reached through a small interface, so a driver can be swapped
@@ -71,27 +72,25 @@ include wm.fs           \ windows, pointer, event loop
 
 \ The applications.
 
-meta 1 big-page target
+meta 1 big-page  1 small-page target
 
+include text.fs         \ text in cells, a line at a time
 include term.fs         \ text area and the Forth window
-
-meta 1 small-page target
-
 include edit.fs         \ block editor
 include fused.fs        \ fused instructions as words, for the decompiler
 include see.fs          \ decompiler and the dictionary browser
 
-meta 2 small-page target
+meta 2 big-page  2 small-page target
 
 include view.fs         \ image viewer
 include calc.fs         \ RPN calculator
 
-\ HexaPaint.  Where there are pages to spare it has one, with the desktop.
-\ Where there are not, it is in the upper half of the kernel's page, which
-\ the kernel, a ROM of 4KB, leaves empty: 4KB of code that any page calls
+\ HexaPaint.  Where there are pages to spare it is on this one.  Where
+\ there are not, it is in the upper half of the kernel's page, which the
+\ kernel, a ROM of 4KB, leaves empty: 4KB of code that any page calls
 \ with one instruction.
 
-meta 2 big-page  low-page target
+meta low-page target
 
 include paint.fs        \ a window to draw in
 
@@ -109,12 +108,13 @@ include mandrill.fs     \ the demo, without the desktop
 [then]
 
 include gray.fs         \ a picture kept as gray, drawn through a mask
+
+meta 3 big-page target
+
 include viewmenu.fs     \ the viewer's menu: how the picture is drawn
 include desk.fs         \ the desktop itself
 
 \ The nucleus's peephole, which the kernel reaches through a vector.
-
-meta 3 big-page target
 
 include join.fs         \ instructions joined as they are compiled, and the rules
 

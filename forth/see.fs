@@ -635,7 +635,9 @@ target
 ;
 
 : ttok ( addr u xt -- )
-    drop  sfresh @ if sind @ 2* sspaces then  type space ;
+    drop  sfresh @ if sind @ INDENT-COLS * sspaces then
+    type space
+;
 
 \ SEE takes a name from the dictionary or, failing that, a
 \ label.  For a label on data it only says where the data is.
@@ -698,11 +700,12 @@ header see
 \ ---- the Words window: the dictionary on the left, a
 \ definition on the right
 
-\ Up and Down move through the dictionary, PgUp and PgDn by a
+\ Up and Down move through the dictionary, Left and Right by a
 \ page.  A click on a name shows it.  A click on an underlined
-\ word follows it, and Backspace comes back.  Left and Right
-\ scroll a long definition by half a window.  The list and the
-\ definition are as many lines as the window is tall.
+\ word follows it, and Backspace comes back.  PgUp and PgDn
+\ scroll a long definition, which says where there is more.
+\ The list and the definition are as many lines as the window is
+\ tall.
 
 $2d constant SCOLS      \ characters across the definition
 
@@ -711,24 +714,32 @@ create wxt 0 ,          \ the definition shown
 create wsel 0 ,         \ its place in the dictionary, or -1
 create wtop 0 ,         \ the first name listed
 create wsrc 0 ,         \ the first line of the definition shown
-create wrows 0 ,        \ how many lines it has
 create whist #64 allot
 create nhist 0 ,
 create scol 0 ,
 create srow 0 ,
 
-\ What is drawn of a definition is noted, so that the pointer
-\ can be told what it is on: a place is the column, the line
-\ (from bit 6) and how many characters (from bit 11), which a
-\ cell of any size holds if a token is noted as 31 characters at
-\ the most.  A link is its place and the execution token it goes
-\ to, and an instruction its place and the instruction: two
-\ cells each, six links a line and twelve instructions, in
-\ memory that is asked for when the window is first drawn.
-create lk 0 ,    \ links drawn
+\ A definition is decompiled once, into a text (text.fs) that
+\ has all of it, and the window draws the lines of it that are
+\ in view.  A link is underlined, the words of an instruction
+\ that is more than one are bold, and a label leans: each is a
+\ face in the text.
+meta
+:: WCELLS #2048 cell-bytes / literal ;  \ 2,048 characters
+target
+create wtext 0 , 0 , 0 , 0 , 0 , 0 ,    \ the text,
+create wdone 0 ,                         \ the definition in it,
+create sface 0 ,                         \ and the face it is in
+
+\ What is in the text is noted, so that the pointer can be told
+\ what it is on.  A link is three cells: its line, its place in
+\ the line (the column, and how many characters from bit 6),
+\ and the execution token it goes to.  An instruction is its
+\ line, its place and the instruction.
+#256 constant WLINKS    \ the most links noted,
+#256 constant WINSTRS   \ and instructions
+create lk 0 ,    \ links noted
 create nlk 0 ,
-create lkx 0 ,
-create lky 0 ,
 create lku 0 ,
 create crow 0 ,
 create ccol 0 ,
@@ -736,23 +747,48 @@ create wtmp 0 ,
 
 create wwin 0 ,  \ the window
 
-create mt 0 ,    \ instructions drawn
+create mt 0 ,    \ instructions noted
 create nmt 0 ,
 create hov 0 ,   \ the instruction the pointer is over,
                  \ or nothing,
-create hovp 0 ,  \ where its words are, as mt has it,
+create hovp 0 ,  \ where it is noted in mt,
 create hovx 0 ,  \ and the box that says what it is: left, top
                  \ and width
 create hovy 0 ,
 create hovw 0 ,
 header t-words create t-words ," Words"
 
-\ The names are in while the window is in front or being drawn.
-\ They go once it has been drawn behind another, so that it is
-\ drawn there as it was in front.
+\ The names, and memory for the text and what is noted of it,
+\ are had while the window is in front or being drawn.  They go
+\ once it has been drawn behind another, so that it is drawn
+\ there as it was in front, and the memory is had only while
+\ the window is in use.  The text's is given back if nothing has
+\ been given out since, as the names' is.
+create wfrom 0 ,  \ where memory was before the text's,
+create wto 0 ,    \ and after
+
+: (words-in) ( -- )
+    WCELLS dup >c halloc swap false wtext text-new
+    WLINKS d# 3 * >c halloc lk !  WINSTRS d# 3 * >c halloc mt !
+;
+
+: words-in ( -- )
+    names-load  wtext @ if exit then
+    himem @ wfrom !  d# 0 wdone !
+    ['] (words-in) catch if wfrom @ himem !  d# 0 wtext ! then
+    himem @ wto !
+;
+
+: words-out ( -- )
+    wtext @ if
+        himem @ wto @ = if wfrom @ himem !  d# 0 wtext ! then
+    then
+    names-unload
+;
+
 : words-front ( win -- )
     \ when the Words window comes to the front
-    drop names-load ;
+    drop words-in ;
 
 : nwords ( -- n )
     d# 0 forth @
@@ -788,9 +824,6 @@ header t-words create t-words ," Words"
 : wlines ( -- n ) \ how many lines the window shows
     wwin @ c# 3 + @ d# 20 - d# 4 rshift ;
 
-: wlinks ( -- n ) wlines d# 6 * ;    \ the most links noted,
-: winstrs ( -- n ) wlines d# 12 * ;  \ and instructions
-
 : wpick ( i -- ) \ show the i'th word, and keep it in the list
     d# 0 max nwords 1- min
     dup nth hxt wxt !  d# 0 wsrc !
@@ -823,70 +856,65 @@ header t-words create t-words ," Words"
     then
 ;
 
-: gwrap ( u -- u ) \ a new line for a token too long, further in
-    sfresh @ if sind @ 2* scol ! then
-    dup scol @ + SCOLS >  scol @ sind @ 2* >  and if
-        sind @ 1+ 2* scol !  d# 1 srow +!
-    then
+: gface ( f -- ) \ what comes after in face f
+    dup sface @ = if drop exit then
+    dup sface !  FACE + wtext text-code
 ;
 
-: gdraw ( addr u line -- ) \ the token, bold or italic as it is
-    d# 4 lshift lky !
-    scol @ d# 3 lshift d# 112 + lkx !
-    sbold @ bold !  sital @ italic !
-    lkx @ lky @ draw-text
-    d# 0 bold !  d# 0 italic !
+: gnl ( -- ) wtext text-nl  d# 1 srow +!  d# 0 sface ! ;
+
+: gindent ( n -- ) \ the line begun n indents in
+    dup INDENT-COLS * scol !
+    negate begin dup while INDENT wtext text-code 1+ repeat
+    drop
 ;
 
-\ Where the token is, for the pointer: its column, its line from
-\ bit 6 and how many characters it is from bit 10.  It starts n
-\ characters before the token, and is as many longer.
-: gplace ( n -- place )
-    >r  scol @ r@ -  srow @ wsrc @ - d# 6 lshift or
-    lku @ r> + d# 31 min d# 11 lshift or
-;
-
-: glink ( xt -- ) \ a link to xt: underlined, and noted
-    dup 0< if drop exit then
-    false lkx @ lky @ d# 15 + lku @ d# 3 lshift hline
-    nlk @ wlinks < if
-        d# 0 gplace nlk @ 2* lk @ + !
-        nlk @ 2* lk @ + 1+ !
-        d# 1 nlk +!
-    else
-        drop
+\ A token too long for what is left of its line goes on a new
+\ line, an indent further in, on which nothing is yet.
+: gwrap ( u -- u )
+    sfresh @ if sind @ gindent then
+    dup scol @ + SCOLS >  scol @ sind @ INDENT-COLS * >  and if
+        gnl  sind @ 1+ gindent  true sfresh !
     then
 ;
 
 \ Words that are one instruction between them are underlined as
-\ one: the line runs on under the space before each but the
-\ first.
-: ginstr ( -- ) \ an instruction: noted, for the pointer on it
-    sbold @  sgap @ srow @ =  and
-    dup if false lkx @ d# 8 - lky @ d# 15 + d# 8 hline then
-    negate                     ( 1 if the space is its too )
-    nmt @ winstrs < if
-        gplace nmt @ 2* mt @ + !
-        smach @ nmt @ 2* mt @ + 1+ !
-        d# 1 nmt +!
-    else
-        drop
-    then
+\ one: the space before each but the first is in their face.
+: gsame? ( -- f ) \ is the token more of the instruction before?
+    sbold @  sgap @ srow @ =  and ;
+: gsep ( -- ) \ the space before a token
+    gsame? 0= if d# 0 gface then  bl wtext text-code ;
+
+\ Where the token is, for the pointer: its column, and how many
+\ characters it is from bit 6.  It starts n characters before
+\ the token, and is as many longer.
+: gplace ( n -- place )
+    >r  scol @ r@ -  lku @ r> + d# 6 lshift or ;
+
+: rec ( i a -- a' ) \ the ith note of those at a
+    swap dup 2* + + ;
+: gnote ( x place a -- ) \ the note at a: the line, the place, x
+    srow @ over !  1+ tuck !  1+ ! ;
+
+: glink ( xt -- ) \ a link to xt, noted
+    dup 0< nlk @ WLINKS < 0= or if drop exit then
+    d# 0 gplace  nlk @ lk @ rec  gnote  d# 1 nlk +!
+;
+
+: ginstr ( -- ) \ an instruction, noted
+    nmt @ WINSTRS < 0= if exit then
+    smach @  gsame? negate gplace  nmt @ mt @ rec  gnote
+    d# 1 nmt +!
 ;
 
 : gtok ( addr u xt -- )
-    >r dup lku !  gwrap
-    srow @ wsrc @ - dup wlines u< if
-        gdraw  r@ glink  smach @ if ginstr then
-    else
-        drop 2drop
-    then
-    rdrop
-    smach @ if srow @ sgap ! then
+    >r  dup lku !  gwrap  sfresh @ 0= if gsep then
+    r@ 0< 0= F-UNDER and  sbold @ F-BOLD and or
+    sital @ F-LEAN and or  gface
+    swap >chars rot wtext text-add
+    r> glink  smach @ if ginstr  srow @ sgap ! then
     lku @ 1+ scol +!
 ;
-
-: gnl ( -- ) d# 1 srow +! ;
 
 \ ---- what an instruction is to the machine
 
@@ -934,9 +962,9 @@ header t-words create t-words ," Words"
 : hov-box ( -- )
     hov @ sb-begin .mach sb-end
     sbn @ d# 3 lshift d# 6 + hovw !
-    hovp @ h# 3f and d# 3 lshift d# 110 +
+    hovp @ 1+ @ h# 3f and d# 3 lshift d# 110 +
     wwin @ CELL2 + @ d# 2 - hovw @ - min  d# 108 max  hovx !
-    hovp @ d# 6 rshift h# 1f and
+    hovp @ @ wsrc @ -
     dup wlines d# 2 - < if
         1+ d# 4 lshift
     else
@@ -989,27 +1017,24 @@ create hovoy 0 ,
 
 : hov-overlay ( on? -- ) if hov-on else hov-off then ;
 
-\ what the pointer is on, of the instructions drawn; or
-\ nothing twice
-: at? ( place -- f )
-    \ the pointer's line and column, in the place
-    dup d# 6 rshift h# 1f and crow @ =  swap
-    ccol @ over h# 3f and -  swap d# 11 rshift u<  and
+: at? ( a -- f ) \ is the pointer on what is noted at a?
+    dup @ crow @ =  swap 1+ @
+    ccol @ over h# 3f and -  swap d# 6 rshift u<  and
 ;
 
-: hover ( -- place ins )
+\ what the pointer is on, of the instructions in view: where it
+\ is noted, and the instruction; or nothing twice
+: hover ( -- a ins )
     wwin @ dup 0= if d# 0 exit then
     dup top <> if drop d# 0 d# 0 exit then
-    my @ over CELL + @ - d# 19 -  d# 4 rshift crow !
+    my @ over CELL + @ - d# 19 -  d# 4 rshift
+    dup wlines u< 0= if 2drop d# 0 d# 0 exit then
+    wsrc @ + crow !
     mx @ swap @ - 1- d# 112 -  d# 3 rshift ccol !
     d# 0
-    begin
-        dup nmt @ <
-    while
-        dup 2* mt @ + @ at? if
-            2* mt @ +  dup @ swap 1+ @  exit
-        then
-        1+
+    begin dup nmt @ < while
+        dup mt @ rec  dup at? if nip dup CELL2 + @ exit then
+        drop 1+
     repeat
     drop d# 0 d# 0
 ;
@@ -1025,7 +1050,6 @@ create hovoy 0 ,
 
 : wfirst ( -- ) \ the first time it is drawn
     true winit !  d# 0 wpick
-    wlinks 2* >c halloc lk !  winstrs 2* >c halloc mt !
     wwin @ CELL2 + @ PXSHIFT rshift d# 2 +  dup hovk 1+ !
     d# 18 * >c halloc hovk !
     ['] words-front wwin @ win-front !
@@ -1049,22 +1073,39 @@ create hovoy 0 ,
     drop
 ;
 
-: wdef ( -- ) \ the definition, on the right
-    false d# 108 d# 0 d# 1 wlines d# 4 lshift fill-rect
+: wrows ( -- n ) \ the lines of the definition
+    wtext tb.lines @ ;
+
+: wdecomp ( -- ) \ the definition shown, into the text
+    wxt @ wdone !  wtext text-clear
     d# 0 scol !  d# 0 srow !  d# 0 nlk !  d# 0 nmt !
+    d# 0 sface !
     ['] gtok 'tok !  ['] gnl 'nl !
     wxt @ sdecomp
-    srow @ 1+ wrows !
+;
+
+\ [PGUP] and [PGDN] where more of the definition is above and
+\ below, at the right of its columns
+: wmarks ( -- )
+    SCOLS d# 3 lshift d# 112 +
+    wsrc @ if dup d# 0 mark-up then
+    wsrc @ wlines + wrows < if
+        dup wlines 1- d# 4 lshift mark-down
+    then
+    drop
+;
+
+: wdef ( -- ) \ the definition, on the right, if there is room
+    false d# 108 d# 0 d# 1 wlines d# 4 lshift fill-rect
+    wtext @ 0= if exit then
+    wxt @ wdone @ <> if wdecomp then
+    wsrc @ wtext text-line  wrows wsrc @ - wlines min
+    d# 112 d# 0 draw-lines  wmarks
 ;
 
 header words-draw : words-draw ( win -- )
-    wwin !
-    winit @ 0= if wfirst then
-    names-load  \ in for as long as it is drawn, if not
-                \ in already
-    wlist  wdef
-    top wwin @ <> if names-unload then  \ drawn behind another:
-                                        \ the tables can go
+    wwin !  winit @ 0= if wfirst then
+    words-in  wlist wdef  top wwin @ <> if words-out then
 ;
 
 \ What a key or a click changes is put out of date, and no more:
@@ -1104,23 +1145,26 @@ create wtop0 0 ,
     wsel0 @ wline  wsel @ wline  wpane
 ;
 
-: whalf ( -- n ) wlines d# 1 rshift ;  \ half the lines shown
+\ A page of the definition is a window less a line, so that the
+\ line at its edge is still to be seen.  Its last page is a full
+\ window, if it has that many lines.
+: wpage ( -- n ) wlines 1- ;
 
 : wscroll ( n -- ) \ the definition from its nth line
-    d# 0 max  wrows @ 1- min  wsrc !  wpane ;
+    wrows wlines - min  d# 0 max  wsrc !  wpane ;
 
 header words-key : words-key ( c win -- )
     wbefore
     dup d# 128 = if drop wsel @ 1- wpick wpicked exit then
     dup d# 129 = if drop wsel @ 1+ wpick wpicked exit then
-    dup d# 132 = if
+    dup d# 130 = if
         drop wsel @ wlines - wpick wpicked exit
     then
-    dup d# 133 = if
+    dup d# 131 = if
         drop wsel @ wlines + wpick wpicked exit
     then
-    dup d# 130 = if drop wsrc @ whalf - wscroll exit then
-    dup d# 131 = if drop wsrc @ whalf + wscroll exit then
+    dup d# 132 = if drop wsrc @ wpage - wscroll exit then
+    dup d# 133 = if drop wsrc @ wpage + wscroll exit then
     d# 8 = if wback then
     wall
 ;
@@ -1131,13 +1175,11 @@ header words-click : words-click ( x y win -- )
         drop crow @ wtop @ + wpick wpicked exit
     then
     wall
-    d# 112 - d# 3 rshift ccol !
+    d# 112 - d# 3 rshift ccol !  wsrc @ crow +!
     d# 0
-    begin
-        dup nlk @ <
-    while
-        dup 2* lk @ + @ at? if 2* lk @ + 1+ @ wgo exit then
-        1+
+    begin dup nlk @ < while
+        dup lk @ rec  dup at? if nip CELL2 + @ wgo exit then
+        drop 1+
     repeat
     drop
 ;

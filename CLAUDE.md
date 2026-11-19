@@ -684,6 +684,11 @@ the picture at full size:
 - `gfx.fs`, `wm.fs`: rectangles; windows, the pointer, the menu, the
   event loop (`'poll`, `on-event`, `win-front`, `win-back`, `'track`,
   `'moved`)
+- `text.fs`: text in cells, a line at a time: lines that start where a
+  cell does and end at an EOL, with an indent and faces as codes in them,
+  put in and found a cell at a time, and drawn. The Forth window's text
+  and the Words window's definition are such texts. Its codes are said at
+  its top
 - `term.fs`, `edit.fs`, `view.fs`, `calc.fs`, `paint.fs`: the Forth
   window, the block editor, the picture's viewer, the calculator,
   HexaPaint. `viewmenu.fs`: the viewer's menu, whose lines have the

@@ -1067,7 +1067,7 @@ header ctext : ctext ( cstr -- a i u ) \ the text of a counted string that start
     d# 1 over @ h# ff and
 ;
 
-: >chars ( addr -- a i ) \ the address of a byte as a cell and a character of it
+header >chars : >chars ( addr -- a i ) \ the address of a byte as a cell and a character of it
     dup c> swap OFFSET-MASK and
 ;
 

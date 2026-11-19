@@ -522,7 +522,7 @@ tool(mkdisk util/mkdisk.c)
 # when it is wanted, so is written to the width of a block's line.  The
 # target `wrap` fits them to it (util/wrap.c), writing the files again; what
 # it changed is read in git's diff before it is kept.
-set(APPLICATIONS term.fs edit.fs see.fs view.fs calc.fs paint.fs icons.fs gray.fs viewmenu.fs)
+set(APPLICATIONS text.fs term.fs edit.fs see.fs view.fs calc.fs paint.fs icons.fs gray.fs viewmenu.fs)
 tool(wrap-source util/wrap.c)
 add_custom_target(wrap
         COMMAND           wrap-source ${APPLICATIONS}

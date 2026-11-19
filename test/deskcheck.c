@@ -65,6 +65,7 @@ typedef struct {
 
 static bool came_up(char* why), saved(char* why), dithered(char* why), moved(char* why), bold(char* why);
 static bool fused_told(char* why), a_number(char* why), word_told(char* why), box_gone(char* why);
+static bool scrolled_down(char* why), words_marked(char* why), more_above(char* why), more_both(char* why);
 static bool one_cursor(char* why), prints_behind(char* why), keep(char* why), others_same(char* why);
 static bool remember(char* why);
 static bool sees_all(char* why), memory(char* why), menu_down(char* why), line_shown(char* why);
@@ -130,18 +131,19 @@ static check CHECKS[] = {
     // first listed; a click on its name shows it.
     {"the Words window lists the dictionary", "cycle:words click:words+10+8 away", "8-words",
      {{"names", 0, '=', "sq"}, {"names", 1, '=', "%1"}, {"names", 2, '=', "%2"}}},
+    // What is inside a definition is indented three columns a level.
     {"the Words window decompiles", "", NULL,
-     {{"source", 0, '=', ": sq"}, {"source", 1, '=', "  dup *"}, {"source", 2, '=', ";"}}},
-    {"a word in a definition is a link", "click:words+132+24 away", "9-link",
-     {{"source", 0, '=', ": dup"}, {"source", 1, '=', "  dup"}, {"source", 2, '=', ";"}}},
+     {{"source", 0, '=', ": sq"}, {"source", 1, '=', "   dup *"}, {"source", 2, '=', ";"}}, words_marked},
+    {"a word in a definition is a link", "click:words+140+24 away", "9-link",
+     {{"source", 0, '=', ": dup"}, {"source", 1, '=', "   dup"}, {"source", 2, '=', ";"}}},
     {"Backspace goes back", "backspace", "10-back",
-     {{"source", 0, '=', ": sq"}, {"source", 1, '=', "  dup *"}, {"source", 2, '=', ";"}}},
+     {{"source", 0, '=', ": sq"}, {"source", 1, '=', "   dup *"}, {"source", 2, '=', ";"}}},
     {"Down moves to the next word", "down", "10-down",
      {{"source", 0, '=', ": %1"}, {"source", 1, '$', "%e"}, {"source", 2, '=', ";"}}},
     // Two words of the dither, which are next to each other in the list:
     // dither-row has fused instructions in it, and dither-start a variable
     // that has no header and a plain word that is one instruction.
-    {"PgDn pages through the dictionary", "find:dither-row,dither-start", "10-list", .also = listed_both},
+    {"Right pages through the dictionary", "find:dither-row,dither-start", "10-list", .also = listed_both},
     // Words in bold are one instruction between them.  With the pointer on
     // them a box by them says which: its number, and its fields.
     {"a fused instruction is shown as its words, in bold", "name:dither-row", "10-fused",
@@ -153,6 +155,16 @@ static check CHECKS[] = {
      {{"source", 0, '=', ": dither-start"}}, a_number, NO_NAMES},
     {"and on a word that is one instruction", "", NULL, .also = word_told},
     {"and the box goes when the pointer does", "away", "10-hover-off", .also = box_gone},
+    // A definition longer than the window: PgDn shows it from a window
+    // less a line further down, or as far down as fills the window, and
+    // PgUp from where it was.  [PGDN] ends its last row while more of it
+    // is below, and [PGUP] its first while more is above.
+    {"a definition longer than the window is shown from its start", "find:tiff-open,tiff-close name:tiff-open",
+     "10-long", {{"source", 0, '=', ": tiff-open"}}, remember},
+    {"and says that more of it is below", "", NULL, .also = words_marked},
+    {"PgDn scrolls it", "pgdn", "10-pgdn", .also = scrolled_down},
+    {"and says that more of it is above", "", NULL, .also = words_marked},
+    {"and PgUp scrolls it back", "pgup", "10-pgup", .also = box_gone},
 
     // ^W again, to the Forth window.
     {"^W cycles the windows, and the Forth window's stack is as it was",
@@ -160,9 +172,11 @@ static check CHECKS[] = {
      {{"forth", 8, '=', "0  ok"}, {"forth", 10, '=', "15 0  ok"}}},
     // The Forth window is filled so that it scrolls.  The text is moved on
     // the screen, not drawn again, so what is there is looked at: the last
-    // lines, the first, and that the only solid cell is the cursor.
+    // lines, the first, and that the only solid cell is the cursor.  The
+    // first row ends with [PGUP] now, since more is above.
     {"the Forth window scrolls", "'0 .\r' '1 .\r' '2 .\r' '3 .\r' '4 .\r' '5 .\r' '6 .\r' '7 .\r'", "11-scrolled",
-     {{"forth", 13, '=', "7 ."}, {"forth", 14, '=', "7  ok"}, {"forth", 0, '=', "0  ok"}}, one_cursor},
+     {{"forth", 13, '=', "7 ."}, {"forth", 14, '=', "7  ok"}, {"forth", 0, '^', "0  ok"}}, one_cursor},
+    {"and says that more of its text is above", "", NULL, .also = more_above},
     // The Forth window is a task of its own.  A word is started in it that
     // waits, taking turns, until another window comes to the front, and
     // then prints twenty lines.  The viewer is brought to the front: since
@@ -175,6 +189,18 @@ static check CHECKS[] = {
      "11-behind", .also = prints_behind},
     {"the Forth window runs as a task", "front:forth", "11-task",
      {{"forth", 12, '=', "18"}, {"forth", 13, '=', "19"}, {"forth", 14, '=', " ok"}}, keep},
+    // What is printed is kept as lines of their own lengths, and when there
+    // is no more room the first go.  Thirty lines of forty-odd characters
+    // are more than the window keeps on any machine.  Forty short lines
+    // are not: PgUp shows the lines a window less a line further back,
+    // with [PGDN] at the end of the last row, and PgDn the last again.
+    {"the Forth window keeps its last lines",
+     "':noname 30 0 do i . 40 0 do 42 emit loop cr loop ;\r' 'execute\r'", "11-rolled",
+     {{"forth", 12, '^', "28 ****"}, {"forth", 13, '^', "29 ****"}, {"forth", 14, '=', " ok"}}, more_above},
+    {"PgUp shows the lines before", "':noname 40 0 do i . cr loop ;\r' 'execute\r' pgup", "11-back",
+     {{"forth", 0, '^', "11"}, {"forth", 13, '^', "24"}, {"forth", 14, '^', "25"}}, more_both},
+    {"and PgDn the last again", "pgdn", "11-forth",
+     {{"forth", 13, '^', "39"}, {"forth", 14, '=', " ok"}}, more_above},
     // The whole screen is put out of date from the prompt.  Every window is
     // painted again, each only where it can be seen, so nothing outside the
     // Forth window may change, except the disk light in the bar.
@@ -240,7 +266,7 @@ static check CHECKS[] = {
      "front:forth ':noname begin pause menu-open @ until 20 0 do i . cr loop ;\r' 'execute\r' menu away",
      "15-over", {{"forth", 12, '=', "18"}, {"forth", 13, '=', "19"}, {"forth", 14, '=', " ok"}}, menu_whole},
     {"a press off the menu takes it away, and what was under it is painted", "click:forth-40-40 away", "15-away",
-     {{"forth", 0, '=', "6"}, {"forth", 1, '=', "7"}, {"forth", 2, '=', "8"}}, menu_away},
+     {{"forth", 0, '^', "6"}, {"forth", 1, '=', "7"}, {"forth", 2, '=', "8"}}, menu_away},
     {"and so does a key", "menu backspace away", "15-key", .also = menu_gone},
 
     // HexaPaint.  It is at the back, and is brought to the front from the
@@ -741,7 +767,7 @@ static struct { int w, x, y, dx, dy; uint8_t before[SCREEN]; } grabbed;
 //   pmenu              the picture's title in the bar is clicked, which brings its menu down
 //   picture:LINE       a line of the picture's menu is picked (atkinson, ordered, blue, finer,
 //                      coarser, darker or lighter), and the picture looked at until it is so
-//   find:A,B           PgDn, until the Words window lists both names
+//   find:A,B           Right, until the Words window lists both names
 //   name:A             a name in the Words window's list is clicked
 //   tool:N pattern:N   HexaPaint's tool or pattern is clicked
 //   pull:X0,Y0,X1,Y1   the button down at a place of the canvas, the pointer to another, the button up
@@ -888,7 +914,7 @@ static void does(const char* said) {
                     both = listed(first) >= 0 && listed(second) >= 0;
                 }
                 last = both || (page && !memcmp(before, names, sizeof(names)));
-                if (!last) desk_key("pgdn", NULL);
+                if (!last) desk_key("right", NULL);
             }
         } else if (!strncmp(word, "name:", 5)) {
             const grid* g = grid_named("names");
@@ -1243,6 +1269,77 @@ static bool word_told(char* why) {
     snprintf(why, WHY, "the first line has no dup: %s", source[1]);
     return(dup && told(1, (int)(dup - source[1]), "10-hover-word", "^[0-9A-F]{4} T->IN IN-> ->T d\\+1", why));
 }
+
+// A window that shows part of a text ends its first row with [PGUP] when
+// more of the text is above, and its last with [PGDN] when more is below.
+static const char PGUP[] = "[PGUP]", PGDN[] = "[PGDN]";
+
+static bool ends_with(const char* text, const char* end) {
+    size_t n = strlen(text), e = strlen(end);
+    return(n >= e && !strcmp(text + n - e, end));
+}
+
+// The first n columns of two rows, where a row that is shorter has spaces.
+static bool same_to(const char* a, const char* b, int n) {
+    for(int col=0; col < n; col++) {
+        char ca = *a ? *a++ : ' ', cb = *b ? *b++ : ' ';
+        if (ca != cb) return(false);
+    }
+    return(true);
+}
+
+// The marks the Words window's definition has are where more of it is:
+// [PGUP] if its first line, the colon's, is not shown, and [PGDN] if its
+// last, the semicolon's, is not.
+static bool words_marked(char* why) {
+    const grid* g = grid_named("source");
+    const int rows = grid_rows(g);
+    char text[COLS + 1], first[COLS + 1], last[COLS + 1];
+    bool start = false, end = false;
+    for(int row=0; row < rows; row++) {
+        read_grid("source", row, text);
+        if (row == 0) strcpy(first, text), start = text[0] == ':';
+        if (row == rows - 1) strcpy(last, text);
+        end = end || text[0] == ';';
+    }
+    bool up = ends_with(first, PGUP), down = ends_with(last, PGDN);
+    snprintf(why, WHY, "its first line is%s shown and its last is%s, and its first row is: %s; its last: %s",
+             start ? "" : " not", end ? "" : " not", first, last);
+    return(up == !start && down == !end);
+}
+
+// The definition from further down: a window less a line, so that its
+// last row is now its first, if more of it is still below; or else as far
+// as fills the window, with its semicolon on the last row.  The rows are
+// compared but for the columns a mark may be in.
+static bool scrolled_down(char* why) {
+    const grid* g = grid_named("source");
+    const int rows = grid_rows(g), upto = g->cols - (int)strlen(PGUP);
+    char now[MOST_LINES][COLS + 1];
+    for(int row=0; row < rows; row++) read_grid("source", row, now[row]);
+    int by = 0;
+    for(int k=1; k < rows && !by; k++) {
+        bool same = true;
+        for(int row=0; row + k < rows && same; row++) same = same_to(now[row], source[row + k], upto);
+        if (same) by = k;
+    }
+    bool more = ends_with(now[rows - 1], PGDN);
+    snprintf(why, WHY, "it moved %d rows of %d, with %s below; its first row is: %s; its last: %s",
+             by, rows, more ? "more" : "nothing", now[0], now[rows - 1]);
+    return(by > 0 && (more ? by == rows - 1 : now[rows - 1][0] == ';'));
+}
+
+// The marks the Forth window has: [PGUP] and [PGDN], as they are to be.
+static bool forth_marked(bool up, bool down, char* why) {
+    const grid* g = grid_named("forth");
+    char first[COLS + 1], last[COLS + 1];
+    read_grid("forth", 0, first);
+    read_grid("forth", g->rows - 1, last);
+    snprintf(why, WHY, "its first row is: %s; its last: %s", first, last);
+    return(ends_with(first, PGUP) == up && ends_with(last, PGDN) == down);
+}
+static bool more_above(char* why) { return(forth_marked(true, false, why)); }
+static bool more_both(char* why) { return(forth_marked(true, true, why)); }
 
 static bool box_gone(char* why) {
     for(int row=0; row < grid_rows(grid_named("source")); row++) {

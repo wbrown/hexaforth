@@ -48,7 +48,12 @@ disk has been idle for a few turns of the event loop.
 The windows:
 
 - **Forth**: a prompt. It runs as its own task, so its stack is kept from
-  one line to the next and the desktop keeps going while a line runs
+  one line to the next and the desktop keeps going while a line runs.
+  What has scrolled off is kept as long as there is room for it: PgUp and
+  PgDn look back at it a window less a line at a time, and anything
+  printed comes back to the end. `[PGUP]` at the right of the first line
+  says more is above, and `[PGDN]` at the right of the last that more is
+  below
 - **Editor**: one block of the disk, 16 lines of 64 characters. Typing
   overwrites, the cursor keys move, PgUp and PgDn change block, `^S` writes
   the block, and `^L` writes it and loads it as Forth
@@ -64,10 +69,11 @@ The windows:
   two; `n` negates, `x` swaps, `d` drops, Backspace removes a digit. The
   buttons send the same keys
 - **Words**: the dictionary on the left and a decompiled definition on the
-  right. Up and Down move through the dictionary, and PgUp and PgDn move by
-  a page. Clicking a name shows it, clicking an underlined word follows it,
-  and Backspace goes back. Left and Right scroll a long definition. With the
-  pointer on a word, a box shows which instruction it is, by its fields
+  right. Up and Down move through the dictionary, and Left and Right move
+  by a page. Clicking a name shows it, clicking an underlined word follows
+  it, and Backspace goes back. PgUp and PgDn scroll a long definition, with
+  `[PGUP]` and `[PGDN]` as in the Forth window. With the pointer on a word,
+  a box shows which instruction it is, by its fields
 - **HexaPaint**: the tools are down the left: pencil and brush, eraser and
   line, rectangle and filled rectangle, oval and filled oval. The patterns
   are along the bottom. The drawing is saved on the disk
