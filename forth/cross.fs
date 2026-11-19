@@ -367,6 +367,25 @@ ptcode, 'ptcode !
 ; is tcode,
 : org       settle tcp ! label ;
 
+\ The kernel's page is 8KB, and its ROM is the first 4KB of it.  The other
+\ half is memory like the rest, which a call reaches from any page with
+\ one instruction, as it does the ROM: code that need not be in the ROM
+\ can be there.  upper-half is said before such code and lower-half after
+\ it, and what is laid there is laid after what was there already: the
+\ nucleus has some of its own words there (nuc.fs), and where pages are
+\ few, so has the system (system.fs).  A build with the peephole off,
+\ which is never run, takes no notice, and has its code in the order it
+\ is written: so what the nucleus lays there is the last of its page, and
+\ the two builds have their code in the one order.
+variable upper                                  \ where the next code laid there goes: where the ROM ends, at first
+variable lower                                  \ and where code was going
+: upper-half ( -- ) plain @ if exit then  tcp @ lower !  upper @ org ;
+: lower-half ( -- )
+    plain @ if exit then
+    tcp @ $2000 > abort" the upper half of the kernel's page is full"
+    tcp @ upper !  lower @ org
+;
+
 \ Code past the kernel is in pages, and the program says where each starts
 \ (code-page).  A build with the peephole off is never run: it is made on
 \ the host to be compared with the real one, and is about a third bigger.
@@ -396,6 +415,127 @@ wordlist constant target-wordlist
 \ variable disk-held would turn every later disk-held into the macro.  The
 \ basewords are in the list but not checked after each file, since the
 \ nucleus gives each one it needs a body under the baseword's own name.
+\ Who uses what.  A word that another file uses is to have a header: what
+\ compiles a file on the machine has no names but headers, and a word
+\ with none is its own file's alone.  Nothing held the source to that, so
+\ it is looked at here.  Every word, table, constant and macro of the
+\ program is noted where it is defined, with the file that was and whether
+\ a header named it (note-def), and every use of one by its name is looked
+\ at where it is compiled (name-used).  A use of one that has no header,
+\ from a file that is not the one it was defined in, is kept, and they are
+\ written beside the image (.public, at the end of this file, after the
+\ names that do have a header, each with the file that gave it one): the word,
+\ the file it is defined in, the file that uses it, how often, and whether
+\ the file it is defined in was still being read then (inside: the other is
+\ included from it) or was done (after).
+\
+\ A macro (::) is one of them if a file of the program defines it: on the
+\ machine it is a word like any other, with a header.  This compiler's own
+\ macros and the basewords are not the program's, and are not looked at;
+\ nor is what a file says between meta and target with words that are not
+\ macros, which is gforth's to run.
+variable file-now   0 file-now !            \ the file being read: which of them.  0 is this one, and the machine's
+variable files#     2 files# !
+256 constant files-room
+create file-names files-room 2* cells allot \ the name of each,
+create file-open files-room cells allot     \ and whether it is being read
+file-open files-room cells erase
+s" (cross.fs)" save-mem file-names 2!
+s" (the program)" save-mem file-names 2 cells + 2!      \ 1 is the program itself, the file that is compiled
+1 file-open !
+
+: file-id ( a u -- n ) \ a file's number, the same for the same name
+    files# @ 0 ?do
+        2dup i 2* cells file-names + 2@ compare 0= if 2drop i unloop exit then
+    loop
+    files# @ files-room = abort" more files than there is room to note"
+    files# @ 2* cells file-names + 2!
+    files# @  1 files# +!
+;
+
+\ A name that the source gave a header is found on the machine whichever
+\ definition of it a use means: `header dp :noname dp ;` beside `create dp`.
+\ said-wordlist is those names.
+wordlist constant said-wordlist
+
+2048 constant saids-room
+create saids saids-room 3 * cells allot     \ each of those names: the file that gave it its header, and the name
+variable saids#     0 saids# !
+: said-at ( i -- a ) 3 * cells saids + ;
+: note-said ( -- ) \ the name that create has just made in said-wordlist
+    saids# @ saids-room = abort" more headers than there is room to note"
+    saids# @ said-at >r
+    file-now @ r@ !  latest name>string r> cell+ 2!
+    1 saids# +!
+;
+
+4096 constant defs-room
+create defs defs-room 5 * cells allot       \ of each: its body, its file, whether a header named it, its name
+variable defs#      0 defs# !
+variable said-header                        \ whether a header named the word being defined
+: def-at ( i -- a ) 5 * cells defs + ;
+
+: note-def ( -- ) \ the word that create has just made: its body is here
+    defs# @ defs-room = abort" more words than there is room to note"
+    defs# @ def-at >r
+    here r@ !  file-now @ r@ cell+ !  said-header @ r@ 2 cells + !
+    latest name>string r> 3 cells + 2!
+    1 defs# +!
+;
+
+: def-of { body -- a | 0 } \ what was noted of the word with that body: they are in the order they were made
+    0 defs# @ 0 { lo hi mid }
+    begin
+        lo hi <
+    while
+        lo hi + 2/ to mid
+        mid def-at @ body = if mid def-at exit then
+        mid def-at @ body u< if mid 1+ to lo else mid to hi then
+    repeat
+    0
+;
+
+1024 constant uses-room
+create uses uses-room 4 * cells allot       \ the word, as it was noted; the file that uses it; how often; and
+variable uses#      0 uses# !               \ whether the word's own file was still being read
+: use-at ( i -- a ) 4 * cells uses + ;
+
+\ Which file needs which: a file that says a word of another's by its name
+\ needs that file, header or not.  They are written beside the image too
+\ (.needs): for each file, the files it needs, and then all it needs through
+\ what those need.
+create file-needs files-room dup * allot
+file-needs files-room dup * erase
+: needs-at ( user of -- a ) swap files-room * + file-needs + ;
+
+: name-used ( body -- ) \ a word is said by its name, in the file being read
+    def-of dup 0= if drop exit then                     ( d )
+    dup cell+ @ file-now @ = if drop exit then          \ it is this file's
+    1  file-now @  2 pick cell+ @  needs-at c!          \ this file needs that one
+    dup 2 cells + @ if drop exit then                   \ it has a header
+    dup 3 cells + 2@ said-wordlist search-wordlist if 2drop exit then   \ its name has a header
+    uses# @ 0 ?do
+        dup i use-at @ =  i use-at cell+ @ file-now @ =  and if
+            drop  1 i use-at 2 cells + +!  unloop exit
+        then
+    loop
+    uses# @ uses-room = abort" more uses of words with no header than there is room to note"
+    uses# @ use-at >r
+    dup r@ !  file-now @ r@ cell+ !  1 r@ 2 cells + !
+    cell+ @ cells file-open + @ r> 3 cells + !
+    1 uses# +!
+;
+
+\ A macro of the program's is a word of the target's that runs what it was
+\ defined as, which is kept under its name where nothing looks, so that its
+\ uses are looked at as a word's are.  A macro of this file's own, or the
+\ machine's, is the definition itself.
+wordlist constant macro-bodies
+: macro-word ( "name" -- a ) \ the word, noted; a is where what it runs goes
+    create  false said-header !  note-def  here  0 ,
+    does> dup name-used @ execute
+;
+
 variable macros  0 macros !             \ each entry: link, xt, checked after each file?, length and name
 variable listing  false listing !       \ true once the basewords are read: macros defined now are checked
 
@@ -412,8 +552,17 @@ variable listing  false listing !       \ true once the basewords are read: macr
 ;
 : :: ( "name" -- )
     macro, >r
-    get-current >r target-wordlist set-current : r> set-current
-    latestxt r> cell+ !
+    file-now @ if                               \ the program's: a word that runs it, and it under its name
+        >in @ >r
+        get-current >r  target-wordlist set-current  macro-word  r> set-current    ( a )
+        latestxt  r> >in !  r> cell+ !
+        >r
+        get-current >r  macro-bodies set-current  :  r> set-current
+        latestxt r> !
+    else
+        get-current >r target-wordlist set-current : r> set-current
+        latestxt r> cell+ !
+    then
 ;
 : macro-name ( a -- c-addr u ) 3 cells + dup cell+ swap @ ;
 : ?macros ( c-addr u -- ) \ after the file named: each macro's name still finds a macro
@@ -443,6 +592,17 @@ true listing !
 
 cell-bits 8 / constant cell-bytes
 var-base fv-base !
+krom-bytes upper !
+
+\ The kernel is to end inside its ROM (krom-bytes): the nucleus says this
+\ where its kernel ends, and an image whose kernel does not is not made.
+\ (It was made, and what looked at it said how much too long it was.)
+: rom-ends ( -- )
+    plain @ if exit then
+    tcp @ krom-bytes > if
+        cr ." the kernel is " tcp @ krom-bytes - . ." bytes longer than its ROM" abort
+    then
+;
 
 \ The machine, for the peephole to ask: util/fuse.c, which has vm.c in it,
 \ built here for this cell and called through gforth's C interface.  It is
@@ -513,6 +673,8 @@ addr-bits #16 > 0= constant small           \ a machine whose memory is 64K cell
 \ the 4,096 cells that one instruction reaches.  With cells of 32 bits
 \ those end at byte $8000 and what is bulk comes after them (below): it
 \ has 16KB and the headers the 16KB after that.
+\ A header is only of a name the source gives one (header), and those made
+\ at run time carry on after the image's, up to the code (HDR-LIMIT).
 small [if] $6000 [else] cell-bits #64 < [if] $c000 [else] $a000 [then] [then] constant hdr-base
 hdr-base thp !
 \ The first cell of the data, the cell at var-base, is every image's: the
@@ -602,7 +764,10 @@ variable sizes      0 sizes !
 : include-measured ( a u -- ) \ a file, saved where it stays, and what it laid down
     { a u }
     tcp @ tdp @ thp @ + tbp @ + hdr-bytes @ lbl-bytes @ { c d h l }
+    file-now @ { was }
+    a u file-id file-now !  1 file-now @ cells file-open + +!
     a u included-whole
+    -1 file-now @ cells file-open + +!  was file-now !
     a u  tcp @ c -  tdp @ thp @ + tbp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  c 2/  size-line
 ;
 :: include  parse-name save-mem include-measured ;
@@ -611,6 +776,32 @@ variable sizes      0 sizes !
 \ names, a file of forth/ (SYSTEM=picture.fs gforth ...), or system.fs, the
 \ desktop, if it names none.  nuc.fs includes it.
 :: include-system  s" SYSTEM" getenv dup 0= if 2drop s" system.fs" then save-mem include-measured ;
+
+\ What a machine's ROM has that is not the nucleus: the driver of the disk
+\ it starts from.  A machine has the disk it has, so the driver is a file
+\ of its own, of forth/, which the build of that machine's image names
+\ (ROM=virt-disk.fs gforth ...): port-disk.fs, the reference VM's, if it
+\ names none.  nuc.fs includes it, in its ROM.
+:: include-rom  s" ROM" getenv dup 0= if 2drop s" port-disk.fs" then save-mem include-measured ;
+
+\ Is there no word of that name yet?  A file that is in one machine's ROM
+\ and in another's system is included where it is first needed, by
+\ whichever of the two finds it is not there (reg.fs).
+:: lacks? ( "name" -- f ) parse-name target-wordlist search-wordlist if drop false else true then ;
+
+\ Bytes of the image that are to stay nothing: memory that what is in the
+\ ROM keeps for itself, and that no block of the image is to be read over
+\ while it is in use.  One who keeps some says so (from to kept-nothing),
+\ and when the image is made it is looked at.
+variable kept-from  0 kept-from !
+variable kept-to    0 kept-to !
+: kept-nothing ( from to -- )
+    kept-to @ abort" kept-nothing is said twice, and there is room for one"
+    kept-to !  kept-from ! ;
+: kept-is-nothing ( -- )
+    kept-to @ kept-from @ ?do
+        i tc@ if cr ." something is laid at byte " i . ." of the image, which the ROM keeps for itself" abort then
+    loop ;
 
 :: bulk ( -- ) \ what is laid down from here is not variables
     in-bulk @ abort" bulk within bulk"  true in-bulk !
@@ -1006,6 +1197,9 @@ wordlist constant headers-wordlist
     tcalign
     there taddr  link @ tcell,  link !
     link @ note-header
+    wordstr nextname                            \ its name is one that is found
+    get-current  said-wordlist set-current  create  set-current
+    note-said
     tcp @ 2/ swap if 1 cell-bits 1- lshift or then tcell,
     bl parse tname,
     there r> - hdr-bytes +!
@@ -1132,12 +1326,16 @@ variable in-depth
     wordstr lst @ write-line throw
 
     ?own-page
-    wants-label? if tcp @ 2/ (label) then
+    \ A word the source gave no header has a label, and its name goes on
+    \ the disk.
+    named? dup said-header !                    \ whether the source gave it a header
+    0= labelling and if tcp @ 2/ (label) then
     tcp @ wordstart !
     label
-    create  here lastdef !  codeptr , 0 , 0 , 0 , 0 ,
+    create  here lastdef !  note-def  codeptr , 0 , 0 , 0 , 0 ,
     true indef !
-    does>   dup 4 cells + @ ?dup if             \ a baseword that is a word of the kernel's too
+    does>   dup name-used
+            dup 4 cells + @ ?dup if             \ a baseword that is a word of the kernel's too
                 kernel? 0= if                   \ (callable): anywhere else it is in line,
                     false stays !  nip execute exit     \ whether or not that was said
                 then
@@ -1251,79 +1449,108 @@ variable key-at
 ;
 
 \ A font is written as a strike: its glyphs side by side in one bitmap, and
-\ a table of where each starts.  Drawing does not read that.  It reads the
-\ font opened out: four cells for each glyph (where its rows are, how wide
-\ it is, the first row with any black and the row after the last) and then
-\ a cell for each row of each glyph, with the glyph at its left.  The
-\ machine opens a font out the first time it is used (open-font, in
-\ display.fs), and has both from then on.  The small machine has not the
-\ room for both: so here the font is opened out as it is laid down, above
-\ the display, and the strike is not in the image at all.  The font's
-\ record says where it is opened out, and the machine finds it so.
+\ a table of where each starts, which is how it is drawn and read (mono.fs).
+\ Taking a glyph's row out of a strike is a shift and a mask across two
+\ cells, so that is not what is laid down, and the machine never has the
+\ strike.  What is laid down is the font's glyphs, each by itself:
 \
-\ Most rows of most glyphs are blank: those above and below the black, and
-\ all of a space.  Drawing reads row r of a glyph at r cells past its row
-\ pointer, for every row, so blank rows cannot be left out.  But blank rows
-\ can share cells.  Each glyph's rows start early enough that its blank
-\ rows at the top overlap the blank rows at the end of the glyph before
-\ it.  An all-blank glyph takes no new cells if enough blank rows are
-\ already at the end.
+\   a row of a glyph is a lane of a cell, with the glyph at its left as the
+\   display has pixels: a lane of eight bits if no glyph of the font is
+\   wider and a cell has room for more than one, and if not, of sixteen; a
+\   cell is as many rows as it has lanes, the first row in the lowest; and
+\   a glyph is as many cells as its rows need, one glyph after another;
+\
+\   and before the rows is a lane of sixteen bits for each glyph, which
+\   says how wide it is (five bits), the first of its rows that has any
+\   black in it (five), and the row after the last that has (six).
+\
+\ So a font takes as many bytes as its rows have lanes, on a machine of any
+\ size, and drawing takes the rows of a glyph a cell at a time (display.fs).
+\ Most rows of most glyphs are blank, above and below the black, and those
+\ are not drawn: the lane for the glyph says which they are.
 \
 \ In the source a font's record and table are between font[ and the strike,
-\ and ]font is after the strike.
+\ and ]font is after the strike.  What is laid down has the record's five
+\ cells: the height; the first character; how many glyphs there are; the
+\ cells of a glyph, and above its low eight bits what power of two a lane's
+\ bits are; and where the rest is.  The rest is a cell with 1 in each lane
+\ of a row, the lanes for the glyphs, and the rows.  On the small machine
+\ it is above the display, where there is room, and anywhere else it
+\ follows the record.
 : tcell@ ( a -- x ) 0  cell-bytes 0 do over i + tc@ i 8 * lshift or loop  nip ;
+cell-bits #16 / constant lanes              \ lanes of sixteen bits in a cell
 create fstrike 512 cells allot              \ the strike: runs of 64 pixels, a row after a row
 variable fstrike#
+create fstarts 257 cells allot              \ where each glyph starts in it, and where the last ends
 variable font-rec                           \ where the font's record is
 variable in-font    false in-font !
 variable fh         variable fn             \ its height, and how many glyphs
 variable fruns                              \ runs of 64 pixels in a row of the strike
-variable fkc                                \ the cell it is opened out from
-variable frows                              \ the cell after the rows laid down so far,
-variable fnone                              \ and how many blank rows they end with
+variable flb                                \ the bits of a lane that is a row of it
 
 : fpixel ( x y -- bit )
     fruns @ * over 6 rshift + cells fstrike + @
     swap 63 and 63 swap - rshift 1 and
 ;
-: frow ( x0 w r -- pixels ) \ a row of a glyph, at the left of a cell as the display has it
-    { x0 w r }
-    0  w 0 ?do
-        x0 i + r fpixel
-        disp-left-low if i else cell-bits 1- i - then lshift or
+: fstart ( g -- x0 ) cells fstarts + @ ;
+: fwide ( g -- w ) dup 1+ fstart swap fstart - ;
+: frow ( g r -- pixels ) \ a row of a glyph, at the left of a lane as the display has it
+    { g r }
+    0  g fwide 0 ?do
+        g fstart i + r fpixel
+        disp-left-low if i else flb @ 1- i - then lshift or
     loop
+;
+: finfo ( g -- x ) \ the lane that says how wide a glyph is, and which of its rows have black
+    { g }
+    0 0 { first last }
+    fh @ 0 ?do
+        g i frow if  last 0= if i to first then  i 1+ to last  then
+    loop
+    g fwide #16 > abort" a glyph of a font is wider than a lane, sixteen pixels"
+    g fwide  first 5 lshift or  last #10 lshift or
 ;
 : fcell! ( x cell -- ) byte-shift lshift tcell! ;
-: fglyph ( g -- )
-    { g }
-    font-rec @ 5 g + cell-bytes * + tcell@
-    font-rec @ 6 g + cell-bytes * + tcell@ over -
-    0 0 { x0 w first last }
-    fh @ 0 ?do                                      \ find the first and last rows with black
-        x0 w i frow if  last 0= if i to first then  i 1+ to last  then
+: per-lane ( n bits -- cells ) cell-bits swap / tuck + 1- swap / ;      \ the cells that so many lanes are
+: flanes ( xt n cell bits -- cell' ) \ n lanes of so many bits, each what xt ( i -- x ) gives for i, laid as cells
+    { xt n cell bits }
+    cell-bits bits / { per }
+    n bits per-lane 0 ?do
+        0  per 0 do
+            j per * i +  dup n < if xt execute i bits * lshift or else drop then
+        loop
+        cell i + fcell!
     loop
-    last if first else fh @ then  fnone @ min       ( blank rows shared with the glyph before )
-    frows @ swap - { rows }
-    fh @ 0 ?do  x0 w i frow  rows i + fcell!  loop
-    rows fh @ + frows !
-    last if fh @ last - else fnone @ fh @ max then fnone !
-    rows   fkc @ g 4 * +      fcell!
-    w      fkc @ g 4 * + 1+   fcell!
-    first  fkc @ g 4 * + 2 +  fcell!
-    last   fkc @ g 4 * + 3 +  fcell!
+    cell n bits per-lane +
 ;
-:: font[ ( -- ) there font-rec !  0 fstrike# !  lofty in-font ! ;
+variable fg                                 \ the glyph whose rows are being laid
+: fg-row ( r -- pixels ) fg @ swap frow ;
+: fwidest ( -- w ) 0  fn @ 0 ?do i fwide max loop ;
+: lane-ones ( bits -- x ) 0  cell-bits 0 do  1 i lshift or  over +loop  nip ;
+:: font[ ( -- ) there font-rec !  0 fstrike# !  true in-font ! ;
 :: ]font ( -- )
-    in-font @ 0= if exit then
     false in-font !
     font-rec @ tcell@ fh !
     font-rec @ 2 cell-bytes * + tcell@ fn !
+    fn @ #256 > abort" a font has more glyphs than there is room to lay"
     fstrike# @ fh @ / fruns !
-    thi @ byte-shift rshift fkc !
-    fkc @ font-rec @ 4 cell-bytes * + tcell!        \ the record says where it is opened out
-    fkc @ fn @ 4 * + frows !  0 fnone !             \ rows start after the glyphs' four cells each
-    fn @ 0 ?do i fglyph loop
-    frows @ fkc @ - 1+ -2 and cell-bytes * thi +!   \ rounded to an even cell, as halloc keeps himem
+    fn @ 1+ 0 do  font-rec @ 5 i + cell-bytes * + tcell@  fstarts i cells + !  loop
+    fwidest 8 > 0=  lanes 1 > and if 8 else #16 then flb !
+    lofty if thi @ else font-rec @ 5 cell-bytes * + then byte-shift rshift { data }
+    fh @ flb @ per-lane  flb @ 8 = if 3 else 4 then 8 lshift or
+    font-rec @ 3 cell-bytes * + tcell!
+    data  font-rec @ 4 cell-bytes * + tcell!
+    flb @ lane-ones data fcell!
+    ['] finfo fn @ data 1+ #16 flanes               ( the rows go from here )
+    fn @ 0 ?do
+        i fg !  ['] fg-row fh @ rot flb @ flanes
+    loop
+    lofty if
+        1+ -2 and cell-bytes * thi !                \ an even cell, as halloc keeps himem
+        font-rec @ 5 cell-bytes * + tdp !           \ and the table is not laid at all
+    else
+        cell-bytes * tdp !
+    then
 ;
 
 \ 64 pixels of a bitmap, written with the leftmost highest, as the cells
@@ -1688,12 +1915,12 @@ s" ;" target-wordlist search-wordlist 0= throw constant the-semicolon
 ;
 
 :: jmp
-    ' >body @ >target ubranch
+    ' >body dup name-used @ >target ubranch
 ;
 
 :: constant
-    create  ,
-    does>   @ literal
+    create  false said-header !  note-def  ,
+    does>   dup name-used @ literal
 ;
 
 \ A table that is instructions, as the rules of the nucleus's peephole are,
@@ -1721,14 +1948,14 @@ s" ;" target-wordlist search-wordlist 0= throw constant the-semicolon
 \ made with create at run time has.
 :: create
     tcalign                                 \ before the label: it holds where the data will be
-    named? dup >r 0= labelling and if
+    named? dup said-header !  dup >r 0= labelling and if
         there taddr 1 cell-bits 1- lshift or (label)
     then
     r> if
         there taddr literal  s" exit" evaluate  label
     then
-    create there taddr ,
-    does>   @ literal
+    create  note-def  there taddr ,
+    does>   dup name-used @ literal
 ;
 
 ( Switching between target and meta          JCB 19:08 05/02/12)
@@ -1777,11 +2004,13 @@ warnings on
 :: c# base @ >r decimal 0. bl parse >number 2drop drop r> base ! literal ;
 :: d# bl parse 10 base>number ;
 :: h# bl parse 16 base>number ;
-:: ['] ' >body @ literal ;  \ xt = word address
+:: ['] ' >body dup name-used @ literal ;  \ xt = word address
 
 \ n at: data name  makes name the address n cells past where data is, as a
 \ number compiled in line.
-:: at: ( n "data" "name" -- ) ' >body @ + create , does> @ literal ;
+:: at: ( n "data" "name" -- )
+    ' >body dup name-used @ +  create  false said-header !  note-def  ,
+    does> dup name-used @ literal ;
 :: [char] char literal ;
 
 \ The machine's sizes, for the target program.  The first group compile a
@@ -1825,6 +2054,9 @@ warnings on
 \ A lane is sixteen bits of a cell, and a cell is as many lanes as fit: four,
 \ two or one.  LANE1 is a cell with 1 in each of its lanes.
 :: LANE1          0 cell-bits 16 / 0 do 16 lshift 1 or loop literal ;
+:: LANES          lanes literal ;               \ how many lanes that is,
+:: LANESHIFT                                    \ and the shift that divides by it
+    lanes 4 = if 2 else lanes 2 = if 1 else 0 then then literal ;
 :: PXMASK         cell-bits 1- literal ;
 :: PXSHIFT        byte-shift 3 + literal ;
 :: DISP-BASE      disp-base literal ;
@@ -1866,10 +2098,12 @@ warnings on
 :: BAYER-BLK   disk-bayer-block literal ;       \ and Bayer's of 8 by 8
 :: VIEW-BLK    disk-view-block literal ;        \ the viewer's bitmap,
 :: VIEW-BLKS   disk-view-blocks literal ;       \ and how many blocks are kept for it
+:: GRAY-BLK    disk-gray-block literal ;        \ the viewer's picture kept as gray,
+:: GRAY-BLKS   disk-gray-blocks literal ;       \ and how many blocks are kept for that
 :: SOURCE-BLK  disk-source-block literal ;      \ what a machine started from its ROM loads
 \ The disk's index, block 0 (doc/disk.md): an entry is ENTRY-BYTES and a
 \ block ENTRIES of them; a number in one is two bytes, at ENTRY-TYPE,
-\ ENTRY-FIRST, ENTRY-BLOCKS and ENTRY-WHERE.
+\ ENTRY-FIRST, ENTRY-BLOCKS and ENTRY-WHERE; and three of the types.
 :: ENTRY-BYTES  disk-entry literal ;
 :: ENTRIES      disk-block disk-entry / literal ;
 :: ENTRY-TYPE   disk-entry-type literal ;
@@ -1877,6 +2111,7 @@ warnings on
 :: ENTRY-BLOCKS disk-entry-blocks literal ;
 :: ENTRY-WHERE  disk-entry-where literal ;
 :: TYPE-BINARY  disk-binary literal ;
+:: TYPE-SOURCE  disk-source literal ;
 :: TYPE-INDEX   disk-index literal ;
 \ A row of a mask on the disk is its planes, the lowest first, each a row
 \ of a bitmap MASK-WIDTH pixels across: MASK-CELLS cells of this machine,
@@ -1898,6 +2133,39 @@ warnings on
 :: W64?   cell-bits #64 = ;
 :: W32?   cell-bits #32 = ;
 :: W32+?  cell-bits #32 >= ;
+
+\ BOOT=on builds the image a machine boots from a disk with: what the
+\ system's list leaves for the boot to compile from the disk (apps.fs)
+\ is not in it (doc/boot.md).
+s" BOOT" getenv s" on" compare 0= constant booting
+:: BOOTING? booting ;
+
+\ A baseword as a word of the program with a header of its name, for the
+\ nucleus to compile source that says it (baseword-words, basewords.fs);
+\ unless the program has a word of that name already, which may be one
+\ that a call cannot stand for (the kernel's exit, >r).
+:: bw-header ( "name" -- )
+    bl word count  2dup headers-wordlist search-wordlist if drop 2drop exit then
+    s" header " pad place  2dup pad +place  s"  : bw-" pad +place  2dup pad +place
+    s"  " pad +place  pad +place  s"  ;" pad +place  pad count evaluate
+;
+\ and one of the machine's sizes, which is what it is here (HOST, below)
+:: bw-size ( "name" -- )
+    bl word count  2dup headers-wordlist search-wordlist if drop 2drop exit then
+    s" header " pad place  2dup pad +place  s"  : bw-" pad +place  2dup pad +place
+    s"  HOST " pad +place  pad +place  s"  ;" pad +place  pad count evaluate
+;
+
+\ HOST name compiles what a word of this file's own is: one of the machine's
+\ sizes (cell-bits and the like), for a word of the program with that name
+\ (forth/cross-words.fs).
+:: HOST ( "name" -- )
+    bl word count forth-wordlist search-wordlist 0= abort" HOST: there is no such word here"
+    execute literal ;
+
+\ Where the headers made at run time must stop: where the code past page 1
+\ starts.  A byte, as the header pointer is.
+:: HDR-LIMIT code-base 2* literal ;
 
 :: asm-0branch
     ' >body @
@@ -1953,21 +2221,45 @@ warnings on
 \ operations says the opposite, and a conditional branch after the body
 \ goes round on that: test, branch out, body, test, branch back.  A turn is
 \ then one instruction shorter, and the loop one longer.
+\
+\ The test may be one instruction only because the peephole made it so
+\ (`2dup @ xor`), and the build with the peephole off is to have the same
+\ loops turned, so that the two can be compared run for run.  So that build
+\ is told which were: each repeat has a place in the map of calls compiled
+\ in place, as a call has, and with the peephole off a loop is turned if
+\ the map says it was.  Its test is then laid down again as it is, however
+\ many instructions that is, with the last of them saying the opposite.
 : turned ( insn -- insn' true | false )
     dup h# f300 and h# 6000 <> if drop false exit then      \ ALU, to T, no return
     dup h# f0 and dup h# 60 = swap h# 90 = or 0= if drop false exit then
     h# f0 xor true
 ;
+: turned-again ( dest orig -- ) \ the test from dest up to the branch at orig, again, its last instruction turned
+    2 - { dest last }
+    last dest ?do i t@ tcode, 2 +loop
+    last t@ turned 0= abort" a loop is turned with the peephole on, and with it off its test does not end in xor or ="
+    tcode,
+;
 :: repeat ( dest orig -- )
-    2dup swap 2 + = if
-        over t@ turned if
-            tcode,
-            dup 2 + 2/ >target 0branch
-            nip resolve exit
+    call# @  1 call# +!  { dest orig ord }
+    plain @ if
+        inl-map ord + c@ if
+            dest orig turned-again
+            orig 2 + 2/ >target 0branch
+            orig resolve exit
+        then
+    else
+        dest 2 + orig = if
+            dest t@ turned if
+                tcode,
+                orig 2 + 2/ >target 0branch
+                orig resolve
+                1 inl-map ord + c!  exit
+            then
         then
     then
-    swap 2/ >target ubranch
-    resolve
+    dest 2/ >target ubranch
+    orig resolve
 ;
 
 4 org
@@ -2055,8 +2347,9 @@ create ntb 8 allot                          \ a cell of the file, as its bytes
     s" sizes" out-suffix sizes !
 ; execute
 
-\ The map of calls compiled in place: read for a build with the peephole
-\ off, and written at the end of one with it on.
+\ The map of calls compiled in place, and of loops turned (repeat): read
+\ for a build with the peephole off, and written at the end of one with it
+\ on.
 : inline-name ( -- c-addr u ) s" inline" out-name ;
 plain @ [if]
     inline-name r/o open-file 0= [if]
@@ -2067,6 +2360,7 @@ plain @ [if]
 [then]
 
 
+1 file-now !  1 file-open cell+ !       \ what is defined from here on is the program's (who uses what)
 target included                         \ include the program.fs
 
 [ tcp @ 0 org ]
@@ -2106,7 +2400,84 @@ tbp @ hdr-base >  bulky and [if] cr .( the bulk has run into the dictionary head
 thi @ 131072 >  lofty and [if] cr .( what is laid down above the display has run off the end of memory) abort [then]
 thp @ code-base 2* > [if] cr .( the dictionary headers have run into the code) abort [then]
 tcp @ code-base code-size + 2* > [if] cr .( the code has run past where code can be) abort [then]
+kept-is-nothing
 sizes @ close-file throw
+
+\ What is public (who uses what, above), written beside the image
+\ (.public): the names the source gives a header, by the file that defines
+\ them; and after them the names with none that a file other than their own
+\ uses, a line a name and a file that uses it.  Then it says how many names
+\ have no header, and how many of those another file uses.
+: file-name ( n -- a u ) 2* cells file-names + 2@ ;
+: headers-said ( file f -- ) \ the names that file gives a header, eight to a line
+    { file f }
+    0
+    saids# @ 0 ?do
+        i said-at @ file = if
+            dup 0= if s"  " f write-file throw then
+            s"  " f write-file throw  i said-at cell+ 2@ f write-file throw
+            1+ dup 8 = if drop 0  s" " f write-line throw then
+        then
+    loop
+    if s" " f write-line throw then
+;
+: public-written ( -- )
+    s" public" out-suffix { f }
+    decimal
+    s" The names that have a header, by the file that defines them." f write-line throw
+    files# @ 0 ?do
+        0  saids# @ 0 ?do i said-at @ j = if 1+ then loop
+        ?dup if
+            i file-name f write-file throw  s" : " f write-file throw
+            s>d <# #s #> f write-line throw
+            i f headers-said
+        then
+    loop
+    s" " f write-line throw
+    s" The names that have none and that another file uses: the name, its file, the file that" f write-line throw
+    s" uses it, how often, and whether its own file was still being read (inside) or was done (after)." f write-line throw
+    uses# @ 0 ?do
+        i use-at @ 3 cells + 2@ f write-file throw       s"  " f write-file throw
+        i use-at @ cell+ @ file-name f write-file throw   s"  " f write-file throw
+        i use-at cell+ @ file-name f write-file throw     s"  " f write-file throw
+        i use-at 2 cells + @ s>d <# #s #> f write-file throw
+        i use-at 3 cells + @ if s"  inside" else s"  after" then f write-line throw
+    loop
+    f close-file throw
+    0 defs# @ 0 ?do i def-at 2 cells + @ 0= if 1+ then loop       ( with no header )
+    0 uses# @ 0 ?do                                                 \ and of them, those another file uses
+        true  i 0 ?do  j use-at @ i use-at @ = if drop false then  loop
+        if 1+ then
+    loop
+    cr ." words, tables, constants and macros with no header: " swap .
+    ." ; used by another file: " .
+;
+public-written
+
+\ What each file needs (who uses what, above): a line of the files it says
+\ words of, and a line of all those and what they need in turn.
+: needed-said ( user f -- ) \ the files that one needs, on a line
+    { user f }
+    files# @ 0 ?do
+        user i needs-at c@  user i <> and if  s"  " f write-file throw  i file-name f write-file throw  then
+    loop
+    s" " f write-line throw
+;
+: needs-written ( -- )
+    s" needs" out-suffix { f }
+    files# @ 0 ?do
+        i file-name f write-file throw  s"  needs" f write-file throw  i f needed-said
+    loop
+    files# @ 0 ?do  files# @ 0 ?do  files# @ 0 ?do      \ through k: what j needs of i
+        j k needs-at c@  k i needs-at c@  and if 1 j i needs-at c! then
+    loop loop loop
+    files# @ 0 ?do
+        i file-name f write-file throw  s"  needs in all" f write-file throw  i f needed-said
+    loop
+    f close-file throw
+;
+needs-written
+
 link @ var-base tvar!                   \ the newest header, in the first cell of the data
 plain @ 0= [if]
     inline-name create-output-file  dup inl-map call# @ rot write-file throw  close-file throw

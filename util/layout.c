@@ -90,6 +90,17 @@ static void lay_out(layout* m, const char* hex, const char* tables) {
         if (w->at % PAGE + w->size > page->code_end) page->code_end = w->at % PAGE + w->size;
         if (w->at < KROM_BYTES / (long)sizeof(instruction) && w->at + w->size > m->kernel) m->kernel = w->at + w->size;
     }
+    // A kernel that is longer than its ROM runs on past it, and the words
+    // of it that start there are its too: those that follow with nothing
+    // between, the words being in the order of their places.  (It was
+    // once taken to end with the last word that starts in the ROM, and a
+    // kernel 136 bytes too long was said to be 6.)
+    if (m->kernel > KROM_BYTES / (long)sizeof(instruction)) {
+        for(int idx=0; idx < m->n; idx++) {
+            const word* w = &m->words[idx];
+            if (w->size && w->at == m->kernel) m->kernel = w->at + w->size;
+        }
+    }
     for(long at=0; at < m->instructions; at++) {
         code_page* page = &m->pages[at / PAGE];
         if (page->words && code[at]) page->end = at % PAGE + 1;

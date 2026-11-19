@@ -198,7 +198,7 @@ int main(int argc, char *argv[]) {
     spans = files_of(argv[3], &SPANS);
     tables_are(argv[6]);
 
-    desk on = deskvm_start(argv[1], argv[4], argv[5], argv[7], true);
+    desk on = deskvm_start(argv[1], argv[4], argv[5], argv[7], true, false);
     if (!desk_begins(&on)) {
         fprintf(stderr, "the desktop did not come up with its windows where forth/desk.fs puts them\n");
         return(1);

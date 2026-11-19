@@ -38,6 +38,7 @@ static const char SHIFTED[] = "!@#$%^&*()_+:\"<>?{}|~";
 static const char UNSHIFTED[] = "1234567890-=;',./[]\\`";
 
 int qemu_scale = 1, qemu_shots, qemu_inexact;
+int qemu_boot_said, qemu_boot_shown;
 
 static pid_t qemu;              // QEMU,
 static int serial;              // what its console says,
@@ -237,9 +238,29 @@ static const char* key_of(char c, bool* shift) {
 
 // ---- what test/deskcheck.h says a machine does
 
+const uint8_t* desk_screen(void);
+
+// Has the screen text on it: pixels that are black, and pixels that are
+// not?  A screen nothing has been copied to yet is all black, and one that
+// is only cleared is all white.
+static bool text_on_screen(void) {
+    const uint8_t* is = desk_screen();
+    long black = 0;
+    for(long at=0; at < (long)W * H; at++) black += is[at];
+    return(black && black < (long)W * H);
+}
+
+// While the desktop is waited for, a machine that compiles its system from
+// its disk says each file as it starts (blocks.fs, include): its label, a
+// space, and how many blocks it is.  Once it has said one, its screen is
+// looked at until it has text on it or the desktop is up.
 const char* desk_boot(void) {
     const char* said = qemu_said();
     for(int waited=0; !strstr(said, "desktop") && waited < BOOTS; waited += STEP) {
+        if (strstr(said, ".fs ")) {
+            qemu_boot_said = 1;
+            if (!qemu_boot_shown) qemu_boot_shown = text_on_screen();
+        }
         wait_ms(STEP);
         said = qemu_said();
     }

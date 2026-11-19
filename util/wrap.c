@@ -766,6 +766,7 @@ static int fit_runs(text* done, const text* t, long* put_in) {
     char* nothing = room_for(n, 1);                     // a line of nothing
     char* only = room_for(n, 1);                        // a line of nothing but comments
     char* between = room_for(n, 1);                     // after this line, one thing has ended and the next is to start
+    char* entries = room_for(n, 1);                     // or a table goes on with its next entry
     char* before = room_for(n + 1, 1);                  // a line of nothing goes before this one
     where w = { 0 };
     piece* p = NULL;
@@ -779,9 +780,11 @@ static int fit_runs(text* done, const text* t, long* put_in) {
         // A line that goes on with the comment above is that line's, and
         // nothing is put between them: it is read as if it were code.
         between[i] = between_things(&w);
+        entries[i] = between_entries(&w);
         if (goes) {
             only[i] = 0;
             between[i - 1] = 0;
+            entries[i - 1] = 0;
         } else {
             tail = !only[i] && k > 1 && p[k - 1].kind == TO_END ? p[k - 1].at : -1;
         }
@@ -794,14 +797,17 @@ static int fit_runs(text* done, const text* t, long* put_in) {
         while (e < n && !nothing[e]) has_code |= !only[e++];
         // Before line j a thing starts (ENDS), or code starts after a
         // comment and runs to where the next thing starts in a block's
-        // lines (COMMENT).
+        // lines (COMMENT), or failing both, a table goes on with its next
+        // entry (ENTRY).
         #define ENDS(j)     (between[(j) - 1] && !only[(j) - 1])
         #define COMMENT(j)  (between[(j) - 1] && only[(j) - 1] && !only[j] && \
                              next_thing(between, only, (j), e) - (j) <= LINES)
+        #define ENTRY(j)    (entries[(j) - 1] && !only[(j) - 1])
         for(long at=i; has_code && e - at > LINES; ) {
             long cut_at = -1;
             for(long j=at + LINES; j > at && cut_at < 0; j--) if (ENDS(j)) cut_at = j;
             for(long j=at + LINES; j > at && cut_at < 0; j--) if (COMMENT(j)) cut_at = j;
+            for(long j=at + LINES; j > at && cut_at < 0; j--) if (ENTRY(j)) cut_at = j;
             if (cut_at < 0) {                           // the next place, and what is before it is too long, unless it is comment
                 for(long j=at + LINES + 1; j < e && cut_at < 0; j++) if (ENDS(j) || COMMENT(j)) cut_at = j;
                 long to = cut_at < 0 ? e : cut_at;
@@ -829,6 +835,7 @@ static int fit_runs(text* done, const text* t, long* put_in) {
     free(nothing);
     free(only);
     free(between);
+    free(entries);
     free(before);
     return(long_runs);
 }

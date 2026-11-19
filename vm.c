@@ -61,6 +61,16 @@ static inline uint64_t ucell(int64_t x) {
 #ifndef RUNS
 #define RUNS(at)
 #endif
+
+// What watches a machine's memory is told that an instruction is about to
+// store to a cell, and that cells have been read into from the disk
+// (bench/heap.c).  Here that is nothing.
+#ifndef STORES
+#define STORES(addr, x)
+#endif
+#ifndef FILLS
+#define FILLS(addr, cells)
+#endif
 #ifdef STRICT_ALIGN
 static int64_t strict_pc;
 static uint64_t strict_steps;
@@ -172,6 +182,7 @@ static inline void disk_io(context *ctx, int64_t addr, int write) {
     } else {
         size_t n = fread(p, 1, DISK_BLOCK, ctx->DISK);
         memset(p + n, 0, DISK_BLOCK - n);
+        FILLS(ucell(addr), DISK_BLOCK / CELL_BYTES);
     }
 }
 
@@ -314,7 +325,7 @@ static inline int64_t alu(int op, int64_t a, int64_t b) {
 #define WHOLE(x)        cell(x)
 #define ALU(op, a, b)   alu(op, a, b)
 #define FETCH(a)        mem_load(ctx, a)
-#define STORE(a, x)     mem_store(ctx, a, x)
+#define STORE(a, x)     do { STORES(a, x); mem_store(ctx, a, x); } while (0)
 #define RETURN(r)       EIP = ucell(r)
 #define IO_IN(port)     ((port) == IO_SP ? SP : (port) == IO_RSP ? RSP : io_read_handler(ctx, port))
 #define IO_OUT() \

@@ -347,13 +347,23 @@ int main(int argc, char *argv[]) {
                  "\\ cells, reached a cell at a time: high.\n\n"
                  "high\n"
                  "header fused create fused\n");
+    // The table is source that goes on a disk: cut with a line of nothing,
+    // between two of its entries, before it is longer than a block's lines
+    // (doc/formatting.md).
+    int run = 2;                        // its lines since a line of nothing: high and the header so far
     int shown = 0, one = 0, not_shown = 0;
     for(int w=0; w < wants; w++) {
         if (!WANT[w].shown) { not_shown++; continue; }
+        if (run == DISK_BLOCK / DISK_LINE) {
+            fprintf(out, "\n");
+            run = 0;
+        }
         fprintf(out, "$%04x , $%x , %s\n", WANT[w].ins, WANT[w].said_n, WANT[w].shown);
+        run++;
         shown++;
         one += WANT[w].said_n == 1;
     }
+    if (run + 2 > DISK_BLOCK / DISK_LINE) fprintf(out, "\n");
     fprintf(out, "0 ,\nunhigh\n");
     fprintf(out, "\n\\ The names of an instruction's fields, as vm_opcodes.h has\n"
                  "\\ them: where the ALU's input is from, the operation, and where\n"

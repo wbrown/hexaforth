@@ -48,7 +48,8 @@ create twin 0 ,   \ and the window, once that is known
     twin @ ?dup if >r tarea r> win-inval then ;
 
 : trow-inval ( row -- ) \ a row of it put out of date
-    >r d# 0 r> char-xy  TCOLS d# 3 lshift d# 16  twin @ win-inval
+    >r d# 0 r> char-xy  TCOLS d# 3 lshift d# 16
+    twin @ win-inval
 ;
 
 header tclear : tclear ( -- )

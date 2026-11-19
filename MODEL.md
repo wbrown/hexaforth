@@ -276,8 +276,8 @@ The bitmap starts at a cell address that is a single shifted literal, a
 12-bit value shifted left by 12, so that loading the address is one
 instruction and adding it to an offset is one instruction. On the hosted
 machine it is cell `0x4000`, which is 4 shifted by 12 and is the first cell
-after the 128KB image. It is 6,912 cells long, and the heap starts at
-`0x6000`.
+after the 128KB image. It is 6,912 cells long, and what the system gives
+out at run time (`halloc`) starts after it.
 
 The Forth system draws this way, in `display.fs`. Of the implementations,
 the AArch64 kernels show the bitmap on QEMU through the bridge in
@@ -311,21 +311,31 @@ and then waits for one.
 
 ## Other devices
 
-The keyboard, pointer and disk of the machine the AArch64 kernels run on are
-QEMU's virtio devices, reached through the last two rows above by drivers
-written in Forth (`virtio.fs`, `virtio-blk.fs`, `virtio-input.fs`). A
-physical machine will have its own devices, which are not yet part of this
-model. What the system needs from a disk is two words, to read and to write
-a 1,024-byte block (`blocks.fs`); from a keyboard and a pointer, a word that
-passes their events to `on-event` (`wm.fs`).
+A device is not part of the machine. It is reached through ports by a
+driver written in Forth, and a machine of any kind (the reference VM, QEMU,
+the Verilog, hardware) has the devices it has. The keyboard, pointer and
+disk of the machine the AArch64 kernels run on are QEMU's virtio devices,
+reached through the last two rows above (`virtio-disk.fs`, which is in
+that machine's ROM, and `virtio.fs` and `virtio-input.fs`). What the system needs from a keyboard and a pointer is
+a word that passes their events to `on-event` (`wm.fs`).
 
-The reference VM (`vm.c`) can be given a file to use as a disk of 1,024-byte
-blocks, reached through three ports. Port `0xb0` holds a block number, and
+What the system needs from a disk is two words, to read and to write a
+1,024-byte block, which are put in the kernel's vectors `'blk-read` and
+`'blk-write` (`nuc.fs`); `blocks.fs` builds on them. A machine has the
+disk it has, and its ROM has the driver for that: a file of its own, which
+the build of that machine's image names and the nucleus does not
+(`port-disk.fs` for the controller below; `virt-disk.fs`, with
+`virtio-disk.fs`, for QEMU's). When the machine starts it asks that driver
+whether the disk is there, reads the image through it, and puts its words
+in the vectors. Nothing in the nucleus or the system names a controller.
+
+One such controller is three ports, which the reference VM (`vm.c`) has,
+with a file it is given as the disk. Port `0xb0` holds a block number, and
 reads as the number of blocks on the disk. Writing a cell address to port
 `0xb1` reads that block into the 1,024 bytes starting at that cell; writing
-one to port `0xb2` writes the block from there. These ports are specific to
-this VM: on a machine without them they read as zero and writing them does
-nothing, as with any port a machine doesn't have.
+one to port `0xb2` writes the block from there. A machine without the
+controller reads them as zero and writing them does nothing, as with any
+port a machine doesn't have.
 
 Two more ports are specific to this VM, for debugging: port `0xf0`, and port
 `0xe0` when written (`8emit` and `.s` in `vm_opcodes.h`). Neither yet does

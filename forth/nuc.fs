@@ -229,6 +229,13 @@ create syncpt   0 ,
 create state    0 ,
 create delim    0 ,
 header blk create blk 0 ,   \ the block that is being read as source, or nothing
+header 'console create 'console 0 , \ where output goes when the prompt starts again: the console's, or the screen's too (console.fs)
+\ The disk, as the system has it: a block of 1,024 bytes read and written by
+\ these, ( buf blk# -- ), the buffer the address of a cell.  The ROM sets
+\ them to the words of the driver whose controller the machine has (main,
+\ below); blocks.fs builds on them.
+header 'blk-read create 'blk-read  0 ,
+header 'blk-write create 'blk-write 0 ,
 create rO       0 ,
 create leaves   0 ,
 create tib $80 allot
@@ -303,11 +310,6 @@ header dnegate
     d# 1. d+
 ; 
 
-header dabs
-: dabs ( d -- ud )
-    dup 0< if dnegate then
-; 
-
 header s>d
 : s>d dup 0< ;
 
@@ -322,63 +324,10 @@ header 2!
     cell+ !
 ;
 
-header 2rot
-: 2rot
-    >r >r 2swap r> r> 2swap
-;
-
-header d>s
-: d>s   drop ;
-
-header d=
-: d=                        \ a b c d -- f ) 
-    >r                      \ a b c 
-    rot =                   \ b a=c 
-    swap r> =               \ a=c b=d 
-    and
-; 
-
-\ The high cells say, unless they are the same: then the low ones do.
-header d<
-: d<            \ ( al ah bl bh -- flag )
-    rot         \ al bl bh ah
-    2dupxor if > nip nip exit then
-    2drop u<
-;
-
-header du<
-: du<           \ ( al ah bl bh -- flag )
-    rot         \ al bl bh ah
-    2dupxor if u> nip nip exit then
-    2drop u<
-;
-
-header d-
-: d-
-    dnegate d+
-;
-
-header d0<
-: d0<
-    nip 0<
-;
-
-header d0=
-: d0=
-    or 0=
-;
-
 header d2*
 : d2*
     2dup d+
 ; 
-
-header d2/
-: d2/
-    >r d# 1 rshift r@
-    TOPBIT lshift
-    or r> 2/
-;
 
 \ Two cells multiplied into two.  The ALU's * gives the low cell alone, so
 \ this is a step for every bit of a cell: each DOUBLE runs what follows
@@ -618,9 +567,8 @@ header >key
     pto @ skey - 1+
 ;
 
-header samename?
-: samename? ( wp -- f ) \ are the name's cells the key's, as far as the key's last?
-    CELL2 + skey                            ( name key )
+: same-cells? ( name -- f ) \ are the cells from there the key's, as far as the key's last?
+    skey                                    ( name key )
     begin
         over @ over @ =
     while
@@ -630,26 +578,46 @@ header samename?
     2drop false
 ;
 
+header samename?
+: samename? ( wp -- f ) \ has the header that name?
+    CELL2 + same-cells? ;
+
+\ The dictionary is gone through from the newest header to the oldest, and
+\ most of the time looking a word up is spent on headers that are not it:
+\ so a turn that is not it is what is kept short.  The key's first cell is
+\ under the place of the name's first, where one instruction fetches the
+\ one and says whether it is the other; and the header before is fetched
+\ onto the return stack before the place is moved on to the name, so that
+\ nothing has to go back for it.
+\
+\ Two things would make a turn shorter still, and both change what a
+\ header is to everything that reads one (read_header in vm_opcodes.c,
+\ cross.fs, words, the decompiler).  The test for the end of the
+\ dictionary is two instructions of every turn: with a last header that
+\ has the key for its name, put there before the search, it would go.  And
+\ the name is two cells on from where the link points: were its first cell
+\ what the link pointed at, with the link after it, a turn would be to step
+\ to the link, fetch it, fetch and compare, and branch back.
 header sfind
 : sfind ( c-addr u -- c-addr u 0 | xt flag ) \ flag: 1 immediate, -1 not
     2dup >key drop
-    skey @ >r
-    forth @
+    skey @  forth @                         ( c-addr u key wp )
     begin
         dup
     while
-        dup CELL2 + @ r@ = if
-            dup samename? if
-                rdrop nip nip
-                cell+ @
+        dup @ >r  CELL2 +                   ( c-addr u key name ) ( R: the header before )
+        2dup @ = if
+            dup same-cells? if
+                rdrop nip nip nip           ( name )
+                1- @                        \ the cell before the name
                 dup 2* u2/                          \ the xt, less the flag
                 swap 0< invert d# 1 or              \ which is 1 if it was set, and -1 if not
                 exit
             then
         then
-        @
+        drop r>
     repeat
-    rdrop
+    nip
 ;
 
 \ A name as text.  Whoever shows a name (words, the decompiler) has its
@@ -747,17 +715,6 @@ header >number
     repeat
 ;
 
-header fill
-: fill ( c-addr u char -- ) ( 6.1.1540 ) 
-  >r  bounds 
-  begin
-    2dupxor 
-  while
-    r@ over c! 1+
-  repeat
-  rdrop 2drop
-;
-
 header cmove
 : cmove ( addr1 addr2 u -- ) \ a character at a time; what is whole cells is moved with cells-move
     bounds rot >r
@@ -769,19 +726,6 @@ header cmove
         1+
     repeat
     rdrop 2drop
-;
-
-header cmove>
-: cmove> \ ( addr1 addr2 u -- )
-    begin
-        dup
-    while
-        1- >r
-        over r@ + c@
-        over r@ + c!
-        r>
-    repeat
-    drop 2drop
 ;
 
 header execute
@@ -918,7 +862,10 @@ header .
 \ offset on the return stack, and records the return stack depth at that
 \ point in `handler`.  throw cuts the return stack back to that depth, which
 \ leaves those cells on top, then restores the data stack depth with the
-\ xt's cell replaced by the throw code.
+\ xt's cell replaced by the throw code.  With no catch round it, throw says
+\ what was thrown and starts again at the prompt; but -1, as the standard
+\ has it, is ABORT and says nothing: whoever throws it has said what was
+\ wrong (load, blocks.fs).
 
 
 header throw
@@ -933,12 +880,16 @@ header throw
             drop r>
             exit
         then
-        "error:" >c d# 6 type
-        space
-        .
+        dup d# -1 = if                  \ -1, ABORT: whoever threw it has said what was wrong
+            drop
+        else
+            "error:" >c d# 6 type
+            space
+            .
+        then
         d# 0 state !
         d# 0 sourceid !
-        ['] uart-emit 'emit !
+        'console @ 'emit !
         d# 0 sbase !        \ only the first task has no catch round it
         d# 0 IO-RSP io!     \ empty both stacks before restarting
         d# 0 IO-SP io!
@@ -991,7 +942,9 @@ header i!
     dup d# 12 rshift if h# fff and h# 1000 or then
 ;
 
-: target ( -- field ) \ branch target field for the code about to be compiled
+\ (Not called target: that is cross.fs's word for leaving meta, which the
+\ system's source says and the nucleus reads too: cross-words.fs.)
+: landing ( -- field ) \ branch target field for the code about to be compiled
     cp @ dup syncpt !       \ a branch lands here: nothing may be joined across it
     near
 ;
@@ -1026,6 +979,9 @@ header s,
 : mkheader
     newpage?
     dp @ DATA-LIMIT u> d# 8 -throw          \ the data has run into what is after it
+    \ and the headers, with room for the longest header there can be
+    \ (the pointers are bytes)
+    hdp @ d# 256 + HDR-LIMIT u> d# 8 -throw
     hswap
     align
     here lastword !
@@ -1211,13 +1167,13 @@ header-imm ahead
 header-imm then
 : tthen
     dup i@
-    target or
+    landing or
     swap i!
 ;
 
 header-imm begin
 : tbegin
-    target
+    landing
 ;
 
 header-imm again
@@ -1341,7 +1297,7 @@ header-imm do
             h# fff and cp @ h# fff invert and or
         then
         swap                ( next leafptr )
-        target swap i!
+        landing swap i!
     repeat
     drop
     leaves !
@@ -1692,18 +1648,30 @@ header quit
 \ system that brings has a word called boot, which goes on from there.  A
 \ machine whose image is in memory already goes on as it did, with no
 \ disk or with one that has no index.
+\
+\ With no disk and no image, the ROM says so and takes the image from the
+\ console, as records of cells in hex (ipl, below).
 
-\ The reference VM's disk.  Port $b0 holds the number of a block, and
-\ reads as how many blocks there are: none, where there is no disk.  The
-\ address of a cell written to $b1 has the block read into the 1,024
-\ bytes from there, and written to $b2 has it written from them.
-header disk-blocks : disk-blocks ( -- n ) h# b0 io@ ;
-header vd-read     : vd-read  ( a blk -- ) h# b0 io!  h# b1 io! ;
-header vd-write    : vd-write ( a blk -- ) h# b0 io!  h# b2 io! ;
+\ The image is read from a disk by the driver of its controller, through
+\ the block interface: nothing here knows which controller it is, and no
+\ driver is here.  A machine has the disk it has, and its ROM the driver
+\ for that: a file of its own, which the build of that machine's image
+\ names (ROM, cross.fs) and which is compiled here, into the ROM.  It has
+\ one word that this calls,
+\
+\   disk? ( -- read write true | false )
+\
+\ which says whether the disk is there, and if it is gives its words to
+\ read and to write a block, each ( a blk -- ), the block's 1,024 bytes
+\ being the cells from a.  The system's words for the disk are these:
+\ blocks.fs builds on the vectors they are put in.
+include-rom
+
+: image? ( -- f ) main-task @ main-task = ; \ is the image in memory? its first task is in a ring of one
 
 : afresh ( -- ) \ what the console and throw need, with nothing in memory
     main-task dup up !  dup !               \ the first task, in a ring of one
-    ['] uart-emit 'emit !  decimal
+    ['] uart-emit dup 'emit !  'console !  decimal
     d# 0 handler !  d# 0 sbase !
     d# 0 state !  d# 0 blk !  d# 0 sourceid !
 ;
@@ -1720,51 +1688,224 @@ header vd-write    : vd-write ( a blk -- ) h# b0 io!  h# b2 io! ;
     r> OFFSET-MASK and d# 3 lshift rshift  h# ffff and
 ;
 
-: blocks-to ( a first n -- ) \ n blocks from block first, to the cells from a
-    rot >r bounds                           ( end first ) ( R: a )
+\ With no disk the image is taken from the console as a monitor of the
+\ time took a program: as records, each saying where its cells go.  A
+\ record is numbers in hex, each followed by a character that says what
+\ it is: @ that it is the cell the next goes in, a space that it is the
+\ next cell, and # that it is the sum of the cell after @ and the cells
+\ since, which if it is not is said, with where the record was.  ! after
+\ a number ends the image.  Anything else after one, a line's end, is
+\ nothing.  The digits are 0-9 and a-f; mkdisk --boot writes the records.
+: hexit ( c -- u ) \ the digit's value, or 16 or more if c is not one
+    dup [char] a < if [char] 0 else [char] a d# 10 - then -
+;
+: hex-in ( -- u c ) \ a number from the console, and what follows it
+    d# 0
+    begin
+        key dup hexit dup d# 16 u<
+    while
+        nip swap d# 4 lshift or
+    repeat
+    drop
+;
+: deposit ( a sum u -- a' sum' ) tuck + >r  over !  1+ r> ;
+: record ( a sum u c -- a sum ) \ what the character says of the number
+    dup bl = if drop deposit exit then
+    dup [char] @ = if drop nip nip dup exit then
+    [char] # = if over xor if [char] ? emit over . cr then exit then
+    drop
+;
+: ipl ( -- )
+    d# 0 d# 0                               ( a sum )
+    begin
+        hex-in dup [char] ! xor
+    while
+        record
+    repeat
+    2drop 2drop
+;
+
+\ What reads the image from a disk is its driver's word read ( a blk -- ),
+\ which is on the stack while it does: the image's data is read over the
+\ variables, the disk's vectors among them.
+
+: blocks-to ( read a first n -- read ) \ n blocks from block first, to the cells from a
+    bounds 2swap swap >r -rot               ( a end first ) ( R: read )
     begin
         2dupxor
     while
-        r@ over vd-read
-        r> BLKCELLS + >r
-        1+
+        rot 2dup swap r@ execute            ( end first a )
+        BLKCELLS + -rot  1+
     repeat
-    2drop rdrop
+    2drop drop r>
 ;
 
-\ Each binary entry from entry i on is taken from block 0, and its blocks
-\ are read on the way back, the last entry's first.
-: binaries ( i -- )
-    dup ENTRIES = if drop exit then
-    dup entry  dup ENTRY-TYPE ifield TYPE-BINARY = if   ( i e )
+\ Each binary entry from entry i down is taken from block 0, and its
+\ blocks are read on the way back, entry 1's first.
+: binaries ( read i -- read )
+    dup 0= if drop exit then
+    dup entry  dup ENTRY-TYPE ifield TYPE-BINARY = if   ( read i e )
         dup ENTRY-WHERE ifield  BLKCELLS *                  \ a block of memory, as a cell
-        over ENTRY-FIRST ifield  rot ENTRY-BLOCKS ifield    ( i a first n )
-        >r >r >r  1+ binaries  r> r> r>  blocks-to
+        over ENTRY-FIRST ifield  rot ENTRY-BLOCKS ifield    ( read i a first n )
+        >r >r >r  1- binaries  r> r> r>  blocks-to
         exit
     then
-    drop 1+ binaries
+    drop 1- binaries
+;
+
+\ The image, read by block 0's binary entries, from the disk or with no
+\ disk from the console; and whether block 0 was an index for this
+\ machine, which it was read by.
+: from-index ( read -- read f )
+    dup >r  boot-buf d# 0 r> execute
+    d# 0 entry  dup ENTRY-TYPE ifield TYPE-INDEX =
+    swap ENTRY-WHERE ifield CELLBITS =  and
+    dup if >r  ENTRIES 1- binaries  r> then
 ;
 
 : by-name ( c-addr u -- ) \ the word of that name is run, if there is one
     sfind if execute exit then 2drop
 ;
 
-: from-disk ( -- )
-    disk-blocks 0= if exit then             \ no disk
-    boot-buf d# 0 vd-read
-    d# 0 entry  dup ENTRY-TYPE ifield TYPE-INDEX =
-    swap ENTRY-WHERE ifield CELLBITS =  and
-    0= if exit then                         \ no index, or one for another machine
-    d# 1 binaries
-    "boot" >c d# 4 by-name
+meta
+\ say" text" in a definition of the kernel's has the text said.  What the
+\ ROM says before anything is read into memory has to be in the ROM, and
+\ data is not: so the characters are numbers in the code, as many to a
+\ number as a cell holds, the first lowest, and emits says each.
+: say-packed ( c-addr k -- x ) \ k characters, the first lowest
+    0 swap 0 ?do  over i + c@  i 8 * lshift or  loop  nip ;
+:: say" ( "text<quote>" -- )
+    [char] " parse
+    begin dup while
+        2dup cell-bytes min say-packed literal  s" emits" evaluate
+        dup cell-bytes min /string
+    repeat
+    2drop ;
+target
+
+: emits ( x -- ) \ the characters in x, the lowest first, up to one that is nothing
+    begin
+        dup
+    while
+        dup h# ff and emit  d# 8 rshift
+    repeat
+    drop
 ;
 
+: no-disk ( -- ) say" no disk, ready to receive" cr ;
+
 : main
-    afresh
-    from-disk
+    image? afresh                           ( f )
+    disk? if                                ( f read write )
+        rot drop  >r  from-index            ( read f ) ( R: write )
+        swap 'blk-read !  r> 'blk-write !   \ the disk, now the image is read
+        if "boot" >c d# 4 by-name then
+    else
+        0= if no-disk ipl then
+    then
     "cold" >c d# 4 by-name
     quit
 ;
+
+\ ---- the nucleus's words that are not in its ROM
+\
+\ These are words of the nucleus that nothing in it calls and nothing
+\ needs before the image is in memory: they are there to be typed, and for
+\ a program that says them.  They are laid in the upper half of the
+\ kernel's page (cross.fs, upper-half), which is memory and comes with the
+\ rest of the image, and where a call from any page is one instruction as
+\ it is to the ROM.  They left the ROM to make room in it for the driver of
+\ a machine's disk, when that is as long as QEMU's is (virtio-disk.fs).
+\
+\ Before a word is put here, ask the image of every size of machine what
+\ comes to it (kernel_test, typed): a word here that something in the ROM
+\ runs before the image is read is a call into memory that has nothing in
+\ it yet.
+meta rom-ends upper-half target
+
+header dabs
+: dabs ( d -- ud )
+    dup 0< if dnegate then
+;
+
+header 2rot
+: 2rot
+    >r >r 2swap r> r> 2swap
+;
+
+header d>s
+: d>s   drop ;
+
+header d=
+: d= ( a b c d -- f )
+    >r                      \ a b c
+    rot =                   \ b a=c
+    swap r> =               \ a=c b=d
+    and
+;
+
+\ The high cells say, unless they are the same: then the low ones do.
+header d<
+: d<            \ ( al ah bl bh -- flag )
+    rot         \ al bl bh ah
+    2dupxor if > nip nip exit then
+    2drop u<
+;
+
+header du<
+: du<           \ ( al ah bl bh -- flag )
+    rot         \ al bl bh ah
+    2dupxor if u> nip nip exit then
+    2drop u<
+;
+
+header d-
+: d-
+    dnegate d+
+;
+
+header d0<
+: d0<
+    nip 0<
+;
+
+header d0=
+: d0=
+    or 0=
+;
+
+header d2/
+: d2/
+    >r d# 1 rshift r@
+    TOPBIT lshift
+    or r> 2/
+;
+
+header fill
+: fill ( c-addr u char -- ) ( 6.1.1540 )
+    >r  bounds
+    begin
+        2dupxor
+    while
+        r@ over c! 1+
+    repeat
+    rdrop 2drop
+;
+
+header cmove>
+: cmove> \ ( addr1 addr2 u -- )
+    begin
+        dup
+    while
+        1- >r
+        over r@ + c@
+        over r@ + c!
+        r>
+    repeat
+    drop 2drop
+;
+
+meta lower-half target
 
 \ Everything below is compiled into code page 1 and after.  The kernel
 \ never calls it directly: these words are reached by name from the
@@ -1772,6 +1913,11 @@ header vd-write    : vd-write ( a blk -- ) h# b0 io!  h# b2 io! ;
 meta
     $2000 org
 target
+
+\ The machine stops at an instruction that is nothing, vm.c and the
+\ Verilog both (halt): bye is one, and what is typed at the machine to
+\ be run and then looked at ends with it.
+header bye : bye halt ;
 
 \ The nucleus's peephole (join.fs) is in every size of machine.  A machine
 \ with a display, whatever its cell, has a system: system.fs, the desktop,
@@ -1790,7 +1936,8 @@ meta
     t' pcompile, t' 'compile tvar!
     t' main-task t' main-task tvar!     \ the first task, in a ring of one
     t' main-task t' up tvar!
-    t' uart-emit t' main-task 6 + tvar! \ its output goes to the console
+    t' uart-emit t' main-task 6 + tvar! \ its output goes to the console,
+    t' uart-emit t' 'console tvar!      \ and so after an error
     there  t' dp tvar!                  \ data carries on after the data,
     thp @  t' hdp tvar!                 \ and headers after the headers
     tcp @ 2/ code-base max $fff + $fff invert and

@@ -1,7 +1,8 @@
 //
 // mkdisk PICTURE.tiff OUT.img [SOURCE.fs [NAMES]]
 // mkdisk --pack SOURCE.fs...
-// mkdisk --boot BITS IMAGE.hex SOURCE.fs OUT.img
+// mkdisk --boot BITS IMAGE.hex OUT.img IPL.bin SOURCE.fs...
+// mkdisk --boot-desk BITS IMAGE.hex OUT.img IPL.bin PICTURE.tiff NAMES SOURCE.fs...
 //
 // A disk for the system: each file from the block that vm_constants.h says
 // is its own.  The Forth source is blocks, as `load` reads them and the
@@ -12,16 +13,27 @@
 // masks that a picture kept as gray is drawn through: blue noise of 64 by
 // 64 and of 32 by 32, and Bayer's of 8 by 8, as planes of bits
 // (util/bluenoise.c, mask_planes).  Last are the blocks the viewer writes
-// its dithered bitmap to, which start out empty.
+// its dithered bitmap to, and those it writes the picture kept as gray to,
+// which start out empty.
 //
 // With --pack it makes no disk: it lays each file as blocks, and says how
 // many blocks it took or why it does not go into blocks.
 //
 // With --boot it makes a disk that a machine of cells of BITS bits starts
 // from with its ROM alone (doc/boot.md): block 0 is its index
-// (doc/disk.md), the source is from block 1, which is what the machine
-// loads, and after it is the image's memory above the ROM, which the ROM
-// reads into place.
+// (doc/disk.md), the sources are from block 1, the first of them being
+// what the machine loads, with each file a source includes after them
+// (with_included, below), and after them is the image's memory above the
+// ROM, which the ROM reads into place.  IPL.bin is what the ROM takes from
+// the console where there is no disk: the same runs, as records of cells
+// in hex (records, below).
+//
+// With --boot-desk the disk a machine starts from is the desktop's too: the
+// sources are from block 1, one after another, the first being what the
+// machine loads, and all of them are before the picture; the picture, the
+// names, the canvas, the masks and the viewer's bitmap are at their own
+// blocks after the source's, as on the first kind of disk; and the image
+// is after all of those, where the index says.
 //
 
 #include <stdio.h>
@@ -96,17 +108,20 @@ int pack(const char* what, const uint8_t* text, size_t len, uint8_t* disk, int b
         for(size_t k=from; k < idx; k++) if (text[k] != '\r') line[at++] = text[k] == '\t' ? ' ' : text[k];
         from = idx + 1;
     }
-    // Which lines start in a comment in brackets, and which are nothing
-    // but comments.
+    // Which lines start in a comment in brackets, which are nothing but
+    // comments, and which start inside a conditional ([if] with no [then]
+    // yet).
     char* starts_in = room_for(n + 1, 1);
     char* only = room_for(n + 1, 1);
+    char* skipped = room_for(n + 1, 1);
     piece* pieces = NULL;
     long had = 0;
-    int brackets = 0;
+    where is = {0};
     for(long i=0; i < n; i++) {
-        starts_in[i] = brackets;
-        only[i] = only_comments(lines[i], brackets);
-        pieces_of(lines[i], &brackets, &pieces, &had);
+        starts_in[i] = is.brackets;
+        skipped[i] = is.conditions > 0;
+        only[i] = only_comments(lines[i], is.brackets);
+        read_line(lines[i], &is, &pieces, &had);
     }
     free(pieces);
 
@@ -134,6 +149,16 @@ int pack(const char* what, const uint8_t* text, size_t len, uint8_t* disk, int b
             if (line == BLOCK_LINES) at++, line = 0, before = -1;
             if (at >= limit) {
                 fprintf(stderr, "mkdisk: %s: line %ld runs into block %d\n", what, i + 1, limit);
+                fails = 1;
+                break;
+            }
+            // What skips a conditional stops at the end of the block it is
+            // in, and the next block is read as if nothing were skipped:
+            // so a conditional is all in one block.
+            if (!line && skipped[i]) {
+                fprintf(stderr, "mkdisk: %s: line %ld is the first of a block, and is in a conditional that began "
+                        "before it: [if] to [then] is to be lines with none of nothing between, in one block\n",
+                        what, i + 1);
                 fails = 1;
                 break;
             }
@@ -170,6 +195,7 @@ int pack(const char* what, const uint8_t* text, size_t len, uint8_t* disk, int b
     free(lines);
     free(starts_in);
     free(only);
+    free(skipped);
     return(fails ? -1 : last - block + 1);
 }
 
@@ -224,33 +250,142 @@ static void entry(int n, const char* label, int type, long first, long blocks, l
     put(at + DISK_ENTRY_LENGTH, length, 4);
 }
 
+// What the ROM takes from the console where there is no disk (nuc.fs,
+// ipl): the cells of an image from byte `from` to byte `to`, as records in
+// hex, RECORD cells to a record.  A record is the cell its first goes in
+// and @, each cell and a space, the sum of that cell and those as a cell
+// of the machine has it and #, and a line's end.  A cell is its bytes, the
+// lowest first.
+#define RECORD 8
+
+static void records(FILE* out, const uint8_t* bytes, long from, long to, int bits) {
+    int cell = bits / 8;
+    uint64_t mask = bits == 64 ? ~0ull : (1ull << bits) - 1;
+    for(long at=from; at < to; at += RECORD * cell) {
+        uint64_t sum = (uint64_t)(at / cell);
+        fprintf(out, "%llx@", (unsigned long long)sum);
+        for(long c=at; c < to && c < at + RECORD * cell; c += cell) {
+            uint64_t x = 0;
+            for(int b=cell - 1; b >= 0; b--) x = x << 8 | bytes[c + b];
+            fprintf(out, "%llx ", (unsigned long long)x);
+            sum = (sum + x) & mask;
+        }
+        fprintf(out, "%llx#\n", (unsigned long long)sum);
+    }
+}
+
 // The disk a machine starts from with its ROM alone.  Its index is block 0,
 // and its last slot is kept for an entry that goes on to more of the index
 // (doc/disk.md).  The image's memory above the ROM is a run for each stretch
 // of kilobytes that has something in it: what is between is nothing in the
-// image, and is left as memory has it.
-int boot_disk(int bits, const char* image_path, const char* source_path, const char* out_path) {
+// image, and is left as memory has it.  The runs are laid down one after
+// another, in the order of their entries; the console is sent the same
+// runs, as records, and then ! to end them.
+static void write_out(const char* path, const uint8_t* bytes, long blocks) {
+    FILE* out = fopen(path, "wb");
+    if (out == NULL) {
+        perror(path);
+        exit(EXIT_FAILURE);
+    }
+    fwrite(bytes, DISK_BLOCK, blocks, out);
+    fclose(out);
+}
+
+// What the desktop keeps on a disk, each at the block vm_constants.h says is
+// its own: the threshold masks, the picture, and the names that go with an
+// image if there are any.  The blocks between and after them are as they
+// were.
+static void desk_parts(const char* picture_path, const char* names_path) {
+    // Each mask, a row of its planes being so many bytes, up to the block of the next.
+    #define MASK_BYTES(n) ((n) * DISK_MASK_PLANES * DISK_MASK_WIDTH / 8)
+    _Static_assert(DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS <= DISK_VIEW_BLOCK, "the viewer's bitmap is after the masks");
+    _Static_assert(DISK_CANVAS_BLOCK + DISK_CANVAS_BLOCKS <= DISK_MASKS_BLOCK, "the masks are after the canvas");
+    _Static_assert(DISK_MASKS_BLOCK * DISK_BLOCK + MASK_BYTES(64) <= DISK_MASK32_BLOCK * DISK_BLOCK,
+                   "the mask of 64 by 64 is before the one of 32 by 32");
+    _Static_assert(DISK_MASK32_BLOCK * DISK_BLOCK + MASK_BYTES(32) <= DISK_BAYER_BLOCK * DISK_BLOCK,
+                   "and that before Bayer's");
+    _Static_assert(DISK_BAYER_BLOCK * DISK_BLOCK + MASK_BYTES(8) <= (DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS) * DISK_BLOCK,
+                   "the masks are in their blocks");
+    uint8_t thresholds[64 * 64];
+    blue_bytes(64, thresholds);
+    mask_planes(thresholds, 64, disk + (size_t)DISK_MASKS_BLOCK * DISK_BLOCK);
+    blue_bytes(32, thresholds);
+    mask_planes(thresholds, 32, disk + (size_t)DISK_MASK32_BLOCK * DISK_BLOCK);
+    bayer_bytes(thresholds);
+    mask_planes(thresholds, 8, disk + (size_t)DISK_BAYER_BLOCK * DISK_BLOCK);
+
+    uint8_t* bytes;
+    size_t len = read_file(picture_path, &bytes);
+    place("the picture", DISK_PICTURE_BLOCK, DISK_NAMES_BLOCK, bytes, len);
+    free(bytes);
+    printf("the picture at block %d (%d bytes)\n", DISK_PICTURE_BLOCK, (int)len);
+    if (names_path) {
+        len = read_file(names_path, &bytes);
+        place("the names", DISK_NAMES_BLOCK, DISK_CANVAS_BLOCK, bytes, len);
+        free(bytes);
+    }
+}
+
+// The blocks the desktop's things take, from the start of a disk: the last
+// of them are those kept for the viewer's bitmap and for its gray, which
+// are nothing until the viewer makes them.
+_Static_assert(DISK_VIEW_BLOCK + DISK_VIEW_BLOCKS <= DISK_GRAY_BLOCK, "the viewer's gray is after its bitmap");
+#define DESK_BLOCKS (DISK_GRAY_BLOCK + DISK_GRAY_BLOCKS)
+
+// With a picture, the disk is the desktop's as well: the sources are from
+// block 1 and stop before the picture, the desktop's things are where they
+// are on any disk of the desktop's, and the image, which the index says
+// the place of, is after them all.
+int boot_disk(int bits, const char* image_path, const char* out_path, const char* ipl_path,
+              const char* picture_path, const char* names_path, int sources, char* source_paths[]) {
     uint8_t* image;
     size_t image_len = load_image(image_path, &image);
-    uint8_t* text;
-    size_t text_len = read_file(source_path, &text);
-    long lines = text_len && text[text_len - 1] != '\n';    // a block for each line is room enough
-    for(size_t idx=0; idx < text_len; idx++) lines += text[idx] == '\n';
+    uint8_t** texts = calloc(sources, sizeof(uint8_t*));
+    size_t* text_lens = calloc(sources, sizeof(size_t));
+    long* lines = calloc(sources, sizeof(long));
+    long all_lines = 0;
+    for(int f=0; f < sources; f++) {
+        text_lens[f] = read_file(source_paths[f], &texts[f]);
+        lines[f] = text_lens[f] && texts[f][text_lens[f] - 1] != '\n';  // a block for each line is room enough
+        for(size_t idx=0; idx < text_lens[f]; idx++) lines[f] += texts[f][idx] == '\n';
+        all_lines += lines[f] + 1;
+    }
     long kilobytes = (long)(image_len + DISK_BLOCK - 1) / DISK_BLOCK;
-    long room = DISK_SOURCE_BLOCK + lines + 1 + kilobytes;
+    long room = DISK_SOURCE_BLOCK + (picture_path ? DESK_BLOCKS : 0) + all_lines + kilobytes;
     while (room % DISK_ROUND) room++;
     disk = calloc(room, DISK_BLOCK);
     uint8_t* whole = calloc(kilobytes, DISK_BLOCK);         // the image, to a whole number of kilobytes
     memcpy(whole, image, image_len);
+    if (picture_path) desk_parts(picture_path, names_path);
 
-    int took = pack(source_path, text, text_len, disk, DISK_SOURCE_BLOCK, DISK_SOURCE_BLOCK + (int)lines + 1);
-    if (took < 0) return(1);
-    const char* name = strrchr(source_path, '/');
+    // Each source after the one before, the first at block 1, each an
+    // entry of the index labelled with its file's name.  On a disk that is
+    // the desktop's too they are all before the picture: the source is
+    // first, and whoever reads on from block 1 reads source.
     int slots = DISK_BLOCK / DISK_ENTRY - 1, n = 1;
-    entry(n++, name ? name + 1 : source_path, DISK_SOURCE, DISK_SOURCE_BLOCK, took, 0, lines);
+    long at = DISK_SOURCE_BLOCK;
+    for(int f=0; f < sources; f++) {
+        long limit = picture_path ? DISK_PICTURE_BLOCK : at + lines[f] + 1;
+        int took = pack(source_paths[f], texts[f], text_lens[f], disk, (int)at, (int)limit);
+        if (took < 0) return(1);
+        if (n == slots) {
+            fprintf(stderr, "mkdisk: the sources are more than block 0 has slots for\n");
+            return(1);
+        }
+        const char* name = strrchr(source_paths[f], '/');
+        entry(n++, name ? name + 1 : source_paths[f], DISK_SOURCE, at, took, 0, lines[f]);
+        printf("%s: block %ld, %d blocks\n", source_paths[f], at, took);
+        at += took;
+    }
 
-    long at = DISK_SOURCE_BLOCK + took;
+    if (picture_path && at < DESK_BLOCKS) at = DESK_BLOCKS;
+    long runs_from = at;
     int runs = 0;
+    FILE* ipl = fopen(ipl_path, "w");
+    if (ipl == NULL) {
+        perror(ipl_path);
+        exit(EXIT_FAILURE);
+    }
     for(long k = KROM_BYTES / DISK_BLOCK; k < kilobytes; ) {
         const uint8_t* from = whole + k * DISK_BLOCK;
         int nothing = 1;
@@ -274,79 +409,103 @@ int boot_disk(int bits, const char* image_path, const char* source_path, const c
         snprintf(label, sizeof(label), "image %ld", start);
         entry(n++, label, DISK_BINARY, at, k - start, start, (k - start) * DISK_BLOCK);
         memcpy(disk + (size_t)at * DISK_BLOCK, from, (size_t)(k - start) * DISK_BLOCK);
+        records(ipl, whole, start * DISK_BLOCK, k * DISK_BLOCK, bits);
         at += k - start;
         runs++;
     }
+    fprintf(ipl, "!\n");
+    long sent = ftell(ipl);
+    fclose(ipl);
     long blocks = at;
     while (blocks % DISK_ROUND) blocks++;
     char label[DISK_LABEL];
     snprintf(label, sizeof(label), "hexaforth-%d", bits);
     entry(0, label, DISK_INDEX, 0, 1, bits, blocks);
 
-    FILE* out = fopen(out_path, "wb");
-    if (out == NULL) {
-        perror(out_path);
-        return(1);
-    }
-    fwrite(disk, DISK_BLOCK, blocks, out);
-    fclose(out);
-    printf("%s: %ld blocks: %s from block %d, %d blocks; the image in %d runs, from block %d\n",
-           out_path, blocks, source_path, DISK_SOURCE_BLOCK, took, runs, DISK_SOURCE_BLOCK + took);
+    write_out(out_path, disk, blocks);
+    printf("%s: %ld blocks; the image in %d runs, from block %ld\n"
+           "%s: the runs' %ld blocks as records, %ld bytes\n",
+           out_path, blocks, runs, runs_from, ipl_path, at - runs_from, sent);
     return(0);
+}
+
+// The sources given, and after them each file that one of them includes,
+// once: a line that starts with `include NAME` has the file NAME from the
+// same directory.  So what the boot compiles is said once, in the list the
+// first source is (forth/apps.fs), and the disk has each file it names.
+static char** with_included(int* sources, char* given[]) {
+    int n = *sources, most = n + 8;
+    char** paths = malloc(sizeof(char*) * most);
+    memcpy(paths, given, sizeof(char*) * n);
+    for(int f=0; f < n; f++) {                  // n grows: an included file is looked in too
+        uint8_t* text;
+        size_t len = read_file(paths[f], &text);
+        text[len] = '\0';
+        for(char* line = (char*)text; line; ) {
+            char* next = strchr(line, '\n');
+            while (*line == ' ') line++;
+            if (!strncmp(line, "include ", 8)) {
+                char* name = line + 8;
+                while (*name == ' ') name++;
+                size_t name_len = strcspn(name, " \t\r\n");
+                int seen = 0;                   // a file of that name is on the disk: its label is the name
+                for(int k=0; k < n; k++) {
+                    const char* base = strrchr(paths[k], '/');
+                    base = base ? base + 1 : paths[k];
+                    seen = seen || (strlen(base) == name_len && !strncmp(base, name, name_len));
+                }
+                if (!seen) {
+                    const char* slash = strrchr(paths[f], '/');
+                    size_t dir = slash ? (size_t)(slash - paths[f] + 1) : 0;
+                    char* path = malloc(dir + name_len + 1);
+                    memcpy(path, paths[f], dir);
+                    memcpy(path + dir, name, name_len);
+                    path[dir + name_len] = '\0';
+                    if (n == most) paths = realloc(paths, sizeof(char*) * (most *= 2));
+                    paths[n++] = path;
+                }
+            }
+            line = next ? next + 1 : NULL;
+        }
+        free(text);
+    }
+    *sources = n;
+    return(paths);
 }
 
 int main(int argc, char *argv[]) {
     if (argc > 1 && !strcmp(argv[1], "--pack")) return(pack_only(argc - 2, argv + 2));
-    if (argc == 6 && !strcmp(argv[1], "--boot")) return(boot_disk(atoi(argv[2]), argv[3], argv[4], argv[5]));
-    if (argc < 3) {
+    if (argc > 6 && !strcmp(argv[1], "--boot")) {
+        int sources = argc - 6;
+        char** paths = with_included(&sources, argv + 6);
+        return(boot_disk(atoi(argv[2]), argv[3], argv[4], argv[5], NULL, NULL, sources, paths));
+    }
+    if (argc > 8 && !strcmp(argv[1], "--boot-desk")) {
+        int sources = argc - 8;
+        char** paths = with_included(&sources, argv + 8);
+        return(boot_disk(atoi(argv[2]), argv[3], argv[4], argv[5], argv[6], argv[7], sources, paths));
+    }
+    if (argc < 3 || argv[1][0] == '-') {
         fprintf(stderr, "Usage: %s PICTURE.tiff OUT.img [SOURCE.fs [NAMES]]\n"
                         "       %s --pack SOURCE.fs...\n"
-                        "       %s --boot BITS IMAGE.hex SOURCE.fs OUT.img\n", argv[0], argv[0], argv[0]);
+                        "       %s --boot BITS IMAGE.hex OUT.img IPL.bin SOURCE.fs...\n"
+                        "       %s --boot-desk BITS IMAGE.hex OUT.img IPL.bin PICTURE.tiff NAMES SOURCE.fs...\n",
+                argv[0], argv[0], argv[0], argv[0]);
         return(1);
     }
-    _Static_assert(DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS <= DISK_VIEW_BLOCK, "the viewer's bitmap is after the masks");
-    int blocks = DISK_VIEW_BLOCK + DISK_VIEW_BLOCKS;
+    int blocks = DESK_BLOCKS;
     while (blocks % DISK_ROUND) blocks++;
     disk = calloc(blocks, DISK_BLOCK);
 
-    // Each mask, a row of its planes being so many bytes, up to the block of the next.
-    #define MASK_BYTES(n) ((n) * DISK_MASK_PLANES * DISK_MASK_WIDTH / 8)
-    _Static_assert(DISK_CANVAS_BLOCK + DISK_CANVAS_BLOCKS <= DISK_MASKS_BLOCK, "the masks are after the canvas");
-    _Static_assert(DISK_MASKS_BLOCK * DISK_BLOCK + MASK_BYTES(64) <= DISK_MASK32_BLOCK * DISK_BLOCK,
-                   "the mask of 64 by 64 is before the one of 32 by 32");
-    _Static_assert(DISK_MASK32_BLOCK * DISK_BLOCK + MASK_BYTES(32) <= DISK_BAYER_BLOCK * DISK_BLOCK,
-                   "and that before Bayer's");
-    _Static_assert(DISK_BAYER_BLOCK * DISK_BLOCK + MASK_BYTES(8) <= (DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS) * DISK_BLOCK,
-                   "the masks are in their blocks");
-    uint8_t thresholds[64 * 64];
-    blue_bytes(64, thresholds);
-    mask_planes(thresholds, 64, disk + (size_t)DISK_MASKS_BLOCK * DISK_BLOCK);
-    blue_bytes(32, thresholds);
-    mask_planes(thresholds, 32, disk + (size_t)DISK_MASK32_BLOCK * DISK_BLOCK);
-    bayer_bytes(thresholds);
-    mask_planes(thresholds, 8, disk + (size_t)DISK_BAYER_BLOCK * DISK_BLOCK);
-
-    uint8_t* bytes;
-    size_t len;
-
     memset(disk + DISK_SOURCE_BLOCK * DISK_BLOCK, ' ', DISK_BLOCK);
     if (argc > 3) {
-        len = read_file(argv[3], &bytes);
+        uint8_t* bytes;
+        size_t len = read_file(argv[3], &bytes);
         if (pack(argv[3], bytes, len, disk, DISK_SOURCE_BLOCK, DISK_PICTURE_BLOCK) < 0) exit(EXIT_FAILURE);
         free(bytes);
     }
-
-    len = read_file(argv[1], &bytes);
-    place("the picture", DISK_PICTURE_BLOCK, DISK_NAMES_BLOCK, bytes, len);
-    free(bytes);
-    printf("%s: %d blocks, the picture at block %d (%d bytes)\n",
-           argv[2], blocks, DISK_PICTURE_BLOCK, (int)len);
-
-    if (argc > 4) {
-        len = read_file(argv[4], &bytes);
-        place("the names", DISK_NAMES_BLOCK, DISK_CANVAS_BLOCK, bytes, len);
-        free(bytes);
-    }
+    printf("%s: %d blocks, ", argv[2], blocks);
+    desk_parts(argv[1], argc > 4 ? argv[4] : NULL);
 
     FILE* out = fopen(argv[2], "wb");
     if (out == NULL) {

@@ -231,6 +231,7 @@ what is missing. The top of `CMakeLists.txt` lists them all.
 
     cmake -S . -B build/cmake
     cmake --build build/cmake --target demo      # the desktop, on QEMU
+    cmake --build build/cmake --target demo-boot # the same, from its ROM and a disk: it compiles its desktop
     cmake --build build/cmake --target check     # every test
     cmake --build build/cmake --target bench     # the benchmarks, on the Verilog CPU
     cmake --build build/cmake --target gates     # the gate counts
@@ -341,7 +342,9 @@ runs every test and prints a line for each:
   reader against a reference dither, and the desktop driven with keys and a
   pointer and its screen checked
 - each AArch64 kernel against `vm.c` on eight thousand cases, and the desktop
-  on QEMU with each, its screens checked
+  on QEMU with each, its screens checked; and again with nothing in the
+  machine's memory but its ROM, which reads the system from the disk and
+  compiles the desktop from source
 - the Verilog against `vm.c` at every cell size, with one-cycle and two-cycle
   memory, and with the kernel in ROM: on the same cases, and on a session
   typed at the nucleus

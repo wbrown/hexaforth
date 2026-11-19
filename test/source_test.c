@@ -79,9 +79,8 @@ static void run(const check* test, bool block) {
     start();
     line("%d", UNDER);
     if (block) {
-        machine.DISK = disk;
+        machine.DISK = disk;    // which the machine finds when it starts
         machine.DISKBLOCKS = disk_blocks;
-        line("vmdisk-init");    // the machine is told that its disk is this VM's
         line("%d load", DISK_SOURCE_BLOCK);
     }
     line("%s", test->typed);

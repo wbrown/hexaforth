@@ -6,9 +6,9 @@
 // The machine is the nucleus on vm.c (nucleus.h), which is built into
 // whatever has this in it, for a machine of 64 bits, 32 or 16.
 //
-//   the disk       the VM's own, which vmdisk.fs is the driver for: a copy
-//                  of the disk it is given, for the editor and HexaPaint
-//                  to write to.
+//   the disk       the VM's own, whose driver the kernel's ROM finds when
+//                  the machine starts: a copy of the disk it is given, for
+//                  the editor and HexaPaint to write to.
 //   keys, pointer  the VM has none, so this is them: a word in 'poll,
 //                  typed at the prompt, which the event loop runs each time
 //                  round.  It takes one thing from the console: a key going
@@ -34,8 +34,12 @@
 // Start the machine from an image, with a copy of a disk made in `out`,
 // and have it ready to start its desktop: it does when it is first asked
 // what its console said (desk_boot).  `picture` is the picture on the
-// disk, as a file.  What is so of the machine is what it returns.
-desk deskvm_start(const char* image, const char* disk, const char* picture, const char* out, bool names);
+// disk, as a file.  What is so of the machine is what it returns.  With
+// `rom_only` the machine has nothing in memory but its ROM, and starts from
+// the disk, which is then one it can start from: it reads the rest of the
+// image from it, and compiles what its block 1 lists.
+desk deskvm_start(const char* image, const char* disk, const char* picture, const char* out, bool names,
+                  bool rom_only);
 
 // How many turns its event loop has taken: the things sent that it has
 // taken.

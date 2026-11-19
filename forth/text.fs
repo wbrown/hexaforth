@@ -30,6 +30,17 @@ $2020202020202020 cell-mask and constant spaces-cell
 :: HIGHS  $8080808080808080 cell-mask and literal ;
 target
 
+\ The codes that whoever makes a text puts in it are this file's
+\ to give out.  A macro has no header, so each is a word that
+\ says it too, as cross-words.fs has cross.fs's own: the nucleus
+\ compiles one in place.
+header INDENT      : code-indent      INDENT ;
+header INDENT-COLS : code-indent-cols INDENT-COLS ;
+header FACE        : code-face        FACE ;
+header F-BOLD      : code-bold        F-BOLD ;
+header F-LEAN      : code-lean        F-LEAN ;
+header F-UNDER     : code-under       F-UNDER ;
+
 : ctl? ( x -- f ) \ is a character of the cell below a space?
     dup BLANKS - swap invert and HIGHS and ;
 
@@ -96,7 +107,9 @@ target
 
 : line-end ( a -- k ) \ where the line that starts at a ends
     d# 0
-    begin over swap code-at  2dup d# 3 lshift char@ EOL <> while
+    begin
+        over swap code-at  2dup d# 3 lshift char@ EOL <>
+    while
         1+
     repeat
     nip

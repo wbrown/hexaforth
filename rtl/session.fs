@@ -7,4 +7,4 @@ create t 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
 create n 0 ,
 :noname 1 n +! ; 128 128 t spawn pause pause pause n @ .
 : lp 3 0 do i . pause loop ; lp n @ .
-8000 execute
+bye

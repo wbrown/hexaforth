@@ -37,4 +37,10 @@ uint64_t qemu_cell(uint64_t address);
 // and those that were not in whole blocks.
 extern int qemu_scale, qemu_shots, qemu_inexact;
 
+// A machine that compiles its system from its disk says each file as it
+// starts, and its screen is to show that while it does.  While the desktop
+// was waited for (desk_boot): whether the console said a file, and whether
+// the screen then had text on it, black on white, before the desktop came.
+extern int qemu_boot_said, qemu_boot_shown;
+
 #endif //HEXAFORTH_QEMU_H

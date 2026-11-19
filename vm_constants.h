@@ -38,20 +38,41 @@
 // basewords.fs, and so has what makes a disk (util/mkdisk.c).
 #define DISK_BLOCK          1024
 #define DISK_LINE           64      // a block of source is lines of this many characters
-#define DISK_SOURCE_BLOCK   1       // Forth source, which the editor opens at
-#define DISK_PICTURE_BLOCK  16      // a TIFF, for the viewer
-#define DISK_NAMES_BLOCK    1024    // the names that go with the image
-#define DISK_CANVAS_BLOCK   1152    // HexaPaint's canvas,
+//
+// The source is first, and all of it is: whoever turns the pages of a disk
+// in the editor sees source from block 1 on, and nothing else until it has
+// ended.  Each thing after it starts where the one before it ends, so only
+// how many blocks each is kept is a number here.  (The picture was once at
+// block 16, in among the source of a disk that had more than a few blocks
+// of it.)
+//
+// This is one disk until there are two.  A disk is to be 1,024 blocks,
+// what an 8-inch floppy holds, with the pictures on a second (doc/boot.md,
+// Decided 12): this one is longer than that by having the picture on it,
+// and the blocks kept for source are no more than keeps it near what it
+// was.
+#define DISK_SOURCE_BLOCK   1       // Forth source, which the editor opens at,
+#define DISK_SOURCE_BLOCKS  255     // and how many blocks are kept for it
+#define DISK_PICTURE_BLOCK  (DISK_SOURCE_BLOCK + DISK_SOURCE_BLOCKS)    // a TIFF, for the viewer,
+#define DISK_PICTURE_BLOCKS 1008    // and how many blocks are kept for it
+#define DISK_NAMES_BLOCK    (DISK_PICTURE_BLOCK + DISK_PICTURE_BLOCKS)  // the names that go with the image,
+#define DISK_NAMES_BLOCKS   128     // and how many blocks are kept for them
+#define DISK_CANVAS_BLOCK   (DISK_NAMES_BLOCK + DISK_NAMES_BLOCKS)      // HexaPaint's canvas,
 #define DISK_CANVAS_BLOCKS  16      // and how many blocks are kept for it
-#define DISK_MASKS_BLOCK    1168    // threshold masks, as planes of bits (util/bluenoise.c says how):
+#define DISK_MASKS_BLOCK    (DISK_CANVAS_BLOCK + DISK_CANVAS_BLOCKS)
+                                    // threshold masks, as planes of bits (util/bluenoise.c says how):
                                     // blue noise of 64 by 64 from this block,
-#define DISK_MASK32_BLOCK   1170    // blue noise of 32 by 32 from this,
-#define DISK_BAYER_BLOCK    1171    // and Bayer's of 8 by 8 from this,
+#define DISK_MASK32_BLOCK   (DISK_MASKS_BLOCK + 2)                      // blue noise of 32 by 32 from this,
+#define DISK_BAYER_BLOCK    (DISK_MASKS_BLOCK + 3)                      // and Bayer's of 8 by 8 from this,
 #define DISK_MASKS_BLOCKS   4       // which is all the blocks they are
 #define DISK_MASK_WIDTH     64      // pixels across a row of a mask's plane, a narrower mask repeated across it
 #define DISK_MASK_PLANES    4       // planes to a mask: a threshold is one of sixteen levels
-#define DISK_VIEW_BLOCK     1172    // the viewer's dithered bitmap, while it is not in memory,
+#define DISK_VIEW_BLOCK     (DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS)
+                                    // the viewer's dithered bitmap, which is made here a block at a time,
 #define DISK_VIEW_BLOCKS    32      // and how many blocks are kept for it
+#define DISK_GRAY_BLOCK     (DISK_VIEW_BLOCK + DISK_VIEW_BLOCKS)
+                                    // the viewer's picture kept as gray, in its four planes, made here too,
+#define DISK_GRAY_BLOCKS    128     // and how many blocks are kept for it: 512 by 512 samples
 
 // The disk's index (doc/disk.md): block 0 is entries of DISK_ENTRY bytes,
 // each a run of blocks with a label and a type.  A number in an entry is

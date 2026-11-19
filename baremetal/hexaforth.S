@@ -1,8 +1,12 @@
 // hexaforth.S - bare-metal AArch64 hexaforth: boot stub, UART, inner loop.
 //
 // Same instruction semantics as vm.c.  The Forth image is appended at
-// `image` and becomes cell 0 of the machine's memory.  An address is the
-// number of a cell; the program counter is the number of an instruction.
+// `image` and becomes cell 0 of the machine's memory.  It may be the
+// kernel's ROM alone, the first 4KB of an image: what is after it is the
+// machine's memory all the same, with nothing in it, and the ROM reads the
+// rest from the machine's disk (CMakeLists.txt, a kernel that is ROM).  An
+// address is the number of a cell; the program counter is the number of an
+// instruction.
 //
 //   instructions 0x0000-0x0fff  page 0: kernel code
 //   instructions 0x8000-0xffff  code pages for definitions made at run time

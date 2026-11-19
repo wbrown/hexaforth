@@ -124,12 +124,7 @@ void desk_turns(int turns) {
 const uint8_t* desk_screen(void) {
     taken();
     for(int y=0; y < H; y++) {
-        for(int x=0; x < W; x++) {
-            uint64_t cell = fetch(DISP_ROW(y) + x / CELL_BITS);
-            int bit = x % CELL_BITS;
-            bool set = cell >> (DISP_LEFT_LOW ? bit : CELL_BITS - 1 - bit) & 1;
-            screen[(size_t)y * W + x] = DISP_INK_BLACK ? set : !set;
-        }
+        for(int x=0; x < W; x++) screen[(size_t)y * W + x] = black_at(x, y);
     }
     return(screen);
 }
@@ -176,7 +171,8 @@ static void disk_is(const char* from, const char* to) {
     disk_path = to;
 }
 
-desk deskvm_start(const char* image, const char* disk, const char* is_picture, const char* out, bool names) {
+desk deskvm_start(const char* image, const char* disk, const char* is_picture, const char* out, bool names,
+                  bool rom_only) {
     static const char file[] = "/disk.img";
     char* copy = malloc(strlen(out) + sizeof(file));
     if (copy == NULL) {
@@ -187,10 +183,30 @@ desk deskvm_start(const char* image, const char* disk, const char* is_picture, c
     picture = is_picture;
     screen = malloc((size_t)W * H);
 
+    // A machine started from its ROM alone has nothing else in memory: it
+    // reads the rest of its image from the disk, which is then one it can
+    // start from (mkdisk --boot-desk), and compiles what the disk's block 1
+    // lists before it is at its prompt (doc/boot.md).
     nucleus_is(image);
     start();
+    if (rom_only) memset((uint8_t*)machine.memory + KROM_BYTES, 0, sizeof(machine.memory) - KROM_BYTES);
     disk_is(disk, copy);
+    if (rom_only) {             // it boots, and is at its prompt: an error in a block of the disk is said
+        type();
+        if (strstr(said, "error")) {
+            printf("FAIL the machine's boot from the disk said an error:\n%s\n", said);
+            exit(EXIT_FAILURE);
+        }
+    }
     going_on();
+    if (rom_only) {             // the last word of the last file its boot compiles (desk.fs)
+        line("' windows");
+        type_more();
+        if (machine.SP != 1) {
+            printf("FAIL the machine did not compile its desktop from the disk.  It said:\n%s\n", said);
+            exit(EXIT_FAILURE);
+        }
+    }
 
     // Which key is which character: the lowest code that gives it, with
     // no Shift if it can be.  The map is a character for each code, and
@@ -223,7 +239,7 @@ desk deskvm_start(const char* image, const char* disk, const char* is_picture, c
     line(": t1 dup 107 = if ek then dup 109 = if em then ;");
     line(": t2 dup 98 = if eb then dup 115 = if %d execute then ;", stopping());
     line(": tp key t1 t2 drop ;");
-    line("0 0 display-init vmdisk-init ' tp 'poll ! windows");
+    line("0 0 display-init ' tp 'poll ! windows");
 
     desk on = { {"tp", "t2"}, " key t1 t2 drop", names, picture, out };
     return(on);

@@ -19,39 +19,34 @@
 \   page 1          machine blocks fonts display    the same
 \                     region
 \   the next        tiff atkinson keymap gfx wm     tiff atkinson keymap gfx wm
-\   the next        text term edit see              text term edit see
-\   the next        view calc paint (virtio         view calc gray viewmenu desk join
-\                     mandrill) gray
-\   the next        viewmenu desk join
-\   the kernel's                                    paint, in its upper half
+\   the next        text term edit see console      text term edit see console
+\   the next        gray view calc paint            gray view desk join
+\   the next        (virtio mandrill) desk join
+\   the kernel's                                    calc paint, in its upper half
 \
 \ Storage is reached through a small interface, so a driver can be swapped
 \ without touching the code that uses it:
 \
 \   block device   blk-read blk-write    ( buf blk# -- )   1024-byte blocks
 \
-\ A driver's init word stores its routines in the interface's vectors.  The
-\ display needs no driver: it is a bitmap in memory, and display.fs draws
-\ in it.
+\ A driver's words are stored in the interface's vectors: by the ROM, for
+\ the disk whose controller it finds (nuc.fs), or by a driver's init word.
+\ The display needs no driver: it is a bitmap in memory, and display.fs
+\ draws in it.
 
 meta
 : big-page ( n -- ) addr-bits #16 > if sys-page else drop then ;
 : small-page ( n -- ) addr-bits #16 > if drop else sys-page then ;
-variable low-back       \ where code was going, while it goes to the upper half of the kernel's page
-: low-page ( -- ) addr-bits #16 > 0= if tcp @ low-back !  $1000 org then ;
-: low-page-end ( -- )
-    addr-bits #16 > 0= if
-        tcp @ $2000 > abort" the upper half of the kernel's page is full"
-        low-back @ org
-    then
-;
+\ Where pages are few, code goes to the upper half of the kernel's page
+\ too, after what the nucleus has there (cross.fs, upper-half).
+: low-page ( -- ) addr-bits #16 > 0= if upper-half then ;
+: low-page-end ( -- ) addr-bits #16 > 0= if lower-half then ;
 target
 
 \ Page 1: what everything else is built on.
 
 include machine.fs      \ device registers, high memory, byte-order helpers
 include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD
-include vmdisk.fs       \ block driver for the reference VM's disk
 include mono.fs         \ the fonts: what the applications write in,
 include sans.fs         \ and what titles and the menu are in
 include spin.fs         \ the disk light in the menu bar
@@ -77,46 +72,40 @@ meta 1 big-page  1 small-page target
 include text.fs         \ text in cells, a line at a time
 include term.fs         \ text area and the Forth window
 include edit.fs         \ block editor
+\ Every baseword a word with a header, which basewords.fs makes from
+\ vm_opcodes.h; before fused.fs, which names them by their headers.
+baseword-words
 include fused.fs        \ fused instructions as words, for the decompiler
 include see.fs          \ decompiler and the dictionary browser
+include files.fs        \ a source of the disk's by its label, and a file's own names
+include console.fs      \ the screen as the console, and the boot from a disk
 
-meta 2 big-page  2 small-page target
+\ The applications: gray, view, calc, paint and the QEMU devices, on
+\ pages 2 and 3.  A machine of more than 64K cells,
+\ where every word has a header, boots from an image without them and
+\ compiles them from its disk (apps.fs); any other machine's image has
+\ them.  A page is begun again from its start when it is gone to, so the
+\ image without them goes to page 3 itself.
 
-include view.fs         \ image viewer
-include calc.fs         \ RPN calculator
-
-\ HexaPaint.  Where there are pages to spare it is on this one.  Where
-\ there are not, it is in the upper half of the kernel's page, which the
-\ kernel, a ROM of 4KB, leaves empty: 4KB of code that any page calls
-\ with one instruction.
-
-meta low-page target
-
-include paint.fs        \ a window to draw in
-
-meta low-page-end target
-
-\ The QEMU virt machine's devices, which the AArch64 kernels run on, are
-\ reached through the interface's vectors, and are with what brings them
-\ up: the desktop, and the picture by itself.
-
-W64? [if]
-include virtio.fs       \ shared by the virtio drivers
-include virtio-blk.fs   \ block driver
-include virtio-input.fs \ keyboard and pointer driver
-include mandrill.fs     \ the demo, without the desktop
+BOOTING? [if] W32+? [if]
+meta 3 big-page target
+[else]
+include apps-wide.fs
+[then] [else]
+include apps-wide.fs
 [then]
 
-include gray.fs         \ a picture kept as gray, drawn through a mask
-
-meta 3 big-page target
-
-include viewmenu.fs     \ the viewer's menu: how the picture is drawn
-include desk.fs         \ the desktop itself
-
-\ The nucleus's peephole, which the kernel reaches through a vector.
+\ The nucleus's peephole, which the kernel reaches through a vector, and
+\ what it needs to compile the system's source as cross.fs does.
 
 include join.fs         \ instructions joined as they are compiled, and the rules
+include cross-words.fs  \ cross.fs's words, for the nucleus to compile this source
+
+\ What a machine that boots from a disk compiles from it.
+
+BOOTING? [if] [else]
+include apps.fs         \ the desktop
+[then]
 
 \ Every word is where it will be: the tables of names for the decompiler,
 \ which go to a file for the disk (build/nuc.tables).

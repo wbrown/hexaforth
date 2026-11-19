@@ -155,6 +155,13 @@ static int between_things(const where* w) {
     return(!w->defining && !w->named && !w->brackets && w->conditions <= 0 && w->tables <= 0);
 }
 
+// Between two entries of a table, or between two things: a table is read
+// a line at a time and goes on from one block to the next, so a block may
+// end inside one, where it may not end inside a definition.
+static int between_entries(const where* w) {
+    return(!w->defining && !w->named && !w->brackets && w->conditions <= 0);
+}
+
 // A line that has nothing but comments: those after it are read as if it
 // were not there.  A line of nothing is not one.
 static int only_comments(const char* line, int brackets) {

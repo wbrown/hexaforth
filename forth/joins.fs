@@ -1,19 +1,21 @@
 \ joins.fs - the rules of the nucleus's peephole (join.fs)
-\
-\ These are 59 rules.  55 are of the 360 that were once made from a built
-\ image: those that save at least their own eight bytes in the system's
-\ code, and those that save at least a ten-thousandth of the instructions
-\ that the desktop's test or a benchmark runs (the target `peephole`).  The
-\ other four are for what is typed and the system's own source happens
-\ not to say: the two that make `2dup xor` one instruction, which is how a
-\ loop over memory is written in standard words, and the two that make
-\ `r> @ over !` one, the store that moves a cell.  The rest of the 360
-\ were taken out.
-\
-\ A rule is four instructions, and they are in order: nothing or the
-\ instruction two before, the one before, the one being compiled, and
-\ the one instruction they are together.  join-rules, in the kernel,
-\ is told where they are and how many.  They are all on one page.
+
+\ These are 59 rules.  55 are of the 360 that were once made
+\ from a built image: those that save at least their own eight
+\ bytes in the system's code, and those that save at least a
+\ ten-thousandth of the instructions that the desktop's test or
+\ a benchmark runs (the target `peephole`).  The other four are
+\ for what is typed and the system's own source happens not to
+\ say: the two that make `2dup xor` one instruction, which is
+\ how a loop over memory is written in standard words, and the
+\ two that make `r> @ over !` one, the store that moves a cell.
+\ The rest of the 360 were taken out.
+
+\ A rule is four instructions, and they are in order: nothing or
+\ the instruction two before, the one before, the one being
+\ compiled, and the one instruction they are together.
+\ join-rules, in the kernel, is told where they are and how
+\ many.  They are all on one page.
 
 meta $ec table-room  tcp @ 2/ t' join-rules tvar! target
 $0000 i, $6004 i, $6430 i, $6434 i,   \ over , over +
@@ -31,6 +33,7 @@ $0000 i, $600c i, $6403 i, $600f i,   \ drop , rdrop
 $0000 i, $600c i, $6404 i, $6000 i,   \ drop , dup
 $0000 i, $600c i, $6c07 i, $6c03 i,   \ drop , r>
 $0000 i, $6014 i, $650d i, $6111 i,   \ swap dup , >r
+
 $0000 i, $6020 i, $6004 i, $6414 i,   \ swap , over
 $0000 i, $6020 i, $6308 i, $6718 i,   \ swap , !
 $0000 i, $6020 i, $6404 i, $6014 i,   \ swap , dup
@@ -47,6 +50,7 @@ $0000 i, $6404 i, $6800 i, $6804 i,   \ dup , @
 $0000 i, $6414 i, $6020 i, $6024 i,   \ tuck , swap
 $0000 i, $642c i, $6c07 i, $6c13 i,   \ nip , r>
 $0000 i, $643c i, $650d i, $6539 i,   \ + , >r
+
 $0000 i, $6440 i, $650d i, $654d i,   \ over and , >r
 $0000 i, $645c i, $650d i, $6559 i,   \ or , >r
 $0000 i, $64a0 i, $650d i, $65ad i,   \ over > , >r
@@ -63,6 +67,7 @@ $0000 i, $6800 i, $64bc i, $68bc i,   \ @ , u<
 $0000 i, $6800 i, $650d i, $65ed i,   \ @ , >r
 $0000 i, $6c04 i, $6800 i, $6ce4 i,   \ r@ , @
 $0000 i, $6c07 i, $6480 i, $6c87 i,   \ r> , invert
+
 $0000 i, $6c07 i, $6800 i, $6ce7 i,   \ r> , @
 $0000 i, $6c17 i, $650d i, $6020 i,   \ swapr> , >r
 $0000 i, $6d08 i, $6c07 i, $6c0f i,   \ 2drop , r>

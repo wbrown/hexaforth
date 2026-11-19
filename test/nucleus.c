@@ -21,6 +21,7 @@ static char* typed;             // what is typed at it, which has room for as mu
 static long typed_room;
 static size_t typed_len;        // and how much that is
 static char* was_said;          // the room for what it printed, which is made anew each time it is run
+static bool has_run;            // it has been run since it was started: it goes on from its prompt
 
 uint64_t as_cell(int64_t x) {
 #if CELL_BITS == 64
@@ -62,6 +63,7 @@ void start(void) {
     memset(&machine, 0, sizeof(machine));
     memcpy(machine.memory, nucleus, nucleus_len);
     typed_len = 0;
+    has_run = false;
 }
 
 void line(const char* format, ...) {
@@ -95,10 +97,14 @@ static void read_it(void) {
     fclose(machine.OUT);
     said = was_said;
     typed_len = 0;
+    has_run = true;
 }
 
 // What is then on the machine's data stack is what the lines left there.
+// A machine that has stopped once is where it stopped, which is nowhere to
+// go on from: it goes on from its prompt.
 void type(void) {
+    if (has_run) machine.EIP = prompt_at;
     line("%d execute", stop_at);
     read_it();
 }
@@ -165,4 +171,11 @@ uint64_t fetch(uint64_t addr) {
 
 void store(uint64_t addr, uint64_t x) {
     memcpy(cell_at(addr), &x, CELL_BYTES);
+}
+
+bool black_at(int x, int y) {
+    uint64_t cell = fetch(DISP_ROW(y) + x / CELL_BITS);
+    int bit = x % CELL_BITS;
+    bool set = cell >> (DISP_LEFT_LOW ? bit : CELL_BITS - 1 - bit) & 1;
+    return(DISP_INK_BLACK ? set : !set);
 }

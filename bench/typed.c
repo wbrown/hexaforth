@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
             for(long idx=0; idx < r.n; idx++) printf("%04x j,%s", r.typed[idx], idx % 8 == 7 || idx == r.n - 1 ? "\n" : " ");
             printf("]]\n");
         }
-        printf("decimal 8000 execute\n");
+        printf("bye\n");
         return(0);
     }
 

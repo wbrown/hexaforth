@@ -95,10 +95,21 @@ static void cut(cut_image* m, const char* hex, const char* tables) {
         if (to >= 0 && to < m->instructions && !m->lands[to]) m->lands[to] = 1;
     }
 
+    // What is nothing and in no word is not code: a page may have room left
+    // between its words, as the kernel's has between the end of its ROM's
+    // code and what is laid in its upper half.  (Such room was once taken
+    // for as many jumps to the start, and two builds of one source for
+    // different, by as many items as the room was instructions.)
+    unsigned char* in_word = room_for(m->instructions + 1, 1);
+    for(int idx=0; idx < m->n; idx++) {
+        const word* is = &m->words[idx];
+        for(long at=is->at; at < is->at + is->size && at < m->instructions; at++) in_word[at] = 1;
+    }
+
     long start = 0, run = 0;
     for(long at=0; at < m->instructions; at++) {
         uint16_t w = m->code[at];
-        if (at > last[at / PAGE]) {
+        if (at > last[at / PAGE] || (!w && !in_word[at])) {
             if (run) add_item(m, 1, start, run);
             run = 0;
             continue;
@@ -135,6 +146,7 @@ static void cut(cut_image* m, const char* hex, const char* tables) {
     }
     if (run) add_item(m, 1, start, run);
     free(last);
+    free(in_word);
 }
 
 // Are two images the same runs and the same instructions that leave them,

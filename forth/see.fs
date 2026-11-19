@@ -1023,14 +1023,14 @@ create hovoy 0 ,
 ;
 
 \ what the pointer is on, of the instructions in view: where it
-\ is noted, and the instruction; or nothing twice
-: hover ( -- a ins )
-    wwin @ dup 0= if d# 0 exit then
-    dup top <> if drop d# 0 d# 0 exit then
-    my @ over CELL + @ - d# 19 -  d# 4 rshift
+\ is noted, and the instruction; or nothing twice.  The pointer
+\ is where the window manager says, in the front window.
+: hover ( x y win -- a ins )
+    wwin @ <> if 2drop d# 0 d# 0 exit then
+    d# 4 rshift
     dup wlines u< 0= if 2drop d# 0 d# 0 exit then
     wsrc @ + crow !
-    mx @ swap @ - 1- d# 112 -  d# 3 rshift ccol !
+    d# 112 - d# 3 rshift ccol !
     d# 0
     begin dup nmt @ < while
         dup mt @ rec  dup at? if nip dup CELL2 + @ exit then
@@ -1041,7 +1041,7 @@ create hovoy 0 ,
 
 \ The window manager runs this when the pointer has moved: the
 \ box is taken off where it was, and put on where it is to be.
-: words-moved ( -- )
+: words-moved ( x y win -- )
     hover
     over hovp @ =  over hov @ =  and if 2drop exit then
     overlays-off  hov !  hovp !  hov @ if hov-box then

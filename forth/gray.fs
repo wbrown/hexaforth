@@ -64,16 +64,29 @@ header gray-cols   : gray-cols   ( gray -- n ) gcols @ ;
 header gray-rows   : gray-rows   ( gray -- n ) grows @ ;
 header gray-dither : gray-dither ( gray -- dither ) gdth @ ;
 
-\ an empty gray for a w by h picture, one sample per 1 << shift
-\ pixels a side
-header gray-new
-: gray-new ( w h shift -- gray )
+\ Whoever keeps the planes somewhere else than all in memory (a
+\ block of them at a time, the rest on a disk: view.fs) makes
+\ the record alone, and stores in its first cell where the
+\ planes would start if they were all there, before a row is
+\ made or drawn: both are told the row, and look there for it.
+
+\ the record of a gray for a w by h picture, one sample per 1 <<
+\ shift pixels a side, with no planes yet
+header gray-record
+: gray-record ( w h shift -- gray )
     GRAY-CELLS >c halloc >r
     dup r@ gsh !  tuck rshift r@ grows !  rshift r@ gcols !
     r@ gcols @ PXMASK + PXSHIFT rshift r@ grs !
-    r@ grows @ d# 2 lshift r@ grs @ *  >c halloc r@ gpl !
     r>
 ;
+
+header gray-planes
+: gray-planes ( gray -- ) \ memory for all of its planes
+    dup grows @ d# 2 lshift over grs @ *  >c halloc swap gpl ! ;
+
+\ an empty gray, all of it in memory
+header gray-new
+: gray-new ( w h shift -- gray ) gray-record dup gray-planes ;
 
 \ The dither's memory is allocated after the gray's.  Whoever
 \ opens the gray frees it after the last row.
@@ -385,7 +398,7 @@ $c constant DRAW-CELLS
 
 : drw-bm   ( d -- a ) ;          \ the bitmap drawn into
 : drw-mask ( d -- a ) 1+ ;       \ the mask
-: drw-pl   ( d -- a ) CELL2 + ;  \ the gray's planes,
+: drw-pl   ( d -- a ) CELL2 + ;  \ the gray, with its planes,
 : drw-rs   ( d -- a ) c# 3 + ;   \ and the cells in a row of one
 : drw-dsh  ( d -- a ) c# 4 + ;   \ pixels per side of a sample
                                  \ as drawn, as a shift: 0, 1
@@ -414,7 +427,7 @@ $c constant DRAW-CELLS
 \ bitmap row
 : gexpand ( sy d -- )
     \ the lowest plane
-    >r  d# 2 lshift r@ drw-rs @ * r@ drw-pl @ +
+    >r  d# 2 lshift r@ drw-rs @ * r@ drw-pl @ gpl @ +
     ( src ) ( R: d )
     dup r@ drw-ex @ r@ gexplane
     r@ drw-rs @ +  dup r@ drw-ex @ 1+ r@ gexplane
@@ -464,7 +477,7 @@ header gray-draw-start
 : gray-draw-start ( bitmap mask gray dshift x0 y0 -- d )
     DRAW-CELLS >c halloc >r
     r@ drw-y0 !  PXSHIFT rshift r@ drw-xc !  r@ drw-dsh !
-    dup gpl @ r@ drw-pl !  grs @ r@ drw-rs !
+    dup r@ drw-pl !  grs @ r@ drw-rs !
     r@ drw-mask !  dup r@ drw-bm !  1+ @ r@ drw-oc !
     d# -1 r@ drw-exy !
     r@ drw-oc @ d# 2 lshift MASK-ROW +  >c halloc

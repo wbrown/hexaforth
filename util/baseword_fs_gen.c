@@ -5,45 +5,36 @@
 #include <stdio.h>
 #include "../vm_opcodes.h"
 
+// The machine's sizes and what is where on its disk, from vm_constants.h:
+// a constant each for cross.fs, and (sizes-words, below) a word each for
+// the nucleus.  A name with no value ends a group.
+static const struct { const char* name; long value; } SIZES[] = {
+    {"\\ machine sizes, from vm_constants.h"},
+    {"cell-bits", CELL_BITS}, {"addr-bits", ADDR_BITS}, {"stack-cells", STACK_CELLS},
+    {"var-base", (long)VAR_BASE}, {"disp-w", DISP_W}, {"disp-h", DISP_H}, {"disp-base", DISP_BASE},
+    {"disp-left-low", DISP_LEFT_LOW}, {"disp-ink-black", DISP_INK_BLACK}, {"disp-stride", DISP_STRIDE},
+    {"disp-banks", DISP_BANKS}, {"disp-bank-step", DISP_BANK_STEP}, {"krom-bytes", KROM_BYTES},
+    {"\\ what is where on the disk, from vm_constants.h"},
+    {"disk-block", DISK_BLOCK}, {"disk-line", DISK_LINE}, {"disk-source-block", DISK_SOURCE_BLOCK},
+    {"disk-picture-block", DISK_PICTURE_BLOCK}, {"disk-names-block", DISK_NAMES_BLOCK},
+    {"disk-canvas-block", DISK_CANVAS_BLOCK}, {"disk-masks-block", DISK_MASKS_BLOCK},
+    {"disk-mask32-block", DISK_MASK32_BLOCK}, {"disk-bayer-block", DISK_BAYER_BLOCK},
+    {"disk-mask-width", DISK_MASK_WIDTH}, {"disk-mask-planes", DISK_MASK_PLANES},
+    {"disk-view-block", DISK_VIEW_BLOCK}, {"disk-view-blocks", DISK_VIEW_BLOCKS},
+    {"disk-gray-block", DISK_GRAY_BLOCK}, {"disk-gray-blocks", DISK_GRAY_BLOCKS},
+    {"disk-entry", DISK_ENTRY}, {"disk-entry-type", DISK_ENTRY_TYPE}, {"disk-entry-first", DISK_ENTRY_FIRST},
+    {"disk-entry-blocks", DISK_ENTRY_BLOCKS}, {"disk-entry-where", DISK_ENTRY_WHERE},
+    {"disk-binary", DISK_BINARY}, {"disk-source", DISK_SOURCE}, {"disk-index", DISK_INDEX},
+    {NULL}};
+
 void generate_basewords_fs(const char* path) {
     init_opcodes(FORTH_WORDS);
     FILE* out = fopen(path, "w");
 
-    fprintf(out, "\\ machine sizes, from vm_constants.h\n");
-    fprintf(out, "#%d constant cell-bits\n", CELL_BITS);
-    fprintf(out, "#%d constant addr-bits\n", ADDR_BITS);
-    fprintf(out, "#%d constant stack-cells\n", STACK_CELLS);
-    fprintf(out, "#%d constant var-base\n", (int)VAR_BASE);
-    fprintf(out, "#%d constant disp-w\n", DISP_W);
-    fprintf(out, "#%d constant disp-h\n", DISP_H);
-    fprintf(out, "#%d constant disp-base\n", DISP_BASE);
-    fprintf(out, "#%d constant disp-left-low\n", DISP_LEFT_LOW);
-    fprintf(out, "#%d constant disp-ink-black\n", DISP_INK_BLACK);
-    fprintf(out, "#%d constant disp-stride\n", DISP_STRIDE);
-    fprintf(out, "#%d constant disp-banks\n", DISP_BANKS);
-    fprintf(out, "#%d constant disp-bank-step\n", DISP_BANK_STEP);
-
-    fprintf(out, "\n\\ what is where on the disk, from vm_constants.h\n");
-    fprintf(out, "#%d constant disk-block\n", DISK_BLOCK);
-    fprintf(out, "#%d constant disk-line\n", DISK_LINE);
-    fprintf(out, "#%d constant disk-source-block\n", DISK_SOURCE_BLOCK);
-    fprintf(out, "#%d constant disk-picture-block\n", DISK_PICTURE_BLOCK);
-    fprintf(out, "#%d constant disk-names-block\n", DISK_NAMES_BLOCK);
-    fprintf(out, "#%d constant disk-canvas-block\n", DISK_CANVAS_BLOCK);
-    fprintf(out, "#%d constant disk-masks-block\n", DISK_MASKS_BLOCK);
-    fprintf(out, "#%d constant disk-mask32-block\n", DISK_MASK32_BLOCK);
-    fprintf(out, "#%d constant disk-bayer-block\n", DISK_BAYER_BLOCK);
-    fprintf(out, "#%d constant disk-mask-width\n", DISK_MASK_WIDTH);
-    fprintf(out, "#%d constant disk-mask-planes\n", DISK_MASK_PLANES);
-    fprintf(out, "#%d constant disk-view-block\n", DISK_VIEW_BLOCK);
-    fprintf(out, "#%d constant disk-view-blocks\n", DISK_VIEW_BLOCKS);
-    fprintf(out, "#%d constant disk-entry\n", DISK_ENTRY);
-    fprintf(out, "#%d constant disk-entry-type\n", DISK_ENTRY_TYPE);
-    fprintf(out, "#%d constant disk-entry-first\n", DISK_ENTRY_FIRST);
-    fprintf(out, "#%d constant disk-entry-blocks\n", DISK_ENTRY_BLOCKS);
-    fprintf(out, "#%d constant disk-entry-where\n", DISK_ENTRY_WHERE);
-    fprintf(out, "#%d constant disk-binary\n", DISK_BINARY);
-    fprintf(out, "#%d constant disk-index\n", DISK_INDEX);
+    for(int n=0; SIZES[n].name; n++) {
+        if (SIZES[n].name[0] == '\\') fprintf(out, "%s%s\n", n ? "\n" : "", SIZES[n].name);
+        else fprintf(out, "#%ld constant %s\n", SIZES[n].value, SIZES[n].name);
+    }
 
     // The characters of a name that are not letters, a lot to a table: the
     // characters as their numbers, and how many there are.
@@ -93,6 +84,23 @@ void generate_basewords_fs(const char* path) {
         fprintf(out, " ;\n");
         curr_word++;
     }
+
+    // Every baseword as a word of the nucleus too, so that source the
+    // nucleus compiles can say it: a header of its name on a word that is
+    // the baseword, which the nucleus compiles in place.  cross.fs lets no
+    // word of the program take a macro's name, so the word is bw- and the
+    // name, and the header is given the name (forth/cross-words.fs runs
+    // this).
+    fprintf(out, "\n\\ the words as the nucleus's\n:: baseword-words\n");
+    for(curr_word = &FORTH_WORDS[0]; curr_word->repr && strlen(curr_word->repr); curr_word++) {
+        fprintf(out, "    s\" bw-header %s\" evaluate\n", curr_word->repr);
+    }
+    // and the sizes, each what cross.fs has (HOST)
+    for(int n=0; SIZES[n].name; n++) {
+        if (SIZES[n].name[0] == '\\') continue;
+        fprintf(out, "    s\" bw-size %s\" evaluate\n", SIZES[n].name);
+    }
+    fprintf(out, ";\n");
     fclose(out);
 }
 

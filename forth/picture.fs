@@ -1,5 +1,5 @@
 \ picture.fs - a system with only the picture viewer: blocks, the display,
-\ regions, windows, the TIFF reader, the dither, and the viewer.
+\ regions, the console, windows, the TIFF reader, the dither, and the viewer.
 \
 \ It is system.fs's list of files without the applications: the Forth
 \ window, the editor, the calculator, the decompiler and HexaPaint.  nuc.fs
@@ -18,12 +18,12 @@
 
 include machine.fs      \ device registers, high memory, byte-order helpers
 include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD
-include vmdisk.fs       \ block driver for the reference VM's disk
 include sans.fs         \ the font
 include spin.fs         \ the disk light in the menu bar
 : plain-font ( -- font ) sans ;                     \ a port's font until it is set
 include display.fs      \ the display: a bitmap in memory, and text on it
 include region.fs       \ shapes that are not rectangles, to clip to
+include console.fs      \ the screen as the console, and the boot from a disk
 
 meta 0 sys-page target
 
@@ -35,8 +35,8 @@ include wm.fs           \ windows, pointer, event loop
 
 meta 1 sys-page target
 
-include view.fs         \ image viewer
 include gray.fs        \ a picture kept as gray, drawn through a mask
-include viewmenu.fs     \ the viewer's menu: how the picture is drawn
+include view.fs         \ image viewer, and its menu: how it is drawn
 include viewdesk.fs     \ the picture's window, by itself
-include join.fs        \ instructions joined as they are compiled, and the rules
+include files.fs        \ a source of the disk's by its label, and a file's own names
+include join.fs       \ instructions joined as they are compiled, and the rules

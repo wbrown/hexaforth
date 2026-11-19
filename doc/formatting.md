@@ -33,6 +33,9 @@ Source that goes on the disk is read a block at a time, and a block is
 - "Don't skip a line between each definition. You may, however, skip a
   line between *groups* of definitions." A blank line is also where a
   block may end.
+- A table is not a definition. It is read a line at a time, and what it
+  lays down goes on from one block to the next, so a table longer than a
+  block is cut with a blank line between two of its entries.
 
 ## Definitions
 

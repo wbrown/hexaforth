@@ -47,8 +47,8 @@ typedef struct {
     const char* grid;           // where: a window's text (GRIDS, below)
     int row;                    // which row of it
     char how;                   // = it is the text; ^ it starts with it; $ it ends with it; ~ it has it
-    const char* text;           // %1 and %2 are the machine's two newest words, and %e how the first ends
-} seen;
+    const char* text;           // %1 and %2 are the machine's two newest words, %e how the first ends,
+} seen;                         // and %b the first line of block 1 of its disk
 
 enum { ALWAYS, NAMES, NO_NAMES };       // whether the disk has the tables of names
 
@@ -94,7 +94,7 @@ static check CHECKS[] = {
      "3-calculator", {{"calc", 3, '~', "322"}}},
 
     // The editor: brought forward, typed in on the second line of block 1, and saved.
-    {"the editor shows block 1", "front:editor ^s", "4-editor", {{"editor", 0, '^', ": hello 104 emit"}}},
+    {"the editor shows block 1", "front:editor ^s", "4-editor", {{"editor", 0, '=', "%b"}}},
     {"the editor saves to the disk", "down '( edited )' ^s", "5-edited", .also = saved},
 
     // The picture: brought forward, and compared with a dither done here.
@@ -140,6 +140,19 @@ static check CHECKS[] = {
      {{"source", 0, '=', ": sq"}, {"source", 1, '=', "   dup *"}, {"source", 2, '=', ";"}}},
     {"Down moves to the next word", "down", "10-down",
      {{"source", 0, '=', ": %1"}, {"source", 1, '$', "%e"}, {"source", 2, '=', ";"}}},
+    // A definition longer than the window: PgDn shows it from a window
+    // less a line further down, or as far down as fills the window, and
+    // PgUp from where it was.  [PGDN] ends its last row while more of it
+    // is below, and [PGUP] its first while more is above.  words-key, a
+    // few lines for each key the Words window takes, is longer than the
+    // window on either screen; it is newer than the words of the dither,
+    // which the list is paged on to next.
+    {"a definition longer than the window is shown from its start", "find:words-key,words-click name:words-key",
+     "10-long", {{"source", 0, '=', ": words-key"}}, remember},
+    {"and says that more of it is below", "", NULL, .also = words_marked},
+    {"PgDn scrolls it", "pgdn", "10-pgdn", .also = scrolled_down},
+    {"and says that more of it is above", "", NULL, .also = words_marked},
+    {"and PgUp scrolls it back", "pgup", "10-pgup", .also = box_gone},
     // Two words of the dither, which are next to each other in the list:
     // dither-row has fused instructions in it, and dither-start a variable
     // that has no header and a plain word that is one instruction.
@@ -155,16 +168,6 @@ static check CHECKS[] = {
      {{"source", 0, '=', ": dither-start"}}, a_number, NO_NAMES},
     {"and on a word that is one instruction", "", NULL, .also = word_told},
     {"and the box goes when the pointer does", "away", "10-hover-off", .also = box_gone},
-    // A definition longer than the window: PgDn shows it from a window
-    // less a line further down, or as far down as fills the window, and
-    // PgUp from where it was.  [PGDN] ends its last row while more of it
-    // is below, and [PGUP] its first while more is above.
-    {"a definition longer than the window is shown from its start", "find:tiff-open,tiff-close name:tiff-open",
-     "10-long", {{"source", 0, '=', ": tiff-open"}}, remember},
-    {"and says that more of it is below", "", NULL, .also = words_marked},
-    {"PgDn scrolls it", "pgdn", "10-pgdn", .also = scrolled_down},
-    {"and says that more of it is above", "", NULL, .also = words_marked},
-    {"and PgUp scrolls it back", "pgup", "10-pgup", .also = box_gone},
 
     // ^W again, to the Forth window.
     {"^W cycles the windows, and the Forth window's stack is as it was",
@@ -218,8 +221,9 @@ static check CHECKS[] = {
     // scrolls the window, which wants memory of its own for as long as a
     // scroll takes: there has to be room for both.  The word decompiled is
     // long enough to scroll, and near its end calls a word with no header,
-    // which is shown by its name only if the names are in.
-    {"see prints a word longer than the window, with the names in memory", "'see scroll-rect\r'", "13-see",
+    // which is shown by its name only if the names are in: words-key ends
+    // with wall.
+    {"see prints a word longer than the window, with the names in memory", "'see words-key\r'", "13-see",
      {{"forth", 14, '$', " ok"}}, sees_all},
     // Where memory has got to: the next cell that would be given out, with
     // the names out and in.  see scrolled the window while it had the names
@@ -235,7 +239,7 @@ static check CHECKS[] = {
      .when = NAMES},
     {"and a label on data by where the data is", "'see img\r'", "13-see-data", .also = data_place, .when = NAMES},
     // What it reads of the disk to show a word, which blk-moved counts.
-    {"see reads the disk for the names", "'blk-moved @ see scroll-rect blk-moved @ swap - .\r'", "13-see-blocks",
+    {"see reads the disk for the names", "'blk-moved @ see words-key blk-moved @ swap - .\r'", "13-see-blocks",
      .also = see_blocks, .when = NAMES},
     {"with no tables of names on the disk, a word with no header is not found", "'see in-port\r'",
      "13-see-label", {{"forth", 14, '^', "? -13"}}, .when = NO_NAMES},
@@ -1406,9 +1410,9 @@ static bool sees_all(char* why) {
         char text[COLS + 1];
         read_grid("forth", row, text);
         if (strstr(text, "? -")) error = true;          // an error is ? and its number
-        if (strstr(text, "in-port")) label = true;
+        if (strstr(text, "wall")) label = true;
     }
-    snprintf(why, WHY, "%s", error ? "an error was printed" : "in-port, which has no header, is not shown by its name");
+    snprintf(why, WHY, "%s", error ? "an error was printed" : "wall, which has no header, is not shown by its name");
     return(!error && (label || !machine->names));
 }
 
@@ -1449,7 +1453,7 @@ static bool see_blocks(char* why) {
     }
     snprintf(why, WHY, "how many blocks were read is not on the last line: %s", text);
     if (blocks <= 0) return(false);
-    printf("note see read %ld blocks of the disk to show scroll-rect\n", blocks);
+    printf("note see read %ld blocks of the disk to show words-key\n", blocks);
     return(true);
 }
 
@@ -1591,12 +1595,27 @@ static bool from_disk(char* why) {
 
 // ---- the checks, run
 
+// The first line of block 1 of the machine's disk, as it was when the
+// desktop came up: what the editor opens on.  It is the disk's to say: a
+// disk the machine starts from has there what its boot loads.
+static char first_line[DISK_LINE + 1];
+
+static void block1_read(void) {
+    uint8_t bytes[DISK_BLOCK];
+    desk_block(DISK_SOURCE_BLOCK, 1, bytes);
+    int wide = DISK_LINE;
+    while (wide && (bytes[wide - 1] == ' ' || !bytes[wide - 1])) wide--;
+    memcpy(first_line, bytes, wide);
+    first_line[wide] = '\0';
+}
+
 // A text a check has, with what the machine says of itself in it.
 static void with_names(const char* text, char* out, size_t len) {
     size_t n = 0;
     for(; *text && n + 1 < len; text++) {
         const char* is = text[0] != '%' ? NULL : text[1] == '1' ? machine->newest[0] :
-                         text[1] == '2' ? machine->newest[1] : text[1] == 'e' ? machine->ending : NULL;
+                         text[1] == '2' ? machine->newest[1] : text[1] == 'e' ? machine->ending :
+                         text[1] == 'b' ? first_line : NULL;
         if (is) n += snprintf(out + n, len - n, "%s", is), text++;
         else out[n++] = *text;
     }
@@ -1649,6 +1668,7 @@ bool desk_begins(const desk* on) {
     begin(on);
     boot = desk_boot();
     look(NULL);
+    block1_read();
     if (!windows_start()) return(false);
     // The canvas is HexaPaint's content, less its tools down the left and
     // its patterns along the bottom.

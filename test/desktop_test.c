@@ -1,7 +1,13 @@
 //
-// desktop_test IMAGE.hex DISK.img PICTURE.tiff FORTH OUT [names]
+// desktop_test IMAGE.hex DISK.img PICTURE.tiff FORTH OUT [names [rom]]
 //
 // The desktop on the reference VM, and what is on its screen.
+//
+// With `rom` after `names` the machine is started with nothing in memory
+// but its ROM, and DISK.img is one it can start from (mkdisk --boot-desk):
+// IMAGE.hex is then the image a machine boots with (BOOT=on), which the
+// machine reads from the disk, and the desktop the checks are run on is
+// the one its boot compiled from the disk's source (doc/boot.md).
 //
 // The checks are those of deskcheck.c, and the machine they are run on is
 // the reference VM (deskvm.h), which is built into the test for a machine
@@ -13,8 +19,9 @@
 //
 // For whoever wants what the desktop left, or what it ran: with MEMORY in
 // the environment the machine's memory is written to the file it names
-// when the checks are done; and if the VM in this is the one that counts
-// (bench/counting.c), its counts are written.
+// when the checks are done; if the VM in this is the one that counts
+// (bench/counting.c), its counts are written; and if it is the one that
+// watches the heap (bench/heap.c), what it found is.
 //
 
 #include <stdio.h>
@@ -27,15 +34,18 @@
 #ifdef COUNTING_A_TEST
 void counts_written(void);
 #endif
+#ifdef WATCHING_A_TEST
+void heap_said(void);
+#endif
 
 int main(int argc, char *argv[]) {
     if (argc < 6) {
-        fprintf(stderr, "Usage: %s IMAGE.hex DISK.img PICTURE.tiff FORTH OUT [names]\n", argv[0]);
+        fprintf(stderr, "Usage: %s IMAGE.hex DISK.img PICTURE.tiff FORTH OUT [names [rom]]\n", argv[0]);
         return(1);
     }
     alarm(1800);                // a machine that does not stop is stopped
     tables_are(argv[4]);
-    desk on = deskvm_start(argv[1], argv[2], argv[3], argv[5], argc > 6);
+    desk on = deskvm_start(argv[1], argv[2], argv[3], argv[5], argc > 6, argc > 7);
     int failed = desk_checks(&on);
 
     if (getenv("MEMORY")) {
@@ -49,6 +59,9 @@ int main(int argc, char *argv[]) {
     }
 #ifdef COUNTING_A_TEST
     counts_written();
+#endif
+#ifdef WATCHING_A_TEST
+    heap_said();
 #endif
     printf("the desktop on the reference VM, cells of %d bits, %d by %d: %d checks failed; screens in %s/\n",
            CELL_BITS, DISP_W, DISP_H, failed, argv[5]);

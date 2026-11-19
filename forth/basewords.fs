@@ -11,27 +11,31 @@
 #12 constant disp-stride
 #1 constant disp-banks
 #0 constant disp-bank-step
+#4096 constant krom-bytes
 
 \ what is where on the disk, from vm_constants.h
 #1024 constant disk-block
 #64 constant disk-line
 #1 constant disk-source-block
-#16 constant disk-picture-block
-#1024 constant disk-names-block
-#1152 constant disk-canvas-block
-#1168 constant disk-masks-block
-#1170 constant disk-mask32-block
-#1171 constant disk-bayer-block
+#256 constant disk-picture-block
+#1264 constant disk-names-block
+#1392 constant disk-canvas-block
+#1408 constant disk-masks-block
+#1410 constant disk-mask32-block
+#1411 constant disk-bayer-block
 #64 constant disk-mask-width
 #4 constant disk-mask-planes
-#1172 constant disk-view-block
+#1412 constant disk-view-block
 #32 constant disk-view-blocks
+#1444 constant disk-gray-block
+#128 constant disk-gray-blocks
 #32 constant disk-entry
 #16 constant disk-entry-type
 #18 constant disk-entry-first
 #20 constant disk-entry-blocks
 #22 constant disk-entry-where
 #1 constant disk-binary
+#2 constant disk-source
 #4 constant disk-index
 
 \ the codes of a name, from vm_opcodes.h
@@ -271,3 +275,136 @@ create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
 :: .s             0                                             imm    
                 224                                             imm    
                      N->IN   IN->      ->io[T] d-2    r+0       alu     ;
+
+\ the words as the nucleus's
+:: baseword-words
+    s" bw-header halt" evaluate
+    s" bw-header noop" evaluate
+    s" bw-header xor" evaluate
+    s" bw-header and" evaluate
+    s" bw-header or" evaluate
+    s" bw-header invert" evaluate
+    s" bw-header +" evaluate
+    s" bw-header *" evaluate
+    s" bw-header =" evaluate
+    s" bw-header <" evaluate
+    s" bw-header u<" evaluate
+    s" bw-header swap" evaluate
+    s" bw-header dup>r" evaluate
+    s" bw-header dup" evaluate
+    s" bw-header nip" evaluate
+    s" bw-header tuck" evaluate
+    s" bw-header drop" evaluate
+    s" bw-header 2drop" evaluate
+    s" bw-header rdrop" evaluate
+    s" bw-header over" evaluate
+    s" bw-header >r" evaluate
+    s" bw-header r>" evaluate
+    s" bw-header over>r" evaluate
+    s" bw-header r@" evaluate
+    s" bw-header @" evaluate
+    s" bw-header @+" evaluate
+    s" bw-header @and" evaluate
+    s" bw-header @or" evaluate
+    s" bw-header @xor" evaluate
+    s" bw-header @*" evaluate
+    s" bw-header @=" evaluate
+    s" bw-header @<" evaluate
+    s" bw-header @u<" evaluate
+    s" bw-header @not" evaluate
+    s" bw-header !" evaluate
+    s" bw-header io@" evaluate
+    s" bw-header io!" evaluate
+    s" bw-header +!" evaluate
+    s" bw-header or!" evaluate
+    s" bw-header and!" evaluate
+    s" bw-header xor!" evaluate
+    s" bw-header *!" evaluate
+    s" bw-header not!" evaluate
+    s" bw-header rshift" evaluate
+    s" bw-header lshift" evaluate
+    s" bw-header exit" evaluate
+    s" bw-header @@" evaluate
+    s" bw-header dup@" evaluate
+    s" bw-header dup@@" evaluate
+    s" bw-header over@" evaluate
+    s" bw-header @r" evaluate
+    s" bw-header r@;" evaluate
+    s" bw-header 2dup<" evaluate
+    s" bw-header overand" evaluate
+    s" bw-header 2dupxor" evaluate
+    s" bw-header over+" evaluate
+    s" bw-header over=" evaluate
+    s" bw-header swap>r" evaluate
+    s" bw-header swapr>" evaluate
+    s" bw-header 1+" evaluate
+    s" bw-header 2+" evaluate
+    s" bw-header 2*" evaluate
+    s" bw-header u2/" evaluate
+    s" bw-header negate" evaluate
+    s" bw-header -" evaluate
+    s" bw-header emit" evaluate
+    s" bw-header 8emit" evaluate
+    s" bw-header key" evaluate
+    s" bw-header rot" evaluate
+    s" bw-header -rot" evaluate
+    s" bw-header 2dup" evaluate
+    s" bw-header 2swap" evaluate
+    s" bw-header 2over" evaluate
+    s" bw-header 3rd" evaluate
+    s" bw-header 3dup" evaluate
+    s" bw-header >" evaluate
+    s" bw-header u>" evaluate
+    s" bw-header 0=" evaluate
+    s" bw-header 0<" evaluate
+    s" bw-header 0>" evaluate
+    s" bw-header <>" evaluate
+    s" bw-header 0<>" evaluate
+    s" bw-header 1-" evaluate
+    s" bw-header bounds" evaluate
+    s" bw-header s>d" evaluate
+    s" bw-header hi32" evaluate
+    s" bw-header lo32" evaluate
+    s" bw-header hi16" evaluate
+    s" bw-header lo16" evaluate
+    s" bw-header >><<" evaluate
+    s" bw-header nmask8" evaluate
+    s" bw-header nmask16" evaluate
+    s" bw-header .s" evaluate
+    s" bw-size cell-bits" evaluate
+    s" bw-size addr-bits" evaluate
+    s" bw-size stack-cells" evaluate
+    s" bw-size var-base" evaluate
+    s" bw-size disp-w" evaluate
+    s" bw-size disp-h" evaluate
+    s" bw-size disp-base" evaluate
+    s" bw-size disp-left-low" evaluate
+    s" bw-size disp-ink-black" evaluate
+    s" bw-size disp-stride" evaluate
+    s" bw-size disp-banks" evaluate
+    s" bw-size disp-bank-step" evaluate
+    s" bw-size krom-bytes" evaluate
+    s" bw-size disk-block" evaluate
+    s" bw-size disk-line" evaluate
+    s" bw-size disk-source-block" evaluate
+    s" bw-size disk-picture-block" evaluate
+    s" bw-size disk-names-block" evaluate
+    s" bw-size disk-canvas-block" evaluate
+    s" bw-size disk-masks-block" evaluate
+    s" bw-size disk-mask32-block" evaluate
+    s" bw-size disk-bayer-block" evaluate
+    s" bw-size disk-mask-width" evaluate
+    s" bw-size disk-mask-planes" evaluate
+    s" bw-size disk-view-block" evaluate
+    s" bw-size disk-view-blocks" evaluate
+    s" bw-size disk-gray-block" evaluate
+    s" bw-size disk-gray-blocks" evaluate
+    s" bw-size disk-entry" evaluate
+    s" bw-size disk-entry-type" evaluate
+    s" bw-size disk-entry-first" evaluate
+    s" bw-size disk-entry-blocks" evaluate
+    s" bw-size disk-entry-where" evaluate
+    s" bw-size disk-binary" evaluate
+    s" bw-size disk-source" evaluate
+    s" bw-size disk-index" evaluate
+;

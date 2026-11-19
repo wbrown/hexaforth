@@ -58,12 +58,14 @@ The windows:
   overwrites, the cursor keys move, PgUp and PgDn change block, `^S` writes
   the block, and `^L` writes it and loads it as Forth
 - **Mandrill**: a picture read from a TIFF on the disk and dithered. A task
-  does it a row at a time, and the picture appears down the window. Once
-  it is dithered, the bitmap is written to the disk and its memory freed;
-  the window is then repainted from the disk, reading only the blocks it
-  needs. The Picture menu in the bar redraws it in other ways: dithered,
-  or kept as gray and drawn through Bayer's mask or blue noise, finer or
-  coarser, darker or lighter
+  does it a row at a time, and the picture appears down the window. The
+  bitmap is written to the disk a block at a time as its rows are made,
+  and is never whole in memory; the window is repainted from the disk,
+  reading only the blocks it needs. The Picture menu in the bar shows it
+  in other ways: kept as gray and painted through Bayer's mask or blue
+  noise, finer or coarser, darker or lighter, straight from the gray to
+  the window; or dithered, which is the bitmap on the disk again. The
+  gray is on the disk too, made and read a block at a time
 - **Calculator**: digits make a number; Enter or the space bar pushes it, or
   duplicates the top if no number is being typed; `+ - * /` work on the top
   two; `n` negates, `x` swaps, `d` drops, Backspace removes a digit. The
@@ -171,7 +173,9 @@ they are.
   once more when the button goes up, with `held` false. HexaPaint draws
   this way
 - To be told whenever the pointer moves, a program stores a word of
-  `( -- )` in `'moved`. The Words window shows its box this way
+  `( x y win -- )` in `'moved`. It is run with where the pointer is in
+  the window in front, as a click says it, and that window, which may
+  not be the program's own. The Words window shows its box this way
 - To draw over its window straight onto the screen, as the pointer is
   drawn, a program stores a word of `( on? -- )` in `'overlay`. It is
   run with false before anything is painted, to take off what it drew,
@@ -258,10 +262,13 @@ blocks should be given a copy of `disk.img`.
 
 ### A machine's devices
 
-The desktop needs three things from a machine, each a word that the
-machine's driver stores in a cell. `desk.fs` does this for QEMU's devices in
-`desktop`, and a machine with other devices does the same and then runs
-`windows`.
+The desktop needs three things from a machine, each a word that a driver
+stores in a cell. The two of the disk are stored by the kernel when the
+machine starts, from the driver of the disk controller it finds (`MODEL.md`,
+Other devices); `desktop`, in `desk.fs`, stores QEMU's itself, until the
+kernel has a driver for it. `'poll` is stored by the driver of the keyboard
+and the pointer: `desktop` does it for QEMU's, and a machine with other
+devices does the same and then runs `windows`.
 
     'blk-read   ( buf blk# -- )    read block blk#, 1,024 bytes, into the cell buf
     'blk-write  ( buf blk# -- )    write it from there
@@ -290,7 +297,9 @@ the form Linux input devices use:
   `system.fs` says at its top which code page each file goes on, for a
   64K-cell machine and for a larger one. The target `examine-16` shows how
   much of each page is left
-- A word that `desk.fs` names needs a header (`header name : name`)
+- A word that `desk.fs` names needs a header (`header name : name`). A
+  word with none is the file's own: where the machine compiles the file
+  from its disk, its name is gone when the file has been read
 - `windows`, in `desk.fs`, makes the window. Where it goes is a line in each
   of the two tables there: `big-desk` for a 768 by 576 screen and
   `small-desk` for a smaller one

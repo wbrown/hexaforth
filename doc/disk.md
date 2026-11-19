@@ -126,13 +126,15 @@ parts down one after another and writes where each is.
 
 ## Several disks
 
-A machine can have several disks, and a port says which one the disk's
-ports act on (`doc/boot.md`). Each disk has its own block 0, and the
-kernel's ROM starts from disk 0.
+A machine can have several disks, each with its own block 0. How they are
+reached, and which the kernel's ROM starts from, is not decided
+(`doc/boot.md`).
 
 ## The boot
 
-The kernel's ROM reads block 0 of disk 0. If entry 0 is not an index
+The kernel's ROM reads block 0 of its machine's disk, through the driver
+of that disk, which is in that machine's ROM (`doc/boot.md`, Decided 2).
+If entry 0 is not an index
 entry, or its cell is not this machine's, the ROM goes on as if there
 were no disk. Otherwise it takes every binary entry of block 0, and then
 reads each one's blocks to where it says. It takes them all first, since
@@ -140,10 +142,10 @@ a run may cover the buffer block 0 was read into. The kernel then has
 its dictionary and its variables, and runs the system's `boot`, which
 loads block 1.
 
-With no disk, the ROM is to say `no disk, ready to receive`, and take
-from the console what it would have read: block 0, and then the blocks
-of each binary entry in order (`doc/boot.md`, The IPL). That is not built
-yet.
+With no disk and no image in memory, the ROM says `no disk, ready to
+receive`, and takes from the console what it would have read: block 0,
+and then the blocks of each binary entry, entry 1's first (`doc/boot.md`,
+The IPL). `mkdisk --boot` writes that beside the disk.
 
 ## Not decided
 

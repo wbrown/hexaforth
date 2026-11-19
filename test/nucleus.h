@@ -74,4 +74,8 @@ uint8_t* cell_at(uint64_t addr);
 uint64_t fetch(uint64_t addr);
 void store(uint64_t addr, uint64_t x);
 
+// A pixel of the machine's display, where vm_constants.h says the display
+// is and which bit of a cell is which pixel: true if it is black.
+bool black_at(int x, int y);
+
 #endif //HEXAFORTH_NUCLEUS_H
