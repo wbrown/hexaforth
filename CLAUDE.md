@@ -477,8 +477,9 @@ runs it, and prints a line for each.
   they say. It runs the three above, and
 - on each machine of `util/machines`, with cells of 64, 32 and 16 bits,
   each with a display and `STRICT`: the prompt, comments and a block read
-  as source, the desktop, the drawing words, regions, the dither and the
-  TIFF reader (`prompt-32`, `desktop-16`, `display-64-3`). A test that
+  as source, the machine started from its ROM and a disk, the desktop,
+  the drawing words, regions, the dither and the TIFF reader
+  (`prompt-32`, `boot-16`, `desktop-16`, `display-64-3`). A test that
   tries things by chance is run once for each seed its chances start
   from, and the seed is the last part of its name: `SEEDS`, said to CMake,
   is which seeds. Nothing is cell-size safe that these have not run
@@ -540,7 +541,9 @@ The machine, in C:
   printed, for the trace),
   `hex2bin.c` and `memimage.c` (an image as bytes for the kernels, and as
   what the Verilog loads; `image.c` reads one), `mkdisk.c` (a disk, and
-  source laid out as its blocks), `lines.c` (a line of Forth source as
+  source laid out as its blocks; and with `--boot`, a disk a machine
+  starts from with its ROM alone, `doc/boot.md`), `lines.c` (a line of
+  Forth source as
   what lays source out reads it: its words, strings and comments),
   `wrap.c` (source fitted to the lines of a block: the target `wrap`),
   `fuse.c` (which instruction does the work of others: found by the
@@ -582,7 +585,10 @@ The machine, in C:
   done a pixel at a time in `gray.h`, which the desktop's checks of the
   viewer's menu also use); `source_test.c` and
   `source.fs` (comments, at the prompt and in a block of a disk that
-  `mkdisk` made of that file); `prompt_test.c` (the nucleus at its
+  `mkdisk` made of that file); `boot_test.c` and `boot.fs` (the machine
+  started from its ROM alone, and from its whole image, with a disk that
+  `mkdisk --boot` made of the image and that file, and without one: it
+  stops at a store into the ROM); `prompt_test.c` (the nucleus at its
   prompt: its compiler, its arithmetic, variables, tasks and names, each
   a check that is what is typed and what that is to leave);
   `kernel_test.c` (the kernel's words and what comes to each: it has
@@ -716,7 +722,12 @@ The other two machines:
   target `screenshot` makes), `hello.fs` (the window `DESKTOP.md` is
   about, which the target `hello` types at the reference VM),
   `formatting.md` (how Forth source is laid out, from *Thinking Forth*:
-  what is written by hand and what `util/wrap.c` does) and
+  what is written by hand and what `util/wrap.c` does), `boot.md` (how
+  the machine is to start from its ROM and a disk, and compile the system
+  from source on the machine: what is decided, what is not, and the order
+  of the work; a plan not yet built), `disk.md` (block 0, the disk's
+  index: what is on a disk, where, and of what type; a design not yet
+  built) and
   `superoptimizations.md` (each way the machine's work has been made
   shorter or faster, by hand or by the tools: where it is used, what it
   replaced, why in the machine's terms, and the commit that measured it;

@@ -53,6 +53,23 @@
 #define DISK_VIEW_BLOCK     1172    // the viewer's dithered bitmap, while it is not in memory,
 #define DISK_VIEW_BLOCKS    32      // and how many blocks are kept for it
 
+// The disk's index (doc/disk.md): block 0 is entries of DISK_ENTRY bytes,
+// each a run of blocks with a label and a type.  A number in an entry is
+// two bytes, or four for its length, the lowest byte first.  These are the
+// bytes of an entry each starts at, and the types.
+#define DISK_ENTRY          32      // bytes of an entry
+#define DISK_LABEL          16      // its label, first: a count and the characters, zeros after
+#define DISK_ENTRY_TYPE     16      // what its blocks are, one of the types below
+#define DISK_ENTRY_FIRST    18      // its first block
+#define DISK_ENTRY_BLOCKS   20      // how many blocks it is
+#define DISK_ENTRY_WHERE    22      // binary: where in memory it goes, counted in blocks; entry 0: the bits of a cell
+#define DISK_ENTRY_LENGTH   24      // binary and data: bytes; source: lines; entry 0: the disk's blocks
+#define DISK_FREE           0       // the types: a slot that is free,
+#define DISK_BINARY         1       // memory, read into place when a machine starts,
+#define DISK_SOURCE         2       // Forth source, as load reads it,
+#define DISK_DATA           3       // an application's,
+#define DISK_INDEX          4       // and more of the index; entry 0 of block 0 is the disk's own
+
 // Each of the two stacks is this many cells.  The stacks are not part of
 // memory: they are reached by pushing, popping and the depth ports.  Going
 // past either end is undefined; a strict build stops there.

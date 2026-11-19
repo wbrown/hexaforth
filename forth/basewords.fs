@@ -26,6 +26,13 @@
 #4 constant disk-mask-planes
 #1172 constant disk-view-block
 #32 constant disk-view-blocks
+#32 constant disk-entry
+#16 constant disk-entry-type
+#18 constant disk-entry-first
+#20 constant disk-entry-blocks
+#22 constant disk-entry-where
+#1 constant disk-binary
+#4 constant disk-index
 
 \ the codes of a name, from vm_opcodes.h
 create n-direct  #45 c, #33 c, #63 c,

@@ -1,6 +1,7 @@
 //
 // mkdisk PICTURE.tiff OUT.img [SOURCE.fs [NAMES]]
 // mkdisk --pack SOURCE.fs...
+// mkdisk --boot BITS IMAGE.hex SOURCE.fs OUT.img
 //
 // A disk for the system: each file from the block that vm_constants.h says
 // is its own.  The Forth source is blocks, as `load` reads them and the
@@ -16,12 +17,19 @@
 // With --pack it makes no disk: it lays each file as blocks, and says how
 // many blocks it took or why it does not go into blocks.
 //
+// With --boot it makes a disk that a machine of cells of BITS bits starts
+// from with its ROM alone (doc/boot.md): block 0 is its index
+// (doc/disk.md), the source is from block 1, which is what the machine
+// loads, and after it is the image's memory above the ROM, which the ROM
+// reads into place.
+//
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "../vm_constants.h"
 #include "bluenoise.c"
+#include "image.h"
 #include "lines.c"
 
 #define BLOCK_LINES (DISK_BLOCK / DISK_LINE)
@@ -187,11 +195,113 @@ int pack_only(int files, char* paths[]) {
     return(failed);
 }
 
+// A number of an entry of the index, two bytes or four, the lowest first.
+static void put(uint8_t* at, long x, int bytes) {
+    for(int idx=0; idx < bytes; idx++) at[idx] = (uint8_t)(x >> (8 * idx));
+}
+
+// Entry n of the index in block 0: its label, its type, its blocks, where
+// it goes in memory if it is binary, and how long it is.  A number of two
+// bytes is to fit in them.
+static void entry(int n, const char* label, int type, long first, long blocks, long where, long length) {
+    size_t wide = strlen(label);
+    if (wide >= DISK_LABEL) {
+        fprintf(stderr, "mkdisk: the label %s is more than %d characters\n", label, DISK_LABEL - 1);
+        exit(EXIT_FAILURE);
+    }
+    if (first > 0xffff || blocks > 0xffff || where > 0xffff) {
+        fprintf(stderr, "mkdisk: %s is blocks %ld to %ld, for kilobyte %ld: more than two bytes say\n",
+                label, first, first + blocks - 1, where);
+        exit(EXIT_FAILURE);
+    }
+    uint8_t* at = disk + (size_t)n * DISK_ENTRY;
+    at[0] = (uint8_t)wide;
+    memcpy(at + 1, label, wide);
+    put(at + DISK_ENTRY_TYPE, type, 2);
+    put(at + DISK_ENTRY_FIRST, first, 2);
+    put(at + DISK_ENTRY_BLOCKS, blocks, 2);
+    put(at + DISK_ENTRY_WHERE, where, 2);
+    put(at + DISK_ENTRY_LENGTH, length, 4);
+}
+
+// The disk a machine starts from with its ROM alone.  Its index is block 0,
+// and its last slot is kept for an entry that goes on to more of the index
+// (doc/disk.md).  The image's memory above the ROM is a run for each stretch
+// of kilobytes that has something in it: what is between is nothing in the
+// image, and is left as memory has it.
+int boot_disk(int bits, const char* image_path, const char* source_path, const char* out_path) {
+    uint8_t* image;
+    size_t image_len = load_image(image_path, &image);
+    uint8_t* text;
+    size_t text_len = read_file(source_path, &text);
+    long lines = text_len && text[text_len - 1] != '\n';    // a block for each line is room enough
+    for(size_t idx=0; idx < text_len; idx++) lines += text[idx] == '\n';
+    long kilobytes = (long)(image_len + DISK_BLOCK - 1) / DISK_BLOCK;
+    long room = DISK_SOURCE_BLOCK + lines + 1 + kilobytes;
+    while (room % DISK_ROUND) room++;
+    disk = calloc(room, DISK_BLOCK);
+    uint8_t* whole = calloc(kilobytes, DISK_BLOCK);         // the image, to a whole number of kilobytes
+    memcpy(whole, image, image_len);
+
+    int took = pack(source_path, text, text_len, disk, DISK_SOURCE_BLOCK, DISK_SOURCE_BLOCK + (int)lines + 1);
+    if (took < 0) return(1);
+    const char* name = strrchr(source_path, '/');
+    int slots = DISK_BLOCK / DISK_ENTRY - 1, n = 1;
+    entry(n++, name ? name + 1 : source_path, DISK_SOURCE, DISK_SOURCE_BLOCK, took, 0, lines);
+
+    long at = DISK_SOURCE_BLOCK + took;
+    int runs = 0;
+    for(long k = KROM_BYTES / DISK_BLOCK; k < kilobytes; ) {
+        const uint8_t* from = whole + k * DISK_BLOCK;
+        int nothing = 1;
+        for(int idx=0; idx < DISK_BLOCK && nothing; idx++) nothing = !from[idx];
+        if (nothing) {
+            k++;
+            continue;
+        }
+        long start = k;
+        for(k++; k < kilobytes; k++) {
+            const uint8_t* next = whole + k * DISK_BLOCK;
+            int more = 0;
+            for(int idx=0; idx < DISK_BLOCK && !more; idx++) more = next[idx] != 0;
+            if (!more) break;
+        }
+        if (n == slots) {
+            fprintf(stderr, "mkdisk: the image is more runs than block 0 has slots for\n");
+            return(1);
+        }
+        char label[DISK_LABEL];
+        snprintf(label, sizeof(label), "image %ld", start);
+        entry(n++, label, DISK_BINARY, at, k - start, start, (k - start) * DISK_BLOCK);
+        memcpy(disk + (size_t)at * DISK_BLOCK, from, (size_t)(k - start) * DISK_BLOCK);
+        at += k - start;
+        runs++;
+    }
+    long blocks = at;
+    while (blocks % DISK_ROUND) blocks++;
+    char label[DISK_LABEL];
+    snprintf(label, sizeof(label), "hexaforth-%d", bits);
+    entry(0, label, DISK_INDEX, 0, 1, bits, blocks);
+
+    FILE* out = fopen(out_path, "wb");
+    if (out == NULL) {
+        perror(out_path);
+        return(1);
+    }
+    fwrite(disk, DISK_BLOCK, blocks, out);
+    fclose(out);
+    printf("%s: %ld blocks: %s from block %d, %d blocks; the image in %d runs, from block %d\n",
+           out_path, blocks, source_path, DISK_SOURCE_BLOCK, took, runs, DISK_SOURCE_BLOCK + took);
+    return(0);
+}
+
 int main(int argc, char *argv[]) {
     if (argc > 1 && !strcmp(argv[1], "--pack")) return(pack_only(argc - 2, argv + 2));
+    if (argc == 6 && !strcmp(argv[1], "--boot")) return(boot_disk(atoi(argv[2]), argv[3], argv[4], argv[5]));
     if (argc < 3) {
         fprintf(stderr, "Usage: %s PICTURE.tiff OUT.img [SOURCE.fs [NAMES]]\n"
-                        "       %s --pack SOURCE.fs...\n", argv[0], argv[0]);
+                        "       %s --pack SOURCE.fs...\n"
+                        "       %s --boot BITS IMAGE.hex SOURCE.fs OUT.img\n", argv[0], argv[0], argv[0]);
         return(1);
     }
     _Static_assert(DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS <= DISK_VIEW_BLOCK, "the viewer's bitmap is after the masks");

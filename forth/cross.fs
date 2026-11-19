@@ -1853,6 +1853,7 @@ warnings on
 :: LAST-COLUMN disk-line 1- literal ;
 :: LAST-LINE   disk-block disk-line / 1- literal ;
 :: BLOCK-CHARS disk-block literal ;
+:: BLKCELLS    disk-block cell-bytes / literal ;  \ the cells a block is, on the disk or in memory
 \ What \ makes of >in in a block, which is two past the \: this added and
 \ then that kept is where the line the \ is in ends.
 :: LINE-ROUND  disk-line 2 - literal ;
@@ -1865,6 +1866,18 @@ warnings on
 :: BAYER-BLK   disk-bayer-block literal ;       \ and Bayer's of 8 by 8
 :: VIEW-BLK    disk-view-block literal ;        \ the viewer's bitmap,
 :: VIEW-BLKS   disk-view-blocks literal ;       \ and how many blocks are kept for it
+:: SOURCE-BLK  disk-source-block literal ;      \ what a machine started from its ROM loads
+\ The disk's index, block 0 (doc/disk.md): an entry is ENTRY-BYTES and a
+\ block ENTRIES of them; a number in one is two bytes, at ENTRY-TYPE,
+\ ENTRY-FIRST, ENTRY-BLOCKS and ENTRY-WHERE.
+:: ENTRY-BYTES  disk-entry literal ;
+:: ENTRIES      disk-block disk-entry / literal ;
+:: ENTRY-TYPE   disk-entry-type literal ;
+:: ENTRY-FIRST  disk-entry-first literal ;
+:: ENTRY-BLOCKS disk-entry-blocks literal ;
+:: ENTRY-WHERE  disk-entry-where literal ;
+:: TYPE-BINARY  disk-binary literal ;
+:: TYPE-INDEX   disk-index literal ;
 \ A row of a mask on the disk is its planes, the lowest first, each a row
 \ of a bitmap MASK-WIDTH pixels across: MASK-CELLS cells of this machine,
 \ and the row MASK-ROW cells.  A block is as many rows as 1 MASK-ROWS-SHIFT

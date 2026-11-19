@@ -49,8 +49,8 @@ $683c , $2 , hdr, @ hdr, +
 $642c , $1 , hdr, nip
 $60d0 , $3 , hdr, over hdr, swap hdr, lshift
 $646c , $1 , hdr, xor
-$6830 , $3 , hdr, @ hdr, over hdr, +
 $6501 , $2 , hdr, >r hdr, r@
+$6830 , $3 , hdr, @ hdr, over hdr, +
 $60e4 , $2 , hdr, over hdr, @
 $6208 , $1 , hdr, io!
 $6539 , $2 , hdr, + hdr, >r
@@ -187,6 +187,7 @@ $65a9 , $2 , hdr, < hdr, >r
 $65ad , $3 , hdr, over hdr, > hdr, >r
 $65b9 , $2 , hdr, u< hdr, >r
 $65e9 , $3 , hdr, nip hdr, @ hdr, >r
+$670c , $2 , hdr, dup hdr, !
 $6840 , $3 , hdr, @ hdr, over hdr, and
 $6870 , $3 , hdr, @ hdr, over hdr, *
 $688c , $3 , hdr, nip hdr, @ hdr, invert

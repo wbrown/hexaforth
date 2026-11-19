@@ -213,6 +213,8 @@ header type
 
 create "cold"
     'c' c, 'o' c, 'l' c, 'd' c,
+create "boot"
+    'b' c, 'o' c, 'o' c, 't' c,
 create "error:"
     'e' c, 'r' c, 'r' c, 'o' c, 'r' c, ':' c,
 
@@ -1680,14 +1682,87 @@ header quit
     again
 ;
 
-: main
-    ['] uart-emit 'emit !
-    decimal
-    "cold" >c d# 4 sfind if
-        execute
-    else
-       2drop
+\ ---- starting from the ROM (doc/boot.md)
+\
+\ The machine starts at instruction 0, which runs main, and there may be
+\ nothing in memory but the ROM.  So main first sets what the console and
+\ throw need.  Then, from a disk whose block 0 is its index (doc/disk.md),
+\ it reads each binary entry's blocks to where in memory the entry says:
+\ the variables, the tables, the headers and the code above the ROM.  The
+\ system that brings has a word called boot, which goes on from there.  A
+\ machine whose image is in memory already goes on as it did, with no
+\ disk or with one that has no index.
+
+\ The reference VM's disk.  Port $b0 holds the number of a block, and
+\ reads as how many blocks there are: none, where there is no disk.  The
+\ address of a cell written to $b1 has the block read into the 1,024
+\ bytes from there, and written to $b2 has it written from them.
+header disk-blocks : disk-blocks ( -- n ) h# b0 io@ ;
+header vd-read     : vd-read  ( a blk -- ) h# b0 io!  h# b1 io! ;
+header vd-write    : vd-write ( a blk -- ) h# b0 io!  h# b2 io! ;
+
+: afresh ( -- ) \ what the console and throw need, with nothing in memory
+    main-task dup up !  dup !               \ the first task, in a ring of one
+    ['] uart-emit 'emit !  decimal
+    d# 0 handler !  d# 0 sbase !
+    d# 0 state !  d# 0 blk !  d# 0 sourceid !
+;
+
+\ Block 0 is read into the last block of memory, where nothing is yet.
+\ What is wanted of it is taken before any other block is read, since a
+\ run of the image may be read over it.  A number of an entry is taken
+\ from the cell it is in, so the buffer may be where the address of a
+\ byte does not reach.
+: boot-buf ( -- a ) MEM-END BLKCELLS - ;
+: entry ( i -- a ) ENTRY-BYTES BYTESHIFT rshift *  boot-buf + ;
+: ifield ( a offset -- u ) \ the two bytes that far into the cells from a, the lower first
+    dup >r BYTESHIFT rshift + @
+    r> OFFSET-MASK and d# 3 lshift rshift  h# ffff and
+;
+
+: blocks-to ( a first n -- ) \ n blocks from block first, to the cells from a
+    rot >r bounds                           ( end first ) ( R: a )
+    begin
+        2dupxor
+    while
+        r@ over vd-read
+        r> BLKCELLS + >r
+        1+
+    repeat
+    2drop rdrop
+;
+
+\ Each binary entry from entry i on is taken from block 0, and its blocks
+\ are read on the way back, the last entry's first.
+: binaries ( i -- )
+    dup ENTRIES = if drop exit then
+    dup entry  dup ENTRY-TYPE ifield TYPE-BINARY = if   ( i e )
+        dup ENTRY-WHERE ifield  BLKCELLS *                  \ a block of memory, as a cell
+        over ENTRY-FIRST ifield  rot ENTRY-BLOCKS ifield    ( i a first n )
+        >r >r >r  1+ binaries  r> r> r>  blocks-to
+        exit
     then
+    drop 1+ binaries
+;
+
+: by-name ( c-addr u -- ) \ the word of that name is run, if there is one
+    sfind if execute exit then 2drop
+;
+
+: from-disk ( -- )
+    disk-blocks 0= if exit then             \ no disk
+    boot-buf d# 0 vd-read
+    d# 0 entry  dup ENTRY-TYPE ifield TYPE-INDEX =
+    swap ENTRY-WHERE ifield CELLBITS =  and
+    0= if exit then                         \ no index, or one for another machine
+    d# 1 binaries
+    "boot" >c d# 4 by-name
+;
+
+: main
+    afresh
+    from-disk
+    "cold" >c d# 4 by-name
     quit
 ;
 
@@ -1715,6 +1790,7 @@ meta
     t' pcompile, t' 'compile tvar!
     t' main-task t' main-task tvar!     \ the first task, in a ring of one
     t' main-task t' up tvar!
+    t' uart-emit t' main-task 6 + tvar! \ its output goes to the console
     there  t' dp tvar!                  \ data carries on after the data,
     thp @  t' hdp tvar!                 \ and headers after the headers
     tcp @ 2/ code-base max $fff + $fff invert and

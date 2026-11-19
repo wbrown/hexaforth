@@ -50,7 +50,6 @@ header 'pairs : 'pairs ( -- a ) img @ c# 21 + ;     \ ( lanes -- )  the same, tw
 : traw      ( -- a ) img @ c# 22 + ;                \ the window's size in cells, when reading a file
 
 meta
-:: BLKCELLS  #1024 cell-bytes / literal ;           \ cells in a block
 :: BLKSHIFT  #10 byte-shift - literal ;             \ from a count of cells to a count of blocks
 :: BITSHIFT  byte-shift 3 + literal ;               \ from a count of bits to a count of cells
 :: HALFMASK  1 cell-bits 2/ lshift 1- literal ;     \ the lower half of a cell

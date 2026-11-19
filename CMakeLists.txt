@@ -516,7 +516,7 @@ wanted(hexaforth_test kernel_test fewer_test test-cases forth-env)
 
 # What makes a disk, and the Mandrill, as the USC-SIPI image database has
 # it: a TIFF that is not compressed, which is what the system reads.
-tool(mkdisk util/mkdisk.c)
+tool(mkdisk util/mkdisk.c util/image.c)
 
 # The applications: the source that is to be kept on the disk and compiled
 # when it is wanted, so is written to the width of a block's line.  The
@@ -735,6 +735,20 @@ function(machine_tests NAME)
             DEPENDS           mkdisk picture ${PICTURE} test/source.fs)
     machine_test(source-${NAME} ${NAME} source_test ${NUC} ${AT}/source.img)
     made(${NAME} ${AT}/source.img)
+
+    # The machine started from its ROM alone, and a disk mkdisk made of the
+    # same image, with test/boot.fs as its block 1 (doc/boot.md).  It stops
+    # at a store into the ROM, where a machine whose kernel is one would go
+    # wrong.
+    machine_tool(boot_test ${NAME} test/boot_test.c ${TYPED_SOURCES})
+    target_compile_definitions(boot_test-${NAME} PRIVATE ROM_BYTES=KROM_BYTES)
+    add_custom_command(
+            OUTPUT            ${AT}/boot.img
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}
+            COMMAND           mkdisk --boot ${NAME} ${NUC} ${CMAKE_SOURCE_DIR}/test/boot.fs ${AT}/boot.img > ${AT}/boot-disk.log 2>&1
+            DEPENDS           mkdisk ${NUC} test/boot.fs)
+    machine_test(boot-${NAME} ${NAME} boot_test ${NUC} ${AT}/boot.img)
+    made(${NAME} ${AT}/boot.img)
 
     machine_tool(region_test ${NAME} test/region_test.c ${TYPED_SOURCES})
     machine_tool(dither_test ${NAME} test/dither_test.c test/dither.c ${TYPED_SOURCES})
