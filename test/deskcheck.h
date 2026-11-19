@@ -34,6 +34,11 @@ typedef struct {
     const char* out;            // where the screens are kept
 } desk;
 
+// The check and the action step being run, for failure messages when the
+// machine stops where it was not sent.
+extern const char* desk_checking;
+extern const char* desk_doing;
+
 // Every check.  Returns how many failed.
 int desk_checks(const desk* machine);
 
