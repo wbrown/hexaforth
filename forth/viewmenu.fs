@@ -38,7 +38,7 @@ create pic-lines 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
 
 : pic-vw ( -- viewer|0 ) top win-data @ dup vw ! ;      \ make the front window's viewer the one in use
 : pic-n ( -- n ) d# 7 ;
-: pic-line ( i -- title ) pic-lines + @ ;
+: pic-line ( i -- title bold? ) pic-lines + @ false ;
 : pic-mark ( i -- f ) pic-vw if vmode @ = else drop false then ;   \ marks the way it is drawn now
 
 : pic-ks ( -- shift ) vd @ vhalf @ if 1+ then ;     \ pixels of the picture per side of a sample, as a shift

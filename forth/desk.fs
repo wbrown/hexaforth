@@ -45,8 +45,8 @@ create small-desk
 ;
 
 header windows
-: windows ( -- ) \ open them, and run until ^Q
-    d# 0 nwin !
+: windows ( -- ) \ open them, and run until ^Q with no window open
+    no-windows
     d# 5 place t-paint                              \ at the back: it is as big as its canvas, and has no canvas
     ['] paint-draw ['] ignore-key ['] paint-click window drop      \ until it is drawn in
     d# 0 >r                                         ( R: the picture's window, or 0 if there is no disk )
@@ -86,7 +86,7 @@ W64? [if]
 : virt-poll ( -- ) input-poll uart-poll ;
 
 header desktop
-: desktop ( -- ) \ runs until ^Q
+: desktop ( -- ) \ runs until ^Q with no window open
     display-init
     ['] on-event 'event !
     input-init

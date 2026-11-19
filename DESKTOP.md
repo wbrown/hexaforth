@@ -33,12 +33,15 @@ writes out when it stops (the target `seen` builds them).
   keys
 - Pressing on a window's title, dragging, and letting go moves the window
   by as far as the pointer moved
+- Clicking on the `x` at the right of a window's title closes it
 - Pressing on `hexaforth`, at the top left, drops down a menu of the
-  windows, the front one first. Letting go on a line brings that window to
-  the front. Letting go on the title leaves the menu open, and the next click
-  either picks a line or closes the menu
+  windows, in bold if the window is open and plain if it is closed. Letting
+  go on a line brings that window to the front, opening it if it was closed.
+  Letting go on the title leaves the menu open, and the next click either
+  picks a line or closes the menu
 - `^W` brings the window at the back to the front
-- `^Q` leaves the desktop for the serial prompt
+- `^Q` closes the window in front, or with none open leaves the desktop for
+  the serial prompt
 
 At the right of the menu bar is the disk light: a floppy whose spindle
 turns while blocks are being read or written, with an up arrow beside it
@@ -202,7 +205,7 @@ address of a cell. `hgive ( a cells -- )` gives it back. `hreuse` is
        swap 'q' = if drop  presses @ .  nwin @ .  8000 execute then
        >r  1 presses +!  0 0 136 56 r> win-inval ;
 
-    display-init  0 nwin !
+    display-init  no-windows
     40 60 200 120 t-hello ' hello-draw ' hello-key 0 window drop
     event-loop
     abcq
@@ -212,7 +215,7 @@ and `s,` lays it down with its length in front: that is the title. Numbers
 typed at the prompt are decimal.
 
 It is the only window, so it doesn't need `windows`: `display-init` makes
-the screen's port and switches to it, and `0 nwin !` says there are no
+the screen's port and switches to it, and `no-windows` says there are no
 windows yet. `event-loop` marks the whole screen out of date, and then on
 each pass takes a key if one is waiting and repaints what is out of date.
 The reference VM always reports a key waiting, so there the first key is

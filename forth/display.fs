@@ -1438,6 +1438,7 @@ header port! : port! ( port -- ) \ put the port in use away, and take up another
 
 header new-port : new-port ( -- port ) \ the whole screen, black, copying, plain text in the system's plain font
     PORT-CELLS cells >c halloc >r
+    d# 0 r@ PORT-CELLS cells-fill
     plain-font r@ c# 11 + !
     fb-w @ r@ c# 4 + !  fb-h @ r@ c# 5 + !
     fb-w @ r@ c# 15 + !  fb-h @ r@ c# 16 + !

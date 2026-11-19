@@ -11,8 +11,9 @@
 \     front  ( win -- )         the window has come to the front
 \     back   ( win -- )         another window has come in front of it
 \
-\ `wins` holds the windows from back to front.  The front one has the
-\ keyboard.
+\ `awins` holds every window that was made, in that order, for the menu.
+\ `wins` holds the ones that are open, from back to front.  The front one
+\ has the keyboard.
 \
 \ Nothing draws when something changes.  What has changed is added to
 \ the region of the screen that is out of date (inval-rect, win-inval),
@@ -24,11 +25,17 @@
 \ puts the whole of the front window out of date, unless the window's
 \ routine said more exactly what changed.
 
-create wins #64 allot
+meta #16 constant max-wins target
+meta max-wins target constant MAX-WINS
+
+create wins  meta max-wins cell-bytes * target allot
+create awins meta max-wins cell-bytes * target allot
 header nwin create nwin 0 ,
+create nawin 0 ,
 create cw 0 ,           \ the window being drawn
 
-header top : top ( -- win ) nwin @ 1- cells wins + @ ;
+header no-windows : no-windows ( -- ) d# 0 nwin !  d# 0 nawin ! ;
+header top : top ( -- win|0 ) nwin @ if nwin @ 1- cells wins + @ else d# 0 then ;
 
 \ A window is fourteen cells: position and size, title, the words that
 \ draw it and take its keys and clicks, its port, its visible region, a
@@ -41,14 +48,15 @@ header win-back  : win-back  ( win -- a ) c# 13 + ;
 
 header window
 : window ( x y w h title draw key click -- win )
+    nawin @ MAX-WINS = d# 8 -throw
     d# 14 >c halloc >r
     new-port r@ c# 8 + !
     new-rgn r@ c# 9 + !
     d# 0 r@ win-data !  d# 0 r@ win-menu !  d# 0 r@ win-front !  d# 0 r@ win-back !
     r@ c# 7 + !  r@ c# 6 + !  r@ c# 5 + !  r@ c# 4 + !
     r@ c# 3 + !  r@ CELL2 + !  r@ CELL + !  r@ !
-    r@ nwin @ cells wins + !
-    d# 1 nwin +!
+    r@ nwin @ cells wins + !  d# 1 nwin +!
+    r@ nawin @ cells awins + !  d# 1 nawin +!
     r>
 ;
 
@@ -164,9 +172,9 @@ create t-menu ," hexaforth"
 \ and dragging, or by two clicks.
 \
 \ A menu is five cells: its title (a counted string), and words that give
-\ its number of lines ( -- n ), a line's text ( i -- title ), the action
-\ for a picked line ( i -- ), and whether a line is marked ( i -- f ), or
-\ 0 if no line is ever marked.
+\ its number of lines ( -- n ), a line's text and whether it is in bold
+\ ( i -- title bold? ), the action for a picked line ( i -- ), and whether
+\ a line is marked ( i -- f ), or 0 if no line is ever marked.
 \
 \ While it is down it is in front of every window.  It is counted with
 \ what covers them, so that none of them paints or scrolls where it is,
@@ -259,6 +267,7 @@ header inval-window : inval-window ( win -- ) \ frame and all
     inverse !
     sans font !
     cw @ c# 4 + @ ctext  cw.x d# 8 + cw.y d# 2 + draw-chars
+    [char] x  cw.x cw.w + d# 12 -  cw.y d# 2 +  draw-char
     plain-font font !
     d# 0 inverse !
 ;
@@ -366,9 +375,9 @@ target
                 inverse @  menu-x @ d# 6 +  r@ d# 4 lshift d# 26 +  d# 4 d# 4  fill-rect
             then
         then
-        r@ menu-open @ CELL2 + @ execute ctext
+        r@ menu-open @ CELL2 + @ execute bold ! ctext
         menu-x @ d# 12 +  r@ d# 4 lshift d# 20 +  draw-chars
-        d# 0 inverse !
+        d# 0 bold !  d# 0 inverse !
         r> 1+
     repeat
     drop
@@ -474,14 +483,29 @@ header refresh : refresh ( -- ) \ paint what is out of date
 ;
 
 : repaint ( -- ) d# 0 d# 0 fb-w @ fb-h @ inval-rect ;
-: redraw-top ( -- ) top inval-window ;
+: redraw-top ( -- ) top ?dup if inval-window then ;
 
-\ ---- which window, and bringing one to the front
+\ ---- which window, and bringing one to the front or closing it
 
 : inside? ( win -- f ) \ is the pointer in it?
     dup @ mx @ swap - over CELL2 + @ u<
     swap dup CELL + @ my @ swap - swap c# 3 + @ u<
     and
+;
+
+: close-box? ( win -- f ) \ is the pointer on the x in its title bar?
+    dup CELL + @ my @ swap - d# 19 u<
+    swap dup @ swap CELL2 + @ + mx @ - d# 13 u< and
+;
+
+: win-i ( win -- i ) \ where it is in wins, or -1 if it is closed
+    nwin @
+    begin
+        dup
+    while
+        1-  2dup cells wins + @ = if nip exit then
+    repeat
+    1- nip
 ;
 
 : win-at ( -- i ) \ the frontmost window under the pointer, or -1
@@ -505,18 +529,59 @@ header refresh : refresh ( -- ) \ paint what is out of date
     cells wins + r> swap !
 ;
 
+\ A window is told of the button going down in it (its click routine).  One
+\ that wants to follow the pointer after that, to draw with it, stores a
+\ word in 'track then: it is run with where the pointer is, in the window
+\ as a click is, each time the pointer has moved while the button is down,
+\ and once more when the button goes up, when `held` is no longer true.
+header held create held 0 ,         \ true while the button is down
+header 'track create 'track 0 ,     \ ( x y win -- )
+create closing 0 ,                  \ the window whose x the button went down on, or 0
+
+: track ( -- ) \ the pointer has moved with the button down, or the button has gone up
+    'track @ ?dup if
+        >r  top cw !
+        mx @ cw.x - 1-  my @ cw.y - d# 19 -  top
+        r> execute
+    then
+;
+
+: end-press ( -- ) \ end any press or drag before the front window changes
+    drag-off  d# 0 dragging !  d# 0 closing !
+    d# 0 held !  track  d# 0 'track !
+;
+
 \ A program can be told when its window comes to the front and when
 \ another window comes in front of it, for instance to load something into
 \ memory only while it is in front.  It stores a word in the window's
 \ win-front or win-back hook; the word is called with the window.
 : told ( win a -- ) @ ?dup if execute else drop then ;      \ call a window's hook, if it has one
 
+: front-changed ( old -- ) \ repaint the new front window and the bar, and call the old and new hooks
+    redraw-top
+    d# 0 d# 0 fb-w @ d# 19 inval-rect               \ the bar shows the front window's menu
+    ?dup if dup win-back told then
+    top ?dup if dup win-front told then
+;
+
 : forward ( i -- ) \ bring window i to the front: repaint it and the old front window, and call their hooks
-    drag-off                                        \ the outline is the old front window's size
-    top >r  redraw-top raise redraw-top
-    d# 0 d# 0 fb-w @ d# 19 inval-rect               \ and the bar, which shows the front window's menu
-    r@ dup win-back told  rdrop
-    top dup win-front told
+    end-press
+    top >r  redraw-top raise  r> front-changed
+;
+
+: close-at ( i -- ) \ take window i out of wins
+    end-press
+    top >r
+    dup cells wins + @ dup inval-window c# 9 + @ rgn-none
+    d# -1 nwin +!
+    begin
+        dup nwin @ <
+    while
+        dup 1+ cells wins + @ over cells wins + !
+        1+
+    repeat
+    drop
+    r> dup top <> if front-changed else drop then
 ;
 
 \ ---- the menu: bringing it down, and what the button does while it is
@@ -544,7 +609,7 @@ header refresh : refresh ( -- ) \ paint what is out of date
     begin
         dup menu-n <
     while
-        dup menu-open @ CELL2 + @ execute ctext chars-width  rot max swap
+        dup menu-open @ CELL2 + @ execute drop ctext chars-width  rot max swap
         1+
     repeat
     drop
@@ -560,12 +625,21 @@ header refresh : refresh ( -- ) \ paint what is out of date
     menu-open @ >r  menu-up  r> c# 3 + @ execute
 ;
 
-\ The windows' menu: a line per window, the front one first; picking one
-\ brings it to the front.
-: wins-n ( -- n ) nwin @ ;
-: wins-line ( i -- title ) nwin @ 1- swap - cells wins + @ c# 4 + @ ;
+\ The windows' menu: a line per window, in the order they were made, the
+\ last first, in bold if the window is open and plain if it is closed;
+\ picking one brings it to the front, opening it if it was closed.
+: menu-win ( i -- win ) nawin @ 1- swap - cells awins + @ ;
+: wins-n ( -- n ) nawin @ ;
+: wins-line ( i -- title bold? ) menu-win dup c# 4 + @  swap win-i 0< 0= ;
 : wins-pick ( i -- )
-    nwin @ 1- swap -                                ( where it is among the windows )
+    menu-win dup win-i
+    dup 0< if
+        drop  end-press
+        top >r  redraw-top
+        nwin @ cells wins + !  d# 1 nwin +!
+        r> front-changed  exit
+    then
+    nip
     dup 1+ nwin @ <> if forward else drop then
 ;
 : sysmenu! ( -- )
@@ -580,31 +654,16 @@ header refresh : refresh ( -- ) \ paint what is out of date
 
 \ ---- the mouse button: the menu, or front a window, drag its title, or click in it
 
-\ A window is told of the button going down in it (its click routine).  One
-\ that wants to follow the pointer after that, to draw with it, stores a
-\ word in 'track then: it is run with where the pointer is, in the window
-\ as a click is, each time the pointer has moved while the button is down,
-\ and once more when the button goes up, when `held` is no longer true.
-header held create held 0 ,         \ true while the button is down
-header 'track create 'track 0 ,     \ ( x y win -- )
-
-
-: track ( -- ) \ the pointer has moved with the button down, or the button has gone up
-    'track @ ?dup if
-        >r  top cw !
-        mx @ cw.x - 1-  my @ cw.y - d# 19 -  top
-        r> execute
-    then
-;
-
 : press ( -- )
     menu-open @ if                                  \ a line of it, or away with it
         menu-line dup 0< if drop menu-up else menu-pick then
         exit
     then
     title-at ?dup if menu-down exit then
-    true held !  d# 0 'track !
     win-at dup 0< if drop exit then
+    dup cells wins + @ dup close-box? if nip closing ! exit then
+    drop
+    true held !  d# 0 'track !
     dup 1+ nwin @ <> if forward else drop then      \ bring it to the front, unless it is already
     top cw !
     my @ cw.y - d# 19 < if
@@ -630,6 +689,16 @@ header 'track create 'track 0 ,     \ ( x y win -- )
         then
         exit
     then
+    closing @ ?dup if
+        d# 0 closing !
+        dup close-box? if
+            win-at dup 0< 0= if
+                dup cells wins + @ rot = if close-at exit then
+            then
+            drop
+        then
+        drop exit
+    then
     d# 0 held !  track  d# 0 'track !               \ whoever was following the pointer is told it is over
     dragging @ if
         drag-off  d# 0 dragging !
@@ -648,7 +717,12 @@ create quitting 0 ,
 
 : on-key ( c -- )
     menu-open @ if menu-up then                     \ a key takes the menu away, and is then a key
-    dup d# 17 = if drop true quitting ! exit then   \ ^Q: leave the desktop
+    dup d# 17 = if                                  \ ^Q: close the front window, or leave the desktop
+        drop
+        nwin @ if nwin @ 1- close-at else true quitting ! then
+        exit
+    then
+    nwin @ 0= if drop exit then
     dup d# 23 = if                                  \ ^W: next window
         drop
         nwin @ d# 1 > if d# 0 forward then

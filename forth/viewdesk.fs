@@ -8,8 +8,8 @@
 create t-view ," Mandrill"
 
 header windows
-: windows ( -- ) \ open the window, and run until ^Q
-    d# 0 nwin !
+: windows ( -- ) \ open the window, and run until ^Q with no window open
+    no-windows
     'blk-read @ if
         d# 0 d# 20  fb-w @  fb-h @ d# 20 -  t-view
         ['] view-draw ['] ignore-key d# 0 window  dup view-menu  >r        \ the window first, as in desk.fs,
