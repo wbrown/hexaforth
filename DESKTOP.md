@@ -205,7 +205,7 @@ address of a cell. `hgive ( a cells -- )` gives it back. `hreuse` is
        swap 'q' = if drop  presses @ .  nwin @ .  8000 execute then
        >r  1 presses +!  0 0 136 56 r> win-inval ;
 
-    display-init  0 nwin !
+    display-init  no-windows
     40 60 200 120 t-hello ' hello-draw ' hello-key 0 window drop
     event-loop
     abcq
@@ -215,7 +215,7 @@ and `s,` lays it down with its length in front: that is the title. Numbers
 typed at the prompt are decimal.
 
 It is the only window, so it doesn't need `windows`: `display-init` makes
-the screen's port and switches to it, and `0 nwin !` says there are no
+the screen's port and switches to it, and `no-windows` says there are no
 windows yet. `event-loop` marks the whole screen out of date, and then on
 each pass takes a key if one is waiting and repaints what is out of date.
 The reference VM always reports a key waiting, so there the first key is

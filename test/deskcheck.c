@@ -66,6 +66,7 @@ static bool came_up(char* why), saved(char* why), dithered(char* why), moved(cha
 static bool fused_told(char* why), a_number(char* why), word_told(char* why), box_gone(char* why);
 static bool one_cursor(char* why), prints_behind(char* why), keep(char* why), others_same(char* why);
 static bool remember(char* why);
+static bool last_dragged(char* why);
 static bool sees_all(char* why), memory(char* why), menu_down(char* why), line_shown(char* why);
 static bool calc_picked(char* why), words_held(char* why), menu_whole(char* why), menu_away(char* why);
 static bool menu_gone(char* why), forth_closed(char* why), words_reopened(char* why);
@@ -233,9 +234,12 @@ static check CHECKS[] = {
     {"a press off the menu takes it away, and what was under it is painted", "click:forth-40-40 away", "15-away",
      {{"forth", 0, '=', "6"}, {"forth", 1, '=', "7"}, {"forth", 2, '=', "8"}}, menu_away},
     {"and so does a key", "menu backspace away", "15-key", .also = menu_gone},
-    // The x at the right of a window's title bar closes it, and so does ^Q
-    // for the window in front.  In the menu a closed window is plain and an
-    // open one is in bold, and picking a closed one opens it again.
+    // The x at the right of a window's title bar closes it when the button
+    // goes up over it, and so does ^Q for the window in front.  In the menu
+    // a closed window is plain and an open one is in bold, and picking a
+    // closed one opens it again.
+    {"pressing on the x and sliding off does not close the window", "slide:forth away", "15-slide",
+     .also = menu_away},
     {"the x in a window's title bar closes it, leaving the one behind in front", "close:forth away", "15-closed",
      .also = forth_closed},
     {"^Q closes the window in front, and closed windows are plain in the menu", "^q menu away", "15-closed-menu",
@@ -276,6 +280,29 @@ static check CHECKS[] = {
     // to the front, has its names.
     {"there is room for the canvas and the tables of names", "menu pick:words away", "17-names",
      {{"source", 1, '$', " img !"}}, .when = NAMES},
+
+    // A window that goes behind or is closed while the button is down in it
+    // is not to be followed after that.  HexaPaint gives its canvas back
+    // when another window comes in front, so its pencil, held down when ^W
+    // or ^Q takes it from the front and then moved, would draw where the
+    // canvas was: from address 0.  The last window, dragged by its title
+    // when ^Q closes it, would be moved at address 0 when the button is let
+    // go.  The test's machine stops at a store into the kernel (ROM_BYTES,
+    // CMakeLists.txt).
+    {"the pencil held down when ^W brings another window in front, and moved",
+     "menu pick:paint away tool:0 press:10,10,60,40 ^w point:300,300 release away", "18-held-w"},
+    {"the pencil held down when ^Q closes HexaPaint, and moved",
+     "menu pick:paint away tool:0 press:10,10,60,40 ^q point:300,300 release away", "18-held-q"},
+    {"the last window dragged by its title when ^Q closes it, and let go", "", "18-dragged-q",
+     .also = last_dragged},
+    // With every window closed, the Forth window is opened again from the
+    // menu and three windows are made from it, out of its way: nine windows
+    // made, of which four are open, and memory given back when HexaPaint
+    // was closed taken again.  The Forth window, in front again, answers.
+    {"three windows made from the Forth window opened again",
+     "menu pick:forth away ':noname drop ; constant dr  :noname 2drop ; constant ky\r' "
+     "': mk 420 290 80 40 t-words dr ky 0 window drop ; mk mk mk\r' front:forth '1 2 + .\r'", "18-windows",
+     {{"forth", 14, '=', "3  ok"}}},
     {NULL}};
 
 // ---- the machine, and its screen
@@ -818,6 +845,10 @@ static void does(const char* said) {
         } else if (word[0] == '^' && word[1] && !word[2]) {
             desk_key(word + 1, "ctrl");
             if (word[1] == 'q' && open_wins > 0) close_win(in_front());
+            if (word[1] == 'w' && open_wins > 1) to_front(order[0]);
+        } else if (!strncmp(word, "slide:", 6)) {
+            int w = window(of, name);
+            drag(rect[w].x + rect[w].w - 8, rect[w].y + 8, rect[w].x + rect[w].w - 24, rect[w].y + 8);
         } else if (!strncmp(word, "close:", 6)) {
             int w = window(of, name);
             click(rect[w].x + rect[w].w - 8, rect[w].y + 8);
@@ -1529,6 +1560,20 @@ bool desk_begins(const desk* on) {
     canvas = calloc((size_t)cw * ch, 1);
     shaped = calloc((size_t)cw * ch, 1);
     return(true);
+}
+
+// Every window closed but one, which is then held by its title as it is to
+// be dragged, closed with ^Q, and let go.  Which one is left is what the
+// checks before left in front.  The machine is to go on: no window is
+// moved, and nothing is stored where none is.
+static bool last_dragged(char* why) {
+    while (open_wins > 1) does("^q");
+    char said[64];
+    snprintf(said, sizeof said, "grab:%s+40+30 ^q drop away", NAMED[in_front()]);
+    does(said);
+    look("18-dragged-q");
+    snprintf(why, WHY, "%d windows are open", open_wins);
+    return(open_wins == 0);
 }
 
 void desk_does(const char* said) {
