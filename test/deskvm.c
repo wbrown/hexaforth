@@ -39,15 +39,18 @@ static void taken(void) {
     deskvm_turns += sent + 1;
     sent = 0;
     if (machine.EIP != stopping()) {
-        printf("FAIL the machine stopped at 0x%04x (expected 0x%04x) during check \"%s\"%s%s\n"
-               "  inspect with: build/cmake/disasm_hex-%d %s 0x%04x\n"
+        printf("FAIL the machine stopped at 0x%04x (expected 0x%04x)%s%s%s%s%s\n"
+               "  inspect with: build/cmake/disasm_hex-%d %s 0x%04x 0x%04x\n"
                "  screens in:   %s/\n"
                "  console said: %s\n",
                (unsigned)machine.EIP, (unsigned)stopping(),
-               desk_checking ? desk_checking : "(boot)",
+               desk_checking ? " during check \"" : "",
+               desk_checking ? desk_checking : "",
+               desk_checking ? "\"" : "",
                desk_doing && desk_doing[0] ? " while doing: " : "",
                desk_doing && desk_doing[0] ? desk_doing : "",
-               CELL_BITS, image_path ? image_path : "IMAGE.hex", (unsigned)machine.EIP,
+               CELL_BITS, image_path ? image_path : "IMAGE.hex",
+               (unsigned)machine.EIP, (unsigned)machine.EIP,
                out_dir ? out_dir : ".", said);
         exit(EXIT_FAILURE);
     }
