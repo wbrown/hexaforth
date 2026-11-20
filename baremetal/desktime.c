@@ -1,5 +1,8 @@
 //
-// desktime KERNEL.elf KERNEL.symbols DISK.img PICTURE.tiff FORTH NAMES.tables OUT [SECONDS]
+// desktime KERNEL.elf KERNEL.symbols DISK.img PICTURES.img PICTURE.tiff FORTH NAMES.tables OUT [SECONDS]
+//
+// PICTURES.img is the machine's second disk, which has PICTURE.tiff under
+// the picture's label (mkdisk --disk).
 //
 // When the desktop is ready, and when its picture is made.
 //
@@ -54,25 +57,25 @@ static void note(int what) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 8) {
-        fprintf(stderr, "Usage: %s KERNEL.elf KERNEL.symbols DISK.img PICTURE.tiff FORTH NAMES.tables OUT [SECONDS]\n",
-                argv[0]);
+    if (argc < 9) {
+        fprintf(stderr, "Usage: %s KERNEL.elf KERNEL.symbols DISK.img PICTURES.img PICTURE.tiff FORTH NAMES.tables OUT "
+                        "[SECONDS]\n", argv[0]);
         return(1);
     }
-    double limit = argc > 8 ? atof(argv[8]) : 600;
-    int height = read_tiff(argv[4]).h;
-    uint64_t vw = data_called(argv[6], "vw");
+    double limit = argc > 9 ? atof(argv[9]) : 600;
+    int height = read_tiff(argv[5]).h;
+    uint64_t vw = data_called(argv[7], "vw");
     uint64_t memory = symbol_at(argv[2], "image");      // where the machine's cell 0 is
     if (!vw) {
-        fprintf(stderr, "%s has no label vw: view.fs has changed, and this must change with it\n", argv[6]);
+        fprintf(stderr, "%s has no label vw: view.fs has changed, and this must change with it\n", argv[7]);
         return(1);
     }
-    tables_are(argv[5]);
-    desk watched = { {"cold", "desktop"}, " catch drop", true, argv[4], argv[7] };
+    tables_are(argv[6]);
+    desk watched = { {"cold", "desktop"}, " catch drop", true, argv[5], argv[8] };
     for(int what=0; what < TIMES; what++) when[what] = -1;
 
     clock_gettime(CLOCK_MONOTONIC, &started);
-    qemu_start(argv[1], argv[3], argv[7]);
+    qemu_start(argv[1], argv[3], argv[4], argv[8]);
     while (when[ALL] < 0 && now() < limit) {
         const char* said = qemu_said();
         uint64_t viewer = qemu_cell(memory + CELL_BYTES * vw);

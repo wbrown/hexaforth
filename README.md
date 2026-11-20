@@ -98,7 +98,7 @@ fetches or stores one of 4,096 variables.
 A Forth word is a name for one of these instructions or for a sequence of
 them. Leaving out the ones that read or write a port, the fields give 5,344
 instructions that behave differently; many combinations do the same thing.
-Fifty-six of those have names, and the system uses 308. The rest of the
+Fifty-six of those have names, and the system uses 381. The rest of the
 ones it uses come from the compiler, which replaces a sequence with a single
 instruction wherever one does the same work, and finds out which by asking
 the machine. (The target `profile` counts them, for the 64-bit image.)
@@ -138,15 +138,16 @@ before its figure is printed. In millions of clocks:
 
 | | 68000 | 64-bit cells | 32-bit | 16-bit |
 |---|---|---|---|---|
-| colour, full size | 63.2 | 21.5 | 31.7 | 30.7 * |
-| colour, half size | 40.3 | 13.3 | 19.6 | 17.7 |
+| colour, full size | 63.2 | 21.5 | 31.5 | 30.5 * |
+| colour, half size | 40.3 | 11.7 | 17.4 | 17.4 |
 | grayscale, full size | 31.7 | 14.8 | 21.2 | 21.5 * |
 | grayscale, half size | 13.3 | 4.4 | 6.7 | 7.6 |
 
 \* Run on a smaller system, `forth/picture.fs`: the windowing system, the
 TIFF reader and the dither, without the other applications. The 16-bit
-machine has 128KB, and with the full desktop loaded the 32KB bitmap is
-2.9KB short of fitting.
+machine has 128KB, and with the full desktop loaded the 32KB bitmap does
+not fit in what is left. (The desktop's viewer does not need it to: it
+makes its bitmap a block at a time and keeps it on the disk.)
 
 **On an FPGA** (`synth`). The 64-bit system, placed and routed for an 85k
 ECP5: 14,989 LUTs and 986 flip-flops, at 30.21 MHz.
@@ -156,21 +157,23 @@ ECP5: 14,989 LUTs and 986 flip-flops, at 30.21 MHz.
 
 | | words | bytes of code |
 |---|---|---|
-| The kernel, in a 4,096-byte ROM | 257 | 3,326 |
-| All drawing: fills, copying, text | 127 | 5,068 |
-| Regions | 30 | 1,390 |
-| The window manager | 61 | 2,566 |
-| The TIFF reader and the dither | 88 | 2,702 |
-| The Forth window | 14 | 632 |
-| The block editor | 5 | 480 |
-| The picture viewer | 21 | 556 |
-| The calculator | 9 | 668 |
-| The paint program | 39 | 2,270 |
-| The decompiler and the Words window | 86 | 4,114 |
-| The compiler's peephole, for what is typed | 23 | 1,200 |
-| Everything | 814 | 26,096 |
+| The kernel, in a 4,096-byte ROM | 277 | 3,766 |
+| All drawing: fills, copying, text | 155 | 5,258 |
+| Regions | 37 | 1,422 |
+| The window manager | 106 | 3,420 |
+| The TIFF reader and the dither | 120 | 3,934 |
+| Text kept as lines, which two windows scroll | 44 | 1,188 |
+| The Forth window | 22 | 736 |
+| The block editor | 9 | 468 |
+| The picture viewer, and its picture kept as gray | 158 | 4,448 |
+| The calculator | 17 | 676 |
+| The paint program | 51 | 2,274 |
+| The decompiler and the Words window | 126 | 4,628 |
+| What the disks have, by label, and the boot's console | 23 | 814 |
+| The compiler's peephole, for what is typed | 30 | 1,276 |
+| Everything | 1,303 | 35,814 |
 
-The dictionary holds 373 names in 3,200 bytes, at five bits per character.
+The dictionary holds 631 names in 5,866 bytes, at five bits per character.
 
 **The machine on another processor** (`size`). `baremetal/hexaforth.S` is
 the whole machine in AArch64 assembler, with a console. It is 880 bytes:
@@ -194,21 +197,20 @@ instructions.
 
 The kernel is the first 4KB of page 0. It is the part that sits in ROM, and
 it is everything needed to type Forth at the machine and have it compiled.
-It has 257 words, of which these 203 have names you can type:
+It has 277 words, of which these 194 have names you can type:
 
 - **The stacks**: `dup drop swap over nip tuck rot -rot ?dup 2dup 2drop 2swap
-  2over 2rot 3dup depth adepth`, and `>r r> r@ rdrop @r swap>r swapr> i j
+  2over 3dup depth adepth`, and `>r r> r@ rdrop @r swap>r swapr> i j
   unloop`
 - **Arithmetic**: `+ - * 1+ 1- 2* 2/ negate abs min max um* um/mod u/mod`
 - **Bits**: `and or xor invert lshift rshift`
 - **Comparison**: `= <> < > u< u> 0= 0<> 0< 0> true false`
-- **Double-cell numbers**: `d+ d- dnegate dabs s>d d>s d= d< du< d0= d0<
-  d2* d2/ 2@ 2!`
+- **Double-cell numbers**: `d+ dnegate s>d d2* 2@ 2!`
 - **Memory**: `@ ! +! or! and! xor! *! not! dup@ over@ c@ c! uw@ w! field@
-  field! >c c> hi32 lo32 hi16 lo16 count cell+ cells aligned align fill cmove
-  cmove> cells-move cells-fill /string bounds i@ i!`
-- **The console and the ports**: `key key? emit uart-emit 'emit cr space bl
-  type . .x .x2 hex1 accept io@ io!`
+  field! >c c> hi32 lo32 hi16 lo16 count cell+ cells aligned align cmove
+  cells-move cells-fill /string bounds i@ i!`
+- **The console and the ports**: `key key? emit uart-emit 'emit 'console cr
+  space bl type . .x .x2 hex1 accept io@ io!`
 - **The interpreter**: `source source-id sourceid >in parse parse-name
   isspace? isnotspace? isnotdelim >number base decimal hex state interpret1
   refill evaluate quit execute \ (`
@@ -219,7 +221,13 @@ It has 257 words, of which these 203 have names you can type:
 - **The dictionary**: `forth sfind >key samename? name> words here allot dp cp`
 - **Errors**: `catch throw -throw`
 - **Tasks**: `up sbase spawn pause`
-- **Blocks**: `blk`
+- **Blocks**: `blk 'blk-read 'blk-write`
+
+Twelve more words of the nucleus are in the other half of the kernel's
+page and not in the ROM, since nothing needs them before the system is in
+memory: `2rot`, `fill`, `cmove>`, and the double-cell `dabs d>s d= d< du<
+d- d0< d0= d2/`. That left room in the ROM for the driver of the disk a
+machine starts from, which is a file of its own for each kind of machine.
 
 ## Running it
 

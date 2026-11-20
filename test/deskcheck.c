@@ -67,7 +67,7 @@ static bool came_up(char* why), saved(char* why), dithered(char* why), moved(cha
 static bool fused_told(char* why), a_number(char* why), word_told(char* why), box_gone(char* why);
 static bool scrolled_down(char* why), words_marked(char* why), more_above(char* why), more_both(char* why);
 static bool one_cursor(char* why), prints_behind(char* why), keep(char* why), others_same(char* why);
-static bool remember(char* why);
+static bool remember(char* why), lights_right(char* why);
 static bool sees_all(char* why), memory(char* why), menu_down(char* why), line_shown(char* why);
 static bool sees_label(char* why), data_place(char* why), see_blocks(char* why);
 static bool calc_picked(char* why), words_held(char* why), menu_whole(char* why), menu_away(char* why);
@@ -80,6 +80,8 @@ static void picture_picked(int line), picture_made(void);
 
 static check CHECKS[] = {
     {"the desktop comes up", "", "1-desktop", .also = came_up},
+    // The machine has two disks, each a floppy: the bar has a light for each.
+    {"the bar has a light for each of the machine's two disks, and for no more", "", NULL, .also = lights_right},
 
     // The Forth window: text is inset by 2 from its content.
     {"the Forth window opens with a prompt", "'2 3 + .\r' ': sq dup * ; 12 sq .\r' 'nosuch\r'", "2-forth",
@@ -440,6 +442,45 @@ static bool shows(const char* text, int x, int y, const font* f, bool inverse) {
         x += width;
     }
     return(true);
+}
+
+// The disk lights (wm.fs): a floppy at the right of the bar for each disk
+// the machine has, the first disk's rightmost and each next one a light's
+// width to its left, which is the first number of disk-corner.  A floppy is
+// one of the first four glyphs of the font spin, a quarter turn apart, ten
+// pixels in from the left of its light and two down.  The machine has two
+// disks, the one it is given or starts from and the pictures': so there is
+// to be a floppy for each of those, and not a pixel where a third's would
+// be.  (A machine once showed sixteen, and nothing looked.)
+static bool lights_right(char* why) {
+    enum { IN = 10, DOWN = 2, TURNS = 4, DISKS = 2 };
+    static font spin;
+    static int wide;
+    if (!wide) {
+        int64_t* corner;
+        spin = font_named("spin");
+        table("wm.fs", "disk-corner", &corner, 2);
+        wide = (int)corner[0];
+        free(corner);
+    }
+    bool shown[DISKS + 1];
+    for(int d=0; d <= DISKS; d++) {
+        int x = W - (d + 1) * wide + IN, width, ink = 0;
+        shown[d] = false;
+        for(int turn=0; turn < TURNS && !shown[d]; turn++) {
+            int start = glyph_of(&spin, turn, &width), wrong = 0;
+            for(int row=0; row < spin.rows; row++) {
+                for(int k=0; k < width; k++) wrong += black(x + k, DOWN + row) != strike_pixel(&spin, start + k, row);
+            }
+            shown[d] = !wrong;
+        }
+        for(int row=0; row < spin.rows; row++) for(int k=0; k < width; k++) ink += black(x + k, DOWN + row);
+        if (d == DISKS) shown[d] = ink != 0;
+    }
+    if (shown[0] && shown[1] && !shown[DISKS]) return(true);
+    snprintf(why, WHY, "a floppy is shown for the first disk: %s; for the second: %s; and where a third's would be "
+             "there is %s", shown[0] ? "yes" : "no", shown[1] ? "yes" : "no", shown[DISKS] ? "something" : "nothing");
+    return(false);
 }
 
 // ---- where the windows are

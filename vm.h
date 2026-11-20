@@ -27,9 +27,10 @@ typedef struct { int EIP;
     word_node* words;
     uint64_t   CYCLES;
     int64_t    IOADDR;
-    FILE       *DISK;           // the file that is the disk, if there is one
-    int64_t    DISKBLK;         // the block the disk's ports are at
-    int64_t    DISKBLOCKS; } context;
+    FILE       *DISKS[DISK_DRIVES];     // the file that is each disk, if there is one
+    int64_t    DISKBLK;                 // the number the disk's ports are at: a disk, and a block of it
+    int64_t    DISKBLOCKS[DISK_DRIVES]; // how many blocks each disk is
+    } context;
 
 static inline uint8_t clz(uint64_t N);
 static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write);

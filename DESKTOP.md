@@ -13,11 +13,23 @@ desktop's test.
 
     cmake --build build/cmake --target demo
 
-boots the small AArch64 kernel on QEMU with a display, a disk, a keyboard
-and a pointer. The kernel runs the word `cold` when it starts, and `cold`
-runs `desktop`, which brings up QEMU's devices and runs `windows`, which
-opens the windows and runs the event loop. Whatever is typed at QEMU's
-serial console also goes to the window in front.
+boots the small AArch64 kernel on QEMU with a display, two disks, a
+keyboard and a pointer. The kernel runs the word `cold` when it starts,
+and `cold` runs `desktop`, which brings up QEMU's devices and runs
+`windows`, which opens the windows and runs the event loop. Whatever is
+typed at QEMU's serial console also goes to the window in front.
+
+    cmake --build build/cmake --target demo-boot
+
+is the same machine with nothing in its memory but the kernel's ROM. It
+reads the system from its first disk, compiles the applications and the
+desktop from their source there, saying on the screen each file as it
+reads it, and then runs the desktop.
+
+A disk is no more than 1,024 blocks, what an 8-inch floppy holds. The
+first is the one the machine starts from or is given: source, the names,
+HexaPaint's canvas, and what the viewer keeps. The second has the
+pictures.
 
 A machine with other devices brings them up itself and then runs `windows`.
 A machine with only a console uses the console's keys.
@@ -40,10 +52,12 @@ writes out when it stops (the target `seen` builds them).
 - `^W` brings the window at the back to the front
 - `^Q` leaves the desktop for the serial prompt
 
-At the right of the menu bar is the disk light: a floppy whose spindle
-turns while blocks are being read or written, with an up arrow beside it
-after a read and a down arrow after a write. The arrow goes away once the
-disk has been idle for a few turns of the event loop.
+At the right of the menu bar are the disk lights: a floppy for each disk
+the machine has, the first disk's at the right and each next one to its
+left. The spindle of the disk in use turns while its blocks are being
+read or written, with an up arrow at its left after a read and a down
+arrow after a write. The arrow goes away once the disks have been idle
+for a few turns of the event loop.
 
 The windows:
 
@@ -57,9 +71,11 @@ The windows:
 - **Editor**: one block of the disk, 16 lines of 64 characters. Typing
   overwrites, the cursor keys move, PgUp and PgDn change block, `^S` writes
   the block, and `^L` writes it and loads it as Forth
-- **Mandrill**: a picture read from a TIFF on the disk and dithered. A task
-  does it a row at a time, and the picture appears down the window. The
-  bitmap is written to the disk a block at a time as its rows are made,
+- **Mandrill**: a picture read from a TIFF and dithered. The TIFF is on
+  the pictures' disk, found by its label, `mandrill.tiff`, on whichever
+  disk has it. A task does it a row at a time, and the picture appears
+  down the window. The bitmap is written to the first disk a block at a
+  time as its rows are made,
   and is never whole in memory; the window is repainted from the disk,
   reading only the blocks it needs. The Picture menu in the bar shows it
   in other ways: kept as gray and painted through Bayer's mask or blue

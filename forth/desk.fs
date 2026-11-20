@@ -85,7 +85,7 @@ create small-desk
 \ fully returned when the last row is made (view.fs).
 : picture-start ( win|0 -- ) \ the picture, in its window
     ?dup 0= if exit then
-    >r  PICTURE-BLK  d# 0 place 2swap 2drop  \ and the size its
+    >r  picture-blk  d# 0 place 2swap 2drop  \ and the size its
     swap d# 2 - swap d# 20 -                 \ window shows
     \ the viewer, or 0 if there is no picture
     ['] view-load catch if 2drop drop d# 0 then
@@ -95,6 +95,7 @@ create small-desk
 header windows
 : windows ( -- ) \ open them, and run until ^Q
     d# 0 nwin !
+    find-disks  \ the picture is on one of them, by its label
     back-window  disk-windows  tool-windows
     wm-regions  picture-start
     t-up >c count type cr

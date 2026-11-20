@@ -897,7 +897,10 @@ header throw
     then
 ;
 
-header -throw : -throw ( a b -- ) \ if a is nonzero, throw -b
+\ a is a flag, all its bits or none: a number that is only not nothing,
+\ such as a device's status of 1, throws nothing here, and whoever has one
+\ makes a flag of it first (0<>)
+header -throw : -throw ( a b -- ) \ if the flag a is true, throw -b
     negate and throw
 ;
 

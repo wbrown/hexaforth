@@ -321,21 +321,31 @@ a word that passes their events to `on-event` (`wm.fs`).
 
 What the system needs from a disk is two words, to read and to write a
 1,024-byte block, which are put in the kernel's vectors `'blk-read` and
-`'blk-write` (`nuc.fs`); `blocks.fs` builds on them. A machine has the
-disk it has, and its ROM has the driver for that: a file of its own, which
+`'blk-write` (`nuc.fs`); `blocks.fs` builds on them. A disk is no more
+than 1,024 blocks, what an 8-inch floppy holds, and a machine may have
+several: the one it starts from, and others, which the pictures are on. A
+machine has the disks it has, and its ROM has the driver for the one it
+starts from: a file of its own, which
 the build of that machine's image names and the nucleus does not
 (`port-disk.fs` for the controller below; `virt-disk.fs`, with
 `virtio-disk.fs`, for QEMU's). When the machine starts it asks that driver
 whether the disk is there, reads the image through it, and puts its words
 in the vectors. Nothing in the nucleus or the system names a controller.
 
+A machine may have several disks, and a block's number says which disk as
+well: it is 16 bits, the top four the disk and the other twelve the block
+on it (`vm_constants.h`). So a number with no disk in it is of disk 0,
+there are at most sixteen disks, and a disk is at most 4,096 blocks. A
+driver is given such a number, and reading a block of a disk that is not
+there gives 1,024 bytes of nothing.
+
 One such controller is three ports, which the reference VM (`vm.c`) has,
-with a file it is given as the disk. Port `0xb0` holds a block number, and
-reads as the number of blocks on the disk. Writing a cell address to port
-`0xb1` reads that block into the 1,024 bytes starting at that cell; writing
-one to port `0xb2` writes the block from there. A machine without the
-controller reads them as zero and writing them does nothing, as with any
-port a machine doesn't have.
+with a file it is given as each disk. Port `0xb0` holds a block's number,
+disk and all, and reads as the number of blocks on the disk that number is
+of. Writing a cell address to port `0xb1` reads that block into the 1,024
+bytes starting at that cell; writing one to port `0xb2` writes the block
+from there. A machine without the controller reads them as zero and
+writing them does nothing, as with any port a machine doesn't have.
 
 Two more ports are specific to this VM, for debugging: port `0xf0`, and port
 `0xe0` when written (`8emit` and `.s` in `vm_opcodes.h`). Neither yet does

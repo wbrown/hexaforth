@@ -2090,8 +2090,7 @@ warnings on
 \ then that kept is where the line the \ is in ends.
 :: LINE-ROUND  disk-line 2 - literal ;
 :: LINE-MASK   disk-line negate literal ;
-:: PICTURE-BLK disk-picture-block literal ;     \ what is where on the disk: vm_constants.h
-:: NAMES-BLK   disk-names-block literal ;
+:: NAMES-BLK   disk-names-block literal ;       \ what is where on the disk: vm_constants.h
 :: CANVAS-BLK  disk-canvas-block literal ;
 :: MASK64-BLK  disk-masks-block literal ;       \ the threshold masks: blue noise of 64 by 64,
 :: MASK32-BLK  disk-mask32-block literal ;      \ of 32 by 32,
@@ -2101,6 +2100,10 @@ warnings on
 :: GRAY-BLK    disk-gray-block literal ;        \ the viewer's picture kept as gray,
 :: GRAY-BLKS   disk-gray-blocks literal ;       \ and how many blocks are kept for that
 :: SOURCE-BLK  disk-source-block literal ;      \ what a machine started from its ROM loads
+\ A block's number says which disk as well (doc/disk.md): the disk is the
+\ number DISK-SHIFT rshift, and there are DRIVES of them at most.
+:: DISK-SHIFT  disk-block-bits literal ;
+:: DRIVES      disk-drives literal ;
 \ The disk's index, block 0 (doc/disk.md): an entry is ENTRY-BYTES and a
 \ block ENTRIES of them; a number in one is two bytes, at ENTRY-TYPE,
 \ ENTRY-FIRST, ENTRY-BLOCKS and ENTRY-WHERE; and three of the types.

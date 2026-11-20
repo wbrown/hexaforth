@@ -314,7 +314,6 @@ header BLKCELLS : cw-blkcells BLKCELLS ;
 header LINE-ROUND : cw-line-round LINE-ROUND ;
 header LINE-MASK : cw-line-mask LINE-MASK ;
 
-header PICTURE-BLK : cw-picture-blk PICTURE-BLK ;
 header NAMES-BLK : cw-names-blk NAMES-BLK ;
 header CANVAS-BLK : cw-canvas-blk CANVAS-BLK ;
 header MASK64-BLK : cw-mask64-blk MASK64-BLK ;

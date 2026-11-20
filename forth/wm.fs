@@ -354,18 +354,23 @@ create bt 0 , 0 ,  \ the title being drawn: its x in the bar,
     bt 1+ @
 ;
 
-\ The disk light, at the right of the bar: a floppy (the font
-\ spin) whose spindle turns a quarter each time the event loop
-\ sees that blocks have moved (blocks.fs counts them), with an
-\ up arrow to its left after a read and a down arrow after a
-\ write.  The arrow stays until the event loop has gone round
-\ eight times with no blocks moved.  There is no clock, so a
-\ turn of the loop is however long the tasks run between pauses.
+\ The disk lights, at the right of the bar: a floppy (the font
+\ spin) for each disk there is, disk 0's at the right and each
+\ disk after it two glyphs to the left of the one before, which
+\ are its arrow and its floppy.  The disk the last block moved
+\ was of (blocks.fs says which, from the block's number) has its
+\ spindle turned a quarter each time the event loop sees that
+\ blocks have moved, with an up arrow to its left after a read
+\ and a down arrow after a write.  The arrow stays until the
+\ event loop has gone round eight times with no blocks moved.
+\ There is no clock, so a turn of the loop is however long the
+\ tasks run between pauses.
 
-\ disk-corner is how far from the right of the bar the light
-\ starts, and how tall it is.  The desktop's checks read it from
-\ here (test/deskcheck.c), to leave the light out of
-\ their comparisons.
+\ disk-corner is how wide one disk's light is, its arrow and its
+\ floppy, and how tall: disk d's starts d and one more of those
+\ from the right of the bar.  The desktop's checks read it from
+\ here (test/deskcheck.c), to leave the lights out of their
+\ comparisons.
 create disk-corner
     #28 , #19 ,
 create disk-seen 0 ,  \ blk-moved when the event loop
@@ -378,11 +383,23 @@ meta
 :: IN-USE-TURNS  #-8 literal ;
 target
 
-: disk-x ( -- x )
-    \ left edge of the light: the arrow, then the floppy
-    fb-w @ disk-corner @ - ;
-: disk-inval ( -- )
-    disk-x d# 0 disk-corner @ disk-corner 1+ @ inval-rect ;
+: disk-x ( d -- x )
+    \ left edge of disk d's light: the arrow, then the floppy
+    1+ disk-corner @ *  fb-w @ swap - ;
+
+\ the disks that have a light: those known to be there, and
+\ disk 0 if there is a driver at all
+: disks-lit ( -- mask )
+    disks-there @  'blk-read @ if d# 1 or then ;
+
+: lights ( -- n ) \ one more than the last disk that has one
+    d# 0 disks-lit
+    begin dup while u2/ swap 1+ swap repeat
+    drop
+;
+: disk-inval ( -- ) \ all of them
+    lights 1- disk-x  d# 0
+    lights disk-corner @ *  disk-corner 1+ @  inval-rect ;
 
 \ called each turn of the event loop: mark the light for repaint
 \ if it changed
@@ -398,15 +415,29 @@ target
     then
 ;
 
-: draw-disk ( -- )
-    \ draw the floppy, and the arrow while the disk is in use
-    'blk-read @ 0= if exit then
-    spin font !
-    disk-turn @  disk-x d# 10 +  d# 2  draw-char
-    disk-held @ if
-        blk-wrote @ if d# 5 else d# 4 then  disk-x  d# 2
-        draw-char
+\ disk d's light: its floppy, turned if it is the disk in use,
+\ and the arrow while it is
+: draw-light ( d -- )
+    dup blk-disk @ = >r
+    r@ if disk-turn @ else d# 0 then
+    over disk-x d# 10 +  d# 2  draw-char
+    r> disk-held @ and if
+        blk-wrote @ if d# 5 else d# 4 then
+        over disk-x  d# 2  draw-char
     then
+    drop
+;
+
+: draw-disk ( -- ) \ the light of each disk there is
+    spin font !
+    d# 0 disks-lit                          ( d mask )
+    begin
+        dup
+    while
+        dup d# 1 and if over draw-light then
+        u2/ swap 1+ swap
+    repeat
+    2drop
 ;
 
 : draw-desk ( -- ) \ menu bar, then grey

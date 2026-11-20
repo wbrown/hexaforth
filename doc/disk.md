@@ -120,15 +120,60 @@ Source and data stay on the disk, and are found by their labels.
 `include display.fs` loads the blocks of the source of that label, and
 block 1 is a list of such includes, which the boot loads. An application
 finds its data the same way (`mandrill.tiff`, `canvas`). So what is where
-on the disk is said in the index and nowhere else: `DISK_PICTURE_BLOCK`
+on the disk is said in the index and nowhere else: `DISK_NAMES_BLOCK`
 and the others like it leave `vm_constants.h`, and `mkdisk` lays the
-parts down one after another and writes where each is.
+parts down one after another and writes where each is. The picture's
+block has left it: the picture is found by its label (Several disks).
 
 ## Several disks
 
-A machine can have several disks, each with its own block 0. How they are
-reached, and which the kernel's ROM starts from, is not decided
-(`doc/boot.md`).
+A machine can have several disks, each with its own block 0. When the
+machine starts, each device is asked for an index block. A label is
+looked for on disk 0 first, and then on disk 1, disk 2 and onwards: one
+found on disk 0 is the one that is meant, whatever a later disk has under
+the same label. So a disk is 1,024 blocks, what an 8-inch floppy holds,
+and the pictures are on a second (`doc/boot.md`, Decided 12), found by
+their labels as anything else is.
+
+The kernel's ROM reads the binary of disk 0 and of no other: the image is
+on the disk the machine starts from.
+
+A block's number says which disk as well: of its 16 bits the top four are
+the disk and the other twelve the block on it. So a number that fits a
+cell of 16 bits says any block of any disk, there are at most sixteen
+disks, and a disk is at most 4,096 blocks, of which a floppy is 1,024.
+Whoever asks for a label is given such a number, the disk it was found on
+and the first block there, and everything that takes a block's number
+(`block`, `load`, the buffer, `blk`) is as it was: a number with no disk
+in it is of disk 0. Only what finds a label and the driver that reads a
+block know that a number has a disk in it. An entry of an index says a
+block of its own disk.
+
+What is built of this: the reference VM has as many disks as it is given
+files (`vm.c`; `main.c` takes them with commas between), and its
+controller's block register takes the number with the disk in it. When a
+machine boots, `find-disks` (`files.fs`) asks each disk for its first
+block and keeps which have an index; `include` and `labelled` look
+through them in order and give a first block that says its disk. `mkdisk
+--disk` makes a disk that is an index and its files. `boot_test` gives a
+machine two disks and holds it to all of that, on every size of cell.
+
+The pictures are on the second disk. No disk is more than 1,024 blocks
+(`DISK_FLOPPY`), and `mkdisk` makes none that is. The viewer asks for its
+picture by its label (`picture-blk`, `view.fs`) and has it from whichever
+disk has it; there is no block kept for a picture on the disk a machine
+starts from, which is its source, the names, the canvas, the masks, the
+viewer's bitmap and gray, and the image. Every machine the desktop is
+shown or checked on is given the two (`pictures`, `CMakeLists.txt`).
+
+On QEMU each disk is a device of its own, and the ROM's driver is of one
+device. A block of another disk is read by pointing that driver at the
+other device, having stopped the one it leaves (`virt-disk.fs`, in the
+upper half of the kernel's page): that machine's word `disks`, which
+`find-disks` runs first, puts this in the place of the ROM's two words.
+
+The bar has a light for each disk there is (`wm.fs`), and the arrow for a
+read or a write is beside the light of the disk the block was of.
 
 ## The boot
 
@@ -153,4 +198,6 @@ The IPL). `mkdisk --boot` writes that beside the disk.
   the ROM tests, so that a damaged disk, or a transfer the IPL lost a
   byte of, is said to be so and is not run. It would be about 10
   instructions of the ROM.
-- Whether a label is looked up on every disk, or on the one named.
+- With several disks: how the editor says which disk it shows, which is
+  for later (`doc/boot.md`, To do); and how each controller is told
+  which of its disks is meant.

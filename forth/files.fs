@@ -1,12 +1,51 @@
-\ files.fs - a source of the disk's by its label, and the names
-\ that are a file's own
+\ files.fs - what the disks have, by its label: a source that is
+\ read, and the names that are a file's own
 
-\ Source of the disk's, by its label in block 0, the disk's
-\ index (doc/disk.md): its blocks are loaded in turn.  Only
-\ block 0 is looked in yet, not the index blocks a disk may go
-\ on to.
-: entry@ ( i -- e ) \ entry i, as a byte's address
-    ENTRY-BYTES *  d# 0 block + ;
+\ A machine may have several disks, and each has an index in its
+\ first block (doc/disk.md).  When the machine starts each disk
+\ is asked for that block (find-disks, which boot runs), and
+\ indexed keeps which of them had an index there: bit d for disk
+\ d.  A disk that is not there reads as nothing (MODEL.md), and
+\ one whose driver throws is taken not to be there.  Only a
+\ disk's first block is looked in yet, not the index blocks it
+\ may go on to.
+create indexed 0 ,
+
+: index? ( d -- f ) \ is disk d's first block an index?
+    DISK-SHIFT lshift ['] block catch if drop false exit then
+    ENTRY-TYPE + uw@ TYPE-INDEX =
+;
+
+\ A machine whose disks after the first are reached another way
+\ than its ROM's driver has says so in a word called disks,
+\ which is run first if there is one (virt-disk.fs).
+create "disks"
+    'd' c, 'i' c, 's' c, 'k' c, 's' c,
+
+header find-disks
+: find-disks ( -- )
+    "disks" >c d# 5 by-name
+    d# 0 indexed !
+    d# 0 begin
+        dup DRIVES xor
+    while
+        dup index? if d# 1 over lshift indexed @ or indexed ! then
+        1+
+    repeat
+    drop
+    indexed @ disks-there !     \ which the bar has a light for
+;
+
+\ An entry is said by a number that counts through the disks,
+\ ENTRIES to a disk, disk 0's first.  So going through the
+\ numbers in order is looking on disk 0 before disk 1, and that
+\ before disk 2: a label that an earlier disk has is found
+\ there, whatever a later disk has under it.
+: entry@ ( n -- e ) \ entry n, as a byte's address
+    ENTRIES u/mod DISK-SHIFT lshift block  swap ENTRY-BYTES * + ;
+
+: indexed? ( n -- f ) \ has the disk entry n is of an index?
+    ENTRIES u/mod nip  indexed @ swap rshift d# 1 and ;
 
 : same-chars? ( a1 a2 u -- f )
     \ are the u characters from each the same?
@@ -25,13 +64,34 @@
     drop 2drop false
 ;
 
-: find-source ( c-addr u i -- e|0 )
-    \ the source of that label, from entry i on
-    dup ENTRIES = if drop 2drop d# 0 exit then
-    >r  2dup r@ entry@ label?
-    r@ entry@ ENTRY-TYPE + uw@ TYPE-SOURCE =  and
-    if 2drop r> entry@ exit then
-    r> 1+ find-source
+\ the entry that has that label, from entry n on, or nothing: a
+\ disk's first entry is the disk's own, and a disk with no index
+\ is passed over
+: find-label ( c-addr u n -- n'|0 )
+    dup ENTRIES DRIVES * = if drop 2drop d# 0 exit then
+    dup ENTRIES 1- and 0= if
+        dup indexed? if 1+ else ENTRIES + then
+        find-label exit
+    then
+    >r  2dup r@ entry@ label? if 2drop r> exit then
+    r> 1+ find-label
+;
+
+\ of entry n: its first block, whose number says its disk too,
+\ and how many blocks it is
+: its-blocks ( n -- first blocks )
+    dup entry@ >r
+    ENTRIES u/mod nip DISK-SHIFT lshift  r@ ENTRY-FIRST + uw@ +
+    r> ENTRY-BLOCKS + uw@
+;
+
+\ The blocks a label has, on the first disk that has it: its
+\ first block and how many, or no blocks if no disk has it.  The
+\ label is not to be in the block's buffer, which an index is
+\ read into.
+header labelled
+: labelled ( c-addr u -- first blocks )
+    d# 0 find-label dup if its-blocks exit then d# 0
 ;
 
 \ ---- a file's own names
@@ -121,20 +181,21 @@ create line-said 0 ,
 
 \ The label is read from the block's buffer, which block 0 is
 \ then read into: so it is copied first, to here, where nothing
-\ goes while it is looked for.  It is said from where it was
-\ read, before it is copied: the screen's console measures each
-\ character it draws by putting it at here, so a label said
-\ from here was gone after its first letter.  Whatever the file
-\ throws, its own names are taken out before it is thrown on.
+\ goes while it is looked for.  The data is brought to a whole
+\ cell first: here is the cell the data has got to, and if text
+\ was the last thing laid that cell is part of it.  (The viewer's
+\ label for its picture lost its end to the name of the file
+\ included next.)  Whatever the file throws, its
+\ own names are taken out before it is thrown on.
 header include
 : include-label ( "label" -- )
-    line-ends
+    line-ends  align
     parse-name  2dup type space  true line-said !
     here >c swap  dup >r  cmove
-    here >c r>  d# 1 find-source
+    here >c r>  d# 0 find-label
     dup 0= d# 38 -throw  \ as a file that is not there
-    dup ENTRY-FIRST + uw@  swap ENTRY-BLOCKS + uw@
-    dup .  over + 1-
+    dup entry@ ENTRY-TYPE + uw@ TYPE-SOURCE <> d# 38 -throw
+    its-blocks  dup .  over + 1-
     own-names >r >r
     ['] file-blocks catch  dup if nip nip then
     r> r> own-done

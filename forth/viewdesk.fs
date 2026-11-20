@@ -16,7 +16,7 @@ create t-view ," Mandrill"
     ['] view-draw ['] ignore-key d# 0 window  dup view-menu
     >r
     wm-regions
-    PICTURE-BLK  fb-w @ d# 2 -  fb-h @ d# 40 -
+    picture-blk  fb-w @ d# 2 -  fb-h @ d# 40 -
     ['] view-load catch if 2drop drop d# 0 then
     r> win-data !
 ;
@@ -24,6 +24,7 @@ create t-view ," Mandrill"
 header windows
 : windows ( -- ) \ open the window, and run until ^Q
     d# 0 nwin !
+    find-disks  \ the picture is on one of them, by its label
     'blk-read @ if picture-window then
     event-loop
 ;

@@ -23,7 +23,6 @@ include spin.fs         \ the disk light in the menu bar
 : plain-font ( -- font ) sans ;                     \ a port's font until it is set
 include display.fs      \ the display: a bitmap in memory, and text on it
 include region.fs       \ shapes that are not rectangles, to clip to
-include console.fs      \ the screen as the console, and the boot from a disk
 
 meta 0 sys-page target
 
@@ -35,8 +34,9 @@ include wm.fs           \ windows, pointer, event loop
 
 meta 1 sys-page target
 
-include gray.fs        \ a picture kept as gray, drawn through a mask
+include files.fs        \ what the disks have by its label, and a file's own names
+include console.fs      \ the screen as the console, and the boot from a disk
+include gray.fs       \ a picture kept as gray, drawn through a mask
 include view.fs         \ image viewer, and its menu: how it is drawn
 include viewdesk.fs     \ the picture's window, by itself
-include files.fs        \ a source of the disk's by its label, and a file's own names
-include join.fs       \ instructions joined as they are compiled, and the rules
+include join.fs      \ instructions joined as they are compiled, and the rules

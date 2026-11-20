@@ -5,20 +5,32 @@
 \ handed is the address of a cell.  The two are the kernel's,
 \ and the ROM sets them to the disk it finds (nuc.fs).
 
-\ Counted for the disk light in the menu bar (wm.fs).
+\ Counted for the disk lights in the menu bar (wm.fs), which are
+\ one for each disk there is.  A block's number says which disk
+\ it is of (doc/disk.md): the light that shows a read or a write
+\ is that disk's.
 header blk-moved create blk-moved 0 ,  \ blocks read and written
                                        \ so far
 header blk-wrote create blk-wrote 0 ,  \ true if the last was
                                        \ a write
+header blk-disk  create blk-disk 0 ,   \ the disk the last was of
+header disks-there                     \ the disks there are known
+    create disks-there 0 ,             \ to be, bit d for disk d:
+                                       \ whoever finds one says
+                                       \ so here (files.fs)
+
+: moved ( blk# write? -- ) \ a block was read or written
+    blk-wrote !  DISK-SHIFT rshift blk-disk !
+    d# 1 blk-moved +! ;
 
 header blk-read
 : blk-read  ( buf blk# -- )
-    'blk-read  @ dup 0= d# 37 -throw execute  d# 1 blk-moved +!
-    d# 0 blk-wrote ! ;
+    dup >r  'blk-read  @ dup 0= d# 37 -throw execute
+    r> false moved ;
 header blk-write
 : blk-write ( buf blk# -- )
-    'blk-write @ dup 0= d# 37 -throw execute  d# 1 blk-moved +!
-    true blk-wrote ! ;
+    dup >r  'blk-write @ dup 0= d# 37 -throw execute
+    r> true moved ;
 
 \ One block buffer.  `block` gives the address of its first
 \ byte, so it has to be where the address of a byte can say:

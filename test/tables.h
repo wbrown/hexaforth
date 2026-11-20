@@ -26,10 +26,11 @@ void tables_are(const char* dir);
 int table(const char* file, const char* name, int64_t** numbers, int count);
 
 // A font, as mono.fs says one is, read from the file named for it (mono.fs,
-// sans.fs): how high, the first character, how many,
+// sans.fs, spin.fs): how high, the first character, how many,
 // the numbers in a row of the strike, a cell the system uses; then where
 // each glyph starts and where the last ends; then the strike a row at a
-// time, 64 pixels to a number with the leftmost highest.
+// time, 64 pixels to a number with the leftmost highest, or drawn as a
+// picture of # and . (spin.fs), which is read as those numbers.
 typedef struct {
     int rows, first, count, across;
     const int64_t* starts;

@@ -131,7 +131,7 @@ const uint8_t* desk_screen(void) {
 
 void desk_block(long n, int count, uint8_t* bytes) {
     taken();
-    fflush(machine.DISK);
+    fflush(machine.DISKS[0]);
     FILE* in = fopen(disk_path, "rb");
     memset(bytes, 0, (size_t)count * DISK_BLOCK);
     if (in == NULL || fseek(in, n * DISK_BLOCK, SEEK_SET) || !fread(bytes, 1, (size_t)count * DISK_BLOCK, in)) {
@@ -166,13 +166,26 @@ static void disk_is(const char* from, const char* to) {
     }
     fclose(out);
     free(bytes);
-    machine.DISK = fopen(to, "r+b");
-    machine.DISKBLOCKS = (int64_t)(len / DISK_BLOCK);
+    machine.DISKS[0] = fopen(to, "r+b");
+    machine.DISKBLOCKS[0] = (int64_t)(len / DISK_BLOCK);
     disk_path = to;
 }
 
-desk deskvm_start(const char* image, const char* disk, const char* is_picture, const char* out, bool names,
-                  bool rom_only) {
+// The second disk, which has the picture: as it is, since nothing writes
+// to it.
+static void pictures_are(const char* path) {
+    FILE* in = fopen(path, "rb");
+    if (in == NULL) {
+        perror(path);
+        exit(EXIT_FAILURE);
+    }
+    fseek(in, 0, SEEK_END);
+    machine.DISKS[1] = in;
+    machine.DISKBLOCKS[1] = (int64_t)(ftell(in) / DISK_BLOCK);
+}
+
+desk deskvm_start(const char* image, const char* disk, const char* pictures, const char* is_picture, const char* out,
+                  bool names, bool rom_only) {
     static const char file[] = "/disk.img";
     char* copy = malloc(strlen(out) + sizeof(file));
     if (copy == NULL) {
@@ -191,6 +204,7 @@ desk deskvm_start(const char* image, const char* disk, const char* is_picture, c
     start();
     if (rom_only) memset((uint8_t*)machine.memory + KROM_BYTES, 0, sizeof(machine.memory) - KROM_BYTES);
     disk_is(disk, copy);
+    pictures_are(pictures);
     if (rom_only) {             // it boots, and is at its prompt: an error in a block of the disk is said
         type();
         if (strstr(said, "error")) {

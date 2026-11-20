@@ -23,5 +23,5 @@ header show
 header mandrill
 : mandrill ( -- )
     devices
-    PICTURE-BLK show
+    find-disks  picture-blk show
 ;

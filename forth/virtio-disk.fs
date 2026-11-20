@@ -91,7 +91,11 @@ meta #136 cell-bytes / target constant VQ-CELLS
 \ from them.  One request is made at a time, so it is done when
 \ the device has finished one more than it had: nothing here
 \ reads what the device says of it but the status, whose field
-\ is read with the byte after it, which is always nothing.
+\ is read with the byte after it, which is always nothing.  A
+\ status that is not nothing is thrown: a block the disk has not
+\ is one.  (It was handed to -throw as it was, 1 for an error,
+\ and -throw, which wants a flag, threw nothing: a block that
+\ was not read was taken for read.)
 : vio ( a blk type -- )
     dup d# 48 vq!
     2* d# 3 xor d# 28 vq!           \ a block read is written
@@ -103,7 +107,7 @@ meta #136 cell-bytes / target constant VQ-CELLS
         d# 82 vq@ over xor
     until
     drop
-    d# 120 vq@ d# 38 -throw
+    d# 120 vq@ 0<> d# 38 -throw     \ -throw is given a flag
 ;
 
 : vread  ( a blk -- ) d# 0 vio ;

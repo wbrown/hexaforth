@@ -17,9 +17,14 @@ create con-y 0 ,                \ in pixels
 
 : con-h ( -- n ) font @ @ ;     \ a line: as high as the font
 
-\ How wide a character is in the port's font: it is put at here,
-\ where nothing is, and measured as text.
-: con-w ( c -- n ) here !  here >c d# 1 text-width ;
+\ How wide a character is in the port's font: it is put in a
+\ cell that is kept for it, and measured as text.  (It was put
+\ at here, as where nothing is.  While a file is compiled here
+\ may be a cell that is half laid, and the console prints then:
+\ a dot said for a block of the file went over the end of a
+\ label the file had just laid.)
+create con-c 0 ,
+: con-w ( c -- n ) con-c !  con-c >c d# 1 text-width ;
 
 : con-nl ( -- ) \ the start of the next line
     d# 0 con-x !
@@ -65,7 +70,8 @@ header console
 
 \ What a machine started from its ROM goes on with, once the ROM
 \ has read the rest of the system from the disk it found
-\ (nuc.fs): the screen is the console, and the block of what is
+\ (nuc.fs): the screen is the console, each disk is asked
+\ whether it has an index (files.fs), and the block of what is
 \ loaded is loaded (doc/boot.md).
 header boot
-: boot ( -- ) console  SOURCE-BLK load ;
+: boot ( -- ) console  find-disks  SOURCE-BLK load ;

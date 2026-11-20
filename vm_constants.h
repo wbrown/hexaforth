@@ -46,16 +46,14 @@
 // block 16, in among the source of a disk that had more than a few blocks
 // of it.)
 //
-// This is one disk until there are two.  A disk is to be 1,024 blocks,
-// what an 8-inch floppy holds, with the pictures on a second (doc/boot.md,
-// Decided 12): this one is longer than that by having the picture on it,
-// and the blocks kept for source are no more than keeps it near what it
-// was.
+// A disk is 1,024 blocks, what an 8-inch floppy holds (DISK_FLOPPY), and
+// what is here is all on the first: the pictures are on a second, found
+// by their labels (doc/boot.md, Decided 12; doc/disk.md).  What makes a
+// disk holds it to that (util/mkdisk.c).
+#define DISK_FLOPPY         1024    // the blocks a disk is, at the most
 #define DISK_SOURCE_BLOCK   1       // Forth source, which the editor opens at,
 #define DISK_SOURCE_BLOCKS  255     // and how many blocks are kept for it
-#define DISK_PICTURE_BLOCK  (DISK_SOURCE_BLOCK + DISK_SOURCE_BLOCKS)    // a TIFF, for the viewer,
-#define DISK_PICTURE_BLOCKS 1008    // and how many blocks are kept for it
-#define DISK_NAMES_BLOCK    (DISK_PICTURE_BLOCK + DISK_PICTURE_BLOCKS)  // the names that go with the image,
+#define DISK_NAMES_BLOCK    (DISK_SOURCE_BLOCK + DISK_SOURCE_BLOCKS)    // the names that go with the image,
 #define DISK_NAMES_BLOCKS   128     // and how many blocks are kept for them
 #define DISK_CANVAS_BLOCK   (DISK_NAMES_BLOCK + DISK_NAMES_BLOCKS)      // HexaPaint's canvas,
 #define DISK_CANVAS_BLOCKS  16      // and how many blocks are kept for it
@@ -73,6 +71,16 @@
 #define DISK_GRAY_BLOCK     (DISK_VIEW_BLOCK + DISK_VIEW_BLOCKS)
                                     // the viewer's picture kept as gray, in its four planes, made here too,
 #define DISK_GRAY_BLOCKS    128     // and how many blocks are kept for it: 512 by 512 samples
+
+// A machine may have several disks, and a block's number says which as
+// well (doc/disk.md, Several disks): the number is 16 bits, of which the
+// low DISK_BLOCK_BITS are the block and those above them the disk.  So a
+// number with no disk in it is of disk 0, a disk is at most 4,096 blocks,
+// and there are at most DISK_DRIVES disks.
+#define DISK_BLOCK_BITS     12
+#define DISK_DRIVES         (1 << (16 - DISK_BLOCK_BITS))
+#define DISK_DRIVE_OF(n)    (((n) >> DISK_BLOCK_BITS) & (DISK_DRIVES - 1))  // which disk a number is of,
+#define DISK_BLOCK_OF(n)    ((n) & ((1 << DISK_BLOCK_BITS) - 1))            // and which block of it
 
 // The disk's index (doc/disk.md): block 0 is entries of DISK_ENTRY bytes,
 // each a run of blocks with a label and a type.  A number in an entry is

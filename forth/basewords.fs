@@ -17,17 +17,18 @@
 #1024 constant disk-block
 #64 constant disk-line
 #1 constant disk-source-block
-#256 constant disk-picture-block
-#1264 constant disk-names-block
-#1392 constant disk-canvas-block
-#1408 constant disk-masks-block
-#1410 constant disk-mask32-block
-#1411 constant disk-bayer-block
+#12 constant disk-block-bits
+#16 constant disk-drives
+#256 constant disk-names-block
+#384 constant disk-canvas-block
+#400 constant disk-masks-block
+#402 constant disk-mask32-block
+#403 constant disk-bayer-block
 #64 constant disk-mask-width
 #4 constant disk-mask-planes
-#1412 constant disk-view-block
+#404 constant disk-view-block
 #32 constant disk-view-blocks
-#1444 constant disk-gray-block
+#436 constant disk-gray-block
 #128 constant disk-gray-blocks
 #32 constant disk-entry
 #16 constant disk-entry-type
@@ -387,7 +388,8 @@ create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
     s" bw-size disk-block" evaluate
     s" bw-size disk-line" evaluate
     s" bw-size disk-source-block" evaluate
-    s" bw-size disk-picture-block" evaluate
+    s" bw-size disk-block-bits" evaluate
+    s" bw-size disk-drives" evaluate
     s" bw-size disk-names-block" evaluate
     s" bw-size disk-canvas-block" evaluate
     s" bw-size disk-masks-block" evaluate

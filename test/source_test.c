@@ -30,6 +30,8 @@
 #include "nucleus.h"
 
 #define UNDER 12345             // what is under what a check leaves
+#define THROWS 3                // a block the test makes, after test/source.fs and the block of
+                                // nothing it loads: a word the machine does not know
 #define SAID(x) #x
 #define NUMBER(x) SAID(x)       // a number that has a name, as it is typed
 
@@ -65,22 +67,58 @@ static check BLOCK[] = {
     {"a word after a block was loaded from this one", "inner", 1, {11}},
     {"a comment in brackets with no end ends with the block", "end", 1, {12}},
     {"when the block is done no block is being read", "blk @ 7 \\ 8", 2, {0, 7}},
-    // The picture is not source: the machine does not know its first word,
-    // and empties its stack.
+    // The machine does not know the word in that block, and empties its
+    // stack.
     {"nor when a block has thrown",
-     NUMBER(DISK_PICTURE_BLOCK) " load\n" NUMBER(UNDER) " blk @ 7 \\ 8", 2, {0, 7}},
+     NUMBER(THROWS) " load\n" NUMBER(UNDER) " blk @ 7 \\ 8", 2, {0, 7}},
     {""}};
 
 static FILE* disk;              // the disk, if the checks being made are of the block,
 static long disk_blocks;        // and how many blocks it is
 static int checks, compared, failed;
 
+// The disk the checks are made with: a copy of the one mkdisk made of
+// test/source.fs, with one more block, THROWS, which is a word the machine
+// does not know.  (A block that is not there, or is nothing, is loaded and
+// throws nothing: the check of a block that throws once asked for the
+// picture's block, of a disk that had no picture.)
+static void disk_is(const char* path) {
+    static const char unknown[] = "no-such-word";
+    FILE* made = fopen(path, "rb");
+    if (made == NULL) {
+        perror(path);
+        exit(EXIT_FAILURE);
+    }
+    fseek(made, 0, SEEK_END);
+    long len = ftell(made);
+    disk_blocks = len / DISK_BLOCK;
+    if (disk_blocks <= THROWS) {
+        fprintf(stderr, "%s: %ld blocks, which has no block %d\n", path, disk_blocks, THROWS);
+        exit(EXIT_FAILURE);
+    }
+    uint8_t* bytes = malloc(len);
+    rewind(made);
+    if (fread(bytes, 1, len, made) != (size_t)len) {
+        perror(path);
+        exit(EXIT_FAILURE);
+    }
+    fclose(made);
+    memset(bytes + THROWS * DISK_BLOCK, ' ', DISK_BLOCK);
+    memcpy(bytes + THROWS * DISK_BLOCK, unknown, strlen(unknown));
+    disk = tmpfile();
+    if (disk == NULL || fwrite(bytes, 1, len, disk) != (size_t)len) {
+        perror("a copy of the disk");
+        exit(EXIT_FAILURE);
+    }
+    free(bytes);
+}
+
 static void run(const check* test, bool block) {
     start();
     line("%d", UNDER);
     if (block) {
-        machine.DISK = disk;    // which the machine finds when it starts
-        machine.DISKBLOCKS = disk_blocks;
+        machine.DISKS[0] = disk;    // which the machine finds when it starts
+        machine.DISKBLOCKS[0] = disk_blocks;
         line("%d load", DISK_SOURCE_BLOCK);
     }
     line("%s", test->typed);
@@ -109,13 +147,7 @@ int main(int argc, char *argv[]) {
     }
     alarm(600);                 // a machine that does not stop is stopped
     nucleus_is(argv[1]);
-    disk = fopen(argv[2], "rb");
-    if (disk == NULL) {
-        perror(argv[2]);
-        return(1);
-    }
-    fseek(disk, 0, SEEK_END);
-    disk_blocks = ftell(disk) / DISK_BLOCK;
+    disk_is(argv[2]);
 
     for(check* test = PROMPT; strlen(test->label); test++) run(test, false);
     for(check* test = BLOCK; strlen(test->label); test++) run(test, true);

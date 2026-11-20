@@ -8,8 +8,7 @@ three, and the last is a commit message. A figure written here is a fact
 said a second time, which someone then has to keep in step.
 
 The README is the one document that has figures: those the project is
-there to show, each beside the target that prints it. When a target prints
-otherwise, it is the README that is out of date.
+there to show, each beside the target that prints it.
 
 ## C and Forth, and nothing else
 
@@ -105,6 +104,26 @@ can fall short. That is a bug in it.
   by the one who asked
 - "Stop" is the same and more so. Nothing is run, changed, committed or
   pushed until the word to go on, whatever else is asking for it
+
+## What is said of the work
+
+- What is reported is what was done, what failed, and what is the
+  reader's to decide. Nothing else is said as though it were one of
+  those
+- A consequence of the work that needs no decision is not a caveat and
+  is not a thing to know. It is part of the work, and it is done. If it
+  is worth a line, the line says what was done
+- What has been decided or agreed is not put again, as a question or as
+  a plan, so as to have it agreed twice. It is done
+- Nothing is said so as to have been said: not an excuse got in before
+  the work is finished, and not a warning whose only use is to be
+  pointed at afterwards. If a thing may go wrong, find out whether it
+  does
+- A decision is written down in the words it was made in. "May",
+  "could" and "later" are not added to it, and it is not listed with
+  what is not decided. What is built after it is held to it
+- When ways of doing a thing are offered, none of them leaves out what
+  was decided
 
 ## The machine model
 
@@ -430,8 +449,12 @@ is to be there already, and to end in `/`. The source is a file of
 system without what `apps.fs` lists (CMake: `boot-system-64` and the
 others, in `build/64/boot/`, with the disk `boot_test` starts it from,
 `apps.img`, and the one the desktop's checks start it from, `desk.img`,
-which has the picture and the rest of what the desktop keeps on a disk
-as well).
+which has what the desktop keeps on its first disk as well). A disk is
+no more than 1,024 blocks, what an 8-inch floppy holds, and `mkdisk`
+makes none that is: the pictures are on a disk of their own
+(`build/pictures.img`, the target `pictures`), which is the second disk
+of every machine the desktop is shown or checked on, and the viewer finds
+its picture there by its label (`doc/disk.md`, Several disks).
 `ROM` names the file of what the machine's ROM has that is not the
 nucleus, which is the driver of the disk it starts from
 (`ROM=virt-disk.fs`): `port-disk.fs`, the reference VM's, if nothing is
@@ -444,7 +467,9 @@ CMake does so, in `build/64/plain/`.
 
 `build/cmake/hexaforth-64 IMAGE.hex [DISK.img [MEMORY.out]]` runs an image
 on the reference VM of that machine, and writes its memory when it has
-stopped if it is told where.
+stopped if it is told where. Several disks are said with commas between
+them, the first being disk 0 (`DISK0.img,DISK1.img`): a block's number
+says which disk it is of (`doc/disk.md`, Several disks).
 
 Beside an image `cross.fs` writes `.lst` (symbols), `.sizes` (code and
 data by file), `.inline` (the calls it compiled in place and the loops
@@ -595,7 +620,9 @@ The machine, in C:
   its ROM alone, and as what the Verilog loads; `image.c` reads one), `mkdisk.c` (a disk, and
   source laid out as its blocks; and with `--boot`, a disk a machine
   starts from with its ROM alone, `doc/boot.md`, which with `--boot-desk`
-  is the desktop's disk as well), `lines.c` (a line of
+  is the desktop's disk as well; and with `--disk`, a disk that is an
+  index and its files, which a machine has besides the one it starts
+  from), `lines.c` (a line of
   Forth source as
   what lays source out reads it: its words, strings and comments),
   `wrap.c` (source fitted to the lines of a block: the target `wrap`),
@@ -666,8 +693,8 @@ The machine, in C:
   `deskcheck.c` (what the desktop is checked for: a table of
   what is done with the keys and the pointer and what is then to be on
   the screen, for whatever machine it runs on), `deskvm.c` (the
-  reference VM as that machine, started with its image in memory or
-  from its ROM alone and a disk: it is stopped in its event loop to be
+  reference VM as that machine, with its two disks, started with its
+  image in memory or from its ROM alone and the first of them: it is stopped in its event loop to be
   looked at, and gone on with) and `desktop_test.c` (the checks run on
   it);
   `tiff_test.c` (the TIFF reader: files that are only a header and a
@@ -679,8 +706,10 @@ The machine, in C:
   `vm.c` sent)
 - `bench/`: the benchmarks (the target `bench`, and `CMakeLists.txt`
   says what each is): `draw.fs`,
-  `dither.fs` and `gray.fs` (the work, as it is typed); `disk.c` and `tiff.c`
-  (the disk the picture is read from); `check.c` (what looks at what the
+  `dither.fs` and `gray.fs` (the work, as it is typed); `pictures.fs`
+  (the pictures the work is done on, found by their labels on the
+  machine's disks); `grays.c` and `tiff.c` (the picture's grays as files,
+  which are on a disk of their own beside the pictures' disk); `check.c` (what looks at what the
   work made, and then prints what it cost: the table of the benchmarks is
   its too) and `figure.c` (a line of that table, and what a test bench
   said passed between two marks);
@@ -730,7 +759,10 @@ The toolchain and the nucleus, in Forth (`forth/`):
   calls. The first is the controller at ports `$b0`-`$b2`; the second
   is QEMU's virt, which says where that machine's virtio devices are
   and includes `virtio-disk.fs`, the driver of a virtio block device,
-  written for a cell of any size. `reg.fs` is the three words of the
+  written for a cell of any size. The ROM's driver is of the disk the
+  machine starts from; `virt-disk.fs` has as well, in the upper half of
+  the kernel's page, what reaches that machine's other disks with it,
+  each being a device of its own. `reg.fs` is the three words of the
   ports a driver is made of, which the ROM has if its driver needs
   them and `machine.fs` includes if it has not
 - `join.fs`: the nucleus's own peephole, for what is typed at the prompt
@@ -761,9 +793,13 @@ the picture at full size:
 - `blocks.fs`: the block interface built on the kernel's vectors
   `'blk-read` and `'blk-write` (`block`, `cblock`, `blk-read`, `load`,
   which says where an error in a block happened), `thru` and `.(`.
-  `files.fs`: `include`, a source of the disk's by its label in block 0
-  (`doc/disk.md`), which says the file as it reads it, its label, how
-  many blocks it is and a dot as each starts; with `header`: the names
+  `files.fs`: what the disks have by its label. A machine may have
+  several disks, and a block's number says which (`doc/disk.md`):
+  `find-disks` asks each for an index when the machine starts,
+  `labelled` gives the blocks of a label from the first disk that has
+  it, and `include` reads a source so, saying the file as it reads it,
+  its label, how many blocks it is and a dot as each starts; with
+  `header`: the names
   of a file that is included are its own, and gone from the dictionary
   when it has been read, but for those a header names. The kernel's ROM puts the words of the disk it finds in
   the vectors, from the driver its machine's build gave it (`nuc.fs`,

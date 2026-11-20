@@ -53,6 +53,55 @@ static bool number(const char* word, int64_t* n) {
     return(!*end);
 }
 
+// A picture drawn in the source (picture[, cross.fs): rows of # and ., each
+// the rest of a line after row|, in pieces side by side with `beside`
+// between them, up to ]picture; a line that starts with \ is a comment.
+// It is the numbers px, would lay it down as: 64 pixels to a number, the
+// leftmost the highest, a row after a row.  A font's strike may be drawn
+// so (spin.fs).  How many numbers it came to; `from` is left after it.
+static int picture(const char* path, const char** from, int64_t* out) {
+    enum { DOWN = 64, ACROSS = 1024 };
+    static char px[DOWN][ACROSS];
+    int have[DOWN] = { 0 }, rows = -1, row = 0, used = 0;
+    char word[16];
+    const char* at = *from;
+    for(;;) {
+        if (sscanf(at, "%15s%n", word, &used) != 1) {
+            fprintf(stderr, "%s: a picture has no ]picture\n", path);
+            exit(EXIT_FAILURE);
+        }
+        at += used;
+        if (!strcmp(word, "]picture")) break;
+        if (!strcmp(word, "beside")) {
+            if (rows < 0) rows = row;
+            row = 0;
+            continue;
+        }
+        const char* end = at + strcspn(at, "\n");
+        if (!strcmp(word, "row|") && row < DOWN) {
+            for(const char* c = at; c < end; c++) {
+                if ((*c == '#' || *c == '.') && have[row] < ACROSS) px[row][have[row]++] = *c == '#';
+            }
+            row++;
+        } else if (strcmp(word, "\\")) {
+            fprintf(stderr, "%s: %s in a picture, which is rows and comments\n", path, word);
+            exit(EXIT_FAILURE);
+        }
+        at = end;
+    }
+    if (rows < 0) rows = row;
+    int n = 0;
+    for(int r=0; r < rows; r++) {
+        for(int x=0; x < have[0]; x += 64) {
+            uint64_t pixels = 0;
+            for(int i=0; i < 64; i++) pixels = pixels << 1 | (x + i < have[r] ? (uint64_t)px[r][x + i] : 0);
+            out[n++] = (int64_t)pixels;
+        }
+    }
+    *from = at;
+    return(n);
+}
+
 int table(const char* file, const char* name, int64_t** numbers, int count) {
     char* path;
     char* source = source_of(file, &path);
@@ -80,6 +129,10 @@ int table(const char* file, const char* name, int64_t** numbers, int count) {
     while (sscanf(at, "%s%n", word, &used) == 1) {
         at += used;
         if (!strcmp(word, "font[")) continue;       // what a font's numbers are between
+        if (!strcmp(word, "picture[")) {            // a strike that is drawn, and not said as numbers
+            n += picture(path, &at, out + n);
+            continue;
+        }
         int64_t x;
         if (!number(word, &x) || sscanf(at, "%s%n", next, &used) != 1 || next[strlen(next) - 1] != ',') break;
         at += used;

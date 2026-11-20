@@ -1,23 +1,33 @@
 //
-// mkdisk PICTURE.tiff OUT.img [SOURCE.fs [NAMES]]
+// mkdisk OUT.img [SOURCE.fs [NAMES]]
 // mkdisk --pack SOURCE.fs...
+// mkdisk --disk OUT.img FILE...
 // mkdisk --boot BITS IMAGE.hex OUT.img IPL.bin SOURCE.fs...
-// mkdisk --boot-desk BITS IMAGE.hex OUT.img IPL.bin PICTURE.tiff NAMES SOURCE.fs...
+// mkdisk --boot-desk BITS IMAGE.hex OUT.img IPL.bin NAMES SOURCE.fs...
 //
-// A disk for the system: each file from the block that vm_constants.h says
-// is its own.  The Forth source is blocks, as `load` reads them and the
-// editor shows them (pack, below), up to the picture's.  The picture is a
-// TIFF as it is.  NAMES is the names the build made to go with the image
-// (build/nuc.tables).  After them are the blocks kept for HexaPaint's
-// canvas, which are nothing until it is drawn in, and then the threshold
-// masks that a picture kept as gray is drawn through: blue noise of 64 by
-// 64 and of 32 by 32, and Bayer's of 8 by 8, as planes of bits
-// (util/bluenoise.c, mask_planes).  Last are the blocks the viewer writes
-// its dithered bitmap to, and those it writes the picture kept as gray to,
-// which start out empty.
+// A disk is no more than DISK_FLOPPY blocks, what an 8-inch floppy holds,
+// and one that would be more is not made.
+//
+// A disk for the system: each thing from the block that vm_constants.h says
+// is its own.  The Forth source is first, as blocks, as `load` reads them
+// and the editor shows them (pack, below).  NAMES is the names the build
+// made to go with the image (build/nuc.tables).  After them are the blocks
+// kept for HexaPaint's canvas, which are nothing until it is drawn in, and
+// then the threshold masks that a picture kept as gray is drawn through:
+// blue noise of 64 by 64 and of 32 by 32, and Bayer's of 8 by 8, as planes
+// of bits (util/bluenoise.c, mask_planes).  Last are the blocks the viewer
+// writes its dithered bitmap to, and those it writes the picture kept as
+// gray to, which start out empty.  The picture itself is not on this
+// disk: the pictures are on a disk of their own (--disk), and the viewer
+// finds one by its label.
 //
 // With --pack it makes no disk: it lays each file as blocks, and says how
 // many blocks it took or why it does not go into blocks.
+//
+// With --disk it makes a disk that is an index and the files it is given,
+// source or data by their names, each found by its label, which is its
+// name or what is said before = in front of it (LABEL=FILE): a disk a
+// machine has besides the one it starts from (files_disk, below).
 //
 // With --boot it makes a disk that a machine of cells of BITS bits starts
 // from with its ROM alone (doc/boot.md): block 0 is its index
@@ -30,10 +40,9 @@
 //
 // With --boot-desk the disk a machine starts from is the desktop's too: the
 // sources are from block 1, one after another, the first being what the
-// machine loads, and all of them are before the picture; the picture, the
-// names, the canvas, the masks and the viewer's bitmap are at their own
-// blocks after the source's, as on the first kind of disk; and the image
-// is after all of those, where the index says.
+// machine loads; the names, the canvas, the masks and the viewer's bitmap
+// are at their own blocks after the source's, as on the first kind of
+// disk; and the image is after all of those, where the index says.
 //
 
 #include <stdio.h>
@@ -291,11 +300,12 @@ static void write_out(const char* path, const uint8_t* bytes, long blocks) {
     fclose(out);
 }
 
-// What the desktop keeps on a disk, each at the block vm_constants.h says is
-// its own: the threshold masks, the picture, and the names that go with an
-// image if there are any.  The blocks between and after them are as they
-// were.
-static void desk_parts(const char* picture_path, const char* names_path) {
+// What the desktop keeps on the disk a machine starts from, each at the
+// block vm_constants.h says is its own: the threshold masks, and the names
+// that go with an image if there are any.  The blocks between and after
+// them are as they were.  The picture is not here: it is on another disk
+// (mkdisk --disk), where it is found by its label.
+static void desk_parts(const char* names_path) {
     // Each mask, a row of its planes being so many bytes, up to the block of the next.
     #define MASK_BYTES(n) ((n) * DISK_MASK_PLANES * DISK_MASK_WIDTH / 8)
     _Static_assert(DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS <= DISK_VIEW_BLOCK, "the viewer's bitmap is after the masks");
@@ -314,15 +324,20 @@ static void desk_parts(const char* picture_path, const char* names_path) {
     bayer_bytes(thresholds);
     mask_planes(thresholds, 8, disk + (size_t)DISK_BAYER_BLOCK * DISK_BLOCK);
 
-    uint8_t* bytes;
-    size_t len = read_file(picture_path, &bytes);
-    place("the picture", DISK_PICTURE_BLOCK, DISK_NAMES_BLOCK, bytes, len);
-    free(bytes);
-    printf("the picture at block %d (%d bytes)\n", DISK_PICTURE_BLOCK, (int)len);
     if (names_path) {
-        len = read_file(names_path, &bytes);
+        uint8_t* bytes;
+        size_t len = read_file(names_path, &bytes);
         place("the names", DISK_NAMES_BLOCK, DISK_CANVAS_BLOCK, bytes, len);
         free(bytes);
+    }
+}
+
+// A disk is no more blocks than a floppy holds: one that would be is not
+// made, and what is too much for it goes on another (mkdisk --disk).
+static void fits_a_floppy(const char* path, long blocks) {
+    if (blocks > DISK_FLOPPY) {
+        fprintf(stderr, "mkdisk: %s is %ld blocks, and a disk is %d\n", path, blocks, DISK_FLOPPY);
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -332,12 +347,12 @@ static void desk_parts(const char* picture_path, const char* names_path) {
 _Static_assert(DISK_VIEW_BLOCK + DISK_VIEW_BLOCKS <= DISK_GRAY_BLOCK, "the viewer's gray is after its bitmap");
 #define DESK_BLOCKS (DISK_GRAY_BLOCK + DISK_GRAY_BLOCKS)
 
-// With a picture, the disk is the desktop's as well: the sources are from
-// block 1 and stop before the picture, the desktop's things are where they
-// are on any disk of the desktop's, and the image, which the index says
-// the place of, is after them all.
+// If it is the desktop's disk as well (desk), the sources are from block 1
+// and stop where the names start, the desktop's things are where they are
+// on any disk of the desktop's, and the image, which the index says the
+// place of, is after them all.
 int boot_disk(int bits, const char* image_path, const char* out_path, const char* ipl_path,
-              const char* picture_path, const char* names_path, int sources, char* source_paths[]) {
+              int desk, const char* names_path, int sources, char* source_paths[]) {
     uint8_t* image;
     size_t image_len = load_image(image_path, &image);
     uint8_t** texts = calloc(sources, sizeof(uint8_t*));
@@ -351,21 +366,21 @@ int boot_disk(int bits, const char* image_path, const char* out_path, const char
         all_lines += lines[f] + 1;
     }
     long kilobytes = (long)(image_len + DISK_BLOCK - 1) / DISK_BLOCK;
-    long room = DISK_SOURCE_BLOCK + (picture_path ? DESK_BLOCKS : 0) + all_lines + kilobytes;
+    long room = DISK_SOURCE_BLOCK + (desk ? DESK_BLOCKS : 0) + all_lines + kilobytes;
     while (room % DISK_ROUND) room++;
     disk = calloc(room, DISK_BLOCK);
     uint8_t* whole = calloc(kilobytes, DISK_BLOCK);         // the image, to a whole number of kilobytes
     memcpy(whole, image, image_len);
-    if (picture_path) desk_parts(picture_path, names_path);
+    if (desk) desk_parts(names_path);
 
     // Each source after the one before, the first at block 1, each an
     // entry of the index labelled with its file's name.  On a disk that is
-    // the desktop's too they are all before the picture: the source is
+    // the desktop's too they are all before the names: the source is
     // first, and whoever reads on from block 1 reads source.
     int slots = DISK_BLOCK / DISK_ENTRY - 1, n = 1;
     long at = DISK_SOURCE_BLOCK;
     for(int f=0; f < sources; f++) {
-        long limit = picture_path ? DISK_PICTURE_BLOCK : at + lines[f] + 1;
+        long limit = desk ? DISK_NAMES_BLOCK : at + lines[f] + 1;
         int took = pack(source_paths[f], texts[f], text_lens[f], disk, (int)at, (int)limit);
         if (took < 0) return(1);
         if (n == slots) {
@@ -378,7 +393,7 @@ int boot_disk(int bits, const char* image_path, const char* out_path, const char
         at += took;
     }
 
-    if (picture_path && at < DESK_BLOCKS) at = DESK_BLOCKS;
+    if (desk && at < DESK_BLOCKS) at = DESK_BLOCKS;
     long runs_from = at;
     int runs = 0;
     FILE* ipl = fopen(ipl_path, "w");
@@ -418,6 +433,7 @@ int boot_disk(int bits, const char* image_path, const char* out_path, const char
     fclose(ipl);
     long blocks = at;
     while (blocks % DISK_ROUND) blocks++;
+    fits_a_floppy(out_path, blocks);
     char label[DISK_LABEL];
     snprintf(label, sizeof(label), "hexaforth-%d", bits);
     entry(0, label, DISK_INDEX, 0, 1, bits, blocks);
@@ -426,6 +442,71 @@ int boot_disk(int bits, const char* image_path, const char* out_path, const char
     printf("%s: %ld blocks; the image in %d runs, from block %ld\n"
            "%s: the runs' %ld blocks as records, %ld bytes\n",
            out_path, blocks, runs, runs_from, ipl_path, at - runs_from, sent);
+    return(0);
+}
+
+// A disk that is an index and the files it is given, one after another
+// from block 1: a file whose name ends in .fs is source, laid as blocks,
+// and any other is data, as it is.  Each has an entry labelled with its
+// name.  There is no binary on it, so its own entry says no cell: it is
+// not a disk a machine starts from, but one it finds things on by their
+// labels, after the disks before it (doc/disk.md, Several disks).
+static int is_source(const char* path) {
+    size_t len = strlen(path);
+    return(len > 3 && !strcmp(path + len - 3, ".fs"));
+}
+
+static int files_disk(const char* out_path, int files, char* given[]) {
+    uint8_t** bytes = calloc(files, sizeof(uint8_t*));
+    size_t* lens = calloc(files, sizeof(size_t));
+    long* lines = calloc(files, sizeof(long));
+    // A file is said as its path, and is labelled with its name; or as
+    // LABEL=PATH, where it is to have another label than its name.
+    char** paths = calloc(files, sizeof(char*));
+    char** labels = calloc(files, sizeof(char*));
+    for(int f=0; f < files; f++) {
+        char* is = strchr(given[f], '=');
+        const char* name = strrchr(given[f], '/');
+        paths[f] = is ? is + 1 : given[f];
+        labels[f] = is ? strndup(given[f], (size_t)(is - given[f])) : strdup(name ? name + 1 : given[f]);
+    }
+    long room = 1;
+    for(int f=0; f < files; f++) {
+        lens[f] = read_file(paths[f], &bytes[f]);
+        lines[f] = lens[f] && bytes[f][lens[f] - 1] != '\n';
+        for(size_t idx=0; idx < lens[f]; idx++) lines[f] += bytes[f][idx] == '\n';
+        room += is_source(paths[f]) ? lines[f] + 1 : (long)(lens[f] + DISK_BLOCK - 1) / DISK_BLOCK;     // a block a line is room enough
+    }
+    while (room % DISK_ROUND) room++;
+    disk = calloc(room, DISK_BLOCK);
+
+    int slots = DISK_BLOCK / DISK_ENTRY - 1;
+    long at = 1;
+    for(int f=0; f < files; f++) {
+        if (f + 1 == slots) {
+            fprintf(stderr, "mkdisk: the files are more than block 0 has slots for\n");
+            return(1);
+        }
+        const char* name = labels[f];
+        long took;
+        if (is_source(paths[f])) {
+            took = pack(paths[f], bytes[f], lens[f], disk, (int)at, (int)room);
+            if (took < 0) return(1);
+            entry(f + 1, name, DISK_SOURCE, at, took, 0, lines[f]);
+        } else {
+            took = (long)(lens[f] + DISK_BLOCK - 1) / DISK_BLOCK;
+            memcpy(disk + (size_t)at * DISK_BLOCK, bytes[f], lens[f]);
+            entry(f + 1, name, DISK_DATA, at, took, 0, (long)lens[f]);
+        }
+        printf("%s: block %ld, %ld blocks\n", paths[f], at, took);
+        at += took;
+    }
+    long blocks = at;
+    while (blocks % DISK_ROUND) blocks++;
+    fits_a_floppy(out_path, blocks);
+    entry(0, "hexaforth", DISK_INDEX, 0, 1, 0, blocks);
+    write_out(out_path, disk, blocks);
+    printf("%s: %ld blocks\n", out_path, blocks);
     return(0);
 }
 
@@ -475,41 +556,44 @@ static char** with_included(int* sources, char* given[]) {
 
 int main(int argc, char *argv[]) {
     if (argc > 1 && !strcmp(argv[1], "--pack")) return(pack_only(argc - 2, argv + 2));
+    if (argc > 3 && !strcmp(argv[1], "--disk")) return(files_disk(argv[2], argc - 3, argv + 3));
     if (argc > 6 && !strcmp(argv[1], "--boot")) {
         int sources = argc - 6;
         char** paths = with_included(&sources, argv + 6);
-        return(boot_disk(atoi(argv[2]), argv[3], argv[4], argv[5], NULL, NULL, sources, paths));
+        return(boot_disk(atoi(argv[2]), argv[3], argv[4], argv[5], 0, NULL, sources, paths));
     }
-    if (argc > 8 && !strcmp(argv[1], "--boot-desk")) {
-        int sources = argc - 8;
-        char** paths = with_included(&sources, argv + 8);
-        return(boot_disk(atoi(argv[2]), argv[3], argv[4], argv[5], argv[6], argv[7], sources, paths));
+    if (argc > 7 && !strcmp(argv[1], "--boot-desk")) {
+        int sources = argc - 7;
+        char** paths = with_included(&sources, argv + 7);
+        return(boot_disk(atoi(argv[2]), argv[3], argv[4], argv[5], 1, argv[6], sources, paths));
     }
-    if (argc < 3 || argv[1][0] == '-') {
-        fprintf(stderr, "Usage: %s PICTURE.tiff OUT.img [SOURCE.fs [NAMES]]\n"
+    if (argc < 2 || argv[1][0] == '-') {
+        fprintf(stderr, "Usage: %s OUT.img [SOURCE.fs [NAMES]]\n"
                         "       %s --pack SOURCE.fs...\n"
+                        "       %s --disk OUT.img FILE...\n"
                         "       %s --boot BITS IMAGE.hex OUT.img IPL.bin SOURCE.fs...\n"
-                        "       %s --boot-desk BITS IMAGE.hex OUT.img IPL.bin PICTURE.tiff NAMES SOURCE.fs...\n",
-                argv[0], argv[0], argv[0], argv[0]);
+                        "       %s --boot-desk BITS IMAGE.hex OUT.img IPL.bin NAMES SOURCE.fs...\n",
+                argv[0], argv[0], argv[0], argv[0], argv[0]);
         return(1);
     }
     int blocks = DESK_BLOCKS;
     while (blocks % DISK_ROUND) blocks++;
+    fits_a_floppy(argv[1], blocks);
     disk = calloc(blocks, DISK_BLOCK);
 
     memset(disk + DISK_SOURCE_BLOCK * DISK_BLOCK, ' ', DISK_BLOCK);
-    if (argc > 3) {
+    if (argc > 2) {
         uint8_t* bytes;
-        size_t len = read_file(argv[3], &bytes);
-        if (pack(argv[3], bytes, len, disk, DISK_SOURCE_BLOCK, DISK_PICTURE_BLOCK) < 0) exit(EXIT_FAILURE);
+        size_t len = read_file(argv[2], &bytes);
+        if (pack(argv[2], bytes, len, disk, DISK_SOURCE_BLOCK, DISK_NAMES_BLOCK) < 0) exit(EXIT_FAILURE);
         free(bytes);
     }
-    printf("%s: %d blocks, ", argv[2], blocks);
-    desk_parts(argv[1], argc > 4 ? argv[4] : NULL);
+    printf("%s: %d blocks\n", argv[1], blocks);
+    desk_parts(argc > 3 ? argv[3] : NULL);
 
-    FILE* out = fopen(argv[2], "wb");
+    FILE* out = fopen(argv[1], "wb");
     if (out == NULL) {
-        perror(argv[2]);
+        perror(argv[1]);
         exit(EXIT_FAILURE);
     }
     fwrite(disk, DISK_BLOCK, blocks, out);

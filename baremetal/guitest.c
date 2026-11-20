@@ -1,7 +1,10 @@
 //
-// guitest KERNEL.elf DISK.img PICTURE.tiff FORTH OUT [boot]
+// guitest KERNEL.elf DISK.img PICTURES.img PICTURE.tiff FORTH OUT [boot]
 //
 // The desktop on the AArch64 kernel under QEMU, and what is on its screen.
+//
+// The machine has two disks: DISK.img, and PICTURES.img, which has the
+// picture under its label and is PICTURE.tiff as a disk (mkdisk --disk).
 //
 // The checks are those of test/deskcheck.c, which test/desktop_test.c runs
 // on the reference VM with cells of each size.  Here the machine they are
@@ -23,16 +26,16 @@
 #include "qemu.h"
 
 int main(int argc, char *argv[]) {
-    int boots = argc == 7 && !strcmp(argv[6], "boot");
-    if (argc != 6 + boots) {
-        fprintf(stderr, "Usage: %s KERNEL.elf DISK.img PICTURE.tiff FORTH OUT [boot]\n", argv[0]);
+    int boots = argc == 8 && !strcmp(argv[7], "boot");
+    if (argc != 7 + boots) {
+        fprintf(stderr, "Usage: %s KERNEL.elf DISK.img PICTURES.img PICTURE.tiff FORTH OUT [boot]\n", argv[0]);
         return(1);
     }
-    tables_are(argv[4]);
-    qemu_start(argv[1], argv[2], argv[5]);
+    tables_are(argv[5]);
+    qemu_start(argv[1], argv[2], argv[3], argv[6]);
 
     // The newest words of the kernel's dictionary are the system's own.
-    desk on = { {"cold", "desktop"}, " catch drop", true, argv[3], argv[5] };
+    desk on = { {"cold", "desktop"}, " catch drop", true, argv[4], argv[6] };
     int failed = desk_checks(&on);
     if (boots) {
         int shown = qemu_boot_said && qemu_boot_shown;
@@ -46,6 +49,6 @@ int main(int argc, char *argv[]) {
                qemu_inexact ? "FAIL" : "ok  ", qemu_scale, qemu_scale, qemu_inexact, qemu_shots);
         failed += qemu_inexact != 0;
     }
-    printf("the desktop on QEMU: %d checks failed; screens in %s/\n", failed, argv[5]);
+    printf("the desktop on QEMU: %d checks failed; screens in %s/\n", failed, argv[6]);
     return(failed != 0);
 }

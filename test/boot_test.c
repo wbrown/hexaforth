@@ -1,5 +1,11 @@
 //
-// boot_test IMAGE.hex DISK.img IPL.bin ERROR.img FORTH APPS.img
+// boot_test IMAGE.hex DISK.img IPL.bin ERROR.img FORTH APPS.img SECOND.img
+//
+// SECOND.img is a second disk, which some checks give the machine besides
+// DISK.img (mkdisk --disk, of test/second/): it has a source the first
+// has not, and one under a label the first has too.  A block's number
+// says its disk, and a label is looked for on the first disk first
+// (doc/disk.md, Several disks).
 //
 // A machine started from its ROM (doc/boot.md).  The disks are ones that
 // mkdisk made of the same image (mkdisk --boot): block 0 the index
@@ -55,6 +61,8 @@
 #define BOOTED 42               // what the words test/boot.fs and test/boot-more.fs make leave
 #define MORE   8
 #define WINDOWS 6               // the windows the desktop opens where there is a disk (desk.fs, windows)
+#define READ    4               // the glyphs of the disk lights' font (spin.fs) that are the arrow for a read,
+#define WRITTEN 5               // and for a write: the floppy's four turns are before them
 #define NO_DISK_SAID "no disk, ready to receive"
 #define BLOCK1_SAID  "block 1 is read"
 // and after it the file it includes, as include says it: its label, the blocks it is, and a dot for each
@@ -78,6 +86,10 @@ typedef struct {
     const char* says;           // what the machine is to say once, if anything
     int no_disk;                // how many times the machine is to say it has no disk
     const char* shows;          // what the screen is to show from its top left, if anything
+    bool second;                // the machine has a second disk as well, SECOND.img
+    int lights;                 // how many disks' lights the bar is to show when the desktop is left, if it is run
+    int arrow;                  // and the arrow one of them is to have: READ or WRITTEN, or nothing for none looked at,
+    int arrow_on;               // and which disk's light has it: no other light is to have one
 } check;
 
 static check CHECKS[] = {
@@ -117,10 +129,44 @@ static check CHECKS[] = {
     // paints them, and is left with ^Q, which the event loop takes from
     // the console.  What is typed after that is how many windows there
     // are.  A word of desk.fs's own is not found: the file has been read.
+    // The bar then has a light for the one disk, at its right, and none
+    // where a second disk's would be.
     {"the ROM alone, and the disk of the boot image, whose block 1 compiles the desktop", true, APPS_DISK,
-     NOTHING, "windows\n\x11nwin @", true, WINDOWS, "desktop", 0, NULL},
+     NOTHING, "windows\n\x11nwin @", true, WINDOWS, "desktop", 0, NULL, false, 1},
+    // With a second disk it has a light for each, the second disk's two
+    // glyphs to the left of the first's.
+    {"the ROM alone, the disk of the boot image and a second disk: the desktop's lights", true, APPS_DISK,
+     NOTHING, "windows\n\x11nwin @", true, WINDOWS, "desktop", 0, NULL, true, 2},
+    // The arrow is beside the light of the disk the last block moved was
+    // of, and is up for a read and down for a write.  The Forth window is
+    // in front, and takes what is typed: a block of the second disk is
+    // read there, or a block of the first is written, and the desktop is
+    // left a few turns of its loop after, while the arrow is still shown.
+    {"the desktop with two disks: a read of the second has its arrow at the second's light", true, APPS_DISK,
+     NOTHING, "windows\n4097 block drop\r  \x11nwin @", true, WINDOWS, "desktop", 0, NULL, true, 2, READ, 1},
+    {"the desktop with two disks: a write of the first has its arrow at the first's light", true, APPS_DISK,
+     NOTHING, "windows\n1 block drop update flush\r  \x11nwin @", true, WINDOWS, "desktop", 0, NULL, true, 2,
+     WRITTEN, 0},
     {"the ROM alone, and the disk of the boot image: a word of desk.fs with no header", true, APPS_DISK,
      NOTHING, "4 place", false, 0, NULL, 0, NULL},
+    // A machine with two disks.  A block's number says its disk: 4097 is
+    // block 1 of disk 1, which is the second disk's first source, and
+    // that starts with the \ of its first line.
+    {"the ROM alone, and two disks: a block of the second, by its number", true, DISK, NOTHING,
+     "4097 block c@", true, '\\', BLOCK1_SAID, 0, NULL, true},
+    // A label is looked for on every disk that has an index, the first
+    // disk first: a source only the second has is found there,
+    {"the ROM alone, and two disks: a source only the second has", true, DISK, NOTHING,
+     "include second.fs\nsecond", true, 5, "second.fs 1 .\r\n", 0, NULL, true},
+    // and a label both have is the first disk's, when the boot's block 1
+    // includes it and when it is included again by hand.
+    {"the ROM alone, and two disks: a label both have, as block 1 includes it", true, DISK, NOTHING,
+     "booted more +", true, BOOTED + MORE, BLOCK1_SAID, 0, NULL, true},
+    {"the ROM alone, and two disks: a label both have, included again", true, DISK, NOTHING,
+     "include boot-more.fs\nmore", true, MORE, BLOCK1_SAID, 0, NULL, true},
+    // With one disk, a block of a disk that is not there is nothing.
+    {"the ROM alone, and the disk: a block of a disk that is not there", true, DISK, NOTHING,
+     "4097 block c@", true, 0, BLOCK1_SAID, 0, NULL},
     {""}};
 
 static font mono;               // the system's plain font, which the console draws in
@@ -142,8 +188,64 @@ static int not_shown(const char* text) {
     return(wrong);
 }
 
+// The disk lights, at the right of the desktop's bar (wm.fs): a floppy for
+// each disk there is, disk 0's at the right and each disk after it one
+// light's width to the left, which is the first number of disk-corner.  A
+// light is its arrow and then its floppy, which is one of the first four
+// glyphs of the font spin: the floppy is ten pixels in from the light's
+// left and two down, as draw-light has it.
+static font spin;               // the lights' font
+static int light_wide;          // how wide one disk's light is
+#define FLOPPY_IN   10
+#define FLOPPY_DOWN 2
+#define TURNS       4           // the floppy's glyphs, a quarter turn apart
+
+// How many pixels of a glyph of spin, its top left at a place on the
+// screen, are not as the screen has them.
+static int glyph_wrong(int code, int x, int y) {
+    int width, wrong = 0;
+    int start = glyph_of(&spin, code, &width);
+    for(int row=0; row < spin.rows; row++) {
+        for(int i=0; i < width; i++) wrong += strike_pixel(&spin, start + i, row) != black_at(x + i, y + row);
+    }
+    pixels += (long)width * spin.rows;
+    return(wrong);
+}
+
+// Is a disk's light as it is to be: a floppy, at any of its turns, if the
+// disk is there, and no pixel of one if it is not?
+static bool light_right(int disk, bool there) {
+    int x = DISP_W - (disk + 1) * light_wide + FLOPPY_IN;
+    if (there) {
+        for(int turn=0; turn < TURNS; turn++) if (!glyph_wrong(turn, x, FLOPPY_DOWN)) return(true);
+        return(false);
+    }
+    int width, black = 0;
+    glyph_of(&spin, 0, &width);
+    for(int row=0; row < spin.rows; row++) {
+        for(int i=0; i < width; i++) black += black_at(x + i, FLOPPY_DOWN + row);
+    }
+    pixels += (long)width * spin.rows;
+    return(!black);
+}
+
+// Is a disk's arrow as it is to be: the glyph it is to be, at the left of
+// its light, or with `arrow` nothing, no pixel of one?
+static bool arrow_right(int disk, int arrow) {
+    int x = DISP_W - (disk + 1) * light_wide;
+    if (arrow) return(!glyph_wrong(arrow, x, FLOPPY_DOWN));
+    int width, black = 0;
+    glyph_of(&spin, READ, &width);
+    for(int row=0; row < spin.rows; row++) {
+        for(int i=0; i < width; i++) black += black_at(x + i, FLOPPY_DOWN + row);
+    }
+    pixels += (long)width * spin.rows;
+    return(!black);
+}
+
 typedef struct { uint8_t* bytes; long len; } disk_is;
 static disk_is disks[5];        // none, the disk, it with block 0 nothing, the disk with the error, the apps'
+static disk_is second;          // the second disk, of the checks that give a machine two
 static disk_is ipl;             // what mkdisk wrote for the console
 static int checks, compared, failed;
 
@@ -166,14 +268,20 @@ static disk_is whole(const char* path) {
     return(d);
 }
 
-// A disk as the machine reads it: from memory, so that the test changes
-// no file.
+// A disk as the machine has it: a copy, in a file of the test's own that
+// is gone when it is closed.  So the test changes no disk that was made,
+// and each check has the disk as it was made, whatever a check before it
+// wrote.  (It was the disk's bytes where they are in memory, as a file:
+// what makes memory a file puts a byte of nothing after whatever is
+// written to it, so a check that wrote a block made nothing of the first
+// byte of the block after, for itself and for every check that followed.)
 static FILE* disk_of(disk_is d) {
-    FILE* disk = fmemopen(d.bytes, d.len, "r+");
-    if (disk == NULL) {
-        perror("fmemopen");
+    FILE* disk = tmpfile();
+    if (disk == NULL || fwrite(d.bytes, 1, d.len, disk) != (size_t)d.len) {
+        perror("a copy of a disk");
         exit(EXIT_FAILURE);
     }
+    rewind(disk);
     return(disk);
 }
 
@@ -190,8 +298,11 @@ static void run(const check* test) {
         memset((uint8_t*)machine.memory + KROM_BYTES, 0, sizeof(machine.memory) - KROM_BYTES);
     }
     FILE* disk = test->disk == NO_DISK ? NULL : disk_of(disks[test->disk]);
-    machine.DISK = disk;
-    machine.DISKBLOCKS = disk ? disks[test->disk].len / DISK_BLOCK : 0;
+    machine.DISKS[0] = disk;
+    machine.DISKBLOCKS[0] = disk ? disks[test->disk].len / DISK_BLOCK : 0;
+    FILE* other = test->second ? disk_of(second) : NULL;
+    machine.DISKS[1] = other;
+    machine.DISKBLOCKS[1] = other ? second.len / DISK_BLOCK : 0;
     if (test->sent == NOTHING_THEN_IPL) {
         uint8_t nothing[DISK_BLOCK] = {0};
         keys(nothing, sizeof(nothing));
@@ -201,6 +312,7 @@ static void run(const check* test) {
     line("%s", test->typed);
     type();
     if (disk) fclose(disk);
+    if (other) fclose(other);
 
     int count = test->known ? 2 : 0;    // what is to be left: the number and what is typed leaves, or nothing
     int differ = 0;
@@ -219,6 +331,14 @@ static void run(const check* test) {
     if (times_said(IN_A_BLOCK) != (test->says && strstr(test->says, IN_A_BLOCK) ? 1 : 0)) differ++;
     int wrong = test->shows ? not_shown(test->shows) : 0;
     if (wrong) differ++;
+    // The lights: one for each disk the bar is to have, and none for the next.
+    for(int d=0; test->lights && d <= test->lights; d++) {
+        if (!light_right(d, d < test->lights)) differ++;
+    }
+    // The arrow: at the light of the disk it is to be at, and at no other.
+    for(int d=0; test->arrow && d < test->lights; d++) {
+        if (!arrow_right(d, d == test->arrow_on ? test->arrow : 0)) differ++;
+    }
     checks++;
     compared += count + 2 + (test->says != NULL);
     if (differ) failed++;
@@ -228,13 +348,17 @@ static void run(const check* test) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 7) {
-        fprintf(stderr, "Usage: %s IMAGE.hex DISK.img IPL.bin ERROR.img FORTH APPS.img\n", argv[0]);
+    if (argc < 8) {
+        fprintf(stderr, "Usage: %s IMAGE.hex DISK.img IPL.bin ERROR.img FORTH APPS.img SECOND.img\n", argv[0]);
         return(1);
     }
     alarm(600);                 // a machine that does not stop is stopped
     tables_are(argv[5]);
     mono = font_named("mono");
+    spin = font_named("spin");
+    int64_t* corner;
+    table("wm.fs", "disk-corner", &corner, 2);
+    light_wide = (int)corner[0];
     nucleus_is(argv[1]);
     disks[DISK] = whole(argv[2]);
     ipl = whole(argv[3]);
@@ -244,6 +368,7 @@ int main(int argc, char *argv[]) {
     memcpy(disks[NO_INDEX].bytes, disks[DISK].bytes, disks[DISK].len);
     memset(disks[NO_INDEX].bytes, 0, DISK_BLOCK);
     disks[APPS_DISK] = whole(argv[6]);
+    second = whole(argv[7]);
 
     for(check* test = CHECKS; strlen(test->label); test++) run(test);
     printf("boot, cells of %d bits: %d checks, %d failed; %d cells and %ld pixels compared\n",

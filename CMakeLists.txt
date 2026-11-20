@@ -567,24 +567,45 @@ add_custom_command(
         VERBATIM)
 add_custom_target(picture DEPENDS ${PICTURE})
 
-# The Mandrill as one-sample gray TIFFs, using the dither's own grays: at
-# full size, and at half size.  bench/disk.c writes them, along with the
-# benchmarks' disk.
-set(GRAYS ${BUILD}/mandrill-grays.tiff)
-set(SMALL ${BUILD}/mandrill-small.tiff)
-
-# A disk for the desktop, made as QEMU's is: block 1 for the editor, a
-# picture, and an image's tables of names.  mkdisk's output goes to a .log
-# file of the same name beside it.
-function(desk_disk DISK FROM TABLES)
+# A disk is no more than a floppy holds (DISK_FLOPPY, vm_constants.h), and
+# the pictures are on one of their own: an index and the Mandrill under
+# its label, which the viewer finds it by on whichever disk has it
+# (mkdisk --disk; doc/disk.md, Several disks).  It is a machine's second
+# disk, wherever a machine is given the picture.  pictures_disk makes such
+# a disk of any picture, under the Mandrill's label, which is the one the
+# viewer asks for.
+function(pictures_disk DISK FROM)
     get_filename_component(AT ${DISK} DIRECTORY)
     get_filename_component(LOG ${DISK} NAME_WE)
     add_custom_command(
             OUTPUT            ${DISK}
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}
-            COMMAND           mkdisk ${FROM} ${DISK} ${CMAKE_SOURCE_DIR}/baremetal/block1.fs ${TABLES}
+            COMMAND           mkdisk --disk ${DISK} mandrill.tiff=${FROM} > ${AT}/${LOG}.log 2>&1
+            DEPENDS           mkdisk picture ${FROM})
+endfunction()
+set(PICTURES ${BUILD}/pictures.img)
+pictures_disk(${PICTURES} ${PICTURE})
+add_custom_target(pictures DEPENDS ${PICTURES})
+
+# The Mandrill as one-sample gray TIFFs, using the dither's own grays: at
+# full size, and at half size.  bench/grays.c writes them, and the
+# benchmarks have them on a disk of their own.
+set(GRAYS ${BUILD}/mandrill-grays.tiff)
+set(SMALL ${BUILD}/mandrill-small.tiff)
+
+# A disk for the desktop, made as QEMU's is: block 1 for the editor, and an
+# image's tables of names.  The picture is not on it: that is the
+# pictures' disk (above).  mkdisk's output goes to a .log file of the same
+# name beside it.
+function(desk_disk DISK TABLES)
+    get_filename_component(AT ${DISK} DIRECTORY)
+    get_filename_component(LOG ${DISK} NAME_WE)
+    add_custom_command(
+            OUTPUT            ${DISK}
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}
+            COMMAND           mkdisk ${DISK} ${CMAKE_SOURCE_DIR}/baremetal/block1.fs ${TABLES}
                                 > ${AT}/${LOG}.log 2>&1
-            DEPENDS           mkdisk picture ${FROM} baremetal/block1.fs ${TABLES})
+            DEPENDS           mkdisk baremetal/block1.fs ${TABLES})
 endfunction()
 
 # Two more of that database, smoother than the Mandrill, for what is
@@ -717,9 +738,9 @@ function(machine NAME)
         add_custom_command(
                 OUTPUT            ${AT}/boot/desk.img ${AT}/boot/desk.ipl
                 COMMAND           mkdisk --boot-desk ${NAME} ${AT}/boot/nuc.hex ${AT}/boot/desk.img ${AT}/boot/desk.ipl
-                                    ${PICTURE} ${AT}/boot/nuc.tables
+                                    ${AT}/boot/nuc.tables
                                     ${CMAKE_SOURCE_DIR}/forth/apps.fs > ${AT}/boot/desk-disk.log 2>&1
-                DEPENDS           mkdisk picture ${PICTURE} ${AT}/boot/nuc.hex ${FORTH_SOURCES})
+                DEPENDS           mkdisk ${AT}/boot/nuc.hex ${FORTH_SOURCES})
         add_custom_target(boot-system-${NAME} DEPENDS ${AT}/boot/nuc.hex ${AT}/boot/apps.img ${AT}/boot/desk.img)
     endif()
 
@@ -792,8 +813,8 @@ function(machine_tests NAME)
     add_custom_command(
             OUTPUT            ${AT}/source.img
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}
-            COMMAND           mkdisk ${PICTURE} ${AT}/source.img ${CMAKE_SOURCE_DIR}/test/source.fs > ${AT}/source-disk.log 2>&1
-            DEPENDS           mkdisk picture ${PICTURE} test/source.fs)
+            COMMAND           mkdisk ${AT}/source.img ${CMAKE_SOURCE_DIR}/test/source.fs > ${AT}/source-disk.log 2>&1
+            DEPENDS           mkdisk test/source.fs)
     machine_test(source-${NAME} ${NAME} source_test ${NUC} ${AT}/source.img)
     made(${NAME} ${AT}/source.img)
 
@@ -814,9 +835,20 @@ function(machine_tests NAME)
             COMMAND           mkdisk --boot ${NAME} ${NUC} ${AT}/boot-error.img ${AT}/boot-error.ipl
                                 ${CMAKE_SOURCE_DIR}/test/boot-error.fs >> ${AT}/boot-disk.log 2>&1
             DEPENDS           mkdisk ${NUC} test/boot.fs test/boot-more.fs test/boot-error.fs)
+    # A second disk, for the checks that give a machine two: an index and
+    # the files of test/second/, one of them under a label the first disk
+    # has too.
+    add_custom_command(
+            OUTPUT            ${AT}/second.img
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}
+            COMMAND           mkdisk --disk ${AT}/second.img
+                                ${CMAKE_SOURCE_DIR}/test/second/second.fs ${CMAKE_SOURCE_DIR}/test/second/boot-more.fs
+                                > ${AT}/second-disk.log 2>&1
+            DEPENDS           mkdisk test/second/second.fs test/second/boot-more.fs)
+    made(${NAME} ${AT}/second.img)
     # And the disk of the image the machine boots from (boot-system-NAME).
     machine_test(boot-${NAME} ${NAME} boot_test ${NUC} ${AT}/boot.img ${AT}/boot.ipl ${AT}/boot-error.img forth
-                 ${AT}/boot/apps.img)
+                 ${AT}/boot/apps.img ${AT}/second.img)
     needs(boot-${NAME} boot-system-${NAME})
     made(${NAME} ${AT}/boot.img ${AT}/boot.ipl ${AT}/boot-error.img)
 
@@ -841,13 +873,15 @@ function(machine_tests NAME)
     endforeach()
 
     # The desktop, with a disk made as QEMU's is: block 1 for the editor,
-    # the Mandrill, and the names that go with this image.  The test keeps
-    # its screens, and its copy of the disk, in a directory of its own.
+    # and the names that go with this image; and the pictures' disk as its
+    # second, which has the Mandrill.  The test keeps its screens, and its
+    # copy of the first disk, in a directory of its own.
     machine_tool(desktop_test ${NAME} test/desktop_test.c ${DESK_SOURCES} ${TYPED_SOURCES})
     file(MAKE_DIRECTORY ${AT}/desktop)
-    desk_disk(${AT}/disk.img ${PICTURE} ${AT}/nuc.tables)
-    machine_test(desktop-${NAME} ${NAME} desktop_test ${NUC} ${AT}/disk.img ${PICTURE} forth ${AT}/desktop names)
-    needs(desktop-${NAME} picture)
+    desk_disk(${AT}/disk.img ${AT}/nuc.tables)
+    machine_test(desktop-${NAME} ${NAME} desktop_test ${NUC} ${AT}/disk.img ${PICTURES} ${PICTURE} forth
+                 ${AT}/desktop names)
+    needs(desktop-${NAME} picture pictures)
     made(${NAME} ${AT}/disk.img)
 
     # The same checks on the machine started from its ROM alone, with a disk
@@ -855,9 +889,9 @@ function(machine_tests NAME)
     # desktop they are run on is the one its boot compiled from the disk's
     # source (doc/boot.md).
     file(MAKE_DIRECTORY ${AT}/booted)
-    machine_test(desktop-booted-${NAME} ${NAME} desktop_test ${AT}/boot/nuc.hex ${AT}/boot/desk.img ${PICTURE} forth
-                 ${AT}/booted names rom)
-    needs(desktop-booted-${NAME} boot-system-${NAME} picture)
+    machine_test(desktop-booted-${NAME} ${NAME} desktop_test ${AT}/boot/nuc.hex ${AT}/boot/desk.img ${PICTURES}
+                 ${PICTURE} forth ${AT}/booted names rom)
+    needs(desktop-booted-${NAME} boot-system-${NAME} picture pictures)
 endfunction()
 
 # After any change to a compiler or a peephole: the image against the image
@@ -915,15 +949,15 @@ function(mapped NAME)
             COMMAND           map-${NAME} ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables ${MP}/boot.mem > ${MP}/boot.txt
             COMMAND           ${CMAKE_COMMAND} -E env MEMORY=${MP}/desktop.mem HEAP=${MP}/desktop.heap
                                 HEAP_NAMES=${AT}/nuc.tables
-                                $<TARGET_FILE:desktop_test_heap-${NAME}> ${AT}/nuc.hex ${AT}/disk.img ${PICTURE} forth
-                                ${MP}/desktop names > ${MP}/desktop.out 2>&1
+                                $<TARGET_FILE:desktop_test_heap-${NAME}> ${AT}/nuc.hex ${AT}/disk.img ${PICTURES}
+                                ${PICTURE} forth ${MP}/desktop names > ${MP}/desktop.out 2>&1
             COMMAND           map-${NAME} ${AT}/nuc.hex ${AT}/nuc.tables ${MP}/desktop.mem > ${MP}/desktop.txt
             COMMAND           ${CMAKE_COMMAND} -E cat ${MP}/image.txt ${MP}/prompt.txt ${MP}/prompt.heap
                                 ${MP}/boot.txt ${MP}/boot.heap ${MP}/desktop.txt ${MP}/desktop.heap
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             VERBATIM)
     add_dependencies(memory-map-${NAME} map-${NAME} heap-${NAME} desktop_test_heap-${NAME} machine-${NAME}
-                     boot-system-${NAME} picture)
+                     boot-system-${NAME} picture pictures)
 endfunction()
 
 # What a machine's display shows, from its memory as the reference VM
@@ -998,12 +1032,12 @@ add_custom_target(hits
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${HITS}/desktop
         COMMAND           ${CMAKE_COMMAND} -E rm -f ${HITS}/memory.out
         COMMAND           ${CMAKE_COMMAND} -E env MEMORY=${HITS}/memory.out
-                            $<TARGET_FILE:desktop_test-${FIRST}> ${NUC} ${OF}/disk.img ${PICTURE} forth ${HITS}/desktop names
-                            > ${HITS}/desktop.log 2>&1
+                            $<TARGET_FILE:desktop_test-${FIRST}> ${NUC} ${OF}/disk.img ${PICTURES} ${PICTURE} forth
+                            ${HITS}/desktop names > ${HITS}/desktop.log 2>&1
         COMMAND           hits-${FIRST} ${HITS}/memory.out forth/joins.fs
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The desktop worked, and the rules it used (what its test says is in ${HITS}/desktop.log)")
-add_dependencies(hits machine-${FIRST})
+add_dependencies(hits machine-${FIRST} picture pictures)
 
 # `screenshot`: the desktop with every window open and HexaPaint in front,
 # as the README shows it (doc/desktop.png, which is checked in).  The
@@ -1022,20 +1056,21 @@ add_custom_target(seen DEPENDS ${SEEN} png)
 set(HELLO ${BUILD}/hello)
 add_custom_target(hello
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${HELLO}
-        COMMAND           hexaforth-${FIRST} ${NUC} ${OF}/disk.img ${HELLO}/memory.out < doc/hello.fs > ${HELLO}/hello.txt 2>&1
+        COMMAND           hexaforth-${FIRST} ${NUC} ${OF}/disk.img,${PICTURES} ${HELLO}/memory.out
+                            < doc/hello.fs > ${HELLO}/hello.txt 2>&1
         COMMAND           ${CMAKE_COMMAND} -E cat ${HELLO}/hello.txt
         COMMAND           screen-${FIRST} ${HELLO}/memory.out ${HELLO}/hello.pbm
         COMMAND           png ${HELLO}/hello.pbm ${HELLO}/hello.png
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-add_dependencies(hello machine-${FIRST})
+add_dependencies(hello machine-${FIRST} picture pictures)
 add_custom_target(screenshot
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${SHOT}/desktop
-        COMMAND           $<TARGET_FILE:desktop_test-${FIRST}> ${NUC} ${OF}/disk.img ${PICTURE} forth ${SHOT}/desktop names
-                            > ${SHOT}/desktop.log 2>&1
+        COMMAND           $<TARGET_FILE:desktop_test-${FIRST}> ${NUC} ${OF}/disk.img ${PICTURES} ${PICTURE} forth
+                            ${SHOT}/desktop names > ${SHOT}/desktop.log 2>&1
         COMMAND           png ${SHOT}/desktop/16-again.pbm doc/desktop.png
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The desktop worked, and its screen with HexaPaint in front (what its test says is in ${SHOT}/desktop.log)")
-add_dependencies(screenshot machine-${FIRST})
+add_dependencies(screenshot machine-${FIRST} picture pictures)
 
 # `profile`: where the desktop's instructions go.  The desktop is run on
 # the VM that counts and worked through a few things a person would do
@@ -1050,7 +1085,7 @@ add_dependencies(screenshot machine-${FIRST})
 set(PROFILE ${BUILD}/profile)
 set(PROFILE_FILES "" CACHE STRING "the source files whose variables the profile says the cost of: all, if none")
 stepping_tool(survey ${FIRST} util/survey.c util/image.c)
-set(PROFILED profile-${FIRST} ${NUC} ${TABLES} ${SIZES} ${OF}/disk.img ${PICTURE} forth)    # and where it leaves the work
+set(PROFILED profile-${FIRST} ${NUC} ${TABLES} ${SIZES} ${OF}/disk.img ${PICTURES} ${PICTURE} forth)    # and where it leaves the work
 add_custom_target(profile
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${PROFILE}
         COMMAND           ${PROFILED} ${PROFILE}
@@ -1064,7 +1099,7 @@ add_custom_target(profile
                             2> ${PROFILE}/shorter.log
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The desktop's work, by place (${PROFILE}/profile.log says what went wrong, if anything did)")
-add_dependencies(profile machine-${FIRST})
+add_dependencies(profile machine-${FIRST} picture pictures)
 
 # `subtracts`: where the desktop's work takes one number from another, how
 # often, and what is taken away (bench/uses.c, which says how it finds a
@@ -1084,7 +1119,7 @@ add_custom_command(
         COMMAND           ${PROFILED} ${USES} > ${USES}/profile.txt 2> ${USES}/profile.log
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The desktop's work, counted (${USES}/profile.log says what went wrong, if anything did)"
-        DEPENDS           profile-${FIRST} machine-${FIRST} ${NUC} ${OF}/disk.img)
+        DEPENDS           profile-${FIRST} machine-${FIRST} ${NUC} ${OF}/disk.img picture ${PICTURES})
 add_custom_target(subtracts
         COMMAND           uses-${FIRST} ${OF}/plain/nuc.hex ${OF}/plain/nuc.tables ${NUC} ${TABLES} ${USES}/desktop.counts
                             - 1- negate > ${USES}/subtracts.txt
@@ -1130,14 +1165,14 @@ add_custom_target(peephole
                             $<TARGET_FILE:counting-${FIRST}> ${NUC} ${PEEPHOLE}/disk.img
                             < bench/draw.fs > ${PEEPHOLE}/draw.log 2>&1
         COMMAND           ${CMAKE_COMMAND} -E env RUN_COUNTS=${PEEPHOLE}/desktop.counts
-                            $<TARGET_FILE:desktop_test_counted-${FIRST}> ${NUC} ${PEEPHOLE}/disk.img ${PICTURE} forth
-                            ${PEEPHOLE}/desktop names > ${PEEPHOLE}/desktop.log 2>&1
+                            $<TARGET_FILE:desktop_test_counted-${FIRST}> ${NUC} ${PEEPHOLE}/disk.img ${PICTURES}
+                            ${PICTURE} forth ${PEEPHOLE}/desktop names > ${PEEPHOLE}/desktop.log 2>&1
         COMMAND           weigh ${PEEPHOLE}/typed.txt forth/joins.fs ${SIZES} ${PEEPHOLE} desktop draw
                             > ${PEEPHOLE}/peephole.txt 2> ${PEEPHOLE}/weigh.log
         COMMAND           ${CMAKE_COMMAND} -E cat ${PEEPHOLE}/peephole.txt
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The nucleus's compiler, weighed (each step's log is in ${PEEPHOLE})")
-add_dependencies(peephole machine-${FIRST} plain-${FIRST})
+add_dependencies(peephole machine-${FIRST} plain-${FIRST} picture pictures)
 
 # `phrases`: the phrase book, what to write to get each instruction
 # (util/phrases.c, which says at its top what it finds and asks).  It is
@@ -1255,10 +1290,10 @@ add_custom_command(
         OUTPUT            ${OF_KERNEL}/boot/desk.img ${OF_KERNEL}/boot/desk.ipl
         COMMAND           mkdisk --boot-desk ${KERNELS_OF} ${OF_KERNEL}/boot/nuc.hex
                             ${OF_KERNEL}/boot/desk.img ${OF_KERNEL}/boot/desk.ipl
-                            ${PICTURE} ${OF_KERNEL}/boot/nuc.tables
+                            ${OF_KERNEL}/boot/nuc.tables
                             ${CMAKE_SOURCE_DIR}/forth/apps.fs > ${OF_KERNEL}/boot/desk-disk.log 2>&1
-        DEPENDS           mkdisk picture ${PICTURE} ${OF_KERNEL}/boot/nuc.hex ${FORTH_SOURCES})
-desk_disk(${OF_KERNEL}/disk.img ${PICTURE} ${OF_KERNEL}/nuc.tables)
+        DEPENDS           mkdisk ${OF_KERNEL}/boot/nuc.hex ${FORTH_SOURCES})
+desk_disk(${OF_KERNEL}/disk.img ${OF_KERNEL}/nuc.tables)
 add_custom_target(machine-virt
         DEPENDS           ${OF_KERNEL}/nuc.hex ${OF_KERNEL}/disk.img
                           ${OF_KERNEL}/boot/nuc.hex ${OF_KERNEL}/boot/desk.img)
@@ -1458,11 +1493,12 @@ function(qemu_test WHICH)
     endif()
     add_test(NAME qemu-${NAME}
              COMMAND ${CMAKE_COMMAND} -E env --unset=DISK SCALE=1
-                     $<TARGET_FILE:guitest> ${KERNEL_FILE}.elf ${ON} ${PICTURE} forth ${KB}/screens-${NAME} ${BOOTS}
+                     $<TARGET_FILE:guitest> ${KERNEL_FILE}.elf ${ON} ${PICTURES} ${PICTURE} forth
+                     ${KB}/screens-${NAME} ${BOOTS}
              WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     set_tests_properties(qemu-${NAME} PROPERTIES TIMEOUT ${QEMU_TEST_SECONDS})
     set_property(GLOBAL APPEND PROPERTY SCREENS ${KB}/screens-${NAME})
-    needs(qemu-${NAME} kernel-${NAME} guitest kernel-tests machine-virt picture)
+    needs(qemu-${NAME} kernel-${NAME} guitest kernel-tests machine-virt picture pictures)
 endfunction()
 kernel_test(hexaforth)
 kernel_test(hexaforth-fast)
@@ -1508,16 +1544,27 @@ add_custom_command(
         DEPENDS           machine-virt ${OF_KERNEL}/disk.img)
 kernel(${KERNEL} DISPLAY SCALE ${SCALE} ${SAID})
 get_filename_component(SHOWN_KERNEL ${KERNEL_FILE} NAME)
+# The machine's disks are its block devices in the order of their places
+# (forth/virt-disk.fs), so each is said its place: the disk it is given or
+# starts from in the first, and the pictures' disk, which nothing writes
+# to, in the next.
+set(SLOW_READ)
+if(DISK)
+    set(SLOW_READ ",throttling.bps-read=${RATE}")
+endif()
+set(SECOND_DISK -drive "file=${PICTURES},if=none,format=raw,id=hd1,readonly=on${SLOW_READ}"
+                -device virtio-blk-device,drive=hd1,bus=virtio-mmio-bus.1)
 add_custom_target(demo
         COMMAND           ${QEMU} -m 256 -serial mon:stdio -device ramfb -global virtio-mmio.force-legacy=false
                             -drive "file=${KB}/demo.img,if=none,format=raw,id=hd0${SLOW}"
-                            -device virtio-blk-device,drive=hd0
+                            -device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0
+                            ${SECOND_DISK}
                             -device virtio-keyboard-device -device virtio-tablet-device
                             -kernel ${KERNEL_FILE}.elf
         DEPENDS           ${KB}/demo.img
         USES_TERMINAL
         VERBATIM)
-add_dependencies(demo kernel-${SHOWN_KERNEL} machine-virt)
+add_dependencies(demo kernel-${SHOWN_KERNEL} machine-virt pictures)
 
 # demo-boot is the same machine with nothing in its memory but the kernel's
 # ROM: it reads its image from the disk, compiles the applications and the
@@ -1532,13 +1579,14 @@ get_filename_component(BOOTED_KERNEL ${KERNEL_FILE} NAME)
 add_custom_target(demo-boot
         COMMAND           ${QEMU} -m 256 -serial mon:stdio -device ramfb -global virtio-mmio.force-legacy=false
                             -drive "file=${KB}/demo-boot.img,if=none,format=raw,id=hd0${SLOW}"
-                            -device virtio-blk-device,drive=hd0
+                            -device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0
+                            ${SECOND_DISK}
                             -device virtio-keyboard-device -device virtio-tablet-device
                             -kernel ${KERNEL_FILE}.elf
         DEPENDS           ${KB}/demo-boot.img
         USES_TERMINAL
         VERBATIM)
-add_dependencies(demo-boot kernel-${BOOTED_KERNEL} machine-virt)
+add_dependencies(demo-boot kernel-${BOOTED_KERNEL} machine-virt pictures)
 
 set(STRICTLY)
 if(STRICT)
@@ -1549,9 +1597,10 @@ get_filename_component(TESTED_KERNEL ${KERNEL_FILE} NAME)
 add_custom_target(demo-test
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${KB}/screens
         COMMAND           ${CMAKE_COMMAND} -E env --unset=DISK SCALE=${SCALE}
-                            $<TARGET_FILE:guitest> ${KERNEL_FILE}.elf ${OF_KERNEL}/disk.img ${PICTURE} forth ${KB}/screens
+                            $<TARGET_FILE:guitest> ${KERNEL_FILE}.elf ${OF_KERNEL}/disk.img ${PICTURES} ${PICTURE} forth
+                            ${KB}/screens
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-add_dependencies(demo-test kernel-${TESTED_KERNEL} machine-virt)
+add_dependencies(demo-test kernel-${TESTED_KERNEL} machine-virt pictures)
 
 set(HELD)
 if(MIPS)
@@ -1566,29 +1615,29 @@ get_filename_component(TIMED_KERNEL ${KERNEL_FILE} NAME)
 set(TIMES)
 set(TIMED_DISKS)
 foreach(PIC colour gray small)
-    set(DISK_OF ${OF_KERNEL}/disk.img)
+    set(PICTURES_OF ${PICTURES})
     set(FROM ${PICTURE})
     if(PIC STREQUAL "gray")
         set(FROM ${GRAYS})
     elseif(PIC STREQUAL "small")
         set(FROM ${SMALL})
     endif()
-    if(NOT PIC STREQUAL "colour")
-        set(DISK_OF ${KB}/disk-${PIC}.img)
-        desk_disk(${DISK_OF} ${FROM} ${OF_KERNEL}/nuc.tables)
+    if(NOT PIC STREQUAL "colour")           # a pictures' disk with that one on it, under the label the viewer asks for
+        set(PICTURES_OF ${KB}/pictures-${PIC}.img)
+        pictures_disk(${PICTURES_OF} ${FROM})
     endif()
     list(APPEND TIMES
          COMMAND ${CMAKE_COMMAND} -E make_directory ${KB}/timed-${PIC}
          COMMAND ${CMAKE_COMMAND} -E echo "${PIC}: ${FROM}"
          COMMAND ${CMAKE_COMMAND} -E env DISK=${DISK}
-                 $<TARGET_FILE:desktime> ${KERNEL_FILE}.elf ${KERNEL_FILE}.symbols ${DISK_OF} ${FROM}
-                 forth ${OF_KERNEL}/nuc.tables ${KB}/timed-${PIC})
-    list(APPEND TIMED_DISKS ${DISK_OF})
+                 $<TARGET_FILE:desktime> ${KERNEL_FILE}.elf ${KERNEL_FILE}.symbols ${OF_KERNEL}/disk.img
+                 ${PICTURES_OF} ${FROM} forth ${OF_KERNEL}/nuc.tables ${KB}/timed-${PIC})
+    list(APPEND TIMED_DISKS ${PICTURES_OF})
 endforeach()
 add_custom_target(demo-time ${TIMES}
         DEPENDS           ${TIMED_DISKS}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-add_dependencies(demo-time kernel-${TIMED_KERNEL} machine-virt)
+add_dependencies(demo-time kernel-${TIMED_KERNEL} machine-virt pictures)
 
 # The kernel that counts: nothing reads its counts, and it is still built.
 kernel(hexaforth PROFILE)
@@ -1917,17 +1966,31 @@ add_dependencies(synth machine-default-${SYNTH_CELL} ${NEXTPNR_BUILT})
 set(BB ${BUILD}/bench)
 set(BENCH ${CMAKE_SOURCE_DIR}/bench)
 
-# The benchmarks' disk: the system's disk, then the picture's grays, then
-# its grays at half size (bench/disk.c).  It also writes blocks.fs, which
-# says which block each picture starts at, and the two gray TIFFs as files.
-tool(picture-disk bench/disk.c bench/tiff.c test/dither.c)
+# The benchmarks' disks, each no more than a floppy: the system's, which
+# the machine has as its first; the pictures' disk, which has the Mandrill;
+# and a disk of the Mandrill's grays and its grays at half size, as
+# one-sample TIFFs (bench/grays.c writes the two files).  A machine is given
+# the three, and bench/pictures.fs, typed at it, finds each picture by its
+# label.  It says a label with parse-name, which the nucleus has: the
+# system with the picture alone has no s" (cross-words.fs).
+tool(picture-grays bench/grays.c bench/tiff.c test/dither.c)
 add_custom_command(
-        OUTPUT            ${BB}/disk.img ${BB}/blocks.fs ${GRAYS} ${SMALL}
+        OUTPUT            ${GRAYS} ${SMALL}
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${BB}
-        COMMAND           mkdisk ${PICTURE} ${BB}/system.img > ${BB}/disk.log 2>&1
-        COMMAND           picture-disk ${PICTURE} ${BB}/system.img ${BB}/disk.img ${BB}/blocks.fs ${GRAYS} ${SMALL}
-                            >> ${BB}/disk.log 2>&1
-        DEPENDS           mkdisk picture-disk picture ${PICTURE})
+        COMMAND           picture-grays ${PICTURE} ${GRAYS} ${SMALL} > ${BB}/grays.log 2>&1
+        DEPENDS           picture-grays picture ${PICTURE})
+add_custom_command(
+        OUTPUT            ${BB}/system.img
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${BB}
+        COMMAND           mkdisk ${BB}/system.img > ${BB}/system-disk.log 2>&1
+        DEPENDS           mkdisk)
+add_custom_command(
+        OUTPUT            ${BB}/grays.img
+        COMMAND           mkdisk --disk ${BB}/grays.img grays.tiff=${GRAYS} small.tiff=${SMALL}
+                            > ${BB}/grays-disk.log 2>&1
+        DEPENDS           mkdisk ${GRAYS} ${SMALL})
+set(BENCH_DISK_FILES ${BB}/system.img ${PICTURES} ${BB}/grays.img)
+set(BENCH_DISKS "${BB}/system.img,${PICTURES},${BB}/grays.img")    # as a machine is told its disks
 
 # How often each cell of the dithered picture occurs, cut into cells of 16,
 # 32 and 64 pixels (bench/patterns.c): the target cell-patterns prints it
@@ -2015,8 +2078,8 @@ add_custom_target(quads-report
 # with each gray as a 2 by 2, they match "doubled" (see bench/check.c).
 # asks-PIC-SIZE.fs is what is typed after bench/dither.fs to run one: it
 # dithers, prints where the bitmap is, and stops.  dither-costs counts the
-# Mandrill and its grays at half size (PICTURES).
-set(PICTURES gray colour)
+# Mandrill and its grays at half size (COSTED_PICTURES).
+set(COSTED_PICTURES gray colour)
 set(DITHERS gray:own:own gray:half:half colour:own:own colour:half:half small:own:half small:twice:doubled)
 foreach(DITHER ${DITHERS})
     string(REPLACE ":" ";" DITHER ${DITHER})
@@ -2057,13 +2120,13 @@ function(bench_on NAME)
         verilog_cpu(${T} ${CELL} ${ADDR} ${LAT})
         set_property(GLOBAL APPEND PROPERTY BENCH_PARTS ${T}/tb)
         set(ON "${CELL} bits LAT=${LAT}")
-        set(WANTS bench-parts ${T}/tb ${BB}/disk.img machine-${NAME} ${NUC} check-${NAME})
+        set(WANTS bench-parts ${T}/tb ${BENCH_DISK_FILES} machine-${NAME} ${NUC} check-${NAME})
 
         set(J ${BB}/draw-${NAME}-${LAT})
         add_custom_command(
                 OUTPUT            ${J}.txt
-                COMMAND           ${T}/tb run ${NUC} ${BB}/disk.img ${J}.mem < ${BENCH}/draw.fs > ${J}.out 2> ${J}.err
-                COMMAND           hexaforth-${NAME} ${NUC} ${BB}/disk.img ${J}.vm < ${BENCH}/draw.fs > ${J}.vm.out 2>&1
+                COMMAND           ${T}/tb run ${NUC} ${BENCH_DISKS} ${J}.mem < ${BENCH}/draw.fs > ${J}.out 2> ${J}.err
+                COMMAND           hexaforth-${NAME} ${NUC} ${BENCH_DISKS} ${J}.vm < ${BENCH}/draw.fs > ${J}.vm.out 2>&1
                 COMMAND           check-${NAME} display ${J}.vm ${J}.mem ${J}.err draw "${ON}" text fills scrolls
                                     > ${J}.txt 2> ${J}.check
                 COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem ${J}.vm
@@ -2091,13 +2154,13 @@ function(bench_on NAME)
             endif()
             add_custom_command(
                     OUTPUT            ${J}.txt
-                    COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/blocks.fs ${BENCH}/tb-disk.fs ${BENCH}/dither.fs
+                    COMMAND           ${CMAKE_COMMAND} -E cat ${BENCH}/tb-disk.fs ${BENCH}/pictures.fs ${BENCH}/dither.fs
                                         ${BB}/asks-${PIC}-${SIZE}.fs > ${J}.fs
-                    COMMAND           ${T}/tb run ${SYSTEM_IMAGE} ${BB}/disk.img ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
+                    COMMAND           ${T}/tb run ${SYSTEM_IMAGE} ${BENCH_DISKS} ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
                     COMMAND           check-${NAME} picture ${PICTURE} ${MADE} ${J}.mem ${J}.out ${J}.err
                                         "dither ${PIC} ${SIZE}" "${SAYS}" > ${J}.txt 2> ${J}.check
                     COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem
-                    DEPENDS           ${WANTS} ${SYSTEM_WANTS} ${BB}/blocks.fs bench/tb-disk.fs bench/dither.fs
+                    DEPENDS           ${WANTS} ${SYSTEM_WANTS} bench/pictures.fs bench/tb-disk.fs bench/dither.fs
                                         picture ${PICTURE}
                     VERBATIM)
             set_property(GLOBAL APPEND PROPERTY DITHER_FIGURES ${J}.txt)
@@ -2106,14 +2169,14 @@ function(bench_on NAME)
         set(J ${BB}/gray-${NAME}-${LAT})
         add_custom_command(
                 OUTPUT            ${J}.txt
-                COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/blocks.fs ${BENCH}/tb-disk.fs ${BENCH}/gray.fs
+                COMMAND           ${CMAKE_COMMAND} -E cat ${BENCH}/tb-disk.fs ${BENCH}/pictures.fs ${BENCH}/gray.fs
                                     ${BB}/asks-gray.fs > ${J}.fs
-                COMMAND           ${T}/tb run ${NUC} ${BB}/disk.img ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
+                COMMAND           ${T}/tb run ${NUC} ${BENCH_DISKS} ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
                 COMMAND           check-${NAME} gray ${PICTURE} ${GRAY_KEEP} ${GRAY_DRAW} ${GRAY_MASK} ${GRAY_AT}
                                     ${J}.mem ${J}.out ${J}.err "gray colour" "${ON}" keep mask draw copy
                                     > ${J}.txt 2> ${J}.check
                 COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem
-                DEPENDS           ${WANTS} ${BB}/blocks.fs bench/tb-disk.fs bench/gray.fs picture ${PICTURE}
+                DEPENDS           ${WANTS} bench/pictures.fs bench/tb-disk.fs bench/gray.fs picture ${PICTURE}
                 VERBATIM)
         set_property(GLOBAL APPEND PROPERTY GRAY_FIGURES ${J}.txt)
     endforeach()
@@ -2128,16 +2191,16 @@ function(bench_on NAME)
     # there.
     set(WORKS)
     set(COSTED)
-    foreach(PIC ${PICTURES})
+    foreach(PIC ${COSTED_PICTURES})
         set(K ${BB}/costs-${NAME}-${PIC})
         add_custom_command(
                 OUTPUT            ${K}/work
                 COMMAND           ${CMAKE_COMMAND} -E make_directory ${K}
-                COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/blocks.fs ${BENCH}/dither.fs
+                COMMAND           ${CMAKE_COMMAND} -E cat ${BENCH}/pictures.fs ${BENCH}/dither.fs
                                     ${BB}/asks-${PIC}-half.fs > ${K}/typed.fs
                 COMMAND           ${CMAKE_COMMAND} -E env RUN_WORK=${K}/work
-                                    $<TARGET_FILE:counting-${NAME}> ${NUC} ${BB}/disk.img < ${K}/typed.fs > ${K}/typed.out 2>&1
-                DEPENDS           counting-${NAME} machine-${NAME} ${NUC} ${BB}/disk.img ${BB}/blocks.fs
+                                    $<TARGET_FILE:counting-${NAME}> ${NUC} ${BENCH_DISKS} < ${K}/typed.fs > ${K}/typed.out 2>&1
+                DEPENDS           counting-${NAME} machine-${NAME} ${NUC} ${BENCH_DISK_FILES} bench/pictures.fs
                                   bench/dither.fs picture ${PICTURE}
                 VERBATIM)
         list(APPEND WORKS ${K}/work)
@@ -2155,11 +2218,11 @@ function(bench_on NAME)
     add_custom_command(
             OUTPUT            ${K}/work
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${K}
-            COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/blocks.fs ${BENCH}/gray.fs
+            COMMAND           ${CMAKE_COMMAND} -E cat ${BENCH}/pictures.fs ${BENCH}/gray.fs
                                 ${BB}/asks-gray.fs > ${K}/typed.fs
             COMMAND           ${CMAKE_COMMAND} -E env RUN_WORK=${K}/work
-                                $<TARGET_FILE:counting-${NAME}> ${NUC} ${BB}/disk.img < ${K}/typed.fs > ${K}/typed.out 2>&1
-            DEPENDS           counting-${NAME} machine-${NAME} ${NUC} ${BB}/disk.img ${BB}/blocks.fs
+                                $<TARGET_FILE:counting-${NAME}> ${NUC} ${BENCH_DISKS} < ${K}/typed.fs > ${K}/typed.out 2>&1
+            DEPENDS           counting-${NAME} machine-${NAME} ${NUC} ${BENCH_DISK_FILES} bench/pictures.fs
                               bench/gray.fs picture ${PICTURE}
             VERBATIM)
     add_custom_target(gray-costs-${NAME}
@@ -2173,7 +2236,7 @@ foreach(NAME ${MACHINES})
     bench_on(${NAME})
 endforeach()
 get_property(BENCH_PARTS GLOBAL PROPERTY BENCH_PARTS)
-add_custom_target(bench-parts DEPENDS ${BB}/disk.img ${BB}/blocks.fs ${BENCH_PARTS})
+add_custom_target(bench-parts DEPENDS ${BENCH_DISK_FILES} ${BENCH_PARTS})
 
 # The 68000.  Musashi is fetched as it was when this was written; the
 # program is where it is put in the 68000's memory.

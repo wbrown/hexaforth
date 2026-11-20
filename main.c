@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 #include "vm.h"
 #include "vm_debug.h"
 
@@ -114,17 +115,28 @@ int main(int argc, char *argv[]) {
     load_hex(argv[1], NULL, ctx);
     ctx->OUT=stdout;
     ctx->IN=stdin;
-    // A second argument is a file to be the disk (vm.c): one that can be
-    // written, if it can be opened so.
+    // A second argument is a file to be the disk (vm.c), or several with
+    // commas between them to be disk 0, disk 1 and so on: each one that
+    // can be written, if it can be opened so.
     if (argc > 2) {
-        ctx->DISK = fopen(argv[2], "r+b");
-        if (!ctx->DISK) ctx->DISK = fopen(argv[2], "rb");
-        if (!ctx->DISK) {
-            perror(argv[2]);
-            exit(EXIT_FAILURE);
+        char* files = strdup(argv[2]);
+        int drive = 0;
+        for(char* file = strtok(files, ","); file; file = strtok(NULL, ","), drive++) {
+            if (drive == DISK_DRIVES) {
+                fprintf(stderr, "%s: more disks than the %d a machine has\n", argv[2], DISK_DRIVES);
+                exit(EXIT_FAILURE);
+            }
+            FILE* disk = fopen(file, "r+b");
+            if (!disk) disk = fopen(file, "rb");
+            if (!disk) {
+                perror(file);
+                exit(EXIT_FAILURE);
+            }
+            fseek(disk, 0, SEEK_END);
+            ctx->DISKS[drive] = disk;
+            ctx->DISKBLOCKS[drive] = ftell(disk) / DISK_BLOCK;
         }
-        fseek(ctx->DISK, 0, SEEK_END);
-        ctx->DISKBLOCKS = ftell(ctx->DISK) / DISK_BLOCK;
+        free(files);
     }
     // ctx->EIP=0x462C / 2;
     vm(ctx);

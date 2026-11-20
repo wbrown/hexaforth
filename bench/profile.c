@@ -1,7 +1,10 @@
 //
-// profile IMAGE.hex IMAGE.tables IMAGE.sizes DISK.img PICTURE.tiff FORTH OUT
+// profile IMAGE.hex IMAGE.tables IMAGE.sizes DISK.img PICTURES.img PICTURE.tiff FORTH OUT
 //
 // Where the desktop's instructions go.
+//
+// The machine has two disks, as the desktop's test gives it (test/deskvm.h):
+// DISK.img, and PICTURES.img, which has PICTURE.tiff under its label.
 //
 // The desktop is run on the reference VM that counts how often the
 // instruction at each place is run (counting.c), and worked through a few
@@ -186,8 +189,9 @@ static void used(const char* stack, const int64_t* cells) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 8) {
-        fprintf(stderr, "Usage: %s IMAGE.hex IMAGE.tables IMAGE.sizes DISK.img PICTURE.tiff FORTH OUT\n", argv[0]);
+    if (argc != 9) {
+        fprintf(stderr, "Usage: %s IMAGE.hex IMAGE.tables IMAGE.sizes DISK.img PICTURES.img PICTURE.tiff FORTH OUT\n",
+                argv[0]);
         return(1);
     }
     alarm(1800);                // a machine that does not stop is stopped
@@ -196,9 +200,9 @@ int main(int argc, char *argv[]) {
     image_places = len / 2;
     words = words_of(image, len, argv[2], &WORDS);
     spans = files_of(argv[3], &SPANS);
-    tables_are(argv[6]);
+    tables_are(argv[7]);
 
-    desk on = deskvm_start(argv[1], argv[4], argv[5], argv[7], true, false);
+    desk on = deskvm_start(argv[1], argv[4], argv[5], argv[6], argv[8], true, false);
     if (!desk_begins(&on)) {
         fprintf(stderr, "the desktop did not come up with its windows where forth/desk.fs puts them\n");
         return(1);
@@ -253,7 +257,7 @@ int main(int argc, char *argv[]) {
     used("return", machine.RSTACK);
 
     static const char file[] = "/desktop.counts";
-    char* path = room_for(strlen(argv[7]) + sizeof(file), 1);
-    sprintf(path, "%s%s", argv[7], file);
+    char* path = room_for(strlen(argv[8]) + sizeof(file), 1);
+    sprintf(path, "%s%s", argv[8], file);
     return(work_written(path, work, a_turn, places) ? 0 : 1);
 }

@@ -752,3 +752,12 @@ header view-menu
     ['] pic-mark pic-menu c# 4 + !
     pic-menu swap win-menu !
 ;
+
+\ The picture is on whichever disk has it under this label: the
+\ pictures are on a disk of their own, and not on the one the
+\ machine starts from (doc/disk.md).  Its first block, whose
+\ number says its disk, or nothing if no disk has it.
+create t-mandrill ," mandrill.tiff"
+
+header picture-blk
+: picture-blk ( -- blk|0 ) t-mandrill >c count labelled drop ;

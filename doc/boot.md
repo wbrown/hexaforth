@@ -106,10 +106,11 @@ The first of it, on the reference VM, on every size of machine:
   first, all of it, from block 1, which is the list the boot loads: who
   turns the pages of the disk in the editor sees source and nothing
   else until it has ended. After the blocks kept for source are the
-  picture, the names, the canvas, the masks and the viewer's bitmap and
-  gray, each where the one before ends (`vm_constants.h`), and the image
-  is after all of those, where the index says
-  (`build/64/boot/desk.img`). The desktop's checks are run on the
+  names, the canvas, the masks and the viewer's bitmap and gray, each
+  where the one before ends (`vm_constants.h`), and the image is after
+  all of those, where the index says (`build/64/boot/desk.img`). The
+  picture is not on it: it is on the pictures' disk, the machine's
+  second, where the viewer finds it by its label. The desktop's checks are run on the
   reference VM started with its ROM alone and that disk, on every size
   of machine (`desktop-booted-64` and the others): every check the
   desktop has, on the desktop the boot compiled. The editor's check
@@ -213,8 +214,8 @@ When this was planned:
 12. A disk is 1,024 blocks, which is what an 8-inch floppy holds, and the
     pictures are on a second one. (This was written here as "the picture
     may go on a second disk", which is not what was decided, and a disk
-    with the picture on it, of 1,600 blocks, was built on that. It is not
-    built yet: To do.)
+    with the picture on it, of 1,600 blocks, was built on that. It is
+    built now as decided: `doc/disk.md`, Several disks.)
 
 ## The ROM
 
@@ -380,10 +381,9 @@ from source, and is built on these.
   `virtio-disk.fs`); the Verilog's bench has its disk on the console's
   line now (`bench/tb-disk.fs`).
 - A disk is 1,024 blocks and the machine has two: the pictures are on
-  the second (Decided, 12). Each disk has its own block 0. Not built: a
-  machine reaches one disk, and the one it boots from has the picture on
-  it and is longer than a floppy. How the second is reached, and how the
-  ROM is told which to start from, is not decided (Not decided).
+  the second (Decided, 12). Each disk has its own block 0, and the ROM
+  starts from disk 0 (`doc/disk.md`, Several disks, which says how a
+  block of another disk is said and how each machine reaches it).
 
 ## Headers
 
@@ -483,8 +483,9 @@ to a line of its source.
   word of their own.
 - The applications that fit take 250 blocks for 3,421 lines. The whole
   system is 8,972 lines, so about 650 blocks (estimate).
-- `DISK_PICTURE_BLOCK` and the others like it leave `vm_constants.h`.
+- `DISK_NAMES_BLOCK` and the others like it leave `vm_constants.h`.
   `mkdisk` lays the parts down one after another and writes the index.
+  The picture's block has left it (`doc/disk.md`, Several disks).
 
 ## Order of work, and the check for each
 
@@ -522,13 +523,9 @@ to a line of its source.
 
 ## To do
 
-First, since it was decided and not done (Decided, 12): the disk a
-machine starts from is 1,024 blocks, with the pictures on a second disk.
-The source is to be first on it, from block 1, so that the editor shows
-source and nothing else until it has ended. Until then it is one disk
-with the source first, the blocks kept for source being
-`DISK_SOURCE_BLOCKS` and the picture straight after them
-(`vm_constants.h`): longer than a floppy, by the picture.
+For later: the editor on a machine of several disks. It opens on block
+1, which is disk 0's, and has no way to be told another disk
+(`doc/disk.md`, Several disks).
 
 Next, now that QEMU starts from its disk:
 
@@ -561,7 +558,7 @@ Next, now that QEMU starts from its disk:
   high halves of the queue's addresses, which queue is meant (it has
   one), and that its interrupt was seen. The driver's status writes are
   the four the device's protocol has.
-- The ROM of QEMU's virt has 6 bytes left (`examine`, of
+- The ROM of QEMU's virt has 4 bytes left (`examine`, of
   `build/virt/boot/nuc.hex`).
 - `kernel_test` is built for the default machine alone. What comes to a
   word was asked of the other sizes, before words were moved out of the
@@ -649,7 +646,7 @@ Next, now that QEMU starts from its disk:
 ## Not decided
 
 - A check of each binary run (`doc/disk.md`).
-- The number of the port that says which disk, and whether a label is
-  looked up on every disk or on the one named.
+- The number of the port that says which disk. (A label is looked up on
+  every disk, disk 0 first: `doc/disk.md`, Several disks.)
 - Whether the screen console scrolls or wraps.
 - Smaller headers, later.

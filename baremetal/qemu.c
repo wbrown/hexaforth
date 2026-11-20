@@ -128,7 +128,7 @@ static const char* copy_of(const char* from, const char* in) {
     return(to);
 }
 
-void qemu_start(const char* elf, const char* on, const char* out) {
+void qemu_start(const char* elf, const char* on, const char* pictures, const char* out) {
     disk = copy_of(on, out);
     if (getenv("SCALE") && atoi(getenv("SCALE")) > 1) qemu_scale = atoi(getenv("SCALE"));
     int rate = getenv("DISK") ? (int)(atof(getenv("DISK")) * 1024) : 0;
@@ -140,6 +140,9 @@ void qemu_start(const char* elf, const char* on, const char* out) {
     char* drive = rate          // QEMU holds the drive to it, as it does for the target `demo`
         ? text("file=%s,if=none,format=raw,id=hd0,throttling.bps-read=%d,throttling.bps-write=%d", disk, rate, rate)
         : text("file=%s,if=none,format=raw,id=hd0", disk);
+    char* second = rate
+        ? text("file=%s,if=none,format=raw,id=hd1,readonly=on,throttling.bps-read=%d", pictures, rate)
+        : text("file=%s,if=none,format=raw,id=hd1,readonly=on", pictures);
 
     int said[2];
     if (pipe(said)) fail("a pipe");
@@ -154,8 +157,10 @@ void qemu_start(const char* elf, const char* on, const char* out) {
         // (QEMU_AARCH64 is where QEMU is, which the build says.)
         execlp(QEMU_AARCH64, QEMU_AARCH64, "-M", "virt", "-cpu", "cortex-a53", "-m", "256",
                "-display", "none", "-serial", "stdio", "-nic", "none", "-qmp", qmp_is, "-device", "ramfb",
-               "-global", "virtio-mmio.force-legacy=false", "-drive", drive,
-               "-device", "virtio-blk-device,drive=hd0", "-device", "virtio-keyboard-device",
+               "-global", "virtio-mmio.force-legacy=false",
+               "-drive", drive, "-device", "virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0",
+               "-drive", second, "-device", "virtio-blk-device,drive=hd1,bus=virtio-mmio-bus.1",
+               "-device", "virtio-keyboard-device",
                "-device", "virtio-tablet-device", "-kernel", elf, (char*)NULL);
         _exit(127);
     }
@@ -180,6 +185,7 @@ void qemu_start(const char* elf, const char* on, const char* out) {
     free(sock);
     free(qmp_is);
     free(drive);
+    free(second);
 }
 
 const char* qemu_said(void) {

@@ -1,7 +1,12 @@
 //
-// desktop_test IMAGE.hex DISK.img PICTURE.tiff FORTH OUT [names [rom]]
+// desktop_test IMAGE.hex DISK.img PICTURES.img PICTURE.tiff FORTH OUT [names [rom]]
 //
 // The desktop on the reference VM, and what is on its screen.
+//
+// The machine has two disks, each no more than a floppy: DISK.img, which
+// it starts from or is given, and PICTURES.img, which has the picture
+// under its label (mkdisk --disk) and which the viewer finds it on.
+// PICTURE.tiff is that picture as a file.
 //
 // With `rom` after `names` the machine is started with nothing in memory
 // but its ROM, and DISK.img is one it can start from (mkdisk --boot-desk):
@@ -12,10 +17,9 @@
 // The checks are those of deskcheck.c, and the machine they are run on is
 // the reference VM (deskvm.h), which is built into the test for a machine
 // of 64 bits, 32 or 16.  DISK.img is one that mkdisk made as it makes
-// QEMU's: block 1 for the editor, the picture as a TIFF, which
-// PICTURE.tiff is too, and the tables of names if the last argument says
-// the build made any.  The machine is given a copy of it, in OUT, where
-// the screens are kept too.
+// QEMU's: block 1 for the editor, and the tables of names if the last
+// argument says the build made any.  The machine is given a copy of it, in
+// OUT, where the screens are kept too.
 //
 // For whoever wants what the desktop left, or what it ran: with MEMORY in
 // the environment the machine's memory is written to the file it names
@@ -39,13 +43,13 @@ void heap_said(void);
 #endif
 
 int main(int argc, char *argv[]) {
-    if (argc < 6) {
-        fprintf(stderr, "Usage: %s IMAGE.hex DISK.img PICTURE.tiff FORTH OUT [names [rom]]\n", argv[0]);
+    if (argc < 7) {
+        fprintf(stderr, "Usage: %s IMAGE.hex DISK.img PICTURES.img PICTURE.tiff FORTH OUT [names [rom]]\n", argv[0]);
         return(1);
     }
     alarm(1800);                // a machine that does not stop is stopped
-    tables_are(argv[4]);
-    desk on = deskvm_start(argv[1], argv[2], argv[3], argv[5], argc > 6, argc > 7);
+    tables_are(argv[5]);
+    desk on = deskvm_start(argv[1], argv[2], argv[3], argv[4], argv[6], argc > 7, argc > 8);
     int failed = desk_checks(&on);
 
     if (getenv("MEMORY")) {
@@ -64,6 +68,6 @@ int main(int argc, char *argv[]) {
     heap_said();
 #endif
     printf("the desktop on the reference VM, cells of %d bits, %d by %d: %d checks failed; screens in %s/\n",
-           CELL_BITS, DISP_W, DISP_H, failed, argv[5]);
+           CELL_BITS, DISP_W, DISP_H, failed, argv[6]);
     return(failed != 0);
 }
