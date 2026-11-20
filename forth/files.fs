@@ -29,7 +29,9 @@ header find-disks
     d# 0 begin
         dup DRIVES xor
     while
-        dup index? if d# 1 over lshift indexed @ or indexed ! then
+        dup index? if
+            d# 1 over lshift indexed @ or indexed !
+        then
         1+
     repeat
     drop
@@ -42,7 +44,8 @@ header find-disks
 \ before disk 2: a label that an earlier disk has is found
 \ there, whatever a later disk has under it.
 : entry@ ( n -- e ) \ entry n, as a byte's address
-    ENTRIES u/mod DISK-SHIFT lshift block  swap ENTRY-BYTES * + ;
+    ENTRIES u/mod DISK-SHIFT lshift block
+    swap ENTRY-BYTES * + ;
 
 : indexed? ( n -- f ) \ has the disk entry n is of an index?
     ENTRIES u/mod nip  indexed @ swap rshift d# 1 and ;
@@ -51,7 +54,7 @@ header find-disks
     \ are the u characters from each the same?
     >r over - r> swap >r bounds  ( end a1 ) ( R: a2 less a1 )
     begin
-        2dupxor
+        2dup xor
     while
         dup c@ over r@ + c@ <> if 2drop rdrop false exit then
         1+
@@ -171,7 +174,7 @@ create line-said 0 ,
 : file-blocks ( first last -- )
     1+ swap                                 ( end blk )
     begin
-        2dupxor
+        2dup xor
     while
         [char] . emit  true line-said !
         dup >r swap >r  load  r> r> 1+
@@ -183,10 +186,11 @@ create line-said 0 ,
 \ then read into: so it is copied first, to here, where nothing
 \ goes while it is looked for.  The data is brought to a whole
 \ cell first: here is the cell the data has got to, and if text
-\ was the last thing laid that cell is part of it.  (The viewer's
-\ label for its picture lost its end to the name of the file
-\ included next.)  Whatever the file throws, its
-\ own names are taken out before it is thrown on.
+\ was the last thing laid that cell is part of it.  (The
+\ viewer's label for its picture lost its end to the name of the
+\ file included next.)  Whatever the file throws, its own names
+\ are taken out before it is thrown on.
+
 header include
 : include-label ( "label" -- )
     line-ends  align

@@ -82,7 +82,8 @@ header gray-record
 
 header gray-planes
 : gray-planes ( gray -- ) \ memory for all of its planes
-    dup grows @ d# 2 lshift over grs @ *  >c halloc swap gpl ! ;
+    dup grows @ d# 2 lshift over grs @ *
+    >c halloc swap gpl ! ;
 
 \ an empty gray, all of it in memory
 header gray-new
@@ -230,7 +231,7 @@ target
     \ copy n mask rows, each MASK-ROW cells after the last
     >r  MASK-ROW * over + swap  ( src end dst ) ( R: bright )
     begin
-        2dupxor
+        2dup xor
     while
         >r swap r>  r@ mask-line  >r swap r>  ( src' end dst' )
     repeat
@@ -357,7 +358,7 @@ variable sp-f  variable sp-k  variable sp-i
 
 : gex-loop ( a u -- )
     gex-mid 2!
-    s" >r begin 2dupxor while rot" evaluate
+    s" >r begin 2dup xor while rot" evaluate
     gex-mid 2@ evaluate
     s" rot tuck !  d# 4 +  rot swap  r> 1+ >r" evaluate
     s" repeat 2drop drop rdrop" evaluate
@@ -455,7 +456,7 @@ target
 : gcells ( a n p qrow -- )
     >r  -rot over + swap  ( p end a ) ( R: qrow )
     begin
-        2dupxor
+        2dup xor
     while
         rot  dup MASK-ROW 1- and r@ + >r  WHITE  rdrop
         ( end a p w )

@@ -980,7 +980,7 @@ static void tried(const uint16_t* a, int alen, const uint16_t* b, int blen) {
 
 // The instructions asked about: those of the ALU that do no IO.  Each has
 // the number for what it leaves, and the one that stands for all that
-// leave the same, which is a baseword if any of them is.
+// leave the same (plainer, below).
 typedef struct {
     uint16_t ins;
     uint64_t names;
@@ -1032,6 +1032,19 @@ static int is_word(uint16_t ins) {
     return(0);
 }
 
+// Of the instructions that leave the same, one stands for them all, and it
+// is the one whose operation is the plainest: the lowest in the
+// operation's field (vm_instruction.h), with what passes its input
+// through first; and of those the lowest number.  It is not the one that
+// has a name.  Whatever makes an instruction has to come to the same one
+// from the fields alone: the nucleus's peephole does, trying the
+// operations in that order (forth/compose.fs), and a name that vm_opcodes.h
+// gives an instruction is held to it (util/joins.c).
+static int plainer(uint16_t a, uint16_t b) {
+    int x = ((instruction*)&a)->alu.alu_op, y = ((instruction*)&b)->alu.alu_op;
+    return(x != y ? x < y : a < b);
+}
+
 // In order of what they leave, to be found by halving; and for those that
 // leave the same, the one that stands for them.
 static void sort_alu(void) {
@@ -1040,8 +1053,8 @@ static void sort_alu(void) {
     for(int from=0; from < alus; ) {
         int to = from, stands = by_names[from];
         while (to < alus && ALU[by_names[to]].names == ALU[by_names[from]].names) to++;
-        for(int idx=to - 1; idx >= from; idx--) {
-            if (is_word(ALU[by_names[idx]].ins)) stands = by_names[idx];
+        for(int idx=from; idx < to; idx++) {
+            if (plainer(ALU[by_names[idx]].ins, ALU[stands].ins)) stands = by_names[idx];
         }
         for(int idx=from; idx < to; idx++) ALU[by_names[idx]].stands = ALU[stands].ins;
         from = to;

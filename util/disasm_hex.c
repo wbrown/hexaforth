@@ -148,13 +148,16 @@ static int immediate(long xt) {
     return(0);
 }
 
-// The table `fused` (see.fs): cells of the instruction, how many words,
-// and the address of each word's header, to a cell that is nothing.
+// The decompiler's table (fused.fs), which the cell `fused-at` says the
+// place of (see.fs): cells of the instruction, how many words, and the
+// address of each word's header, to a cell that is nothing.
 static void read_fused(void) {
-    long at = place_of(WORDS, NWORDS, "fused");
-    uint64_t cells;
-    if (at < 0 || !pushes_only(at, &cells)) return;
+    long at = place_of(WORDS, NWORDS, "fused-at");
+    uint64_t told, cells;
     size_t room = LEN / CELL_BYTES;
+    if (at < 0 || !pushes_only(at, &told) || told >= room) return;
+    cells = cell_of(BYTES, told);
+    if (!cells) return;
     while (cells + 2 < room && cell_of(BYTES, cells)) {
         ONE_MORE(FUSED, NFUSED, FUSED_ROOM);
         fusion* f = &FUSED[NFUSED];

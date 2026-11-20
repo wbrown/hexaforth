@@ -79,6 +79,7 @@ each-lane constant lane1        \ 1 in each lane
 to-top constant gather
 :: NIBSHIFT \ the top of a cell, less its pixels
     cell-bits lanes - literal ;
+
 \ A cell's lowest lane moved to its highest, and its highest to
 \ its lowest; and a cell's lanes each added to the lanes either
 \ side of it.  A cell of 16 bits is one lane, which is its
@@ -294,7 +295,7 @@ create dth 0 ,          \ the dither in hand: its record
     agr @ - >r  ( R: from the sums to the lanes )
     agr @ an @ bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup @ QUARTERED  over r@ + +!
         1+
@@ -339,7 +340,7 @@ target
     >r  agr @  an @ 1+ u2/  bounds
     ( end p ) ( R: the two cells it adds to )
     begin
-        2dupxor
+        2dup xor
     while
         dup @ TWICE  r@ 1+ +!  r@ +!
         r> CELL2 + >r  1+
@@ -369,7 +370,7 @@ W32+? [if]
                   \ left: 256, and 128
     an @ bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup @ r> +  CELL-DONE  >r over !
         1+
@@ -397,7 +398,7 @@ W32+? [if]
     d# 128 >r  ( lanes ) ( R: what the last pixel gave )
     d# 256 over +!  \ what the two before the first would leave
     an @ bounds
-    begin 2dupxor while
+    begin 2dup xor while
         dup @  dup d# 896 <  h# 80ff and + 1+  d# 3 rshift
         \ it gives; the next is owed this and the one before,
         h# fff over r@ + and  ( end p gives owed )
@@ -435,7 +436,7 @@ W32+? [if]
     \ the pixels whose lanes start at p, as a cell of the bitmap
     d# 0 >r  ( p ) ( R: the cell being made )
     dup d# 16 + swap
-    begin 2dupxor while
+    begin 2dup xor while
         dup @ BLACK-BITS
 LEFT-LOW? [if]
         r> LANES rshift  or >r
@@ -453,7 +454,7 @@ INK-BLACK? [if] [else] invert [then]
     dup abm @ CELL + @ + swap  ( lanes end dst )
     rot >r                     ( end dst ) ( R: the lanes )
     begin
-        2dupxor
+        2dup xor
     while
         r> acell-bits swap >r
         over ! 1+
@@ -466,7 +467,7 @@ INK-BLACK? [if] [else] invert [then]
     over - >r  ( from ) ( R: how far on the other row is )
     an @ bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup @ CLEAN  over r@ + +!
         1+
@@ -480,7 +481,7 @@ INK-BLACK? [if] [else] invert [then]
 : adown1 ( from to -- ) \ and to the three on the row below
     over - 1- >r  ( from ) ( R: from a cell to the one before )
     an @ bounds
-    begin 2dupxor while
+    begin 2dup xor while
         dup @ CLEAN  over r@ +         ( end p e t )
         \ its lowest lane to the highest of the cell before, its
         \ highest to the lowest of the cell after, and itself
@@ -663,7 +664,7 @@ variable pb
 \ in the code.
 :: GATHER ( p -- p' bits )
     s" d# 0 >r  dup d# 16 + swap" evaluate
-    s" begin 2dupxor while  dup @" evaluate
+    s" begin 2dup xor while  dup @" evaluate
     s" PLANE-BITS" evaluate
     disp-left-low if
         s" r> LANES rshift or >r"
@@ -705,7 +706,7 @@ target
     d# 760 >r  ( R: the lane value )
     d# 272 bounds
     begin
-        2dupxor
+        2dup xor
     while
         r@ v-level                              ( end a level )
         r@ d# 256 + over d# 17 * - d# 3 rshift
@@ -731,7 +732,7 @@ W32+? [if]
 : afold ( a n -- )
     over >r  u2/ over + swap  ( end to ) ( R: a )
     begin
-        2dupxor
+        2dup xor
     while
         \ from the two cells twice as far from a
         dup 2* r@ -  dup @ swap 1+ @ fold2  over !
@@ -772,7 +773,7 @@ W32+? [if]
     drop                         ( lanes a )
     tuck - >r  ( a ) ( R: offset from the sums to the lanes )
     an @ bounds
-    begin 2dupxor while
+    begin 2dup xor while
         dup @ ash @ 2* rshift GRAY-BITS  over r@ + +!  1+
     repeat
     2drop rdrop
@@ -787,7 +788,7 @@ W32+? [if]
 : lpixels ( lanes table -- ) \ each lane: its error and level
     >r  h# 800100 over +!  an @ bounds
     ( end p ) ( R: the table )
-    begin 2dupxor while
+    begin 2dup xor while
         dup @ CELL-LEVELS               ( end p e x' )
         >r over !  r> over 1+ +!  1+
     repeat
@@ -805,7 +806,7 @@ W32+? [if] [else]
 : lpixels ( lanes table -- ) \ the same, one sample per cell
     >r  d# 128 over 1- !  d# 256 over +!
     an @ bounds                      ( end p ) ( R: the table )
-    begin 2dupxor while
+    begin 2dup xor while
         dup @ r@ + @                 ( end p error )
         \ what the next sample is owed
         2dup swap 1- @ + h# fff and  ( end p error owed )
@@ -827,7 +828,7 @@ W32+? [if] [else]
 : lbits ( lanes dst xt -- )
     >r  dup abm @ CELL + @ + swap  ( lanes end dst ) ( R: xt )
     begin
-        2dupxor
+        2dup xor
     while
         rot r@ execute             ( end dst lanes' bits )
         rot tuck !  1+  rot swap   ( lanes' end dst' )

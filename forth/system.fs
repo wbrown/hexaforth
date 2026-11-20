@@ -72,10 +72,10 @@ meta 1 big-page  1 small-page target
 include text.fs         \ text in cells, a line at a time
 include term.fs         \ text area and the Forth window
 include edit.fs         \ block editor
-\ Every baseword a word with a header, which basewords.fs makes from
-\ vm_opcodes.h; before fused.fs, which names them by their headers.
+\ Every baseword a word with a header, and the names of an instruction's
+\ fields for the decompiler, which basewords.fs makes from vm_opcodes.h.
 baseword-words
-include fused.fs        \ fused instructions as words, for the decompiler
+field-names
 include see.fs          \ decompiler and the dictionary browser
 include files.fs        \ a source of the disk's by its label, and a file's own names
 include console.fs      \ the screen as the console, and the boot from a disk
@@ -106,6 +106,13 @@ include cross-words.fs  \ cross.fs's words, for the nucleus to compile this sour
 BOOTING? [if] [else]
 include apps.fs         \ the desktop
 [then]
+
+\ The decompiler's table, which names the basewords by their headers.  It
+\ is made from an image (util/fused.c), and the image it is made from has
+\ the table of no image: so it is laid after all the other data, where
+\ how long it is moves nothing, and see.fs is told where it is.
+
+include-fused           \ fused.fs: instructions as words, for the decompiler
 
 \ What the peephole is told of numbers is a table, and is laid after all
 \ the code: what reads an image as code reads none that is after a table

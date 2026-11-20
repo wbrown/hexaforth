@@ -112,7 +112,9 @@ header :: : cw-:: ( "name" -- )
     t-immediate >c count by-name
 ;
 header-imm literal : cw-literal ( x -- )
-    lastword @ macro-hdr @ = if ['] tliteral 'compile @ execute exit then
+    lastword @ macro-hdr @ = if
+        ['] tliteral 'compile @ execute exit
+    then
     tliteral
 ;
 
@@ -123,7 +125,8 @@ header-imm s" : cw-s" ( "ccc<quote>" -- c-addr u )
 ;
 
 header / : cw-/ ( n1 n2 -- n3 ) \ the quotient, towards nothing
-    2dup xor >r  abs swap abs swap  u/mod nip  r> 0< if negate then
+    2dup xor >r  abs swap abs swap  u/mod nip
+    r> 0< if negate then
 ;
 header mod : cw-mod ( n1 n2 -- n3 ) \ and what is left over
     2dup cw-/ * -
@@ -199,7 +202,7 @@ header beside : cw-beside ( -- ) pc-piece  d# 0 pc-row ! ;
 
 header row| : cw-row| ( "pixels" -- )
     pc-line bounds
-    begin 2dupxor while  dup c@ pc-pixel  1+  repeat
+    begin 2dup xor while  dup c@ pc-pixel  1+  repeat
     2drop  d# 1 pc-row +!
 ;
 
@@ -253,21 +256,24 @@ header prow, : cw-prow, ( byte -- )
 \ how many cells n runs of 64 pixels are, as a cell
 header px-cells, : cw-px-cells, ( n -- )
     d# 8 BYTESHIFT rshift *  align t, ;
+
 \ a cell for each number of pixels from none to a whole cell:
 \ that many pixels at the left of a cell
 header lefts, : cw-lefts, ( -- )
     align  d# 0
     begin dup CELLBITS 1+ < while
         dup CELLBITS = if d# -1 else d# 1 over lshift 1- then
-        LEFT-LOW? [if] [else] over CELLBITS swap - lshift [then]
+        LEFT-LOW? [if] [else]
+            over CELLBITS swap - lshift
+        [then]
         t,  1+
     repeat
     drop
 ;
 
-\ (The basewords are words of the nucleus too, which basewords.fs
-\ makes from vm_opcodes.h: system.fs lays them, before fused.fs
-\ names them.)
+\ (The basewords are words of the nucleus too, which
+\ basewords.fs makes from vm_opcodes.h: system.fs lays them, and
+\ fused.fs names them.)
 
 \ ---- the machine, as cross.fs says it
 
@@ -292,6 +298,7 @@ header PXCELL : cw-pxcell PXCELL ;
 header CELLBITS : cw-cellbits CELLBITS ;
 header LANE1 : cw-lane1 LANE1 ;
 header PXMASK : cw-pxmask PXMASK ;
+
 header PXSHIFT : cw-pxshift PXSHIFT ;
 
 \ (DISP-BASE, DISP-STRIDE, DISP-BANKS and DISP-BANK-STEP are the
@@ -364,6 +371,7 @@ header-imm DISPLAY? : cw-display?
     DISPLAY? [if] true [else] false [then] ;
 header-imm W64? : cw-w64? W64? [if] true [else] false [then] ;
 header-imm W32? : cw-w32? W32? [if] true [else] false [then] ;
-header-imm W32+? : cw-w32+? W32+? [if] true [else] false [then] ;
+header-imm W32+? : cw-w32+?
+    W32+? [if] true [else] false [then] ;
 header-imm BOOTING? : cw-booting?
     BOOTING? [if] true [else] false [then] ;

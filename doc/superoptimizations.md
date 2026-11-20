@@ -61,8 +61,8 @@ it takes two.
 The stack depths used to be an operation and are now read through a port
 (be583fd, bee7834), and writing a port became an output, replacing `->N`
 (5aa2d94). The two freed slots hold `T<>N,IN->`, which makes `tuck`,
-`swap>r` and `swapr>` one instruction each, and `IN*N`, the multiply, which
-replaced a 32-step loop in the nucleus (37e9578).
+`swap >r` and `swap r>` one instruction each, and `IN*N`, the multiply,
+which replaced a 32-step loop in the nucleus (37e9578).
 
 ### Operating on memory in place
 
@@ -70,8 +70,9 @@ replaced a 32-step loop in the nucleus (37e9578).
 operation, and write it back, all in one instruction (51a6058, 3c73365,
 23a56ff). Written the usual Forth way, `tuck @ or swap !` is five
 instructions and six clocks; the single instruction takes two. Reading a
-cell and combining it with N without writing it back (`@and`, `@+`,
-`@xor`, `@*`) is also one instruction. `ink` is `or!`, and `x!` is `xor!`.
+cell and combining it with N without writing it back (`@ and`, `@ +`,
+`@ xor`, `@ *`) is also one instruction. `ink` is `or!`, and `x!` is
+`xor!`.
 
 Setting pixels in a display cell is `or!`; clearing them is `and!`; ORing a
 glyph row onto the screen is one `or!` per row (`or-plain`); and inverting
@@ -80,13 +81,17 @@ a cell in place while keeping its address is `dup not!`, one instruction
 
 ### Stack shuffles folded into one instruction
 
-`dup@`, `over@`, `dup@@`, `@r`, `tuck`, `swap>r`, `swapr>`, `over>r`,
-`dup>r`, `2drop`, `rdrop` and `r@;` are each one instruction, and `-rot` is
-two, `swap>r swapr>` (188eff1, be583fd, 4692757, 5c4b487). The J1b's
-`2dupxor`, `over+`, `2dup<`, `overand` and `over=` are an operation with
-`d+1` (keep both operands and push the result) or `d+0` (replace the top
-with the result). `2drop` routes R back to R, leaving it unchanged, so
-that the value it writes doesn't take the new top's place.
+`dup @`, `over @`, `dup @ @`, `r@ @`, `tuck`, `swap >r`, `swap r>`,
+`over >r`, `dup >r`, `2drop`, `rdrop` and `r@ exit` are each one
+instruction, and `-rot` is two, `swap >r swap r>` (188eff1, be583fd,
+4692757, 5c4b487). The J1b's `2dupxor`, `over+`, `2dup<`, `overand` and
+`over=` are an operation with `d+1` (keep both operands and push the
+result) or `d+0` (replace the top with the result), and are written here
+as the words they are made of: `2dup xor`, `over +`. None of these phrases
+is a word. Each is written as its words, the compilers make the one
+instruction of them, and `vm_opcodes.h` has an entry for each, which the
+build holds to what the words do. `2drop` routes R back to R, leaving it
+unchanged, so that the value it writes doesn't take the new top's place.
 
 ### Literals that add
 
@@ -128,10 +133,10 @@ and in the nucleus (`texit`).
 ### Loops count up, and loops over memory keep no count
 
 ```
-bounds begin 2dupxor while ... 1+ repeat 2drop
+bounds begin 2dup xor while ... 1+ repeat 2drop
 ```
 
-The address goes up until it reaches the end address. `2dupxor` is one
+The address goes up until it reaches the end address. `2dup xor` is one
 instruction that keeps both addresses (`T->IN IN^N ->T d+1`); the
 conditional branch pops the result and only asks whether it is zero; `1+`
 is one instruction; and `bounds` runs once. The old way kept a count and
@@ -160,7 +165,7 @@ A loop from one address to another needs only the end address. Working out
 how many there are costs a subtraction before the loop and an addition
 inside it. `glyph-or` keeps the end of a glyph's rows (`rend`), and whether
 any row is drawn at all is whether the first comes before the last, which
-is one instruction (`2dup<`) (3f47c72).
+is one instruction (`2dup <`) (3f47c72).
 
 ### Loops test at the bottom
 
@@ -170,8 +175,8 @@ the test at the bottom using the other of the two operations (they are
 `h# f0` apart), followed by a branch back while the result is non-zero:
 
 ```
-begin 2dupxor while BODY repeat        is compiled as
-2dupxor if begin BODY 2dup= until then
+begin 2dup xor while BODY repeat        is compiled as
+2dup xor if begin BODY 2dup = until then
 ```
 
 Each turn is then the body, the test and the branch, where it used to be the
@@ -202,7 +207,7 @@ the first whenever it's needed, with `over r@ +`, one instruction
 
 ```
 >r over - r> swap >r bounds               ( end from ) ( R: distance from source to destination )
-begin 2dupxor while  dup @  over r@ + !  1+  repeat  2drop rdrop
+begin 2dup xor while  dup @  over r@ + !  1+  repeat  2drop rdrop
 ```
 
 That is `cells-move`. `same?` compares two bands this way, and the dither
@@ -315,15 +320,15 @@ either that number or zero, which can then be added in, with no branch.
 ### A branch only asks whether a value is zero
 
 The conditional branch pops T and branches if it is zero. So `<> if` becomes
-`xor if`, `0<> if` becomes `if` (44a704d), `2dup = if` becomes `2dupxor if`
-with the two branches swapped (4bfc710), and `0= if A else B then` becomes
+`xor if`, `0<> if` becomes `if` (44a704d), `2dup = if` becomes `2dup xor
+if` with the two branches swapped (4bfc710), and `0= if A else B then` becomes
 `if B else A then` (771d2c9).
 
 ### Branches that end in exit
 
 `drop exit` is one instruction, since the return is merged into the `drop`.
-So `2dup< if drop else nip then` becomes `2dup< if drop exit then nip`, and
-the jump over the `else` disappears (771d2c9). In the image, `min` is four
+So `2dup < if drop else nip then` becomes `2dup < if drop exit then nip`,
+and the jump over the `else` disappears (771d2c9). In the image, `min` is four
 instructions: the test, the branch, and two instructions that each return.
 
 ### 0 ≤ i < n is one comparison
@@ -371,7 +376,7 @@ instruction per row (`+rows`, dae91c3):
 
 ```
 tend @ tband
-begin 2dupxor while  dup gd @ + @ hi @ PIXR over or!  1+  repeat  2drop
+begin 2dup xor while  dup gd @ + @ hi @ PIXR over or!  1+  repeat  2drop
 ```
 
 `gd` is the distance from the band to the glyph's rows, so one add finds the
@@ -617,7 +622,7 @@ from the gray row to the sums.
 
 As it was (12 instructions):
 
-    dup@                        end a x
+    dup @                       end a x
     8 (N->IN IN>>T ->T d+0)     end a x hi        x's high byte; x kept underneath
     swap                        end a hi x        x back on top
     255 and                     end a hi lo
@@ -668,7 +673,7 @@ and the error goes to all three cells unchanged.
 As it was (15):
 
     over (R->IN IN+N ->T d+0)   end p t           t computed first
-    over@ 4095 and              end p t e         the fetch has to reach past t
+    over @ 4095 and             end p t e         the fetch has to reach past t
     over ([T]->IN IN+N ->[T] d+0)
                                 end p t e t       e added at t; t copied
     2 + ([T]->IN IN+N ->[T] d-1)
@@ -679,7 +684,7 @@ As it was (15):
 
 As found (13):
 
-    dup@ 4095 and               end p e           fetch first, while p is on top
+    dup @ 4095 and              end p e           fetch first, while p is on top
     (R->IN IN+N ->T d+1)        end p e t         t = p (under the top) + R, pushed
     ([T]->IN IN+N ->[T] d+0)    end p e t         e added at t
     2 + ([T]->IN IN+N ->[T] d-1)
@@ -693,7 +698,7 @@ one instruction: R as the input, added to N, the result pushed (`over r@ +`
 compiles to it). Copying a kept value is also one instruction (`over`). So
 recomputing it costs no more than keeping it, and keeping it costs extra:
 a kept value is in the way of everything beneath it. Computed first and
-kept, `t` got in the way of the fetch (`over@`, reaching past it), had to be
+kept, `t` got in the way of the fetch (`over @`, reaching past it), had to be
 copied for the first add, and had to be swapped back on top for the last.
 Computed where it is used, it is consumed there, and nothing has to reach
 past it or be swapped back.
@@ -727,7 +732,7 @@ As it was (22 instructions), from the threshold on:
     (T->IN T<>N,IN-> ->[T] d+0) end g p           g stored in this pixel's lane
     (N->IN T<>N,IN-> ->T d+1)   end p g g
     (R->IN IN+N ->T d+0 r-1)    end p g s         s = g + the last one's, popped from R
-    swap>r                      end p s           R: g, pushed back
+    swap >r                     end p s           R: g, pushed back
     4095 and                    end p s'
     over 1 + +!                 end p             s' added to the next lane
     1 + (T->IN IN==N ->T d+1) until
@@ -743,7 +748,7 @@ As it is now (20):
     (T->IN IN==N ->T d+1) until
 
 The old turn took the carried value off R (`r>`, folded into the add) and
-put the new one back (`swap>r`). An instruction whose output is `->R` with
+put the new one back (`swap >r`). An instruction whose output is `->R` with
 the return stack not moving (`r+0`) does both at once: it writes over R's
 top. So `swap rdrop >r` is a single instruction, `(N->IN T<>N,IN-> ->R
 d-1)`, which replaces what the last pixel gave with what this one gives,
@@ -879,7 +884,7 @@ As found (6), with the test at the bottom:
 
     >r                          n                 R: h
     1 +                         n'                R: h
-    @r                          n' h'             the link, fetched through R
+    r@ @                        n' h'             the link, fetched through R
     0                           n' h' 0
     (T->IN IN==N ->T d+0 r-1)   n' h' f           is h' nothing? and h popped from R
     until                       n' h'
@@ -890,7 +895,7 @@ the codes already passed shifted out of it.
 
 As it was (12):
 
-    255 overand                 k w c             the code at the bottom of w
+    255 over and                k w c             the code at the bottom of w
     32 u<                       k w f             is it below a space?
     invert                      k w ~f
     while                       k w               out, if it is
@@ -904,7 +909,7 @@ As found (9), with the test at the bottom:
     1 +                         k'                R: w
     8                           k' 8
     (R->IN IN>>T ->T d+0)       k' w'             w from R, shifted right 8
-    255 overand                 k' w' c
+    255 over and                k' w' c
     32                          k' w' c 32
     (T->IN Nu<IN ->T d-1 r-1)   k' w' f           u<, and w popped from R
     until                       k' w'
@@ -913,7 +918,7 @@ As found (9), with the test at the bottom:
 With the value put on R (`>r`) the count is on top, where adding one is one
 instruction. The value doesn't have to come back as it was: what the turn
 does with it next, following its link or shifting it, takes R as its input
-and pushes the new value (`@r`, and `R->IN IN>>T`). So `>r`, `1 +` and an
+and pushes the new value (`r@ @`, and `R->IN IN>>T`). So `>r`, `1 +` and an
 operation the turn had anyway do what `swap 1 + swap` and that operation
 did, in one instruction fewer. The old value is still on R, and the test
 pops it: its comparison has `r-1` on it, so nothing is spent clearing R.
@@ -923,16 +928,16 @@ cells of a record to the first that is negative, and steps past it. The
 stack is the address alone. As it was (7), the cell is fetched and the
 address then stepped underneath it:
 
-    dup@                        a x
+    dup @                       a x
     swap 1 + swap               a' x
     0 <                         a' f              is x negative?
     until                       a'
 
 As found (6):
 
-    dup>r                       a                 R: a
+    dup >r                      a                 R: a
     1 +                         a'                R: a
-    @r                          a' x              the cell, fetched through R
+    r@ @                        a' x              the cell, fetched through R
     0                           a' x 0
     (T->IN N<IN ->T d-1 r-1)    a' f              <, and a popped from R
     until                       a'

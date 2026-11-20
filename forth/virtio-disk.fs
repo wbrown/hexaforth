@@ -18,7 +18,7 @@ include reg.fs
 \ byte (w!).  One of 64 that holds an address or a block's
 \ number is at a whole cell, and that is stored as a cell: the
 \ rest of the field is nothing and stays so.  The bytes:
-\
+
 \   0    four descriptors of 16: where (64 bits), how long (32),
 \        what is so of it (16; 1: another follows, 2: the device
 \        writes it) and which follows (16).  0 is the request's
@@ -33,7 +33,7 @@ include reg.fs
 \        finished (16), and what it says of the last four
 \   120  the status: a byte, 0 if all is well
 \   128  where the device's registers are: a cell
-\
+
 \ They are the last 1,024 bytes of the kernel's page, where no
 \ code is.  The image has nothing there, so no block of it is
 \ read over them while they are what reads it; cross.fs looks.
@@ -74,6 +74,9 @@ meta #136 cell-bytes / target constant VQ-CELLS
     d# 1 h# 24 v!  d# 1 h# 20 v!
     d# 11 vstatus                   \ which it is to agree to
 ;fallthru
+
+\ Its queue, which vstart runs on into: four descriptors, of
+\ which a request is three (the bytes, above).
 : vqueue ( -- )
     d# 4 h# 38 v!                   \ four descriptors
     VQ >phys
@@ -96,6 +99,7 @@ meta #136 cell-bytes / target constant VQ-CELLS
 \ is one.  (It was handed to -throw as it was, 1 for an error,
 \ and -throw, which wants a flag, threw nothing: a block that
 \ was not read was taken for read.)
+
 : vio ( a blk type -- )
     dup d# 48 vq!
     2* d# 3 xor d# 28 vq!           \ a block read is written

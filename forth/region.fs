@@ -142,7 +142,7 @@ target
     over - >r  ( last ) ( R: how far on the band is )
     dup 1+ swap @ bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup @  over r@ + @  xor if 2drop rdrop false exit then
         1+
@@ -244,7 +244,7 @@ header rgn-diff : rgn-diff ( a b to -- )
     \ every band ends that much further down, but the last
     swap >r bands          ( end band ) ( R: dy )
     begin
-        band-next 2dupxor  \ is there a band after it?
+        band-next 2dup xor  \ is there a band after it?
     while
         r@ over 1- +!
     repeat
@@ -267,7 +267,7 @@ header rgn-diff : rgn-diff ( a b to -- )
     \ every crossing is that much further along
     swap >r bands  ( end band ) ( R: dx )
     begin
-        2dupxor
+        2dup xor
     while
         r@ over band-along  band-next
     repeat
@@ -282,7 +282,7 @@ header rgn-offset : rgn-offset ( dx dy rgn -- ) \ move it
     \ the least that the crossings of any band start at
     END-MIN >r bands  \ further along than any crossing
     begin
-        2dupxor
+        2dup xor
     while
         dup @ if dup 1+ @ r> min >r then
         band-next
@@ -293,7 +293,7 @@ header rgn-offset : rgn-offset ( dx dy rgn -- ) \ move it
 : rgn-right ( rgn -- x ) \ and the most that they end at
     END-MIN negate >r bands
     begin
-        2dupxor
+        2dup xor
     while
         dup @ if dup dup @ + @ r> max >r then
         band-next

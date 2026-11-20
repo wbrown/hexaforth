@@ -123,7 +123,7 @@ include compose.fs
 : makes ( w -- n )
     folds d# 3 +  folds i@ folds 1+ i@ +  bounds    ( w end a )
     begin
-        2dupxor
+        2dup xor
     while
         >r  over r@ i@ = if
             \ those of one are first
@@ -213,9 +213,9 @@ include compose.fs
 
 : crossed ( w set -- y | 0 )
     \ what w is after that set's instruction and a push
-    dup d# 2 +  swap 1+ i@ d# 3 *  bounds           ( w end rule )
+    dup d# 2 +  swap 1+ i@ d# 3 *  bounds  ( w end rule )
     begin
-        2dupxor
+        2dup xor
     while
         >r  over r@ i@ and  r@ 1+ i@ = if
             drop  r> d# 2 + i@ xor  exit
@@ -278,9 +278,6 @@ include compose.fs
 \ A word that moves the return stack cannot be called: it is
 \ immediate, and where it is written it offers its one
 \ instruction to the one before, as emit1 offers any other.
-\ rdrop, @r, swap>r and swapr> are among them for the decompiler
-\ too, which shows the image's fused instructions by the headers
-\ of the words they are made of (fused.fs).
 : offered ( -- ) \ the instruction after the call of this
     r> i@ emit1 ;
 inline-operand
@@ -288,9 +285,6 @@ header-imm >r      :noname  offered >r ;fallthru
 header-imm r>      :noname  offered r> ;fallthru
 header-imm r@      :noname  offered r@ ;fallthru
 header-imm rdrop   :noname  offered rdrop ;fallthru
-header-imm @r      :noname  offered @r ;fallthru
-header-imm swap>r  :noname  offered swap>r ;fallthru
-header-imm swapr>  :noname  offered swapr> ;fallthru
 
 \ Does an instruction leave the return stack alone but for how
 \ it moves?
@@ -333,7 +327,7 @@ header-imm swapr>  :noname  offered swapr> ;fallthru
     dup small ?dup 0= if (compile,) exit then       ( xt n )
     bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup i@ emit1
         1+

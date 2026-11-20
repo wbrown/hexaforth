@@ -253,7 +253,7 @@ create vondisk 0 ,  \ the viewer whose bitmap is on the disk,
     \ the blocks those rows are in
     vblock  swap 1- vblock 1+  swap           ( end blk )
     begin
-        2dupxor
+        2dup xor
     while
         r@ @ over blk-read
         dup VIEW-BLK - vrpb *  r@ vshow
@@ -475,7 +475,7 @@ header view-load
 : band-draw ( y n -- )
     over band-at
     2dup bounds
-    begin 2dupxor while dup gray-line 1+ repeat
+    begin 2dup xor while dup gray-line 1+ repeat
     2drop
     >r >r  vband @ d# 0 r@  d# 0 r>  vkw @ r>  copy-bits
 ;
@@ -484,7 +484,8 @@ header view-load
 \ the rows not made yet, the picture as it was dithered, if any
 \ of those rows is asked for.
 : gray-shown ( -- )
-    clip-rows nip made >  made vkh @ < and if made dithered then
+    clip-rows nip made >
+    made vkh @ < and if made dithered then
     clip-rows made min  swap d# 0 max       ( bottom top )
     begin
         2dup >
@@ -627,7 +628,9 @@ W32+? [if]
     pic-made
     vrow @ vgray @ gray-rows < if exit then
     \ free what making it used, if nothing was allocated since
-    himem @ vtop @ = if vgray @ gray-dither vdone make-free then
+    himem @ vtop @ = if
+        vgray @ gray-dither vdone make-free
+    then
     d# 0 vimg !
     view-done
 ;

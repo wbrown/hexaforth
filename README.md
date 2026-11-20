@@ -197,18 +197,17 @@ instructions.
 
 The kernel is the first 4KB of page 0. It is the part that sits in ROM, and
 it is everything needed to type Forth at the machine and have it compiled.
-It has 277 words, of which these 194 have names you can type:
+It has ~270 words, and these have names you can type:
 
 - **The stacks**: `dup drop swap over nip tuck rot -rot ?dup 2dup 2drop 2swap
-  2over 3dup depth adepth`, and `>r r> r@ rdrop @r swap>r swapr> i j
-  unloop`
+  2over 3dup depth adepth`, and `>r r> r@ rdrop i j unloop`
 - **Arithmetic**: `+ - * 1+ 1- 2* 2/ negate abs min max um* um/mod u/mod`
 - **Bits**: `and or xor invert lshift rshift`
 - **Comparison**: `= <> < > u< u> 0= 0<> 0< 0> true false`
 - **Double-cell numbers**: `d+ dnegate s>d d2* 2@ 2!`
-- **Memory**: `@ ! +! or! and! xor! *! not! dup@ over@ c@ c! uw@ w! field@
-  field! >c c> hi32 lo32 hi16 lo16 count cell+ cells aligned align cmove
-  cells-move cells-fill /string bounds i@ i!`
+- **Memory**: `@ ! +! or! and! xor! *! not! c@ c! uw@ w! field@ field! >c
+  c> hi32 lo32 hi16 lo16 count cell+ cells aligned align cmove cells-move
+  cells-fill /string bounds i@ i!`
 - **The console and the ports**: `key key? emit uart-emit 'emit 'console cr
   space bl type . .x .x2 hex1 accept io@ io!`
 - **The interpreter**: `source source-id sourceid >in parse parse-name

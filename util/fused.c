@@ -1,10 +1,19 @@
 //
-// fused IMAGE.hex IMAGE.tables forth/fused.fs
+// fused IMAGE.hex IMAGE.tables forth/fused.fs [--same]
+// fused TABLE.fs
 //
 // The table see.fs shows an instruction as words by (forth/fused.fs),
-// made from a built image.  It is in the image, so an image is built with
-// the table there was, the table is made of that image, and the image is
-// built again, until the table stops changing.
+// made from a built image.  It is in the image, so it is not made from the
+// image it is in: an image is built first with the table of no image, which
+// this writes when it is given no image, and the table is made of that one
+// (CMakeLists.txt).  The table is laid after all an image's other data
+// (forth/system.fs), where how long it is moves nothing: a table laid
+// before a variable can push it out of the cells one instruction reaches,
+// and the code that fetches it is then other instructions.  So the image
+// that is then built with the table has the same instructions, and the
+// test `tables` holds it to that: with --same nothing is written, and it
+// fails, saying what the file has not, if the table of the image is not
+// the table the file has.
 //
 // What is shown is meant to be read, so it is the plain words a programmer
 // would write and not the name of whatever the instruction happens to be.
@@ -13,8 +22,7 @@
 // there is:
 //
 //   the standard word that is the instruction (dup, +, @)
-//   two standard words (2dup xor, over +, dup @), which read better than
-//     a name made of them (2dupxor, over+, dup@)
+//   two standard words (2dup xor, over +, dup @)
 //   the machine's own name for it, if that is in the dictionary (or!)
 //   three standard words, then two or three of any in the dictionary,
 //     then four
@@ -28,8 +36,6 @@
 // Whether some words are an instruction is asked of the machine: the step
 // on terms says what each leaves (fuse.h), and they are the instruction
 // if they leave the same.  Nothing here says what an instruction does.
-// The names of an instruction's fields, which the table ends with, are
-// read from vm_opcodes.h.
 //
 
 #include "fuse.h"
@@ -51,6 +57,8 @@ typedef struct {
     uint16_t ins;
     uint64_t leaves;                    // the number for what it leaves, or nothing if the step does not say
     long uses;
+    long at;                            // where the image first has it, and the word that is in
+    const char* in;
     const char* own;                    // the machine's name for it, if the dictionary has that
     int said[MOST], said_n;             // the words it is shown as: places in TYPED
     long rank;                          // of those words: fewer, then fewer instructions, then shorter
@@ -227,41 +235,14 @@ static int by_uses(const void* a, const void* b) {
     return((int)x->ins - (int)y->ins);
 }
 
-// The names of a field's values, in the order of the values: they are the
-// words of vm_opcodes.h, under the field's heading there, that are that
-// field with a value and nothing else.  They go on over lines a block's
-// line long, each under the first.
-static void field_names(FILE* out, const char* table, const char* heading, int values, uint16_t (*with)(int)) {
-    int len = fprintf(out, "create %s ", table);        // and a space before each name
-    const int indent = len;                             // where the space before each line's first name is
-    for(int value=0; value < values; value++) {
-        const char* name = NULL;
-        int under = 0;
-        for(forth_op* op = INS_FIELDS; strlen(op->repr) && !name; op++) {
-            if (op->type == COMMT) { under = !strcmp(op->repr, heading); continue; }
-            if (under && *(uint16_t*)&op->ins == with(value)) name = op->repr;
-        }
-        if (!name) { fprintf(stderr, "fused: vm_opcodes.h has no name for %s %d\n", heading, value); exit(1); }
-        if (value && len + (int)strlen(name) + 5 > DISK_LINE) len = fprintf(out, "\n%*s", indent, "") - 1;
-        len += fprintf(out, " ,\" %s\"", name);
-    }
-    fprintf(out, "\n");
-}
-static uint16_t with_in(int v)  { instruction ins = {0}; ins.alu.in_mux = v;  return(*(uint16_t*)&ins); }
-static uint16_t with_op(int v)  { instruction ins = {0}; ins.alu.alu_op = v;  return(*(uint16_t*)&ins); }
-static uint16_t with_out(int v) { instruction ins = {0}; ins.alu.out_mux = v; return(*(uint16_t*)&ins); }
-
-int main(int argc, char *argv[]) {
-    if (argc != 4) {
-        fprintf(stderr, "usage: fused IMAGE.hex IMAGE.tables forth/fused.fs\n");
-        return(1);
-    }
-    get_ready();
-    memset(want_at, -1, sizeof(want_at));
+// The instructions an image has, and the words each is shown as; how many
+// of them needed four words.  `beside` is a file what is asked of gforth
+// can be written beside.
+static int find_words(const char* image_path, const char* tables_path, const char* beside) {
     uint8_t* image;
-    size_t len = load_image(argv[1], &image);
+    size_t len = load_image(image_path, &image);
     word* words;
-    int n = words_of(image, len, argv[2], &words);
+    int n = words_of(image, len, tables_path, &words);
     without_tables(image, len, words, n);
 
     uint16_t noop = ins_named("noop"), leaves = ins_named("exit");
@@ -269,10 +250,11 @@ int main(int argc, char *argv[]) {
 
     // The words that may be said: those of vm_opcodes.h that have a header
     // and that the step says of; and the machine's own name for an
-    // instruction, which may be one the step says nothing of (io@).
+    // instruction, which may be one the step says nothing of (io@).  A
+    // phrase of vm_opcodes.h is not a word, and has no header.
     for(word_node* w = FORTH_WORDS; w->repr && strlen(w->repr); w++) {
         if (!w->num_ins || !has_header(words, n, w->repr)) continue;
-        if (!strcmp(w->repr, "noop") || !strcmp(w->repr, "halt") || !strcmp(w->repr, "exit") || !strcmp(w->repr, "r@;")) continue;
+        if (!strcmp(w->repr, "noop") || !strcmp(w->repr, "halt") || !strcmp(w->repr, "exit")) continue;
         uint16_t first = *(uint16_t*)&w->ins[0];
         instruction ins = w->ins[0];
         if (w->num_ins == 1 && !ins.lit.lit_f && ins.alu.op_type == OP_TYPE_ALU && !ins.alu.r_eip && !want(first)->own) {
@@ -286,7 +268,7 @@ int main(int argc, char *argv[]) {
         memcpy(TYPED[typed].code, w->ins, w->num_ins * sizeof(uint16_t));
         typed++;
     }
-    ask_gforth(argv[3]);
+    ask_gforth(beside);
 
     // The instructions the image's code has.  Code is the pages that words
     // are in.
@@ -305,7 +287,7 @@ int main(int argc, char *argv[]) {
         }
         uint16_t x = *(uint16_t*)&ins;
         if (x == noop) continue;
-        want(x)->uses++;
+        if (!want(x)->uses++) want(x)->at = (long)at, want(x)->in = word_at(words, n, (long)at);
     }
 
     // One standard word, or two; then the machine's own name; then three
@@ -329,24 +311,41 @@ int main(int argc, char *argv[]) {
     for(int w=0; w < wants; w++) needed_four += !WANT[w].shown && WANT[w].leaves;
     if (needed_four) four_words();
     settle(0);
+    return(needed_four);
+}
+
+int main(int argc, char *argv[]) {
+    const int same = argc == 5 && !strcmp(argv[4], "--same");
+    if (argc != 4 && argc != 2 && !same) {
+        fprintf(stderr, "usage: fused IMAGE.hex IMAGE.tables forth/fused.fs [--same]\n"
+                        "       fused TABLE.fs       the table of no image\n");
+        return(1);
+    }
+    const int of_image = argc != 2;
+    const char* table = argv[of_image ? 3 : 1];
+    get_ready();
+    memset(want_at, -1, sizeof(want_at));
+    int needed_four = of_image ? find_words(argv[1], argv[2], table) : 0;
 
     qsort(WANT, wants, sizeof(wanted), by_uses);
-    char* made = NULL;                  // the table, which is written to the file if it is not there already
+    char* made = NULL;                  // the table
     size_t made_len = 0;
     FILE* out = open_memstream(&made, &made_len);
-    if (!out) { perror(argv[3]); return(1); }
+    if (!out) { perror(table); return(1); }
     fprintf(out, "\\ fused.fs - the image's instructions as words, for see.fs\n"
                  "\\ GENERATED from the image by util/fused.c whenever the image is\n"
-                 "\\ built (util/tables.cmake).  Do not edit.\n\\\n"
+                 "\\ built (CMakeLists.txt).  Do not edit.\n\\\n"
                  "\\ Each entry is cells: the instruction, how many words it is,\n"
                  "\\ and the address of each word's header.  The words are the\n"
                  "\\ plain ones a programmer would write: one standard word, or\n"
                  "\\ two, before the machine's own name for the instruction.  Those\n"
                  "\\ the image has most of are first, since the table is searched\n"
                  "\\ from the start.  A zero ends the table.  It is a table of\n"
-                 "\\ cells, reached a cell at a time: high.\n\n"
+                 "\\ cells, reached a cell at a time: high.  It is laid after all\n"
+                 "\\ the image's other data, and see.fs is told where it is\n"
+                 "\\ (fused-at): it has no header of its own.\n\n"
                  "high\n"
-                 "header fused create fused\n");
+                 "create fused\n");
     // The table is source that goes on a disk: cut with a line of nothing,
     // between two of its entries, before it is longer than a block's lines
     // (doc/formatting.md).
@@ -363,20 +362,37 @@ int main(int argc, char *argv[]) {
         shown++;
         one += WANT[w].said_n == 1;
     }
-    if (run + 2 > DISK_BLOCK / DISK_LINE) fprintf(out, "\n");
-    fprintf(out, "0 ,\nunhigh\n");
-    fprintf(out, "\n\\ The names of an instruction's fields, as vm_opcodes.h has\n"
-                 "\\ them: where the ALU's input is from, the operation, and where\n"
-                 "\\ the result goes.  Each is counted strings laid end to end:\n"
-                 "\\ text, so bulk.\nbulk\n");
-    field_names(out, "f-in", "input_mux", INPUTS, with_in);
-    field_names(out, "f-op", "alu_op", OPS, with_op);
-    field_names(out, "f-out", "output_mux", OUTPUTS, with_out);
-    fprintf(out, "unbulk\n");
+    if (run + 3 > DISK_BLOCK / DISK_LINE) fprintf(out, "\n");
+    fprintf(out, "0 ,\nunhigh\nmeta t' fused t' fused-at tvar! target\n");
     fclose(out);
-    if (!write_if_new(argv[3], made, made_len)) { perror(argv[3]); return(1); }
+    if (same) {
+        // nothing is written: is the image's table what the file has?
+        unsigned char* had;
+        size_t have = file_bytes(table, &had);
+        int is = had && have == made_len && !memcmp(had, made, made_len);
+        printf("the table of %s is %s%s\n", argv[1], is ? "" : "not ", table);
+        // each line of the image's table that the file has not: how often
+        // the image has its instruction, and where it has it first
+        for(int w=0; w < wants && !is; w++) {
+            if (!WANT[w].shown) continue;
+            char* line = NULL;
+            text_more(&line, "$%04x , $%x , %s\n", WANT[w].ins, WANT[w].said_n, WANT[w].shown);
+            size_t len = strlen(line), at = 0;
+            while (had && at + len <= have && memcmp(had + at, line, len)) at++;
+            if (!had || at + len > have) {
+                printf("  %ld, the first at $%lx in %s: %s", WANT[w].uses, WANT[w].at, WANT[w].in ? WANT[w].in : "no word", line);
+            }
+            free(line);
+        }
+        return(is ? 0 : 1);
+    }
+    if (!write_whole(table, made, made_len)) { perror(table); return(1); }
     free(made);
+    if (!of_image) {
+        printf("the table of no image written to %s\n", table);
+        return(0);
+    }
     printf("%d instructions as one word and %d as more written to %s; %d needed four words; %d have no words\n",
-           one, shown - one, argv[3], needed_four, not_shown);
+           one, shown - one, table, needed_four, not_shown);
     return(shown ? 0 : 1);
 }

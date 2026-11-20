@@ -176,7 +176,7 @@ header names-unload
     \ the block of a run a key is in
     dup >r  rot >r                      ( b1 b ) ( R: b0 key )
     begin
-        2dupxor if dup bkey r@ u> 0= else false then
+        2dup xor if dup bkey r@ u> 0= else false then
     while
         1+
     repeat
@@ -369,10 +369,18 @@ target
     >r sb sbn @ r> tok
 ;
 
+\ Where the table is.  It is made from an image, and is laid
+\ after all the image's other data (system.fs), so that how long
+\ it is moves nothing: this cell is told where, when it is laid.
+\ The header is here and the table has none, so that the newest
+\ word of the dictionary is the system's and not a table; the
+\ tools that read an image find the table by it too.
+header fused-at create fused-at 0 ,
+
 \ the words of a fused instruction: how many, then the header
 \ of each
 : fused? ( w -- a|0 )
-    fused
+    fused-at @
     begin
         dup @
     while
@@ -392,7 +400,7 @@ target
     dup @ d# 1 > sbold !
     dup @ swap 1+ swap bounds                       ( end a )
     begin
-        2dupxor
+        2dup xor
     while
         dup @ sname
         1+
@@ -668,7 +676,7 @@ target
 
 : newest ( p v b1 b0 -- p' v' ) \ of the blocks of a run
     begin
-        2dupxor
+        2dup xor
     while
         swap >r dup >r nm-block newest-in  r> 1+ r> swap
     repeat

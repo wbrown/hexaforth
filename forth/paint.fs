@@ -304,7 +304,7 @@ create dotx 0 ,
 : dot ( x y -- ) \ the pen, with its top left there
     swap dotx !  pen @ bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup  dotx @ dup pen @ +  rot run
         1+
@@ -365,7 +365,7 @@ create bx0 0 ,  create by0 0 ,  create bx1 0 ,  create by1 0 ,
 : rect-fill ( -- )
     by1 @ 1+ by0 @
     begin
-        2dupxor
+        2dup xor
     while
         dup  bx0 @ bx1 @ 1+  rot run
         1+

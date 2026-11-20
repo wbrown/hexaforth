@@ -70,7 +70,7 @@ header F-UNDER     : code-under       F-UNDER ;
 
 \ the cells from b up to e, from what starts s bits into a
 : bits-move ( a s b e -- )
-    begin 2dupxor while
+    begin 2dup xor while
         >r >r  2dup bits@ r@ !  swap 1+ swap  r> 1+ r>
     repeat
     2drop 2drop
@@ -95,6 +95,7 @@ header F-UNDER     : code-under       F-UNDER ;
 \ A line's end is found from the codes in it: the first below a
 \ space after character i, and the first of those that is EOL.
 \ What is before i is made spaces, so that it is not found.
+
 : code-at ( a i -- k )
     over >r  >cb  d# 1 swap lshift 1- BLANKS and  over @ or
     begin dup ctl? 0= while drop 1+ dup @ repeat

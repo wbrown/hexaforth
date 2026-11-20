@@ -115,10 +115,9 @@ create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
 :: =                 T->IN   IN==N     ->T     d-1    r+0       alu     ;
 :: <                 T->IN   N<IN      ->T     d-1    r+0       alu     ;
 :: u<                T->IN   Nu<IN     ->T     d-1    r+0       alu     ;
-:: swap              N->IN   T->N,IN-> ->T     d+0    r+0       alu     ;
-:: dup>r             T->IN   IN->      ->R     d+0    r+1       alu     ;
+:: swap              N->IN   T<>N,IN-> ->T     d+0    r+0       alu     ;
 :: dup               T->IN   IN->      ->T     d+1    r+0       alu     ;
-:: nip               T->IN   T->N,IN-> ->T     d-1    r+0       alu     ;
+:: nip               T->IN   IN->      ->T     d-1    r+0       alu     ;
 :: tuck              T->IN   T<>N,IN-> ->T     d+1    r+0       alu     ;
 :: drop              N->IN   IN->      ->T     d-1    r+0       alu     ;
 :: 2drop             R->IN   IN->      ->R     d-2    r+0       alu     ;
@@ -126,18 +125,8 @@ create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
 :: over              N->IN   IN->      ->T     d+1    r+0       alu     ;
 :: >r                T->IN   IN->      ->R     d-1    r+1       alu     ;
 :: r>                R->IN   IN->      ->T     d+1    r-1       alu     ;
-:: over>r            N->IN   IN->      ->R     d+0    r+1       alu     ;
 :: r@                R->IN   IN->      ->T     d+1    r+0       alu     ;
 :: @                 [T]->IN IN->      ->T     d+0    r+0       alu     ;
-:: @+                [T]->IN IN+N      ->T     d-1    r+0       alu     ;
-:: @and              [T]->IN IN&N      ->T     d-1    r+0       alu     ;
-:: @or               [T]->IN IN|N      ->T     d-1    r+0       alu     ;
-:: @xor              [T]->IN IN^N      ->T     d-1    r+0       alu     ;
-:: @*                [T]->IN IN*N      ->T     d-1    r+0       alu     ;
-:: @=                [T]->IN IN==N     ->T     d-1    r+0       alu     ;
-:: @<                [T]->IN N<IN      ->T     d-1    r+0       alu     ;
-:: @u<               [T]->IN Nu<IN     ->T     d-1    r+0       alu     ;
-:: @not              [T]->IN ~IN       ->T     d+0    r+0       alu     ;
 :: !                 N->IN   IN->      ->[T]   d-2    r+0       alu     ;
 :: io@               T->IN   io[IN]    ->T     d+0    r+0       alu     ;
 :: io!               N->IN   IN->      ->io[T] d-2    r+0       alu     ;
@@ -150,19 +139,6 @@ create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
 :: rshift            N->IN   IN>>T     ->T     d-1    r+0       alu     ;
 :: lshift            N->IN   IN<<T     ->T     d-1    r+0       alu     ;
 :: exit              T->IN   IN->      ->T     d+0    r-1  RET  alu     ;
-:: @@                [T]->IN [IN]      ->T     d+0    r+0       alu     ;
-:: dup@              [T]->IN IN->      ->T     d+1    r+0       alu     ;
-:: dup@@             [T]->IN [IN]      ->T     d+1    r+0       alu     ;
-:: over@             N->IN   [IN]      ->T     d+1    r+0       alu     ;
-:: @r                R->IN   [IN]      ->T     d+1    r+0       alu     ;
-:: r@;               R->IN   IN->      ->T     d+1    r-1  RET  alu     ;
-:: 2dup<             T->IN   N<IN      ->T     d+1    r+0       alu     ;
-:: overand           T->IN   IN&N      ->T     d+0    r+0       alu     ;
-:: 2dupxor           T->IN   IN^N      ->T     d+1    r+0       alu     ;
-:: over+             T->IN   IN+N      ->T     d+0    r+0       alu     ;
-:: over=             T->IN   IN==N     ->T     d+0    r+0       alu     ;
-:: swap>r            N->IN   T->N,IN-> ->R     d-1    r+1       alu     ;
-:: swapr>            R->IN   T<>N,IN-> ->T     d+1    r-1       alu     ;
 :: 1+             1          imm+                               imm     ;
 :: 2+             2          imm+                               imm     ;
 :: 2*             1                                             imm    
@@ -181,22 +157,19 @@ create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
 :: key          224                                             imm    
                      T->IN   io[IN]    ->T     d+0    r+0       alu     ;
 :: rot               T->IN   IN->      ->R     d-1    r+1       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
-                     R->IN   IN->      ->T     d+1    r-1       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu     ;
-:: -rot              N->IN   T->N,IN-> ->R     d-1    r+1       alu    
+                     R->IN   T<>N,IN-> ->T     d+1    r-1       alu    
+                     N->IN   T<>N,IN-> ->T     d+0    r+0       alu     ;
+:: -rot              N->IN   T<>N,IN-> ->R     d-1    r+1       alu    
                      R->IN   T<>N,IN-> ->T     d+1    r-1       alu     ;
 :: 2dup              N->IN   IN->      ->T     d+1    r+0       alu    
                      N->IN   IN->      ->T     d+1    r+0       alu     ;
 :: 2swap             T->IN   IN->      ->R     d-1    r+1       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
-                     R->IN   IN->      ->T     d+1    r-1       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     R->IN   T<>N,IN-> ->T     d+1    r-1       alu    
+                     N->IN   T<>N,IN-> ->T     d+0    r+0       alu    
                      T->IN   IN->      ->R     d-1    r+1       alu    
                      T->IN   IN->      ->R     d-1    r+1       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
-                     R->IN   IN->      ->T     d+1    r-1       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     R->IN   T<>N,IN-> ->T     d+1    r-1       alu    
+                     N->IN   T<>N,IN-> ->T     d+0    r+0       alu    
                      R->IN   IN->      ->T     d+1    r-1       alu     ;
 :: 2over             T->IN   IN->      ->R     d-1    r+1       alu    
                      T->IN   IN->      ->R     d-1    r+1       alu    
@@ -204,36 +177,36 @@ create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
                      N->IN   IN->      ->T     d+1    r+0       alu    
                      R->IN   IN->      ->T     d+1    r-1       alu    
                      R->IN   T<>N,IN-> ->T     d+1    r-1       alu    
-                     N->IN   T->N,IN-> ->R     d-1    r+1       alu    
+                     N->IN   T<>N,IN-> ->R     d-1    r+1       alu    
                      T->IN   IN->      ->R     d-1    r+1       alu    
                      R->IN   T<>N,IN-> ->T     d+1    r-1       alu    
                      R->IN   T<>N,IN-> ->T     d+1    r-1       alu     ;
 :: 3rd               T->IN   IN->      ->R     d-1    r+1       alu    
                      N->IN   IN->      ->T     d+1    r+0       alu    
                      R->IN   IN->      ->T     d+1    r-1       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu     ;
+                     N->IN   T<>N,IN-> ->T     d+0    r+0       alu     ;
 :: 3dup              T->IN   IN->      ->R     d-1    r+1       alu    
                      N->IN   IN->      ->T     d+1    r+0       alu    
                      R->IN   IN->      ->T     d+1    r-1       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     N->IN   T<>N,IN-> ->T     d+0    r+0       alu    
                      T->IN   IN->      ->R     d-1    r+1       alu    
                      N->IN   IN->      ->T     d+1    r+0       alu    
                      R->IN   IN->      ->T     d+1    r-1       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     N->IN   T<>N,IN-> ->T     d+0    r+0       alu    
                      T->IN   IN->      ->R     d-1    r+1       alu    
                      N->IN   IN->      ->T     d+1    r+0       alu    
                      R->IN   IN->      ->T     d+1    r-1       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu     ;
-:: >                 N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     N->IN   T<>N,IN-> ->T     d+0    r+0       alu     ;
+:: >                 N->IN   T<>N,IN-> ->T     d+0    r+0       alu    
                      T->IN   N<IN      ->T     d-1    r+0       alu     ;
-:: u>                N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+:: u>                N->IN   T<>N,IN-> ->T     d+0    r+0       alu    
                      T->IN   Nu<IN     ->T     d-1    r+0       alu     ;
 :: 0=             0                                             imm    
                      T->IN   IN==N     ->T     d-1    r+0       alu     ;
 :: 0<             0                                             imm    
                      T->IN   N<IN      ->T     d-1    r+0       alu     ;
 :: 0>             0                                             imm    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     N->IN   T<>N,IN-> ->T     d+0    r+0       alu    
                      T->IN   N<IN      ->T     d-1    r+0       alu     ;
 :: <>                T->IN   IN==N     ->T     d-1    r+0       alu    
                      T->IN   ~IN       ->T     d+0    r+0       alu     ;
@@ -245,7 +218,7 @@ create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
                   1          imm+                               imm    
                      T->IN   IN+N      ->T     d-1    r+0       alu     ;
 :: bounds            T->IN   IN+N      ->T     d+0    r+0       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu     ;
+                     N->IN   T<>N,IN-> ->T     d+0    r+0       alu     ;
 :: s>d               T->IN   IN->      ->T     d+1    r+0       alu    
                   0                                             imm    
                      T->IN   N<IN      ->T     d-1    r+0       alu     ;
@@ -265,7 +238,7 @@ create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
                      N->IN   IN>>T     ->T     d-1    r+0       alu     ;
 :: >><<              T->IN   T<>N,IN-> ->T     d+1    r+0       alu    
                      N->IN   IN>>T     ->T     d-1    r+0       alu    
-                     N->IN   T->N,IN-> ->T     d+0    r+0       alu    
+                     N->IN   T<>N,IN-> ->T     d+0    r+0       alu    
                      N->IN   IN<<T     ->T     d-1    r+0       alu     ;
 :: nmask8       255                                             imm    
                      T->IN   ~IN       ->T     d+0    r+0       alu     ;
@@ -278,135 +251,123 @@ create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
                      N->IN   IN->      ->io[T] d-2    r+0       alu     ;
 
 \ the words as the nucleus's
-:: baseword-words
-    s" bw-header halt" evaluate
-    s" bw-header noop" evaluate
-    s" bw-header xor" evaluate
-    s" bw-header and" evaluate
-    s" bw-header or" evaluate
-    s" bw-header invert" evaluate
-    s" bw-header +" evaluate
-    s" bw-header *" evaluate
-    s" bw-header =" evaluate
-    s" bw-header <" evaluate
-    s" bw-header u<" evaluate
-    s" bw-header swap" evaluate
-    s" bw-header dup>r" evaluate
-    s" bw-header dup" evaluate
-    s" bw-header nip" evaluate
-    s" bw-header tuck" evaluate
-    s" bw-header drop" evaluate
-    s" bw-header 2drop" evaluate
-    s" bw-header rdrop" evaluate
-    s" bw-header over" evaluate
-    s" bw-header >r" evaluate
-    s" bw-header r>" evaluate
-    s" bw-header over>r" evaluate
-    s" bw-header r@" evaluate
-    s" bw-header @" evaluate
-    s" bw-header @+" evaluate
-    s" bw-header @and" evaluate
-    s" bw-header @or" evaluate
-    s" bw-header @xor" evaluate
-    s" bw-header @*" evaluate
-    s" bw-header @=" evaluate
-    s" bw-header @<" evaluate
-    s" bw-header @u<" evaluate
-    s" bw-header @not" evaluate
-    s" bw-header !" evaluate
-    s" bw-header io@" evaluate
-    s" bw-header io!" evaluate
-    s" bw-header +!" evaluate
-    s" bw-header or!" evaluate
-    s" bw-header and!" evaluate
-    s" bw-header xor!" evaluate
-    s" bw-header *!" evaluate
-    s" bw-header not!" evaluate
-    s" bw-header rshift" evaluate
-    s" bw-header lshift" evaluate
-    s" bw-header exit" evaluate
-    s" bw-header @@" evaluate
-    s" bw-header dup@" evaluate
-    s" bw-header dup@@" evaluate
-    s" bw-header over@" evaluate
-    s" bw-header @r" evaluate
-    s" bw-header r@;" evaluate
-    s" bw-header 2dup<" evaluate
-    s" bw-header overand" evaluate
-    s" bw-header 2dupxor" evaluate
-    s" bw-header over+" evaluate
-    s" bw-header over=" evaluate
-    s" bw-header swap>r" evaluate
-    s" bw-header swapr>" evaluate
-    s" bw-header 1+" evaluate
-    s" bw-header 2+" evaluate
-    s" bw-header 2*" evaluate
-    s" bw-header u2/" evaluate
-    s" bw-header negate" evaluate
-    s" bw-header -" evaluate
-    s" bw-header emit" evaluate
-    s" bw-header 8emit" evaluate
-    s" bw-header key" evaluate
-    s" bw-header rot" evaluate
-    s" bw-header -rot" evaluate
-    s" bw-header 2dup" evaluate
-    s" bw-header 2swap" evaluate
-    s" bw-header 2over" evaluate
-    s" bw-header 3rd" evaluate
-    s" bw-header 3dup" evaluate
-    s" bw-header >" evaluate
-    s" bw-header u>" evaluate
-    s" bw-header 0=" evaluate
-    s" bw-header 0<" evaluate
-    s" bw-header 0>" evaluate
-    s" bw-header <>" evaluate
-    s" bw-header 0<>" evaluate
-    s" bw-header 1-" evaluate
-    s" bw-header bounds" evaluate
-    s" bw-header s>d" evaluate
-    s" bw-header hi32" evaluate
-    s" bw-header lo32" evaluate
-    s" bw-header hi16" evaluate
-    s" bw-header lo16" evaluate
-    s" bw-header >><<" evaluate
-    s" bw-header nmask8" evaluate
-    s" bw-header nmask16" evaluate
-    s" bw-header .s" evaluate
-    s" bw-size cell-bits" evaluate
-    s" bw-size addr-bits" evaluate
-    s" bw-size stack-cells" evaluate
-    s" bw-size var-base" evaluate
-    s" bw-size disp-w" evaluate
-    s" bw-size disp-h" evaluate
-    s" bw-size disp-base" evaluate
-    s" bw-size disp-left-low" evaluate
-    s" bw-size disp-ink-black" evaluate
-    s" bw-size disp-stride" evaluate
-    s" bw-size disp-banks" evaluate
-    s" bw-size disp-bank-step" evaluate
-    s" bw-size krom-bytes" evaluate
-    s" bw-size disk-block" evaluate
-    s" bw-size disk-line" evaluate
-    s" bw-size disk-source-block" evaluate
-    s" bw-size disk-block-bits" evaluate
-    s" bw-size disk-drives" evaluate
-    s" bw-size disk-names-block" evaluate
-    s" bw-size disk-canvas-block" evaluate
-    s" bw-size disk-masks-block" evaluate
-    s" bw-size disk-mask32-block" evaluate
-    s" bw-size disk-bayer-block" evaluate
-    s" bw-size disk-mask-width" evaluate
-    s" bw-size disk-mask-planes" evaluate
-    s" bw-size disk-view-block" evaluate
-    s" bw-size disk-view-blocks" evaluate
-    s" bw-size disk-gray-block" evaluate
-    s" bw-size disk-gray-blocks" evaluate
-    s" bw-size disk-entry" evaluate
-    s" bw-size disk-entry-type" evaluate
-    s" bw-size disk-entry-first" evaluate
-    s" bw-size disk-entry-blocks" evaluate
-    s" bw-size disk-entry-where" evaluate
-    s" bw-size disk-binary" evaluate
-    s" bw-size disk-source" evaluate
-    s" bw-size disk-index" evaluate
-;
+source: baseword-words
+    bw-header halt
+    bw-header noop
+    bw-header xor
+    bw-header and
+    bw-header or
+    bw-header invert
+    bw-header +
+    bw-header *
+    bw-header =
+    bw-header <
+    bw-header u<
+    bw-header swap
+    bw-header dup
+    bw-header nip
+    bw-header tuck
+    bw-header drop
+    bw-header 2drop
+    bw-header rdrop
+    bw-header over
+    bw-header >r
+    bw-header r>
+    bw-header r@
+    bw-header @
+    bw-header !
+    bw-header io@
+    bw-header io!
+    bw-header +!
+    bw-header or!
+    bw-header and!
+    bw-header xor!
+    bw-header *!
+    bw-header not!
+    bw-header rshift
+    bw-header lshift
+    bw-header exit
+    bw-header 1+
+    bw-header 2+
+    bw-header 2*
+    bw-header u2/
+    bw-header negate
+    bw-header -
+    bw-header emit
+    bw-header 8emit
+    bw-header key
+    bw-header rot
+    bw-header -rot
+    bw-header 2dup
+    bw-header 2swap
+    bw-header 2over
+    bw-header 3rd
+    bw-header 3dup
+    bw-header >
+    bw-header u>
+    bw-header 0=
+    bw-header 0<
+    bw-header 0>
+    bw-header <>
+    bw-header 0<>
+    bw-header 1-
+    bw-header bounds
+    bw-header s>d
+    bw-header hi32
+    bw-header lo32
+    bw-header hi16
+    bw-header lo16
+    bw-header >><<
+    bw-header nmask8
+    bw-header nmask16
+    bw-header .s
+    bw-size cell-bits
+    bw-size addr-bits
+    bw-size stack-cells
+    bw-size var-base
+    bw-size disp-w
+    bw-size disp-h
+    bw-size disp-base
+    bw-size disp-left-low
+    bw-size disp-ink-black
+    bw-size disp-stride
+    bw-size disp-banks
+    bw-size disp-bank-step
+    bw-size krom-bytes
+    bw-size disk-block
+    bw-size disk-line
+    bw-size disk-source-block
+    bw-size disk-block-bits
+    bw-size disk-drives
+    bw-size disk-names-block
+    bw-size disk-canvas-block
+    bw-size disk-masks-block
+    bw-size disk-mask32-block
+    bw-size disk-bayer-block
+    bw-size disk-mask-width
+    bw-size disk-mask-planes
+    bw-size disk-view-block
+    bw-size disk-view-blocks
+    bw-size disk-gray-block
+    bw-size disk-gray-blocks
+    bw-size disk-entry
+    bw-size disk-entry-type
+    bw-size disk-entry-first
+    bw-size disk-entry-blocks
+    bw-size disk-entry-where
+    bw-size disk-binary
+    bw-size disk-source
+    bw-size disk-index
+;source
+
+\ the names of an instruction's fields, as the nucleus's tables
+source: field-names
+    bulk
+    create f-in   ," N->IN" ," T->IN" ," [T]->IN" ," R->IN"
+    create f-op   ," IN->" ," T<>N,IN->" ," T->N,IN->" ," IN+N"
+                  ," IN&N" ," IN|N" ," IN^N" ," IN*N" ," ~IN"
+                  ," IN==N" ," N<IN" ," Nu<IN" ," IN>>T"
+                  ," IN<<T" ," [IN]" ," io[IN]"
+    create f-out  ," ->T" ," ->R" ," ->io[T]" ," ->[T]"
+    unbulk
+;source

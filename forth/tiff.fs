@@ -205,7 +205,7 @@ target
 : tiff-tags ( ifd -- ) \ what the directory's entries say
     dup t16@ swap d# 2 +                      ( n entry )
     swap d# 12 * over + swap                  ( end entry )
-    begin 2dupxor while dup tiff-tag d# 12 + repeat
+    begin 2dup xor while dup tiff-tag d# 12 + repeat
     2drop
 ;
 
@@ -363,7 +363,7 @@ header image-is
 
 : grayn ( -- g ) \ the first of several samples
     gray1
-    tspp @ d# 1 begin 2dupxor while d# 8 take drop 1+ repeat
+    tspp @ d# 1 begin 2dup xor while d# 8 take drop 1+ repeat
     2drop
 ;
 
@@ -570,7 +570,7 @@ target
     tbp @ >r  ( a ) ( R: the three cells )
     \ two cells of lanes to three of the row
     tw @ BYTESHIFT rshift 2*  over + swap  ( end a )
-    begin 2dupxor while
+    begin 2dup xor while
 W32+? [if]
         r@ lanes-a over +!  r@ lanes-b over 1+ +!
 [else]
@@ -612,7 +612,7 @@ header fold-pairs
     \ the next row's grays, each two pixels' added into a lane
     tbp @ >r  ( a ) ( R: the three cells )
     tw @ BYTESHIFT rshift over + swap  ( end a )
-    begin 2dupxor while
+    begin 2dup xor while
 W32+? [if]
         r@ sums
 [else]
@@ -654,7 +654,7 @@ W32+? [if]
     tphoto @ if exit then
     tbp @  tw @ BYTESHIFT rshift  bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup not!
         1+
@@ -668,7 +668,7 @@ W32+? [if]
     >r  ( R: the two cells of lanes a cell of the row is )
     tbp @  tw @ BYTESHIFT rshift  bounds  ( end p )
     begin
-        2dupxor
+        2dup xor
     while
         dup @ HALFMASK and spread  r@ +!
         dup @ HALFBITS rshift spread  r@ 1+ +!
@@ -688,7 +688,7 @@ W32+? [if]
     ( R: from a cell of the row to its cell of lanes )
     tbp @  tw @ BYTESHIFT rshift  bounds  ( end p )
     begin
-        2dupxor
+        2dup xor
     while
         GRAY-PAIR
         over r@ + +!

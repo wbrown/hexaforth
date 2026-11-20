@@ -5,8 +5,9 @@
 //
 // Many settings of an instruction's fields leave the same from every
 // state: they are one kind.  Which do is asked of the step on terms
-// (fuse.h).  One instruction stands for each kind: one that has a name in
-// vm_opcodes.h if any of the kind has, or else the lowest.
+// (fuse.h).  One instruction stands for each kind, and it is the one
+// fuse.h has stand for them (plainer): a name of vm_opcodes.h is that
+// one's, which util/joins.c holds it to.
 //
 // An instruction that has a number in it is one of four things, and which
 // is asked of the step too: it pushes the number, or adds it to the top,
@@ -93,7 +94,8 @@ static const numbered* numbered_as(int does, int64_t number) {
     return(NULL);
 }
 
-// The name vm_opcodes.h has for an instruction, if it is one word's.
+// What vm_opcodes.h has for an instruction, if it is one word's or a
+// phrase's: the word, or the words of the phrase.
 static const char* name_of_ins(uint16_t ins) {
     for(word_node* w = FORTH_WORDS; w->repr && strlen(w->repr); w++) {
         if (w->num_ins == 1 && *(uint16_t*)&w->ins[0] == ins) return(w->repr);
@@ -141,12 +143,12 @@ static void list_kinds(void) {
         for(int n=0; n < kinds && k < 0; n++) {
             if (KIND[n].leaves == ALU[idx].names && same_work(&ALU[idx].ins, 1, KIND[n].ins)) k = n;
         }
-        const char* name = name_of_ins(ALU[idx].ins);
         if (k < 0) {
+            // the one that stands for all that leave the same (fuse.h)
+            uint16_t stands = ALU[idx].stands;
+            if (!same_work(&ALU[idx].ins, 1, stands)) stands = ALU[idx].ins;
             k = kinds;
-            KIND[kinds++] = (kind){ ALU[idx].ins, ALU[idx].names, name };
-        } else if (name && !KIND[k].name) {
-            KIND[k].ins = ALU[idx].ins, KIND[k].name = name;
+            KIND[kinds++] = (kind){ stands, ALU[idx].names, name_of_ins(stands) };
         }
         kind_at[ALU[idx].ins] = k;
     }

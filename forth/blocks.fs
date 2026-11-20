@@ -13,11 +13,13 @@ header blk-moved create blk-moved 0 ,  \ blocks read and written
                                        \ so far
 header blk-wrote create blk-wrote 0 ,  \ true if the last was
                                        \ a write
-header blk-disk  create blk-disk 0 ,   \ the disk the last was of
-header disks-there                     \ the disks there are known
-    create disks-there 0 ,             \ to be, bit d for disk d:
-                                       \ whoever finds one says
-                                       \ so here (files.fs)
+header blk-disk  create blk-disk 0 ,   \ the disk the last
+                                       \ was of
+header disks-there                     \ the disks there are
+    create disks-there 0 ,             \ known to be, bit d for
+                                       \ disk d: whoever finds
+                                       \ one says so here
+                                       \ (files.fs)
 
 : moved ( blk# write? -- ) \ a block was read or written
     blk-wrote !  DISK-SHIFT rshift blk-disk !
@@ -164,7 +166,7 @@ header thru
     \ the blocks from first to last, loaded in turn
     1+ swap                                 ( end blk )
     begin
-        2dupxor
+        2dup xor
     while
         dup >r swap >r  load  r> r> 1+
     repeat

@@ -19,7 +19,8 @@
 
 meta
 : low-bit ( mask -- n )
-    0 swap begin dup 1 and 0= while 2/ swap 1+ swap repeat drop ;
+    0 swap begin dup 1 and 0= while 2/ swap 1+ swap repeat
+    drop ;
 target
 
 \ where each field is, and the operations that are looked at
@@ -27,8 +28,10 @@ meta R->IN low-bit target constant IN-AT
 meta 0 io[IN] low-bit target constant OP-AT
 meta 0 ->[T] low-bit target constant OUT-AT
 meta 0 d-1 low-bit target constant D-AT
-meta 0 T<>N,IN-> 0 io[IN] low-bit rshift target constant OP-SWAP
-meta 0 T->N,IN-> 0 io[IN] low-bit rshift target constant OP-UNDER
+meta 0 T<>N,IN-> 0 io[IN] low-bit rshift target
+    constant OP-SWAP
+meta 0 T->N,IN-> 0 io[IN] low-bit rshift target
+    constant OP-UNDER
 meta 0 ~IN 0 io[IN] low-bit rshift target constant OP-NOT
 meta 0 IN==N 0 io[IN] low-bit rshift target constant OP-SAME
 meta 0 IN>>T 0 io[IN] low-bit rshift target constant OP-SHIFT
@@ -55,6 +58,7 @@ meta 0 ->[T] 0 ->[T] low-bit rshift target constant OUT-MEM
 \ is, is M-WAS.
 \ It is not among the variables: there is too little room
 \ there, and what is set aside at here needs it (display.fs).
+
 #24 constant JM-CELLS
 high
 create jm   meta #24 cell-bytes * target allot
@@ -182,7 +186,7 @@ unhigh
 
 : jsame-run? ( a b n -- f ) \ are n cells of each the same?
     >r over - r> swap >r bounds  ( end a ) ( R: b less a )
-    begin 2dupxor while
+    begin 2dup xor while
         dup @ over r@ + @ xor if 2drop rdrop false exit then
         1+
     repeat

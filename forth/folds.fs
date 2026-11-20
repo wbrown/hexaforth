@@ -25,37 +25,37 @@ $647c i,   \ *
 $649c i,   \ =
 $64ac i,   \ <
 $64bc i,   \ u<
-$642c i,   \ nip
+$640c i,   \ nip
 $600c i,   \ drop
 $60cc i,   \ rshift
 $60dc i,   \ lshift
 
 $6404 i, $000b i,   \ across dup
-$03cc i, $004c i, $000c i,   \ xor and or * @and @or @xor @*
-$03bc i, $003c i, $000c i,   \ + * @+ @*
-$03cc i, $008c i, $000c i,   \ = < u< @= @< @u<
-$02f4 i, $0020 i, $0024 i,   \ swap
-$02fc i, $002c i, $002c i,   \ nip swap>r
-$033c i, $000c i, $000c i,   \ and drop @and rshift
+$03cc i, $004c i, $000c i,   \ xor and or * @ and @ or @ xor @ *
+$03bc i, $003c i, $000c i,   \ + * @ + @ *
+$03cc i, $008c i, $000c i,   \ = < u< @ = @ < @ u<
+$03f4 i, $0010 i, $0014 i,   \ swap
+$033c i, $000c i, $000c i,   \ and nip drop @ and rshift
 $0fee i, $0d08 i, $0d04 i,   \ 2drop
 $013c i, $0108 i, $0004 i,   \ 2drop ! and!
 $01bc i, $0138 i, $0004 i,   \ +! *!
 $01cc i, $0148 i, $0004 i,   \ or! and! xor! *!
-$03ac i, $008c i, $000c i,   \ = @= rshift lshift
+$03ac i, $008c i, $000c i,   \ = @ = rshift lshift
+$02fc i, $001c i, $001c i,   \ swap >r
 $6c04 i, $0007 i,   \ across r@
-$0ef4 i, $0020 i, $0c24 i,   \ swap
-$06fc i, $042c i, $002c i,   \ nip
+$0ff4 i, $0010 i, $0c14 i,   \ swap
+$077c i, $040c i, $000c i,   \ nip
 $0f7c i, $000c i, $0c0c i,   \ drop
 
 $0fee i, $0d08 i, $0d04 i,   \ 2drop
 $0d7c i, $0108 i, $0c04 i,   \ !
 $0fec i, $00cc i, $0c0c i,   \ rshift lshift
-$0ffe i, $012c i, $052c i,   \ swap>r
+$0ffe i, $011c i, $051c i,   \ swap >r
 $6c07 i, $0007 i,   \ across r>
-$0ef7 i, $0020 i, $0c27 i,   \ swap
-$0eff i, $042c i, $002f i,   \ nip
+$0ff7 i, $0010 i, $0c17 i,   \ swap
+$0f7f i, $040c i, $000f i,   \ nip
 $0f7f i, $000c i, $0c0f i,   \ drop
 $0fef i, $0d08 i, $0d07 i,   \ 2drop
 $0d7f i, $0108 i, $0c07 i,   \ !
 $0fef i, $00cc i, $0c0f i,   \ rshift lshift
-$0fff i, $012d i, $052d i,   \ swap>r
+$0fff i, $011d i, $051d i,   \ swap >r

@@ -65,9 +65,9 @@ typedef struct {
 } turn_check;
 
 static turn_check TURNS[] = {
-    // begin 2dupxor while 1+ repeat is four instructions a turn; begin 1+ 2dup= until is three
+    // begin 2dup xor while 1+ repeat is four instructions a turn; begin 1+ 2dup = until is three
     {"a loop up to an end that is under the count", "over over xor", "1+", 3, 3},
-    // the end on the return stack: 1+ r@ over= until, four; and with the end under the count, three
+    // the end on the return stack: 1+ r@ over = until, four; and with the end under the count, three
     {"a loop up to an end that is on the return stack", "dup r@ xor", "1+", 4, 3},
     // a loop that tests at the bottom already, and has no fewer
     {"a loop that tests at the bottom", NULL, "1+ over over =", 3, 3},

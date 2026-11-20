@@ -29,8 +29,8 @@
 //     +  dup  >r  swap  !  literals  jumps  calls      1 cycle
 //     shifts                                           2 cycles
 //     *                                                3 cycles
-//     @  +!  @+   (one memory read)                    2 cycles
-//     @@          (two memory reads)                   4 cycles
+//     @  +!  @ +  (one memory read)                    2 cycles
+//     @ @         (two memory reads)                   4 cycles
 //
 // A store is registered on its way to the memory and lands one cycle after
 // its instruction; a read of data waits for a store in flight.

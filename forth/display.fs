@@ -287,7 +287,7 @@ meta 2* target constant NEVER
     then
     dup 1+ swap @ bounds                            ( end p )
     begin
-        2dupxor
+        2dup xor
     while
         dup @ over 1+ @ mspan
         CELL2 +
@@ -388,7 +388,7 @@ header rgn-clip! : rgn-clip! ( rgn|0 -- ) clip-rgn !  reclip ;
         swap d# -1 swap PIXR  r> swap r@ under! 1+ >r
     then
     dup PXSHIFT rshift  r> swap bounds  ( n end a ) ( R: row )
-    begin 2dupxor while  r@ over ! 1+  repeat
+    begin 2dup xor while  r@ over ! 1+  repeat
     drop  swap PXMASK and ?dup if leftn r@ under! then
     drop rdrop
 ;
@@ -410,7 +410,7 @@ header rgn-clip! : rgn-clip! ( rgn|0 -- ) clip-rgn !  reclip ;
         swap d# -1 swap PIXR  r> swap r@ cell-mode 1+ >r
     then
     dup PXSHIFT rshift  r> swap bounds  ( n end a ) ( R: row )
-    begin 2dupxor while  d# -1 r@ cell-mode 1+  repeat
+    begin 2dup xor while  d# -1 r@ cell-mode 1+  repeat
     drop  swap PXMASK and ?dup if leftn r@ cell-mode then
     drop rdrop
 ;
@@ -544,7 +544,7 @@ BANKED? [if]
 
 : col! ( x a n -- )
     DISP-STRIDE * over + swap rot >r
-    begin 2dupxor while  r@ over !  DISP-STRIDE +  repeat
+    begin 2dup xor while  r@ over !  DISP-STRIDE +  repeat
     2drop rdrop
 ;
 
@@ -637,7 +637,7 @@ BANKED? [if]
     -rot >r >r  ( band ) ( R: rows y )
     dup 1+ swap @ bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup @  over 1+ @ over -  clip-span     ( end p x n )
         r> r@ over >r  2swap run-fill
@@ -796,7 +796,7 @@ header copy-end create copy-end
         r> swap r@ copy-cell 1+ >r
     then
     dup PXSHIFT rshift  r> swap bounds  ( n end a ) ( R: dist )
-    begin 2dupxor while
+    begin 2dup xor while
         dup whole? if  dup r@ + bsrc over !
         else  d# -1 r@ copy-cell  then  1+
     repeat
@@ -837,7 +837,7 @@ header copy-end create copy-end
         r> swap r@ move! 1+ >r
     then
     dup PXSHIFT rshift  r> swap bounds  ( n end a ) ( R: dist )
-    begin 2dupxor while
+    begin 2dup xor while
         over  meta R->IN IN+N ->R d-1 r+1 alu target
         meta R->IN [IN] ->[T] alu target  1+ rdrop
     repeat
@@ -1178,7 +1178,7 @@ header chars-width : chars-width ( a i u -- n ) \ in pixels
     d# 3 lshift swap d# 3 lshift swap
     d# 0 -rot bounds                  ( n end bit )
     begin
-        2dupxor
+        2dup xor
     while
         r@ over char@ glyph# ginfo h# 1f and  ( n end bit w )
         >r rot r> + -rot
@@ -1247,12 +1247,14 @@ create m0x 0 ,     \ the cell the drawing starts in,
 create m0 0 ,      \ and the pixels of it that are drawn
 create m1x 0 ,     \ the cell it ends in,
 create m1 0 ,      \ and its
+
 create gn 0 ,      \ how many glyphs will be seen
 create gw 0 ,      \ how wide the one in hand is,
 create gx 0 ,      \ its lane, or which glyph it is (gspan),
 create ga 0 ,      \ where its rows are,
 create ra 0 ,      \ and which of them are drawn: from this
 create rb 0 ,      \ to this
+
 create frows 0 ,   \ where the rows of the font's glyphs start,
 create gcpg 0 ,    \ and how many cells a glyph's are
 create lsb 0 ,     \ a lane of the font's: its bits as a shift,
@@ -1301,7 +1303,7 @@ W32+? [if]
 : glyphs ( -- )
     d# 0 gn !  tx @ pen !  ta @ >r  \ the cell, to hand
     tf @ d# 3 lshift  tu @ d# 3 lshift  bounds  ( end bit )
-    begin 2dupxor while
+    begin 2dup xor while
         dup PXSHIFT rshift r@ + @  over PXMASK and rshift
         h# ff and  gnote                    ( end bit g )
         pen @ gw @ + clip @ > 0=  pen @ 0<  or
@@ -1325,7 +1327,8 @@ W32+? [if]
     font @ c# 3 + @  dup h# ff and gcpg !  d# 8 rshift lsb !
 W32+? [if]
     d# 1 lsb @ lshift  dup lb !  d# 1 swap lshift 1- lm !
-    PXSHIFT lsb @ in-place - dup rsh !  d# 1 swap lshift 1- rless !
+    PXSHIFT lsb @ in-place - dup rsh !
+    d# 1 swap lshift 1- rless !
     font @ c# 4 + @ @ lone !
 [then]
 ;
@@ -1431,7 +1434,8 @@ meta
     else s" PXCELL lb @ - lshift" then evaluate ;
 :: LANE-LEFT
     disp-left-low if s" leftn lone @ *"
-    else s" leftn PXCELL lb @ - rshift lone @ *" then evaluate ;
+    else s" leftn PXCELL lb @ - rshift lone @ *" then
+    evaluate ;
 target
 
 \ The rows in c, the first of them lowest, hi pixels along: each
@@ -1473,12 +1477,19 @@ INK-BLACK? [if] [else]
 \ The glyph's rows from ra up to rb, a cell of them at a time,
 \ to the word in 'lanes ( c t -- ): c is the rows, the first of
 \ them lowest, and t the cell of the band the first is for.
+\ The cell that row ra is in has the rows before ra shifted out
+\ of it, and is the first; glyph-band runs on into the cells
+\ after it, each from the row it starts at.
+
 : glyph-band ( -- )
     ra @ rb @ < 0= if exit then
     ra @ rsh @ rshift ga @ +                        ( p )
     dup gcell  ra @ rless @ and lsb @ lshift rshift
     ra @ r0 @ in-place - tband +  'lanes @ execute
     ra @ rless @ or 1+                              ( p row )
+;fallthru
+
+: band-rest ( p row -- ) \ the cells after the first
     begin dup rb @ < while
         swap 1+ swap
         over gcell  over r0 @ in-place - tband +
@@ -1523,7 +1534,7 @@ INK-BLACK? [if] [else]
     \ the glyph's rows into the cells, hi pixels along
     tend @ tband
     begin
-        2dupxor
+        2dup xor
     while
         dup gd @ + @ hi @ PIXR over or!
         1+
@@ -1557,7 +1568,7 @@ INK-BLACK? [if] [else]
     tk !
     tend @ tband
     begin
-        2dupxor
+        2dup xor
     while
         dup gd @ + @ tk @ PIXL over !
         1+
@@ -1620,15 +1631,20 @@ W32+? [if]
 
 \ The glyph's rows from ra up to rb, a cell of them at a time,
 \ to the word in 'lanes ( c dst -- ): dst is the cell of the
-\ screen the first row is for, and the rest are below it.
+\ screen the first row is for, and the rest are below it.  As
+\ glyph-band does, it runs on into the cells after the first.
+
 : glyph-screen ( dst -- )
-    ra @ rsh @ rshift ga @ + swap                   ( p dst )
+    ra @ rsh @ rshift ga @ + swap          ( p dst )
     over @  ra @ rless @ and lsb @ lshift rshift
-    ra @ lanes-cut  over 'lanes @ execute           ( p dst )
+    ra @ lanes-cut  over 'lanes @ execute  ( p dst )
     rless @ 1+ ra @ rless @ and in-place -  DISP-STRIDE * +
-    ra @ rless @ or 1+                              ( p dst row )
+    ra @ rless @ or 1+                     ( p dst row )
+;fallthru
+
+: screen-rest ( p dst row -- ) \ the cells after the first
     begin dup rb @ < while
-        >r  swap 1+ swap                            ( p dst )
+        >r  swap 1+ swap                   ( p dst )
         over @ r@ lanes-cut  over 'lanes @ execute
         rless @ 1+ DISP-STRIDE * +
         r> rless @ + 1+
@@ -1671,7 +1687,7 @@ W32+? [if]
 : or-plain ( rows dst -- )
     >r rend @ swap  ( end rows ) ( R: dst )
     begin
-        2dupxor
+        2dup xor
     while
         dup @ hi @ PIXR  r@ or!
         r> DISP-STRIDE + >r
@@ -1684,7 +1700,7 @@ W32+? [if]
     \ the same, of which only the pixels of tcm are drawn
     >r rend @ swap
     begin
-        2dupxor
+        2dup xor
     while
         dup @ hi @ PIXR tcm @ and  r@ or!
         r> DISP-STRIDE + >r
@@ -1697,7 +1713,7 @@ W32+? [if]
     \ the part of a glyph that runs over into the next cell
     >r rend @ swap
     begin
-        2dupxor
+        2dup xor
     while
         dup @ tk @ PIXL tcm @ and  r@ or!
         r> DISP-STRIDE + >r
@@ -1738,7 +1754,7 @@ W32+? [if]
     tx @ pen !
     gbuf gn @ bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup @ glyph-or
         gw @ pen +!
@@ -1777,7 +1793,7 @@ INK-BLACK? [if]
     tband tn @ + tend !  d# 0 tband tn @ cells-fill
     tx @ PXMASK invert and cx !  tx @ PXMASK and hi !
     gbuf gn @ bounds
-    begin 2dupxor while
+    begin 2dup xor while
         dup @ gset  band+
         hi @ gw @ +  dup PXCELL < if  hi !  else
             PXCELL in-place -        ( pixels over )

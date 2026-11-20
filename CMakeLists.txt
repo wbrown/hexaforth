@@ -264,10 +264,10 @@ endif()
 set(MAKE_BUILD_DIR ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/build)
 
 # An image is made from every Forth file: nuc.fs includes system.fs and
-# through it the rest, and cross.fs includes its tables.  So an image is
-# out of date when any of them changes, and a file that is added is found
-# the next time anything is built.  test_cases.fs is made here, and only
-# its own image needs it.
+# through it the rest.  So an image is out of date when any of them
+# changes, and a file that is added is found the next time anything is
+# built.  test_cases.fs is made here, and only its own image needs it:
+# that image is of cross.fs, the machine and the tests, and no other file.
 file(GLOB FORTH_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/forth/*.fs)
 list(FILTER FORTH_SOURCES EXCLUDE REGEX "/test_cases\\.fs$")
 
@@ -288,26 +288,60 @@ if(BREW)
 endif()
 set(RUN_GFORTH ${WITH_HEADERS} ${GFORTH})
 
-# The nucleus of the default machine, and the two files of Forth that are
-# made from the machine and from it, and checked in.  forth/folds.fs is what
-# the nucleus's peephole is told of numbers, asked of the machine
-# (util/joins.c).  forth/fused.fs is the words the decompiler shows an
-# instruction as (util/fused.c): it is made from the image and is in it, so
-# util/tables.cmake builds the image and makes the table of it until the
-# table stops changing.  Each is written only when it changes.  Every
-# machine's own nucleus is built after this one (forth-env, in machine), so
-# that it has them as they are now.
+# Two files of Forth are made, and checked in: each is made by a command of
+# its own, from what that command says, and is among the sources of every
+# image (FORTH_SOURCES).
+#
+# forth/folds.fs is what the nucleus's peephole is told of numbers, asked
+# of the machine (util/joins.c).  It reads no image.
+set(FOLDS_FS ${CMAKE_SOURCE_DIR}/forth/folds.fs)
 add_custom_command(
-        COMMAND           ${MAKE_BUILD_DIR}
+        OUTPUT            ${FOLDS_FS}
         COMMAND           joins forth/folds.fs
-        COMMAND           ${WITH_HEADERS} ${CMAKE_COMMAND} -DGFORTH=${GFORTH} -DFUSED=$<TARGET_FILE:fused>
-                            -P util/tables.cmake
-        OUTPUT            ${CMAKE_SOURCE_DIR}/build/nuc.hex
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        DEPENDS           forth/basewords.fs
-                          ${FORTH_SOURCES}
+        DEPENDS           joins)
+
+# forth/fused.fs is the words the decompiler shows an instruction as
+# (util/fused.c).  It is made from an image, and is in the image: so it is
+# not made from the image it is in.  An image of the default machine is
+# built first with the table of no image, in a directory of its own, from
+# every source but the table; the table is made of that one; and the
+# nucleus is then built with it.  The table is laid after all an image's
+# other data (forth/system.fs), where how long it is moves nothing, so the
+# two images have the same instructions, and the test `tables` holds them
+# to it: the table of the nucleus is the table it was built with.
+set(FUSED_FS ${CMAKE_SOURCE_DIR}/forth/fused.fs)
+set(UNTABLED ${CMAKE_SOURCE_DIR}/build/untabled)
+set(UNTABLED_SOURCES ${FORTH_SOURCES})
+list(REMOVE_ITEM UNTABLED_SOURCES ${FUSED_FS})
+add_custom_command(
+        OUTPUT            ${UNTABLED}/nuc.hex ${UNTABLED}/nuc.tables
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${UNTABLED}
+        COMMAND           fused ${UNTABLED}/fused.fs
+        COMMAND           ${CMAKE_COMMAND} -E env BUILD=${UNTABLED}/ FUSED=${UNTABLED}/fused.fs
+                            ${RUN_GFORTH} ./cross.fs ./basewords.fs ./nuc.fs > ${UNTABLED}/cross.log 2>&1
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
+        COMMENT           "The nucleus with the decompiler's table of no image (what cross.fs says is in ${UNTABLED}/cross.log)"
+        DEPENDS           ${UNTABLED_SOURCES}
                           ${MACHINE_SOURCES}
-                          basewords-fs-gen joins fused util/tables.cmake)
+                          fused)
+add_custom_command(
+        OUTPUT            ${FUSED_FS}
+        COMMAND           fused ${UNTABLED}/nuc.hex ${UNTABLED}/nuc.tables forth/fused.fs
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        DEPENDS           ${UNTABLED}/nuc.hex ${UNTABLED}/nuc.tables
+                          fused)
+
+# The nucleus of the default machine.  Every machine's own nucleus is built
+# after this one (forth-env, in machine), so that the two files above are
+# made in one place.
+add_custom_command(
+        OUTPUT            ${CMAKE_SOURCE_DIR}/build/nuc.hex ${CMAKE_SOURCE_DIR}/build/nuc.tables
+        COMMAND           ${RUN_GFORTH} ./cross.fs ./basewords.fs ./nuc.fs > ../build/cross.log 2>&1
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
+        COMMENT           "The nucleus of the default machine (what cross.fs says is in build/cross.log)"
+        DEPENDS           ${FORTH_SOURCES}
+                          ${MACHINE_SOURCES})
 
 # basewords.fs opcode description for forth environment
 add_custom_command(
@@ -352,7 +386,7 @@ add_custom_command(
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
         DEPENDS           forth/test_cases.fs
                           forth/basewords.fs
-                          ${FORTH_SOURCES}
+                          forth/cross.fs
                           ${MACHINE_SOURCES})
 
 # kick off our entire forth environment
@@ -550,6 +584,10 @@ add_test(NAME instructions COMMAND hexaforth_test WORKING_DIRECTORY ${CMAKE_SOUR
 needs(instructions hexaforth_test test-cases forth-env)
 add_test(NAME kernel COMMAND kernel_test build/nuc.hex build/nuc.tables WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 needs(kernel kernel_test forth-env)
+# The decompiler's table is the table of the image it is in (fused.fs, above).
+add_test(NAME tables COMMAND fused build/nuc.hex build/nuc.tables forth/fused.fs --same
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+needs(tables fused forth-env)
 add_test(NAME fewer COMMAND fewer_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 needs(fewer fewer_test)
 
@@ -1188,7 +1226,7 @@ add_custom_target(peephole
         COMMAND           ${CMAKE_COMMAND} -E env RUN_COUNTS=${PEEPHOLE}/idle.counts
                             $<TARGET_FILE:counting-${FIRST}> ${NUC} ${PEEPHOLE}/disk.img
                             < bench/idle.fs > ${PEEPHOLE}/idle.log 2>&1
-        COMMAND           ${CMAKE_COMMAND} -E env RUN_COUNTS=${PEEPHOLE}/draw.counts
+        COMMAND           ${CMAKE_COMMAND} -E env RUN_COUNTS=${PEEPHOLE}/draw.counts RUN_WORK=${PEEPHOLE}/draw.work
                             $<TARGET_FILE:counting-${FIRST}> ${NUC} ${PEEPHOLE}/disk.img
                             < bench/draw.fs > ${PEEPHOLE}/draw.log 2>&1
         COMMAND           ${CMAKE_COMMAND} -E env RUN_COUNTS=${PEEPHOLE}/desktop.counts

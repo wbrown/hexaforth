@@ -45,6 +45,29 @@ void generate_test_cases_fs() {
       // Convert regular numbers to d# format for cross.fs
       const char *p = TESTS[i].input;
       while (*p) {
+        // Words that are a phrase of the table (vm_opcodes.h) are its one
+        // instruction, said here by its fields: the peephole is off, and
+        // would not make it.  The C compiler finds a phrase the same way
+        // (compiler.c).
+        if (*p != ' ' && *p != '\t' && *p != '\'') {
+          char copy[160];
+          char *words[4];
+          int count = 0, took = 0;
+          snprintf(copy, sizeof(copy), "%s", p);
+          for (char *word = strtok(copy, " \t"); word && count < 4 && word[0] != '\''; word = strtok(NULL, " \t"))
+            words[count++] = word;
+          instruction said[64] = {};
+          if (count && lookup_said(FORTH_WORDS, words, count, said, &took) == 1 && took > 1) {
+            char *fields = instruction_to_str(said[0]);
+            fprintf(f, "meta %s target ", fields);
+            free(fields);
+            for (; took; took--) {           // past the words it took
+              while (*p == ' ' || *p == '\t') p++;
+              while (*p && *p != ' ' && *p != '\t') p++;
+            }
+            continue;
+          }
+        }
         if (*p == ' ' || *p == '\t') {
           fputc(*p, f);
           p++;
@@ -105,6 +128,7 @@ void generate_test_cases_fs() {
 }
 
 int main(int argc, char *argv[]) {
+  init_opcodes(FORTH_WORDS);
   generate_test_cases_fs();
   
   // Optionally compile with cross.fs if requested

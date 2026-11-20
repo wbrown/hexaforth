@@ -28,6 +28,32 @@ static const struct { const char* name; long value; } SIZES[] = {
     {"disk-binary", DISK_BINARY}, {"disk-source", DISK_SOURCE}, {"disk-index", DISK_INDEX},
     {NULL}};
 
+// The names of a field's values, in the order of the values, as a table of
+// the nucleus's (`create`, and a counted string each): they are the words
+// of vm_opcodes.h, under the field's heading there, that are that field
+// with a value and nothing else.  They go on over lines a block's line
+// long, each under the first.
+static void field_names(FILE* out, const char* table, const char* heading, int values, uint16_t (*with)(int)) {
+    int len = fprintf(out, "    create %-5s ", table);  // and a space before each name
+    const int indent = len;                             // where the space before each line's first name is
+    for(int value=0; value < values; value++) {
+        const char* name = NULL;
+        int under = 0;
+        for(forth_op* op = INS_FIELDS; strlen(op->repr) && !name; op++) {
+            if (op->type == COMMT) { under = !strcmp(op->repr, heading); continue; }
+            if (under && *(uint16_t*)&op->ins == with(value)) name = op->repr;
+        }
+        if (!name) { fprintf(stderr, "basewords: vm_opcodes.h has no name for %s %d\n", heading, value); exit(1); }
+        if (value && len + (int)strlen(name) + 5 > DISK_LINE) len = fprintf(out, "\n%*s", indent, "") - 1;
+        len += fprintf(out, " ,\" %s\"", name);
+    }
+    fprintf(out, "\n");
+}
+static uint16_t with_in(int v)  { instruction ins = {0}; ins.alu.in_mux = v;  return(*(uint16_t*)&ins); }
+static uint16_t with_op(int v)  { instruction ins = {0}; ins.alu.alu_op = v;  return(*(uint16_t*)&ins); }
+static uint16_t with_out(int v) { instruction ins = {0}; ins.alu.out_mux = v; return(*(uint16_t*)&ins); }
+#define VALUES(names) ((int)(sizeof(names) / sizeof((names)[0])))
+
 void generate_basewords_fs(const char* path) {
     init_opcodes(FORTH_WORDS);
     FILE* out = fopen(path, "w");
@@ -67,8 +93,14 @@ void generate_basewords_fs(const char* path) {
     }
     fprintf(out, "\n\\ words\n");
 
+    // A phrase is not a word (vm_opcodes.h): cross.fs has none for it, and
+    // nor has the nucleus.
     word_node* curr_word = &FORTH_WORDS[0];
     while(curr_word->repr && strlen(curr_word->repr)) {
+        if (is_phrase(curr_word->repr)) {
+            curr_word++;
+            continue;
+        }
         char* decoded = instruction_to_str(curr_word->ins[0]);
         fprintf(out, ":: %-9s %s",
             curr_word->repr,
@@ -86,22 +118,37 @@ void generate_basewords_fs(const char* path) {
         curr_word++;
     }
 
+    // What follows is the program's to lay, and is read where the program
+    // says its name: source, as it would be written there (cross.fs,
+    // source:).
+    //
     // Every baseword as a word of the nucleus too, so that source the
     // nucleus compiles can say it: a header of its name on a word that is
     // the baseword, which the nucleus compiles in place.  cross.fs lets no
     // word of the program take a macro's name, so the word is bw- and the
     // name, and the header is given the name (forth/cross-words.fs runs
     // this).
-    fprintf(out, "\n\\ the words as the nucleus's\n:: baseword-words\n");
+    fprintf(out, "\n\\ the words as the nucleus's\nsource: baseword-words\n");
     for(curr_word = &FORTH_WORDS[0]; curr_word->repr && strlen(curr_word->repr); curr_word++) {
-        fprintf(out, "    s\" bw-header %s\" evaluate\n", curr_word->repr);
+        if (is_phrase(curr_word->repr)) continue;
+        fprintf(out, "    bw-header %s\n", curr_word->repr);
     }
     // and the sizes, each what cross.fs has (HOST)
     for(int n=0; SIZES[n].name; n++) {
         if (SIZES[n].name[0] == '\\') continue;
-        fprintf(out, "    s\" bw-size %s\" evaluate\n", SIZES[n].name);
+        fprintf(out, "    bw-size %s\n", SIZES[n].name);
     }
-    fprintf(out, ";\n");
+    fprintf(out, ";source\n");
+
+    // The names of an instruction's fields, for the decompiler (see.fs):
+    // where the ALU's input is from, the operation, and where the result
+    // goes.  Each is counted strings laid end to end: text, so bulk.
+    fprintf(out, "\n\\ the names of an instruction's fields, as the nucleus's tables\nsource: field-names\n"
+                 "    bulk\n");
+    field_names(out, "f-in", "input_mux", VALUES(INPUT_MUX_REPR), with_in);
+    field_names(out, "f-op", "alu_op", VALUES(ALU_OPS_REPR), with_op);
+    field_names(out, "f-out", "output_mux", VALUES(OUTPUT_MUX_REPR), with_out);
+    fprintf(out, "    unbulk\n;source\n");
     fclose(out);
 }
 

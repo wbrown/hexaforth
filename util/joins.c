@@ -28,6 +28,11 @@
 // Nothing here says what an instruction does or what its fields are: it
 // is all asked of the step (vm_step.h), which fuse.h has on terms.
 //
+// Before any of that it holds the names to the machine: an instruction
+// that vm_opcodes.h gives a name is to be the one that stands for all
+// that leave the same (fuse.h), and the instruction of a phrase is to do
+// what the phrase's words do.  It stops, saying which, if one is not.
+//
 #include "fuse.h"
 
 #define MOST COUNT(FORTH_WORDS)         // there are no more named instructions than vm_opcodes.h has words,
@@ -180,6 +185,63 @@ static const char* name_of(uint16_t ins) {
     return("");
 }
 
+// The words of a phrase as the instructions they are, one after another;
+// how many, or nothing if one of them is not a word of the table.
+static int phrase_run(const word_node* phrase, uint16_t** run) {
+    // no more words than it has characters, and no more instructions to a
+    // word than a word has room for
+    *run = room_for(strlen(phrase->repr) * COUNT(phrase->ins), sizeof(uint16_t));
+    char* said = room_for(strlen(phrase->repr) + 1, 1);
+    strcpy(said, phrase->repr);
+    int len = 0;
+    for(char* word = strtok(said, " "); word; word = strtok(NULL, " ")) {
+        const word_node* part = word_named(word);
+        if (!part) { len = 0; break; }
+        for(int idx=0; idx < part->num_ins; idx++) (*run)[len++] = *(const uint16_t*)&part->ins[idx];
+    }
+    free(said);
+    return(len);
+}
+
+// Every name is held to the machine; how many are not as they are to be.
+// The instruction a name is given is the one that stands for all that
+// leave the same (fuse.h, plainer): what a compiler makes of the words is
+// that one, and a name for another would be a second way of saying it.
+// And a phrase's instruction does what its words do one after another,
+// which is asked of the step and then run on vm.c.
+static int names_not_so(void) {
+    int not_so = 0;
+    for(const word_node* w = FORTH_WORDS; w->repr && strlen(w->repr); w++) {
+        uint16_t ins = *(const uint16_t*)&w->ins[0];
+        if (is_phrase(w->repr) && (w->num_ins != 1 || alu_at[ins] < 0)) {
+            fprintf(stderr, "joins: the phrase `%s` is not one instruction that the step says of\n", w->repr);
+            not_so++;
+            continue;
+        }
+        if (w->num_ins != 1 || alu_at[ins] < 0) continue;
+        uint16_t stands = ALU[alu_at[ins]].stands;
+        if (stands != ins) {
+            fprintf(stderr, "joins: %s is %04x in vm_opcodes.h, and what stands for all that do the same is %04x\n",
+                    w->repr, ins, stands);
+            not_so++;
+        }
+        if (!is_phrase(w->repr)) continue;
+        uint16_t* run;
+        int len = phrase_run(w, &run);
+        named a, b;
+        forget();
+        uint64_t left = len ? names(run, len, &a) : 0;
+        if (!left || names(&ins, 1, &b) != left || !same_named(&a, &b)) {
+            fprintf(stderr, "joins: the phrase `%s` is %04x in vm_opcodes.h, which is not what its words do\n", w->repr, ins);
+            not_so++;
+        } else {
+            tried(run, len, &ins, 1);
+        }
+        free(run);
+    }
+    return(not_so);
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "usage: joins forth/folds.fs\n");
@@ -187,6 +249,7 @@ int main(int argc, char *argv[]) {
     }
     get_ready();
     list_named();
+    if (names_not_so()) return(1);
     int rules = 0;                      // in all the sets
     for(int at=0; at < COUNT(ACROSS); at++) {
         rule_set* s = &SET[sets];
@@ -218,7 +281,7 @@ int main(int argc, char *argv[]) {
     // says: lines of DISK_LINE characters at most, and the table cut with a
     // line of nothing, between two of its entries, before it is longer than
     // a block's lines.
-    char* made = NULL;                  // the file, which is written if it is not there already
+    char* made = NULL;                  // the file
     size_t made_len = 0;
     FILE* out = open_memstream(&made, &made_len);
     if (!out) { perror(argv[1]); return(1); }
@@ -270,7 +333,7 @@ int main(int argc, char *argv[]) {
         }
     }
     fclose(out);
-    if (!write_if_new(argv[1], made, made_len)) { perror(argv[1]); return(1); }
+    if (!write_whole(argv[1], made, made_len)) { perror(argv[1]); return(1); }
     free(made);
     printf("%d instructions that make one number of one and %d of two, and %d rules in %d sets for what follows",
            ones, twos, rules, sets);

@@ -20,7 +20,7 @@ include virtio-disk.fs
 : disk? ( -- read write true | false )
     VPLACES VPLACES-ALL bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup vdisk? if nip vdisk exit then
         VPLACE +
@@ -49,7 +49,7 @@ create vnow 0 ,     \ the disk the driver is pointed at
 : vdrive-at ( d -- pa|0 )
     VPLACES VPLACES-ALL bounds              ( d end pa )
     begin
-        2dupxor
+        2dup xor
     while
         dup vdisk? if
             rot ?dup 0= if nip exit then
@@ -87,7 +87,8 @@ create vnow 0 ,     \ the disk the driver is pointed at
 
 header disks
 : vdrives ( -- )
-    ['] vdrives-read 'blk-read !  ['] vdrives-write 'blk-write !
+    ['] vdrives-read 'blk-read !
+    ['] vdrives-write 'blk-write !
 ;
 
 meta lower-half target

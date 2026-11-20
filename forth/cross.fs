@@ -564,6 +564,24 @@ variable listing  false listing !       \ true once the basewords are read: macr
         latestxt r> cell+ !
     then
 ;
+\ A macro whose body is source: the lines after its name, up to a line
+\ that is ;source, are kept as they are written, and are read where the
+\ macro is said.  It is for what the machine's file says of the program
+\ (basewords.fs: the basewords as words with headers, the names of an
+\ instruction's fields), which can be laid only once there is a program
+\ to lay it in, by words that are not defined yet when that file is read.
+: source: ( "name" -- )
+    ::
+    begin
+        refill 0= abort" source: with no ;source"
+        source -trailing bl skip                ( c-addr u ) \ the line, but for the blanks at its ends
+        source nip >in !                        \ which is taken
+        2dup s" ;source" compare
+    while
+        postpone sliteral  postpone evaluate
+    repeat
+    2drop  postpone ;
+;
 : macro-name ( a -- c-addr u ) 3 cells + dup cell+ swap @ ;
 : ?macros ( c-addr u -- ) \ after the file named: each macro's name still finds a macro
     macros @ begin dup while
@@ -789,6 +807,12 @@ variable sizes      0 sizes !
 \ (ROM=virt-disk.fs gforth ...): port-disk.fs, the reference VM's, if it
 \ names none.  nuc.fs includes it, in its ROM.
 :: include-rom  s" ROM" getenv dup 0= if 2drop s" port-disk.fs" then save-mem include-measured ;
+
+\ The words the decompiler shows an instruction as: a table that is made
+\ from an image (util/fused.c), fused.fs.  The image it is made from is
+\ built before there is one, with the table of no image, which FUSED names
+\ (CMakeLists.txt says how the two are built).  system.fs includes it.
+:: include-fused  s" FUSED" getenv dup 0= if 2drop s" fused.fs" then save-mem include-measured ;
 
 \ Is there no word of that name yet?  A file that is in one machine's ROM
 \ and in another's system is included where it is first needed, by

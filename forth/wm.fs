@@ -506,7 +506,7 @@ create vsum -1 ,
     ( R: the sum so far: the menu covers them too )
     wins nwin @ bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup @ r> swap win-sum >r
         1+

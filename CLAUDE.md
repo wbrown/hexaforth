@@ -171,6 +171,18 @@ a name for one of them.
   peephole joins. A baseword's name must mean what the standard says: the
   shift right by one is `u2/`, and `2/`, which keeps the sign, is a word
   of the nucleus
+- A name in `vm_opcodes.h` that has a space in it is a phrase, and not a
+  word: `dup >r` is written as its two words, the compilers make the one
+  instruction of them, and the entry is where a trace, a test or a reader
+  finds the instruction by what is written for it. No word is made of a
+  phrase, in `cross.fs` or on the machine, and source does not run its
+  words together
+- Of the instructions that do the same, one stands for them all: the one
+  whose operation is lowest in its field, and of those the lowest number
+  (`util/fuse.h`, `plainer`). Both compilers make that one, and a name is
+  given to that one. `util/joins.c` stops the build at a name whose
+  instruction is another, and at a phrase whose instruction is not what
+  its words do
 - Do not propose a new ALU operation or any other change to the machine
   for speed. The operation field is full, the ALU has two inputs, and the
   design is that the fields compose. First show what the existing fields
@@ -180,7 +192,7 @@ a name for one of them.
   other machines
 - A loop goes up, not down. Adding one is one instruction; taking one away
   is three, since a literal can only add what is not negative. A loop over
-  memory keeps no count: `bounds begin 2dupxor while ... 1+ repeat 2drop`,
+  memory keeps no count: `bounds begin 2dup xor while ... 1+ repeat 2drop`,
   and a second place is the first plus how far apart they are. A loop
   that only counts starts below nothing and goes up to it:
   `negate begin dup while ... 1+ repeat drop`. What is the same every turn
@@ -217,7 +229,10 @@ the tool is extended. What there is to ask:
   --typed FILE.fs`, which types the file at the nucleus and shows the
   words it defines as the nucleus compiled them
 - how often each instruction of a word was run: `disasm_hex-64 IMAGE.hex
-  NAME --counts WORK`, of the work a counting VM left (`RUN_WORK`)
+  NAME --counts WORK`, of the work a counting VM left (`RUN_WORK`). The
+  target `peephole` leaves the drawing benchmark's
+  (`build/peephole/draw.work`), which says whether that work runs a word
+  at all before `bench-draw` is asked what a change to it costs
 - what the nucleus makes of a word of the system beside what `cross.fs`
   makes: the target `peephole`, which leaves every word they make
   different lengths of in `build/peephole/words.txt`, and then
@@ -526,11 +541,22 @@ from `vm_constants.h` and `vm_opcodes.h`); `forth/folds.fs` (what the
 nucleus's peephole is told of numbers, by `util/joins.c`, which reads no
 image); and `forth/fused.fs` (the words the decompiler shows an
 instruction as, by `util/fused.c`, from a built image). Both have
-`fuse.h` in them and ask the machine. The build of the default machine's
-nucleus (`build/nuc.hex`) makes the two again, and every other nucleus is
-built after it: the decompiler's table is in the image it is made from,
-so `util/tables.cmake` builds until the table stops changing. Each is
-written only when it changes.
+`fuse.h` in them and ask the machine. Each is made by a command of its
+own, which `CMakeLists.txt` says with what it is made from, and every
+nucleus is built after the default machine's (`build/nuc.hex`), which is
+built after them. The decompiler's table is in the image, so it is not
+made from the image it is in: an image is built first with the table of
+no image (`FUSED` names the table an image is built with; it is in
+`build/untabled/`), the table is made of that, and the nucleus is built
+with it. The table is laid after all the image's other data
+(`system.fs`), so that how long it is moves nothing and the two images
+have the same instructions; the test `tables` holds them to it.
+
+`basewords.fs` also has what the machine's definitions say of the
+program: the basewords as words with headers, and the names of an
+instruction's fields for the decompiler. Each is a macro whose body is
+source as it would be written (`source:` and `;source`, `cross.fs`),
+which `system.fs` says where it is to be laid.
 
 The nucleus's peephole has no table of what two instructions or three are
 together: it works that out (`forth/compose.fs`). The target `pairs` puts
@@ -557,6 +583,9 @@ added says its needs: one that says none stops CMake.
 - `kernel_test`: nothing is in the kernel that nothing comes to
   (`util/reach.h`). CMake builds it and the target `tests` runs it, for
   the default machine
+- `tables`: the decompiler's table (`forth/fused.fs`) is the table of the
+  image it is in: `fused` makes the table of the nucleus again and says
+  what the file has not
 - `fewer_test`: the search for the fewest instructions that do the work
   of a run, and of a turn of a loop (`util/fewer.h`, `util/turns.h`),
   held to runs whose fewest is known, and each answer run on `vm.c`. The
@@ -651,8 +680,7 @@ The machine, in C:
   `fuse.h` (which instruction does the work of others: found by the
   machine's step on terms, and each answer then run on `vm.c`; what it
   trusts and why is said at its top), `joins.c` and `fused.c` (the two
-  generators that have it in them), `tables.cmake` (which runs the second
-  until its table settles),
+  generators that have it in them),
   `phrases.c` (the phrase book, which has it in it too),
   `survey.c` (the encoding against a profile, which has it too),
   `room.h` (room for as many of a thing as there are: a list that grows,

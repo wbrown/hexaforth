@@ -49,6 +49,19 @@
 // that says how much there was when it was written does not.  Nothing here
 // can tell the two apart, so it fails nothing.
 //
+// said_files GIT --words WORD... [--not DIRECTORY...]
+//
+// Where the tree's text says a word of Forth, for a word that is to be
+// given another name or taken away.  It is run by hand, where the tree
+// is, since the words are whatever is asked about
+// (`build/cmake/said_files git --words tuck --not worktrees`).  A word of
+// Forth is whatever is between spaces, and in a comment or a document it
+// is between quotes, backticks or brackets as well, or before a comma or
+// a full stop.  Each line that says a WORD so is printed after its file
+// and line; and, marked `within`, each line that has it only as part of a
+// longer word (`or` in `or!`), which is another word and is not to be
+// changed with it.  It fails if any line says one.
+//
 
 #include <ctype.h>
 #include <stdio.h>
@@ -73,7 +86,7 @@ static int among(const names* list, const char* name, size_t len) {
     return(0);
 }
 
-static names KINDS, SKIPPED, BESIDES, FILES, INCLUDED, FIGURES;
+static names KINDS, SKIPPED, BESIDES, FILES, INCLUDED, FIGURES, WORDS;
 
 // The files of C that a file includes, which are compiled by themselves as
 // well, or they would be headers: each is kept, once, by its name alone.
@@ -341,20 +354,68 @@ static long figures_in(const char* path) {
     return(said);
 }
 
+// The lines of a file that say one of the words, printed: how many say
+// one as a word.  What a word of Forth may have next to it and still be
+// that word is a space, the end of a line, and what prose puts round it.
+static long words_in(const char* path) {
+    static const char BEFORE[] = " \t`\"'([{,";
+    static const char AFTER[] = " \t`\"')]},.";
+    unsigned char* text;
+    size_t len = file_bytes(path, &text);
+    long said = 0, line = 1;
+    if (!text || memchr(text, '\0', len)) {
+        free(text);
+        return(0);
+    }
+    for(size_t from=0; from < len; line++) {
+        size_t to = from;
+        while (to < len && text[to] != '\n') to++;
+        for(long w=0; w < WORDS.n; w++) {
+            const char* word = WORDS.at[w];
+            size_t n = strlen(word);
+            int as_word = 0, within = 0;
+            for(size_t at=from; at + n <= to; at++) {
+                if (strncmp((const char*)text + at, word, n)) continue;
+                int before = at == from || strchr(BEFORE, text[at - 1]);
+                int after = at + n == to || strchr(AFTER, text[at + n]);
+                if (before && after) as_word = 1; else within = 1;
+            }
+            if (!as_word && !within) continue;
+            printf("%s:%ld: %s%s: %.*s\n", path, line, word, as_word ? "" : " (within)", (int)(to - from), (const char*)text + from);
+            said += as_word;
+        }
+        from = to + 1;
+    }
+    free(text);
+    return(said);
+}
+
 int main(int argc, char *argv[]) {
     names* to = &KINDS;
     for(int idx=2; idx<argc; idx++) {
         if (!strcmp(argv[idx], "--not")) to = &SKIPPED;
         else if (!strcmp(argv[idx], "--besides")) to = &BESIDES;
         else if (!strcmp(argv[idx], "--figures")) to = &FIGURES;
+        else if (!strcmp(argv[idx], "--words")) to = &WORDS;
         else one_more(to, argv[idx]);
     }
-    if (!KINDS.n && !FIGURES.n) {
+    if (!KINDS.n && !FIGURES.n && !WORDS.n) {
         fprintf(stderr, "Usage: %s GIT KIND... [--not DIRECTORY...] [--besides NAME...]\n", argv[0]);
         fprintf(stderr, "       %s GIT --figures WORD... [--not DIRECTORY...]\n", argv[0]);
+        fprintf(stderr, "       %s GIT --words WORD... [--not DIRECTORY...]\n", argv[0]);
         return(1);
     }
     files_of(argv[1]);
+    if (WORDS.n) {
+        long lines = 0, of = 0;
+        for(long idx=0; idx<FILES.n; idx++) {
+            long here = words_in(FILES.at[idx]);
+            if (here) of++;
+            lines += here;
+        }
+        printf("worded: %ld lines of %ld files say one of the words\n", lines, of);
+        return(lines ? 1 : 0);
+    }
     if (FIGURES.n) {
         long lines = 0, of = 0;
         for(long idx=0; idx<FILES.n; idx++) {

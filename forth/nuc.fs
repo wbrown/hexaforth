@@ -146,8 +146,8 @@ header not!     :noname     not!     ;
 header 2swap    : 2swap rot >r rot r> ;
 header 2over    : 2over >r >r 2dup r> r> 2swap ;
 
-header min      : min   2dup< if drop exit then nip ;
-header max      : max   2dup< if nip exit then drop ;
+header min      : min   2dup < if drop exit then nip ;
+header max      : max   2dup < if nip exit then drop ;
 
 header hi32  :noname hi32 ;
 header lo32  : lo32 ( dw -- w ) h# ffffffff and ;
@@ -203,7 +203,7 @@ header type
 : type
     bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup c@ emit
         1+
@@ -298,7 +298,7 @@ header aligned
 header d+
 : d+                              ( augend . addend . -- sum . ) 
     rot + >r                      ( augend addend) 
-    over+                         ( augend sum) 
+    over +                        ( augend sum)
     swap over swap                ( sum sum augend)
     u<                            ( sum carry )     \ less than nothing, if the low cells went round:
     negate r> +                   ( sum . )         \ that is one more, added and not branched on
@@ -450,8 +450,8 @@ header accept
     begin
         ckey   ( addr len key R: maxlen )
         
-        d# 9 over= if drop d# 32 then
-        d# 127 over= if drop d# 8 then
+        d# 9 over = if drop d# 32 then
+        d# 127 over = if drop d# 8 then
         
         dup d# 31 u>
         if
@@ -462,9 +462,9 @@ header accept
             then
         then
         
-        d# 8 over= if >r delchar r> then
+        d# 8 over = if >r delchar r> then
           
-        d# 10 over= swap d# 13 = or
+        d# 10 over = swap d# 13 = or
     until
     
     rdrop nip
@@ -489,7 +489,7 @@ header cells-move
 : cells-move ( from to n -- )
     >r over - r> swap >r bounds                     ( end from ) ( R: from here to there )
     begin
-        2dupxor
+        2dup xor
     while
         dup @  over r@ + !
         1+
@@ -504,7 +504,7 @@ header cells-fill
 : cells-fill ( x a n -- )
     bounds rot >r                                   ( end a ) ( R: x )
     begin
-        2dupxor
+        2dup xor
     while
         r@ over ! 1+
     repeat
@@ -553,7 +553,7 @@ header >key
     skey d# 5 NAME-BITS pack>
     bounds
     begin
-        2dupxor
+        2dup xor
     while
         dup c@ kcode@                       ( end a what )
         dup d# 31 > if                      \ one of the rest: which lot of them, and then which
@@ -719,7 +719,7 @@ header cmove
 : cmove ( addr1 addr2 u -- ) \ a character at a time; what is whole cells is moved with cells-move
     bounds rot >r
     begin
-        2dupxor
+        2dup xor
     while
         r@ c@ over c!
         r> 1+ >r
@@ -763,7 +763,7 @@ header isnotspace?
     >r
     BEGIN
         over c@ r@ execute
-        overand
+        over and
     WHILE
         d# 1 /string
     REPEAT
@@ -967,7 +967,7 @@ header s,
     dup tc,
     bounds
     begin
-        2dupxor
+        2dup xor
     while
         count tc,
     repeat
@@ -1323,7 +1323,7 @@ header-imm loop
 \ by which way it is going.
 : (+loopnext) ( inc R -- R finished )
     over 0< >r
-    dup>r +
+    dup >r +
     r> over ( R old new )
     u>
     r> xor
@@ -1417,11 +1417,7 @@ header lshift   :noname     lshift   ;
 header 1+       :noname     1+       ;
 \ A word that moves the return stack cannot be called.  Those are
 \ immediate, and are with the peephole (join.fs), which every image has:
-\ >r r> r@ rdrop @r swap>r swapr>.
-\ Words the image's fused instructions are made of, which the decompiler
-\ shows by their headers (fused.fs).
-header dup@     :noname     dup@     ;
-header over@    :noname     over@    ;
+\ >r r> r@ rdrop.
 
 \   (doubleAlso) ( c-addr u -- x 1 | x x 2 )
 \               If the string is legal, give a single or double cell number
@@ -1459,7 +1455,7 @@ header variable
 : consume1 ( caddr u ch -- caddr' u' f )
     >r over c@ r> =
     over 0<> and
-    dup>r d# 1 and /string r>
+    dup >r d# 1 and /string r>
 ;
 
 : ((doubleAlso))
@@ -1728,7 +1724,7 @@ include-rom
 : blocks-to ( read a first n -- read ) \ n blocks from block first, to the cells from a
     bounds 2swap swap >r -rot               ( a end first ) ( R: read )
     begin
-        2dupxor
+        2dup xor
     while
         rot 2dup swap r@ execute            ( end first a )
         BLKCELLS + -rot  1+
@@ -1844,14 +1840,14 @@ header d=
 header d<
 : d<            \ ( al ah bl bh -- flag )
     rot         \ al bl bh ah
-    2dupxor if > nip nip exit then
+    2dup xor if > nip nip exit then
     2drop u<
 ;
 
 header du<
 : du<           \ ( al ah bl bh -- flag )
     rot         \ al bl bh ah
-    2dupxor if u> nip nip exit then
+    2dup xor if u> nip nip exit then
     2drop u<
 ;
 
@@ -1881,7 +1877,7 @@ header fill
 : fill ( c-addr u char -- ) ( 6.1.1540 )
     >r  bounds
     begin
-        2dupxor
+        2dup xor
     while
         r@ over c! 1+
     repeat
