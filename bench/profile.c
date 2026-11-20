@@ -27,7 +27,7 @@
 // used: every task has a part of each.
 //
 // It leaves OUT/desktop.counts: the work of all the activities by place,
-// and what a turn with nothing happening runs (work.c says the file).
+// and what a turn with nothing happening runs (work.h says the file).
 //
 
 #include <stdio.h>
@@ -38,10 +38,10 @@
 #include "../test/nucleus.h"
 #include "../test/tables.h"
 #include "../util/image.h"
-#include "../util/words.c"
+#include "../util/words.h"
 #include "counting.h"
-#include "files.c"
-#include "work.c"
+#include "files.h"
+#include "work.h"
 
 static const struct { const char* name; const char* does; } DONE[] = {
     {"typing two lines in the Forth window", "'2 3 + .\r' ': sq dup * ; 12 sq .\r'"},
@@ -77,10 +77,10 @@ static const struct { const char* name; const char* does; } DONE[] = {
 
 // ---- what a place is in
 
-static word* WORDS;             // the image's words (words.c)
+static word* WORDS;             // the image's words (words.h)
 static int words;
 static long image_places;       // the instructions the image was built with
-static span* SPANS;             // the files its code is of (files.c)
+static span* SPANS;             // the files its code is of (files.h)
 static int spans;
 
 // The word a place is in; or that it is in what was defined at the
@@ -111,7 +111,7 @@ static const char* kind_of(long at) {
 // ---- what is counted, by what it is of
 
 typedef struct { const char* of; double much, calls; } share;
-static share* SHARES;           // as many as there are, and room for more as they are found (room.c)
+static share* SHARES;           // as many as there are, and room for more as they are found (room.h)
 static long shares, shares_room;
 
 static void shared(const char* of, double much, double calls) {

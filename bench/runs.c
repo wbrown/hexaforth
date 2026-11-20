@@ -6,7 +6,7 @@
 // An image built with the peephole off (PLAIN) is the words as they were
 // typed, an instruction for each, with the same calls compiled in place as
 // the image built with it on (cross.fs, the .inline file).  Both are cut
-// into straight-line runs and the instructions that leave a run (cut.c,
+// into straight-line runs and the instructions that leave a run (cut.h,
 // which says what those are).  The two images are the same runs and the
 // same calls in the same order, and this stops if they are not.
 //
@@ -16,7 +16,7 @@
 //
 
 #include "../vm.c"
-#include "../util/cut.c"
+#include "../util/cut.h"
 
 static cut_image PLAIN, MADE;
 

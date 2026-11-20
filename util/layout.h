@@ -1,26 +1,29 @@
 //
-// layout.c - how an image is laid out, for the tools that have this in
-// them: its pages of code, and what the rest of it is.  It has words.c in
-// it, and bench/files.c.
+// layout.h - how an image is laid out, for the tools that have this in
+// them: its pages of code, and what the rest of it is.  It has words.h in
+// it, and bench/files.h.
 //
 // Code is paged, 4,096 instructions to a page, and page 0 is the kernel's:
 // the first KROM_BYTES of it are the kernel's ROM.  What a page has is its
 // words, and after the last of them the nucleus's tables, which are laid
 // down after the code of their page and are not code (join.fs, and
-// words.c, which finds them).  A table is as long as where it lies: some
+// words.h, which finds them).  A table is as long as where it lies: some
 // of what is in one is nothing, as a count is until it is counted.
 //
 // The rest of an image is cells.  The dictionary's headers are found by
-// going through it from the newest (words.c).  The data starts at the cell
+// going through it from the newest (words.h).  The data starts at the cell
 // VAR_BASE, and the nucleus keeps where it has got to, in bytes, in dp.
 // What is not nothing past that, outside the headers and the pages of
 // code, is data that was laid down in a place of its own: what cross.fs
 // calls bulk, and high.
 //
 
+#ifndef HEXAFORTH_LAYOUT_H
+#define HEXAFORTH_LAYOUT_H
+
 #include "image.h"
-#include "words.c"
-#include "../bench/files.c"
+#include "words.h"
+#include "../bench/files.h"
 
 typedef struct {
     long words;                 // the words that start on it
@@ -143,7 +146,7 @@ static void on_page(held* has, long page) {
 }
 
 // What each file has: out[idx] for files[idx], and out[n] for the
-// nucleus's own, which is what no file of them has (files.c).
+// nucleus's own, which is what no file of them has (files.h).
 static void held_by(const layout* m, const span* files, int n, held* out) {
     for(int idx=0; idx <= n; idx++) {
         memset(&out[idx], 0, sizeof(held));
@@ -179,3 +182,5 @@ static int is_included(const span* files, int n, int which) {
     }
     return(0);
 }
+
+#endif // HEXAFORTH_LAYOUT_H

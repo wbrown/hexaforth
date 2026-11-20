@@ -1,5 +1,5 @@
 //
-// fuse.c - which instruction does the work of two or of three, which two
+// fuse.h - which instruction does the work of two or of three, which two
 // do the work of three, and what shorter run does the work of a run that
 // has numbers and variables in it, asked of the machine.
 //
@@ -65,6 +65,16 @@
 // It is built for the cell the image is for (CELL_BITS).  cross.fs has it
 // through gforth's C interface.
 //
+
+#ifndef HEXAFORTH_FUSE_H
+#define HEXAFORTH_FUSE_H
+
+// The machine that is in this is of sizes said here.  What has the machine
+// as it is otherwise (vm.h) before this would have one of the two for
+// both.
+#ifdef HEXAFORTH_VM_H
+#error "fuse.h has the machine in it, of its own sizes: it is had before anything else that has vm.h"
+#endif
 
 #include <setjmp.h>
 #include <stdint.h>
@@ -149,8 +159,8 @@ static FILE* nowhere;
 #define OPS         COUNT(ALU_OPS_REPR)
 #define OUTPUTS     COUNT(OUTPUT_MUX_REPR)
 
-#include "named.c"                  // a word of vm_opcodes.h by its name
-#include "room.c"                   // room for as many of a thing as there are
+#include "named.h"                  // a word of vm_opcodes.h by its name
+#include "room.h"                   // room for as many of a thing as there are
 
 typedef struct {
     int64_t dstack[FILLED];
@@ -260,7 +270,7 @@ static void lay_leads(void) {
 }
 
 // Put a sequence in memory, as the first or the second.
-_Static_assert(LAID >= RUN, "fuse.c: a run cross.fs asks about is longer than there is room to lay it");
+_Static_assert(LAID >= RUN, "fuse.h: a run cross.fs asks about is longer than there is room to lay it");
 static int after[2];                // the instruction after each
 static void lay(int which, const uint16_t* seq, int len) {
     uint16_t* code = machine.memory + AT(which);
@@ -960,7 +970,7 @@ static void tried(const uint16_t* a, int alen, const uint16_t* b, int blen) {
     known = had;
     lost = was_lost;
     if (same(a, alen, b, blen)) return;
-    fprintf(stderr, "\nfuse.c: by their terms");
+    fprintf(stderr, "\nfuse.h: by their terms");
     for(int idx=0; idx < alen; idx++) fprintf(stderr, " %04x", a[idx]);
     fprintf(stderr, " and");
     for(int idx=0; idx < blen; idx++) fprintf(stderr, " %04x", b[idx]);
@@ -1055,7 +1065,7 @@ static int find(uint64_t names) {
 // another file.  A line is the sequence, with a bit to say whether one
 // instruction was asked for or two, and what was found, or nothing.
 static const char* TEXTS[] = {
-    "fuse.c", "named.c", "room.c", "stack.c", "../vm.c", "../vm_step.h", "../vm.h", "../vm_opcodes.c",
+    "fuse.h", "named.h", "room.h", "stack.c", "../vm.c", "../vm_step.h", "../vm.h", "../vm_opcodes.c",
     "../vm_opcodes.h", "../vm_instruction.h", "../vm_constants.h",
 };
 static uint64_t written;            // the number for the texts,
@@ -1781,3 +1791,5 @@ static void look_for_run(const uint16_t* run, int len) {
         }
     }
 }
+
+#endif // HEXAFORTH_FUSE_H

@@ -164,11 +164,15 @@ static check CHECKS[] = {
      "cp @ : j5 over begin + dup until ; cp @ swap -", 1, {5}},
     // An instruction shown as four words is reached a step at a time: r> @
     // is a step, and with over ! it is the instruction that move-row has.
-    // So this is >r, that one, and the exit.
-    {">r r> @ over ! is two instructions",
-     "cp @ : j6 >r r> @ over ! ; cp @ swap -", 1, {3}, NULL, 64},
+    // So this is that one and the exit.  (It is counted, not run: nothing
+    // is on the return stack for it.)  It is run after the start of a loop,
+    // which nothing is joined across, so that the >r before it stays.
+    {"r> @ over ! is one instruction", "cp @ : j6 r> @ over ! ; cp @ swap -", 1, {2}},
     {"and stores what it fetched",
-     "variable x  create w 0 ,  : j6 >r r> @ over ! ;\n7 x !  w x j6 drop  w @", 1, {7}, NULL, 64},
+     "variable x  create w 0 ,  : j6 >r begin r> @ over ! 1 until ;\n7 x !  w x j6 drop  w @", 1, {7}},
+    // What the two before it are together may be nothing, and then nothing
+    // is compiled: >r r> is only the exit, as cross.fs makes it.
+    {">r r> is nothing", "cp @ : j7 >r r> ; cp @ swap -  5 j7", 2, {1, 5}},
 
     // Bits of a cell set, cleared and turned over, typed and compiled.
     {"or! typed", "create w 5 ,  10 w or!  w @", 1, {15}},

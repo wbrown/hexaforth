@@ -111,7 +111,7 @@ the table it had before, and a block that nothing uses.
 Binary goes to memory, where its entry says. Memory is not nothing when a
 machine is turned on, so a run is to be a whole part of the image, with
 every cell the image needs to be nothing in it as well: a run of each
-part of the image as `util/layout.c` knows them. What `mkdisk --boot`
+part of the image as `util/layout.h` knows them. What `mkdisk --boot`
 makes now is a run of each stretch of blocks of the image that has
 something in it, which is enough where memory starts as nothing, as the
 reference VM's does.

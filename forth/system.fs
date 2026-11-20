@@ -98,7 +98,7 @@ include apps-wide.fs
 \ The nucleus's peephole, which the kernel reaches through a vector, and
 \ what it needs to compile the system's source as cross.fs does.
 
-include join.fs         \ instructions joined as they are compiled, and the rules
+include join.fs         \ instructions joined as they are compiled
 include cross-words.fs  \ cross.fs's words, for the nucleus to compile this source
 
 \ What a machine that boots from a disk compiles from it.
@@ -106,6 +106,12 @@ include cross-words.fs  \ cross.fs's words, for the nucleus to compile this sour
 BOOTING? [if] [else]
 include apps.fs         \ the desktop
 [then]
+
+\ What the peephole is told of numbers is a table, and is laid after all
+\ the code: what reads an image as code reads none that is after a table
+\ on its page.
+
+include folds.fs
 
 \ Every word is where it will be: the tables of names for the decompiler,
 \ which go to a file for the disk (build/nuc.tables).

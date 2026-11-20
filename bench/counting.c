@@ -9,7 +9,7 @@
 // environment's RUN_COUNTS names: a count of 64 bits for each place, up
 // to one past the highest that was run.  Whoever reads them has how many
 // there are from how long the file is.  RUN_WORK names a file for the
-// same counts as the work of a profile (work.c), which what says what work
+// same counts as the work of a profile (work.h), which what says what work
 // costs reads (costs.c): it is all work, and an idle turn runs nothing.
 //
 // A test that has the VM in it is built with this in place of vm.c, and
@@ -21,8 +21,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "counting.h"
-#include "../util/room.c"
-#include "work.c"
+#include "../util/room.h"
+#include "work.h"
 
 uint64_t* RAN;
 long RAN_TO;

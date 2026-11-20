@@ -1,8 +1,8 @@
 //
-// loops.c - the loops of an image, for the tools and the tests that have
-// this in them.  It is had after cut.c, which cuts an image into its
+// loops.h - the loops of an image, for the tools and the tests that have
+// this in them.  It has in it cut.h, which cuts an image into its
 // straight-line runs and says where a branch lands and where a word starts,
-// and kinds.c, which takes the return out of an instruction.
+// and kinds.h, which takes the return out of an instruction.
 //
 // A loop is the instructions from where a branch goes back to, up to the
 // branch, within a word.  A jump back to the start of a word, or into
@@ -19,6 +19,12 @@
 // is.  A loop that calls any other word, or branches inside, or returns
 // from inside, is neither, and has no turn that is said here.
 //
+
+#ifndef HEXAFORTH_LOOPS_H
+#define HEXAFORTH_LOOPS_H
+
+#include "kinds.h"                  // first: it has fuse.h, which is had before the rest
+#include "cut.h"
 
 typedef struct {
     long head, tail;                    // where it goes back to, and the branch that goes back
@@ -39,7 +45,7 @@ typedef struct {
 
 // A word put in place of a call to it (put_in_place), at the end of `code`: its
 // instructions up to its return, with the return taken out of the last
-// (kinds.c, unfolded), and the words it calls put in place too.  A jump
+// (kinds.h, unfolded), and the words it calls put in place too.  A jump
 // to a word at the end of it is a call to that word, which returns for it.
 // It is to run straight to its return, and to leave alone what the call put
 // on the return stack, which is where it returns to: not read it, write
@@ -160,3 +166,5 @@ static int loop_within(const loop* inner, const loop* outer) {
 static int turn_now(const turn* t) {
     return(t->bodies + t->tests + (t->tests_at == TESTS_AT_TOP ? 2 : 1) + t->called);
 }
+
+#endif // HEXAFORTH_LOOPS_H

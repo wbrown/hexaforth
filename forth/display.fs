@@ -518,16 +518,27 @@ BANKED? [if]
 
 [else]
 
+\ In these two the value is under the address, where and! and
+\ or! take it from, so 2dup and! is one instruction; and the
+\ end is on R, which only the test reads.  A turn is five
+\ instructions.  With the value on R, as col! has it, the cell
+\ is r@ over and!, three, and a turn six
+\ (doc/superoptimizations.md).  The test is at the bottom, so it
+\ is made once before the loop as well.
 : col-and! ( x a n -- )
     \ in one cell of each of n rows, from the one at a
-    DISP-STRIDE * over + swap rot >r  ( end a ) ( R: x )
-    begin 2dupxor while  r@ over and!  DISP-STRIDE +  repeat
+    DISP-STRIDE * over + >r             ( x a ) ( R: end )
+    dup r@ xor if
+        begin  2dup and!  DISP-STRIDE +  r@ over =  until
+    then
     2drop rdrop
 ;
 
 : col-or! ( x a n -- )
-    DISP-STRIDE * over + swap rot >r
-    begin 2dupxor while  r@ over or!  DISP-STRIDE +  repeat
+    DISP-STRIDE * over + >r
+    dup r@ xor if
+        begin  2dup or!  DISP-STRIDE +  r@ over =  until
+    then
     2drop rdrop
 ;
 

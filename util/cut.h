@@ -1,26 +1,30 @@
 //
-// cut.c - an image's code cut into straight-line runs and the
+// cut.h - an image's code cut into straight-line runs and the
 // instructions that leave a run, for the tools that have this in them
-// (bench/runs.c, test/builds_test.c).  It is had after vm.c, whose it is
-// to say what a field of an instruction is and where a jump goes.
+// (bench/runs.c, test/builds_test.c).  What a field of an instruction is,
+// and where a jump goes, is the machine's to say (vm_instruction.h).
 //
 // A run is instructions of the ALU and numbers, one after another.  It
 // ends at a return, at a write to a port, and before anything a branch
 // lands on or a word starts at.  What leaves a run is a call, a jump or a
-// branch.  A call to a word on another page is the word's place pushed and
+// branch, and each has a run before it, which is of no instructions if
+// there are none between it and what is before.  A call to a word on another page is the word's place pushed and
 // a call to execute, and which calls are such depends on where the pages
 // are: here it is one call, to that word.
 //
 // Code is the pages that words are in, each up to its last instruction;
 // the nucleus's tables, which are instructions laid down after its code,
-// are not code (words.c).
+// are not code (words.h).
 //
 // An image is as long as it is, and has as many words and runs as it has:
-// what is said of it here has room for all of it (room.c).
+// what is said of it here has room for all of it (room.h).
 //
 
+#ifndef HEXAFORTH_CUT_H
+#define HEXAFORTH_CUT_H
+
 #include "image.h"
-#include "words.c"
+#include "words.h"
 
 typedef struct {
     char run;                           // a run, or an instruction that leaves one
@@ -121,7 +125,10 @@ static void cut(cut_image* m, const char* hex, const char* tables) {
             if (ends_a_run(w)) { add_item(m, 1, start, run); run = 0; }
             continue;
         }
-        if (run) add_item(m, 1, start, run);
+        // What leaves a run has a run before it, if of nothing: one build may
+        // make nothing of a run that the other has (`8 3 rshift *` is nothing
+        // where a cell is eight bytes), and the two are still cut alike.
+        add_item(m, 1, run ? start : at, run);
         run = 0;
         // a word's place pushed, and a call or a jump to execute, is a call of
         // that word: the push is part of it, and it starts where the push does
@@ -137,7 +144,7 @@ static void cut(cut_image* m, const char* hex, const char* tables) {
                 for(long j=k - 1; j < before->len; j++) pushed += number_in(c[j]);
                 if (word_starts(m, pushed)) {
                     from = before->at + k - 1;
-                    if (k - 1) before->len = k - 1; else m->count--;
+                    before->len = k - 1;
                     to = pushed;
                 }
             }
@@ -156,3 +163,5 @@ static long part(const cut_image* a, const cut_image* b) {
     while (idx < a->count && idx < b->count && a->items[idx].run == b->items[idx].run) idx++;
     return(idx == a->count && idx == b->count ? -1 : idx);
 }
+
+#endif // HEXAFORTH_CUT_H

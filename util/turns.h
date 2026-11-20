@@ -1,7 +1,7 @@
 //
-// turns.c - fewer instructions that do what a turn of a loop does, for the
-// tools and the tests that have this in them.  It is had after loops.c,
-// which says what a loop's turn is, and fewer.c, which looks for the
+// turns.h - fewer instructions that do what a turn of a loop does, for the
+// tools and the tests that have this in them.  It has in it loops.h,
+// which says what a loop's turn is, and fewer.h, which looks for the
 // fewest instructions that leave what is wanted.
 //
 // The peephole joins instructions that are next to each other, and keeps
@@ -22,18 +22,24 @@
 // the turn at a time, where the whole is too much to search; and with a
 // number the turn pushes kept on the return stack instead, put there
 // before the loop, where it is an input of the ALU.  What is found is run
-// on vm.c beside the turn (fewer.c, agree_on_machine) before it is said.
+// on vm.c beside the turn (fewer.h, agree_on_machine) before it is said.
 //
 // What is looked at is the turn's to say: every length shorter than it is
 // now, every way of keeping what it keeps in the cells it keeps it in,
 // every part of it shorter than the whole, and every number it pushes.
-// How long each search may take is fewer.c's (SEARCH_STATES), and the
+// How long each search may take is fewer.h's (SEARCH_STATES), and the
 // same for every one; how many were made each way, and how many of those
 // were given up, is said with what was found.
 //
 
+#ifndef HEXAFORTH_TURNS_H
+#define HEXAFORTH_TURNS_H
+
+#include "loops.h"
+#include "fewer.h"
+
 typedef struct {
-    uint16_t code[LAID];                // the turn as one run, as long as one can be run on vm.c (fuse.c),
+    uint16_t code[LAID];                // the turn as one run, as long as one can be run on vm.c (fuse.h),
     int len;
     int now;                            // and how many instructions it runs in the loop, with its branches and calls
     int at_top;                         // the loop tests at the top, and goes round on something
@@ -387,3 +393,5 @@ static int by_parts(uint16_t* code, int len, long states, int* searched, int* gi
     }
     return(len);
 }
+
+#endif // HEXAFORTH_TURNS_H

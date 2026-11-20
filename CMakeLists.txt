@@ -52,7 +52,7 @@ function(needs NAME)
 endfunction()
 
 needs(C_COMPILER    PROGRAM cc gcc clang        APT gcc
-      FOR "everything: the C is compiled with it, and gforth builds util/fuse.c with it")
+      FOR "everything: the C is compiled with it, and gforth builds util/fuse.h with it")
 needs(CXX_COMPILER  PROGRAM c++ g++ clang++     APT g++
       FOR "the Verilog: Verilator makes C++ of it")
 needs(MAKE_PROGRAM  PROGRAM make gmake          APT make                        BREW make
@@ -64,9 +64,9 @@ needs(CURL          PROGRAM curl                APT curl                        
 needs(GFORTH        PROGRAM gforth              APT gforth                      BREW gforth
       FOR "every image: cross.fs is run by it")
 needs(LIBTOOL       PROGRAM glibtool libtool    APT libtool-bin                 BREW libtool
-      FOR "every image: gforth builds util/fuse.c through it")
+      FOR "every image: gforth builds util/fuse.h through it")
 needs(LTDL_HEADER   HEADER ltdl.h               APT libltdl-dev                 BREW libtool
-      FOR "every image: what gforth builds of util/fuse.c is built with it")
+      FOR "every image: what gforth builds of util/fuse.h is built with it")
 needs(UNICORN_HEADER HEADER unicorn/unicorn.h   APT libunicorn-dev              BREW unicorn
       FOR "the tests kernel-hexaforth and kernel-hexaforth-fast: the kernels are run against vm.c on it")
 needs(CLANG         PROGRAM clang               APT clang                       BREW llvm
@@ -91,6 +91,8 @@ needs(BOOST_HEADER  HEADER boost/version.hpp    BREW boost                      
       FOR "synth, where nextpnr-ecp5 is built here: it is built with it")
 needs(EIGEN_HEADER  HEADER eigen3/Eigen/Core    BREW eigen                      WITHOUT NEXTPNR
       FOR "synth, where nextpnr-ecp5 is built here: it is built with it")
+needs(CLANGD        PROGRAM clangd              APT clangd                      BREW llvm
+      FOR "the target clangd: what the language server says of the C")
 needs(M68K_AS       PROGRAM m68k-elf-as m68k-linux-gnu-as           APT binutils-m68k-linux-gnu BREW m68k-elf-binutils
       FOR "bench-m68k: the 68000's assembler")
 needs(M68K_LD       PROGRAM m68k-elf-ld m68k-linux-gnu-ld           APT binutils-m68k-linux-gnu BREW m68k-elf-binutils
@@ -225,6 +227,20 @@ endforeach()
 
 project(hexaforth C)
 
+# How each C file is compiled is written out when CMake is run
+# (compile_commands.json, where CMake builds), for a language server:
+# clangd reads it, and so knows a file's definitions and headers.  clangd
+# looks for it in build/ under each directory above a source file, so a
+# link to it is put there, wherever CMake was told to build.  Only what is
+# compiled as a target here is in it: not what gforth builds of
+# util/fuse.h, the kernels or the Verilog.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+if(NOT CMAKE_BINARY_DIR STREQUAL "${CMAKE_SOURCE_DIR}/build")
+    file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
+    file(CREATE_LINK ${CMAKE_BINARY_DIR}/compile_commands.json
+                     ${CMAKE_SOURCE_DIR}/build/compile_commands.json SYMBOLIC)
+endif()
+
 set(DEBUG true)
 set(CMAKE_C_STANDARD 99)
 
@@ -256,11 +272,11 @@ file(GLOB FORTH_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/forth/*.fs)
 list(FILTER FORTH_SOURCES EXCLUDE REGEX "/test_cases\\.fs$")
 
 # cross.fs asks the machine which instructions do the work of which
-# (util/fuse.c, which has vm.c in it), through gforth's C interface.  So an
+# (util/fuse.h, which has vm.c in it), through gforth's C interface.  So an
 # image is out of date when the machine changes too.  gforth builds that C
 # with libtool; and where gforth is Homebrew's, the compiler has to be told
 # where Homebrew's headers are, gforth's own among them.
-set(MACHINE_SOURCES util/fuse.c util/named.c util/room.c vm.c vm_step.h vm.h vm_opcodes.c
+set(MACHINE_SOURCES util/fuse.h util/named.h util/room.h vm.c vm_step.h vm.h vm_opcodes.c
                     vm_opcodes.h vm_instruction.h vm_constants.h util/stack.c)
 set(WITH_HEADERS)                   # what is put before a command that has gforth build C
 if(BREW)
@@ -390,7 +406,7 @@ target_compile_definitions(hexaforth_test
         TEST
         DEBUG)
 
-# What reaches each word of the kernel (util/reach.c): nothing of it is to
+# What reaches each word of the kernel (util/reach.h): nothing of it is to
 # be there that nothing comes to.  It has the machine in it, and is built
 # without the trace.
 add_executable(kernel_test
@@ -403,11 +419,11 @@ target_compile_options(kernel_test PRIVATE -UDEBUG -w)
 target_link_libraries(kernel_test m)
 
 # The search for the fewest instructions that do the work of a run, and of
-# a turn of a loop (util/fewer.c, util/turns.c), held to runs whose fewest
-# is known.  It has fuse.c in it, which has the machine.  How long a search
+# a turn of a loop (util/fewer.h, util/turns.h), held to runs whose fewest
+# is known.  It has fuse.h in it, which has the machine.  How long a search
 # may take, in what it looks at, is said here and nowhere else: what is
 # looked for, how deep and how long, is the run's or the turn's to say.
-set(SEARCH_STATES 1000000 CACHE STRING "the states a search for fewer instructions looks at before it is given up (util/fewer.c)")
+set(SEARCH_STATES 1000000 CACHE STRING "the states a search for fewer instructions looks at before it is given up (util/fewer.h)")
 add_executable(fewer_test
         test/fewer_test.c
         util/image.c)
@@ -416,7 +432,7 @@ target_compile_definitions(fewer_test PRIVATE SEARCH_STATES=${SEARCH_STATES})
 target_link_libraries(fewer_test m)
 
 # What an image is made of: its pages of code, the source files its code is
-# from, and the rest of its memory (util/layout.c).  The target `examine`
+# from, and the rest of its memory (util/layout.h).  The target `examine`
 # says it of the nucleus's image.
 add_executable(examine-image
         util/examine.c
@@ -699,7 +715,7 @@ function(machine NAME)
 
     # A machine with a display has a second system too: the picture alone
     # (forth/picture.fs), which picture-system-NAME makes in a directory of
-    # its own.  It is made after the nucleus, since both write what fuse.c
+    # its own.  It is made after the nucleus, since both write what fuse.h
     # keeps in build/.
     if("${ARGN}" MATCHES "DISP_W=")
         add_custom_command(
@@ -749,7 +765,7 @@ function(machine NAME)
     # instruction's place, number and fields (util/disasm_hex.c, which says
     # at its top what it shows): disasm_hex-NAME IMAGE.hex [NAME... | FROM TO].
     # It has the machine in it, for where a branch goes.
-    machine_tool(disasm_hex ${NAME} util/disasm_hex.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
+    machine_tool(disasm_hex ${NAME} util/disasm_hex.c test/nucleus.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
     # The reference VM of the machine, counting how often the instruction at
     # each place is run (bench/counting.c): counting-NAME IMAGE.hex
     # [DISK.img [MEMORY.out]], and the counts written where RUN_COUNTS says.
@@ -774,8 +790,8 @@ function(machine_tool TOOL NAME)
     target_compile_definitions(${TOOL}-${NAME} PRIVATE ${DEFINITIONS_${NAME}})
 endfunction()
 
-# A tool that has the machine's step in it (util/fuse.c), built for a
-# machine's cell: fuse.c says what the rest of the machine it tries things
+# A tool that has the machine's step in it (util/fuse.h), built for a
+# machine's cell: fuse.h says what the rest of the machine it tries things
 # on is.
 function(stepping_tool TOOL NAME)
     tool(${TOOL}-${NAME} ${ARGN})
@@ -960,6 +976,31 @@ function(mapped NAME)
                      boot-system-${NAME} picture pictures)
 endfunction()
 
+# `compiling-64` and the like: what it costs a machine to boot from its
+# disk and compile from source there what its image is without.  The
+# reference VM that counts (bench/counting.c) is started with the boot's
+# image in memory, the disk the desktop boots from and the pictures' disk,
+# and runs to its prompt; then what the work costs is said (bench/costs.c):
+# how many instructions and cycles, each word with all it calls, and the
+# loops.  What the machine said, the work by place and the reports are in
+# build/NAME/compiling/, where `disasm_hex-NAME ... --counts` reads the
+# work to say how often each instruction of a word was run.
+function(compiled NAME)
+    set(AT ${BUILD}/${NAME})
+    set(CP ${AT}/compiling)
+    add_custom_target(compiling-${NAME}
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${CP}
+            COMMAND           ${CMAKE_COMMAND} -E env RUN_WORK=${CP}/work
+                                $<TARGET_FILE:counting-${NAME}> ${AT}/boot/nuc.hex ${AT}/boot/desk.img,${PICTURES}
+                                < ${CMAKE_SOURCE_DIR}/bench/idle.fs > ${CP}/boot.out 2>&1
+            COMMAND           costs-${NAME} ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables ${AT}/boot/nuc.sizes ${CP}/work ${CP}
+                                > ${CP}/costs.txt 2> ${CP}/costs.log
+            COMMAND           ${CMAKE_COMMAND} -E cat ${CP}/boot.out ${CP}/costs.txt
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            VERBATIM)
+    add_dependencies(compiling-${NAME} counting-${NAME} costs-${NAME} boot-system-${NAME} picture pictures)
+endfunction()
+
 # What a machine's display shows, from its memory as the reference VM
 # writes it when it has stopped (util/screen.c): screen-NAME, which the
 # target `seen` builds for every machine, with what makes a PNG of one
@@ -994,6 +1035,7 @@ foreach(LINE ${MACHINE_LINES})
     if(HOW_MUCH GREATER 2)
         examined(${CELL})                               # the names it reads are a machine's that has a display
         mapped(${CELL})
+        compiled(${CELL})
         shown(${CELL})
     endif()
     list(APPEND MACHINES ${CELL})
@@ -1019,25 +1061,6 @@ machine_tool(desktop_test_counted ${FIRST} test/desktop_test.c ${DESK_SOURCES} $
 target_compile_definitions(desktop_test_counted-${FIRST} PRIVATE COUNTING_A_TEST)
 machine_tool(profile ${FIRST} bench/profile.c ${DESK_SOURCES} ${COUNTED_SOURCES})
 target_compile_definitions(profile-${FIRST} PRIVATE COUNTING_A_TEST)
-
-# `hits`: how often each rule of the nucleus's peephole is used while the
-# desktop is worked.  join.fs keeps a count for each of its rules; the
-# desktop's test is told to write the machine's memory when it is done, and
-# the counts are read out of that (test/hits.c).  What the test itself
-# types at the prompt is compiled by the nucleus too, and is counted with
-# the rest.
-set(HITS ${BUILD}/hits)
-machine_tool(hits ${FIRST} test/hits.c vm_opcodes.c vm_debug.c)
-add_custom_target(hits
-        COMMAND           ${CMAKE_COMMAND} -E make_directory ${HITS}/desktop
-        COMMAND           ${CMAKE_COMMAND} -E rm -f ${HITS}/memory.out
-        COMMAND           ${CMAKE_COMMAND} -E env MEMORY=${HITS}/memory.out
-                            $<TARGET_FILE:desktop_test-${FIRST}> ${NUC} ${OF}/disk.img ${PICTURES} ${PICTURE} forth
-                            ${HITS}/desktop names > ${HITS}/desktop.log 2>&1
-        COMMAND           hits-${FIRST} ${HITS}/memory.out forth/joins.fs
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        COMMENT           "The desktop worked, and the rules it used (what its test says is in ${HITS}/desktop.log)")
-add_dependencies(hits machine-${FIRST} picture pictures)
 
 # `screenshot`: the desktop with every window open and HexaPaint in front,
 # as the README shows it (doc/desktop.png, which is checked in).  The
@@ -1136,17 +1159,21 @@ add_dependencies(subtracts machine-${FIRST} plain-${FIRST})
 #     into the same straight-line runs (bench/runs.c): a run as it is
 #     typed, and what cross.fs made of it
 #   each run as typed is given to the nucleus's emit1 at the prompt of the
-#     reference VM, an instruction at a time, and the nucleus says what it
-#     made of it and which of its rules it used (bench/typed.c)
+#     reference VM, an instruction at a time, and the nucleus says what the
+#     run is after each, which says what it joined (bench/typed.c)
 #   the work is done on the VM that counts: the machine coming up and
 #     being stopped (bench/idle.fs), which is taken from the rest; the
 #     desktop's test; and the drawing benchmark (bench/draw.fs)
 #   and the runs are weighed by that (bench/weigh.c), which says at its top
 #     what it prints
+#   and what the nucleus joined is held to the machine's step, as the
+#     target `pairs` holds every pair there could be (util/pairs.c, seen)
+#   and each instruction it made is looked for in the decompiler's table,
+#     which is made of what cross.fs put in the image (bench/typed.c, shown)
 set(PEEPHOLE ${BUILD}/peephole)
 machine_tool(runs ${FIRST} bench/runs.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
 machine_tool(typed ${FIRST} bench/typed.c vm_opcodes.c vm_debug.c util/image.c)
-tool(weigh bench/weigh.c)
+tool(weigh bench/weigh.c vm_opcodes.c vm_debug.c)
 add_custom_target(peephole
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${PEEPHOLE}/desktop
         COMMAND           runs-${FIRST} ${OF}/plain/nuc.hex ${OF}/plain/nuc.tables ${NUC} ${TABLES}
@@ -1167,12 +1194,32 @@ add_custom_target(peephole
         COMMAND           ${CMAKE_COMMAND} -E env RUN_COUNTS=${PEEPHOLE}/desktop.counts
                             $<TARGET_FILE:desktop_test_counted-${FIRST}> ${NUC} ${PEEPHOLE}/disk.img ${PICTURES}
                             ${PICTURE} forth ${PEEPHOLE}/desktop names > ${PEEPHOLE}/desktop.log 2>&1
-        COMMAND           weigh ${PEEPHOLE}/typed.txt forth/joins.fs ${SIZES} ${PEEPHOLE} desktop draw
+        COMMAND           weigh ${PEEPHOLE}/typed.txt ${SIZES} ${PEEPHOLE} desktop draw
                             > ${PEEPHOLE}/peephole.txt 2> ${PEEPHOLE}/weigh.log
-        COMMAND           ${CMAKE_COMMAND} -E cat ${PEEPHOLE}/peephole.txt
+        COMMAND           pair-rules seen ${PEEPHOLE}/typed.txt > ${PEEPHOLE}/seen.txt 2> ${PEEPHOLE}/seen.log
+        COMMAND           typed-${FIRST} shown ${PEEPHOLE}/typed.txt forth/fused.fs
+                            > ${PEEPHOLE}/shown.txt 2> ${PEEPHOLE}/shown.log
+        COMMAND           ${CMAKE_COMMAND} -E cat ${PEEPHOLE}/peephole.txt ${PEEPHOLE}/seen.txt ${PEEPHOLE}/shown.txt
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The nucleus's compiler, weighed (each step's log is in ${PEEPHOLE})")
 add_dependencies(peephole machine-${FIRST} plain-${FIRST} picture pictures)
+
+# `pairs`: what the nucleus works out two instructions to be together
+# (forth/compose.fs), held to the machine's step for every pair it can
+# meet and every three that have a name (util/pairs.c, which says at its
+# top what it types and what it prints).  It fails if the nucleus was wrong
+# of any.  What was typed and what the nucleus said are in build/pairs/.
+set(PAIRS ${BUILD}/pairs)
+tool(pair-rules util/pairs.c util/image.c)
+target_include_directories(pair-rules PRIVATE util)
+add_custom_target(pairs
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${PAIRS}
+        COMMAND           pair-rules type ${NUC} ${TABLES} > ${PAIRS}/typed.fs
+        COMMAND           hexaforth-${FIRST} ${NUC} < ${PAIRS}/typed.fs > ${PAIRS}/typed.out 2>&1
+        COMMAND           pair-rules read ${PAIRS}/typed.out
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT           "What the nucleus works two instructions out to be, held to the step (${PAIRS})")
+add_dependencies(pairs machine-${FIRST})
 
 # `phrases`: the phrase book, what to write to get each instruction
 # (util/phrases.c, which says at its top what it finds and asks).  It is
@@ -1269,7 +1316,7 @@ set(CROSS_CLANG ${CLANG} --target=aarch64-none-elf -c ${KERNEL_SIZES})
 # build/virt/boot/, the image it boots from a disk with and that disk
 # (boot-system-NAME, above, says what those are).  Each is made after the
 # one before, and after the machine of ${KERNELS_OF} bits, since all of them write
-# what fuse.c keeps in build/.
+# what fuse.h keeps in build/.
 set(VIRT_WORDS ${BUILD}/${KERNELS_OF}/basewords.fs)
 add_custom_command(
         OUTPUT            ${OF_KERNEL}/nuc.hex ${OF_KERNEL}/nuc.tables
@@ -2443,6 +2490,135 @@ tee -o ${GB}/${LABEL}.stat stat
     add_dependencies(gates tv80 fx68k)
 else()
     add_custom_target(gates COMMAND ${CMAKE_COMMAND} -E echo "gates: not run: there is no yosys")
+endif()
+
+#
+# The files the tree's text says by name, each of which is to be there: the
+# target `said` (util/said.c).
+#
+# A file is named by what includes it, by this file, in comments and in
+# CLAUDE.md, and when its name changes nothing that is built finds the
+# places that only say it.  The kinds of file that are looked for are the
+# tree's source; build/ is made, and worktrees/ is other trees.
+#
+# What is said and is not a file of the tree is said here, by what it is:
+# another's, which the system has or which is fetched; what is made when
+# something is built; a name that stands for whatever file a reader has; a
+# file that is gone, where doc/boot.md says what was; and a word of the
+# Forth that ends as a file's name does.
+#
+set(SAID_ANOTHERS ltdl.h unicorn/unicorn.h libcc.fs
+                  m68k.h m68kcpu.c m68kops.c m68kops.h m68kmake.c m68k_in.c softfloat/softfloat.c
+                  tv80s.v tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
+set(SAID_MADE     test_cases.fs cmake_install.cmake typed.fs asks-gray.fs asks-PIC-SIZE.fs half.fs phrasetest.fs
+                  Vhexaforth.h Vhexaforth___024root.h Vhf_mem.h Vsoc.h)
+set(SAID_ANY      name.fs program.fs yourprogram.fs mine.fs)
+set(SAID_GONE     vmdisk.fs virtio-blk.fs)
+set(SAID_WORDS    cw.h)
+tool(said_files util/said.c)
+add_custom_target(said
+        COMMAND           said_files ${GIT} c h cpp fs S v cmake md
+                            --not worktrees
+                            --besides ${SAID_ANOTHERS} ${SAID_MADE} ${SAID_ANY} ${SAID_GONE} ${SAID_WORDS}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        DEPENDS           said_files
+        VERBATIM)
+
+#
+# The figures the tree's comments and documents say: the target `figures`
+# (util/said.c).  How big a thing is, how many there are of a thing and
+# what a thing costs is what a target prints, and is not written down
+# beside it to be kept in step.  This prints each line of a comment or a
+# document that has a number and then one of these words, to be read: it
+# cannot tell what the machine is from how much there was of something,
+# and fails nothing.
+#
+set(FIGURES_OF % percent bytes KB MB instructions cycles clocks rules words lines blocks files
+               tests checks times million states loops cells headers names entries variables
+               seconds turns pairs calls characters pixels windows glyphs definitions places)
+add_custom_target(figures
+        COMMAND           said_files ${GIT} --figures ${FIGURES_OF} --not worktrees
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        DEPENDS           said_files
+        VERBATIM)
+
+#
+# What clangd says of the C: the target `clangd`.
+#
+# A language server says what it finds wrong with a file each time the file
+# is changed, so what it says of the tree as it is would be said again
+# after every change.  This asks it of every file of C that is compiled as
+# a target here, a file at a time, as it is configured (.clangd) and as
+# CMake says the file is compiled (compile_commands.json, above); keeps
+# what it printed of each in build/clangd/; and prints what it found wrong
+# and of how many files (util/clangd.c), failing if it found anything.
+#
+# It is asked for its warnings as well as its errors, which it leaves out
+# unless told.  It is not asked to try each of its features at every word
+# of the file (--check-locations), which it does unless told: one of those
+# is each change it can offer to make to the source, and its offer to turn
+# round the two sides of an operator fails on an operator that is in a
+# macro (DISK_DRIVE_OF, vm_constants.h).  Nothing here asks it for such a
+# change, and a server does not try one until it is asked.
+#
+# It is asked of every header too, in each directory that has a file of C:
+# a header is not compiled by itself, but clangd reads it by itself in a
+# session, so it is to include what it needs.  What is fetched or made in
+# build/ (the 68000, bench-m68k) is not asked of: it is another's source,
+# and is not changed here.
+#
+tool(clangd_said util/clangd.c)
+get_property(EVERY_TARGET DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+set(C_FILES)
+foreach(TARGET ${EVERY_TARGET})
+    get_target_property(KIND ${TARGET} TYPE)
+    if(NOT KIND MATCHES "^(EXECUTABLE|STATIC_LIBRARY|SHARED_LIBRARY|MODULE_LIBRARY|OBJECT_LIBRARY)$")
+        continue()
+    endif()
+    get_target_property(SOURCES ${TARGET} SOURCES)
+    foreach(SOURCE ${SOURCES})
+        if(SOURCE MATCHES "\\.c$")
+            get_filename_component(SOURCE ${SOURCE} ABSOLUTE)
+            string(FIND "${SOURCE}" "${BUILD}/" MADE)
+            if(NOT MADE EQUAL 0)
+                list(APPEND C_FILES ${SOURCE})
+            endif()
+        endif()
+    endforeach()
+endforeach()
+list(REMOVE_DUPLICATES C_FILES)
+set(C_DIRECTORIES)
+foreach(FILE ${C_FILES})
+    get_filename_component(WHERE ${FILE} DIRECTORY)
+    list(APPEND C_DIRECTORIES ${WHERE})
+endforeach()
+list(REMOVE_DUPLICATES C_DIRECTORIES)
+foreach(WHERE ${C_DIRECTORIES})
+    file(GLOB HEADERS CONFIGURE_DEPENDS ${WHERE}/*.h)
+    list(APPEND C_FILES ${HEADERS})
+endforeach()
+list(SORT C_FILES)
+if(CLANGD)
+    set(CS ${BUILD}/clangd)
+    set(ASKED)
+    set(SAID)
+    foreach(FILE ${C_FILES})
+        file(RELATIVE_PATH LOG ${CMAKE_SOURCE_DIR} ${FILE})
+        string(REPLACE "/" "-" LOG ${LOG})
+        set(LOG ${CS}/${LOG}.log)
+        list(APPEND ASKED COMMAND ${CLANGD} --check=${FILE} --check-warnings --check-locations=0
+                                    > ${LOG} 2>&1 || ${CMAKE_COMMAND} -E true)
+        list(APPEND SAID ${LOG})
+    endforeach()
+    add_custom_target(clangd
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${CS}
+            ${ASKED}
+            COMMAND           clangd_said ${SAID}
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            DEPENDS           clangd_said
+            VERBATIM)
+else()
+    add_custom_target(clangd COMMAND ${CMAKE_COMMAND} -E echo "clangd: not run: there is no clangd")
 endif()
 
 #

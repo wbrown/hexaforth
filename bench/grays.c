@@ -11,9 +11,7 @@
 // has it, and these two on a disk of their own (CMakeLists.txt, which has
 // mkdisk --disk make it).  A disk is no more than a floppy holds, which
 // the three together are more than.  bench/pictures.fs, typed at the
-// machine, finds each by its label.  (This was disk.c, and made one disk of
-// the system's and the three pictures, longer than a floppy, and a file
-// that said which block each started at.)
+// machine, finds each by its label.
 //
 
 #include <stdio.h>

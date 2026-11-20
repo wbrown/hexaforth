@@ -8,9 +8,9 @@
 // peephole.
 //
 // Both images are cut into runs and the instructions that leave a run
-// (cut.c).  They are to be the same runs and the same calls in the same
+// (cut.h).  They are to be the same runs and the same calls in the same
 // order.  Whether two runs leave the same is asked of the machine: the
-// step on terms says what each leaves in every cell (fuse.c), and two that
+// step on terms says what each leaves in every cell (fuse.h), and two that
 // leave the same terms leave the same from every state.
 //
 //   A run that a conditional branch comes after need only leave the same
@@ -34,8 +34,8 @@
 // the one built without the peephole was not built.
 //
 
-#include "../util/fuse.c"
-#include "../util/cut.c"
+#include "../util/fuse.h"
+#include "../util/cut.h"
 
 static cut_image PLAIN, BUILT;
 static uint16_t EXIT;                   // the instruction that is an exit
@@ -64,7 +64,7 @@ static int leave_the_same(const uint16_t* a, int alen, const uint16_t* b, int bl
 // The same, where a conditional branch comes after: with what the branch
 // asks after each.
 static int leave_the_same_to_a_branch(const uint16_t* a, int alen, const uint16_t* b, int blen) {
-    // each with room for itself, a number (fuse.c says how long one can be) and what asks
+    // each with room for itself, a number (fuse.h says how long one can be) and what asks
     uint16_t* x = room_for(alen + NUMBER_ROOM + 1, sizeof(uint16_t));
     uint16_t* y = room_for(blen + NUMBER_ROOM + 1, sizeof(uint16_t));
     memcpy(x, a, alen * sizeof(uint16_t));

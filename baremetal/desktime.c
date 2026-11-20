@@ -24,7 +24,7 @@
 // QEMU has a screen of its own size, and the prompt cannot be on the
 // screen before the desktop is.  How many rows of the picture are made is read out
 // of the machine's memory, which is in QEMU's where the kernel's symbol
-// `image` is (symbols.c): `vw` in view.fs is the viewer in hand, and the
+// `image` is (symbols.h): `vw` in view.fs is the viewer in hand, and the
 // third cell of a viewer's record is the rows of its bitmap that are made
 // (`bmh`).  If either changes, so must this; it stops and says so if the
 // names that go with the image have no `vw`.
@@ -37,9 +37,9 @@
 #include "../bench/tiff.h"
 #include "../test/deskcheck.h"
 #include "../test/tables.h"
-#include "../util/words.c"
+#include "../util/words.h"
 #include "qemu.h"
-#include "symbols.c"
+#include "symbols.h"
 
 #define ROWS_MADE 2             // bmh: where it is in a viewer's record (view.fs)
 

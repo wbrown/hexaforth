@@ -64,7 +64,7 @@ variable tcp    0 tcp !         \ Code pointer
 \             offered again, so fusions cascade.  Three that are not one but
 \             do what two do are replaced by the two, each offered again.
 \             Which instruction, or which two, the machine is asked
-\             (machine-fuse, machine-two): util/fuse.c has the machine's
+\             (machine-fuse, machine-two): util/fuse.h has the machine's
 \             step and says what leaves the same.
 \   n +       after a literal or another n + of the same shift is added to
 \             it, if the sum still fits: `1+ 1+` is one instruction.
@@ -604,7 +604,7 @@ krom-bytes upper !
     then
 ;
 
-\ The machine, for the peephole to ask: util/fuse.c, which has vm.c in it,
+\ The machine, for the peephole to ask: util/fuse.h, which has vm.c in it,
 \ built here for this cell and called through gforth's C interface.  It is
 \ built each time, so it is never the machine as it was.  gforth builds it
 \ where it keeps such things, so it is told where the file is in full.
@@ -615,7 +615,7 @@ krom-bytes upper !
     pad swap
 ;
 s" #define CELL_BITS " cell-bits 0 <# #s #> s+ save-c-prefix-line
-s" #include " s\" \"" s+  here-is s+  s\" /../util/fuse.c\"" s+ save-c-prefix-line
+s" #include " s\" \"" s+  here-is s+  s\" /../util/fuse.h\"" s+ save-c-prefix-line
 s" m" add-lib
 c-function (machine-fuse) fuse_one n n n -- n
 c-function (machine-two) fuse_two n n n -- n
@@ -660,7 +660,8 @@ cell-bits #64 = [if] -1 [else] 1 cell-bits lshift 1- [then] constant cell-mask
 \
 \                             headers          code pages past page 1
 \   memory of 64K cells       bytes $6000      4, instructions $4000-$7fff
-\   more                      bytes $a000      8, instructions $8000-$ffff
+\   more, cells of 32 bits    bytes $c000      8, instructions $8000-$ffff
+\   more, cells of 64 bits    bytes $a800      the same
 \
 \ The data ends where the headers start, and the headers where that code
 \ starts.  An execution token is 16 bits in a dictionary header, less the
@@ -669,13 +670,18 @@ cell-bits #64 = [if] -1 [else] 1 cell-bits lshift 1- [then] constant cell-mask
 \ pages is for code compiled at run time (code-base, code-size, in
 \ instructions).
 addr-bits #16 > 0= constant small           \ a machine whose memory is 64K cells
-\ The headers start at byte $a000, which with cells of 64 bits is inside
-\ the 4,096 cells that one instruction reaches.  With cells of 32 bits
-\ those end at byte $8000 and what is bulk comes after them (below): it
-\ has 16KB and the headers the 16KB after that.
+\ With cells of 64 bits the headers start at byte $a800, which is inside
+\ the 4,096 cells that one instruction reaches: what is bulk has no place
+\ of its own there, and the data has all that is before the headers.
+\ Where the two meet is a matter of what each needs past what the image
+\ has: the data, room for what a word that is drawing sets aside when it
+\ is run again (borrow, display.fs); the headers, room for the names of a
+\ file while the boot compiles it (blocks.fs).  With cells of 32 bits the
+\ 4,096 cells end at byte $8000 and what is bulk comes after them (below):
+\ it has 16KB and the headers the 16KB after that.
 \ A header is only of a name the source gives one (header), and those made
 \ at run time carry on after the image's, up to the code (HDR-LIMIT).
-small [if] $6000 [else] cell-bits #64 < [if] $c000 [else] $a000 [then] [then] constant hdr-base
+small [if] $6000 [else] cell-bits #64 < [if] $c000 [else] $a800 [then] [then] constant hdr-base
 hdr-base thp !
 \ The first cell of the data, the cell at var-base, is every image's: the
 \ address of its newest header, stored when the program has been compiled

@@ -1,5 +1,5 @@
 //
-// work.c - the work of a profile by place, as a file, for the tools that
+// work.h - the work of a profile by place, as a file, for the tools that
 // have this in them: profile.c writes it, and what says what the work
 // costs reads it.
 //
@@ -11,6 +11,9 @@
 // is whoever writes it's to say (profile.c: as many as the VM that counts
 // keeps counts of), and is read from how long the file is.
 //
+
+#ifndef HEXAFORTH_WORK_H
+#define HEXAFORTH_WORK_H
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,3 +55,5 @@ static long work_read(const char* path, double** work, double** a_turn) {
     if (a_turn) *a_turn = both + places;
     return(places);
 }
+
+#endif // HEXAFORTH_WORK_H

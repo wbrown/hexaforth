@@ -1,11 +1,11 @@
 //
-// kinds.c - the instructions of the ALU by what they leave, and an
+// kinds.h - the instructions of the ALU by what they leave, and an
 // instruction as it is said, for the tools and the tests that have this in
-// them.  It is had after fuse.c, and asks the machine by it.
+// them.  It has fuse.h in it, and asks the machine by it.
 //
 // Many settings of an instruction's fields leave the same from every
 // state: they are one kind.  Which do is asked of the step on terms
-// (fuse.c).  One instruction stands for each kind: one that has a name in
+// (fuse.h).  One instruction stands for each kind: one that has a name in
 // vm_opcodes.h if any of the kind has, or else the lowest.
 //
 // An instruction that has a number in it is one of four things, and which
@@ -18,11 +18,15 @@
 // (cross.fs, fold-exit) is the instruction and then the return.
 //
 
-#include "room.c"
+#ifndef HEXAFORTH_KINDS_H
+#define HEXAFORTH_KINDS_H
+
+#include "fuse.h"
+#include "room.h"
 
 typedef struct {
     uint16_t ins;                       // the instruction that stands for the kind
-    uint64_t leaves;                    // the number for what it leaves (fuse.c)
+    uint64_t leaves;                    // the number for what it leaves (fuse.h)
     const char* name;                   // its name, or none
 } kind;
 
@@ -200,3 +204,5 @@ static char* run_said(const uint16_t* seq, int len, int numbers) {
     }
     return(text);
 }
+
+#endif // HEXAFORTH_KINDS_H

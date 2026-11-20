@@ -20,7 +20,7 @@
 //      it leaves
 //
 // What an instruction does, and whether a run does the work of one, is
-// asked of the machine: the step on terms (fuse.c), as cross.fs asks it.
+// asked of the machine: the step on terms (fuse.h), as cross.fs asks it.
 // Nothing here says what an instruction does.
 //
 // COUNTS is how often each instruction ran, as bench/profile.c writes it
@@ -30,14 +30,14 @@
 // printed.
 //
 
-#include "fuse.c"
-#include "cut.c"
-#include "kinds.c"
-#include "../bench/work.c"
+#include "fuse.h"
+#include "cut.h"
+#include "kinds.h"
+#include "../bench/work.h"
 
 #define LONGEST 6                       // instructions in a run that is tried: chosen, and not the machine's
 
-// What the image does with each kind of instruction (kinds.c): the places
+// What the image does with each kind of instruction (kinds.h): the places
 // it has one, how often those ran as work, and in a turn of the idle loop.
 static struct { long places; double runs, turn; }* USES;       // by kind
 
@@ -86,7 +86,7 @@ static const two* two_leaving(uint64_t leaves) {
 
 // ---- runs that fewer would do
 
-typedef struct { char* run; char* does; long places; double saved, turn; } fewer;    // each as it is said (kinds.c)
+typedef struct { char* run; char* does; long places; double saved, turn; } fewer;    // each as it is said (kinds.h)
 static fewer* FEWER;                    // those found, and room for more as they are
 static int fewers, fewers_room;
 

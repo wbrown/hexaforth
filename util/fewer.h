@@ -1,10 +1,10 @@
 //
-// fewer.c - the fewest instructions that leave what is wanted, for the
-// tools that have this in them.  It is had after fuse.c, by which it asks
-// the machine, and kinds.c, which lists the instructions that have a
+// fewer.h - the fewest instructions that leave what is wanted, for the
+// tools that have this in them.  It has in it fuse.h, by which it asks
+// the machine, and kinds.h, which lists the instructions that have a
 // number in them.
 //
-// What is wanted is said as fuse.c says what a run leaves: the terms in
+// What is wanted is said as fuse.h says what a run leaves: the terms in
 // the cells of the two stacks, memory as a term, and where it fetched
 // from (a `named`).  It may be wanted with the top of the data stack
 // only as far as whether it is nothing, which is all a branch asks of
@@ -13,7 +13,7 @@
 //
 // The search is of every instruction the step says of, the numbers and
 // the variables that what is wanted has in it.  It does not know what an
-// instruction does: each is stepped (fuse.c, which is vm_step.h on terms)
+// instruction does: each is stepped (fuse.h, which is vm_step.h on terms)
 // and what the step leaves is looked at.  An instruction is gone on from
 // only if what it made is part of what is wanted, or was there already,
 // or is nothing when the top is to be; and a line of search is given up
@@ -21,7 +21,7 @@
 // is given up altogether after so many states (`nodes`), and says so.
 //
 // What is found is found by terms, which say it is so from every state
-// if the step and what fuse.c takes to be so of the arithmetic are right.
+// if the step and what fuse.h takes to be so of the arithmetic are right.
 // So it is also run on vm.c, beside what it is to do the work of
 // (agree_on_machine): a thing made otherwise, which nothing here is built
 // from.
@@ -32,6 +32,12 @@
 // and the cells they are left in renamed.
 //
 
+#ifndef HEXAFORTH_FEWER_H
+#define HEXAFORTH_FEWER_H
+
+#include "fuse.h"
+#include "kinds.h"
+
 // How far a search goes is the problem's to say: a line of it is given up
 // when what is left to do cannot be done in the instructions left
 // (at_least), and the stacks are as deep as the step has names for.  How
@@ -39,21 +45,21 @@
 // states a search looks at before it is given up, the same for every
 // search.
 #ifndef SEARCH_STATES
-#error "fewer.c: the states a search looks at are said in CMakeLists.txt (SEARCH_STATES)"
+#error "fewer.h: the states a search looks at are said in CMakeLists.txt (SEARCH_STATES)"
 #endif
 #define FEW_SEEN_BITS   16              // there is room to begin with for two to this many states come to: it grows
 #define FEW_NEVER       INT_MAX         // how many instructions it takes to do what cannot be done
 
 #include <limits.h>
 
-// ---- the cells of the stacks, by their terms (fuse.c says which term is which cell's)
+// ---- the cells of the stacks, by their terms (fuse.h says which term is which cell's)
 
 #define DEPTH_OF(cell)        (DEEP - 1 - CELL_OF(cell))        // how far a cell is under the top, at the start
 #define CELL_OF_DATA(depth)   DATA_TERM(DEEP - 1 - (depth))     // the term for a cell of the data stack, by how far
 #define CELL_OF_RETURN(depth) RETURN_TERM(DEEP - 1 - (depth))   // under; and of the return stack
 
 typedef uint64_t cell_set;              // some of the cells: a bit a cell's term
-_Static_assert(CELL_TERMS <= 8 * sizeof(cell_set), "fewer.c: a set of cells has too few bits for the cells there are");
+_Static_assert(CELL_TERMS <= 8 * sizeof(cell_set), "fewer.h: a set of cells has too few bits for the cells there are");
 #define IN_SET(cell)          ((cell_set)1 << (cell))
 
 // The term in a cell of what was left, and the cell given a term.
@@ -104,7 +110,7 @@ static int makes_as(uint16_t x, uint16_t probe) {
     return(1);
 }
 
-// It is had after kinds.c, and the kinds are listed before this is called.
+// It is had after kinds.h, and the kinds are listed before this is called.
 // The instructions that do not return are put in order, those of a family
 // together: each is in the family of the first that takes its input
 // through its operation, puts what it makes on top and leaves everything
@@ -639,7 +645,7 @@ static int agree_from(int alen, int blen, const state* from, const int* to, int 
     if (!a.went_on || !b.went_on || a.sp != b.sp || b.rsp != a.rsp + over || a.data != b.data) return(0);
     if (tops && ((a.d[a.sp - 1] == 0) != ((b.d[b.sp - 1] == 0) != (other_way != 0)))) return(0);
     if (!to) {
-        // the cell at the bottom of the data stack is what sets the depths' own (fuse.c, lay_leads)
+        // the cell at the bottom of the data stack is what sets the depths' own (fuse.h, lay_leads)
         for(int idx=1; idx < a.sp - (tops != 0); idx++) if (a.d[idx] != b.d[idx]) return(0);
         for(int idx=0; idx < a.rsp; idx++) if (a.r[idx] != b.r[idx]) return(0);
         return(1);
@@ -661,14 +667,14 @@ static int agree_from(int alen, int blen, const state* from, const int* to, int 
 // Do two sequences agree, run on vm.c from every state there is here, and
 // from every way of giving the cells the first keeps things in one of
 // three numbers: nothing, one, and the flag that says yes?  A flag is
-// seldom yes by chance (fuse.c says so of its own).  1 if they agree
+// seldom yes by chance (fuse.h says so of its own).  1 if they agree
 // from every state, and both ran to the end from enough of them; 0 if
 // they do not agree; less than nothing if they ran from too few to say.
 static int agree_on_machine(const uint16_t* a, int alen, const uint16_t* b, int blen,
                             const int* to, const int* kept, int n_kept, int tops, int other_way, int over) {
     if (alen > LAID || blen > LAID) return(-1);
     // The cells the two name as numbers are given to the machine, as
-    // fuse.c gives them (tried).
+    // fuse.h gives them (tried).
     int had = known, was_lost = lost;
     const uint16_t* both[2] = { a, b };
     const int len[2] = { alen, blen };
@@ -708,3 +714,5 @@ static int agree_on_machine(const uint16_t* a, int alen, const uint16_t* b, int 
     }
     return(ran_from >= ENOUGH ? 1 : -1);
 }
+
+#endif // HEXAFORTH_FEWER_H

@@ -1,6 +1,9 @@
 build/
 forth/test_cases.fs
 
+# clangd's index of the tree, which it keeps where it is run
+/.cache/
+
 # What CMake makes when it is configured in the source's own directory, and
 # not in build/cmake: its cache and makefiles, and what it builds there.
 /CMakeCache.txt

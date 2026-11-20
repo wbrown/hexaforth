@@ -254,8 +254,12 @@ header rgn-diff : rgn-diff ( a b to -- )
 \ A band is a count and the cells that follow, as a region is.
 : band-along ( dx band -- )
     \ its crossings that much further along
-    swap >r bands
-    begin 2dupxor while  r@ over +!  1+  repeat
+    \ dx is under the address and the end on R, as col-and! has
+    \ them (display.fs): a turn is five instructions for six
+    bands swap >r                       ( dx a ) ( R: end )
+    dup r@ xor if
+        begin  2dup +!  1+  r@ over =  until
+    then
     2drop rdrop
 ;
 

@@ -394,7 +394,9 @@ target
 
 : lights ( -- n ) \ one more than the last disk that has one
     d# 0 disks-lit
-    begin dup while u2/ swap 1+ swap repeat
+    \ as nwords counts (see.fs): the mask on R while the count
+    \ is stepped, and the shift takes it from there
+    dup if begin >r 1+ r> u2/  dup 0= until then
     drop
 ;
 : disk-inval ( -- ) \ all of them

@@ -4,17 +4,17 @@
 \ machine.  Do not edit.
 
 \ They are instructions laid down after the peephole's code, all
-\ on one page, and join-rules, in the kernel, is told where.
-\ First how many there are of each of three things, and the
-\ instruction a push is taken across; then the instructions
-\ that make one number of the top of the stack and touch
-\ nothing else; then those that make one of the top two; then
-\ the rules: a mask, what an instruction has under it, and the
-\ bits that are changed.
+\ on one page, and folds-at, in the kernel, is told where.
+\ First how many there are of each of three things: the
+\ instructions that make one number of the top of the stack
+\ and touch nothing else, those that make one of the top two,
+\ and the sets of rules.  Then the instructions themselves;
+\ then each set: the instruction a push is taken across, how
+\ many rules it has, and the rules: a mask, what an
+\ instruction has under it, and the bits that are changed.
 
-meta $33 table-room  tcp @ 2/ t' join-rules 2 + tvar! target
-$0002 i, $000c i, $000b i, $6404 i,   \ how many of each,
-                                      \ and dup
+meta $62 table-room  tcp @ 2/ t' folds-at tvar! target
+$0002 i, $000c i, $0003 i,   \ how many of each
 $6400 i,   \ noop
 $6480 i,   \ invert
 $646c i,   \ xor
@@ -28,8 +28,9 @@ $64bc i,   \ u<
 $642c i,   \ nip
 $600c i,   \ drop
 $60cc i,   \ rshift
-
 $60dc i,   \ lshift
+
+$6404 i, $000b i,   \ across dup
 $03cc i, $004c i, $000c i,   \ xor and or * @and @or @xor @*
 $03bc i, $003c i, $000c i,   \ + * @+ @*
 $03cc i, $008c i, $000c i,   \ = < u< @= @< @u<
@@ -41,3 +42,20 @@ $013c i, $0108 i, $0004 i,   \ 2drop ! and!
 $01bc i, $0138 i, $0004 i,   \ +! *!
 $01cc i, $0148 i, $0004 i,   \ or! and! xor! *!
 $03ac i, $008c i, $000c i,   \ = @= rshift lshift
+$6c04 i, $0007 i,   \ across r@
+$0ef4 i, $0020 i, $0c24 i,   \ swap
+$06fc i, $042c i, $002c i,   \ nip
+$0f7c i, $000c i, $0c0c i,   \ drop
+
+$0fee i, $0d08 i, $0d04 i,   \ 2drop
+$0d7c i, $0108 i, $0c04 i,   \ !
+$0fec i, $00cc i, $0c0c i,   \ rshift lshift
+$0ffe i, $012c i, $052c i,   \ swap>r
+$6c07 i, $0007 i,   \ across r>
+$0ef7 i, $0020 i, $0c27 i,   \ swap
+$0eff i, $042c i, $002f i,   \ nip
+$0f7f i, $000c i, $0c0f i,   \ drop
+$0fef i, $0d08 i, $0d07 i,   \ 2drop
+$0d7f i, $0108 i, $0c07 i,   \ !
+$0fef i, $00cc i, $0c0f i,   \ rshift lshift
+$0fff i, $012d i, $052d i,   \ swap>r

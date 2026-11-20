@@ -15,7 +15,7 @@
 // kept for HexaPaint's canvas, which are nothing until it is drawn in, and
 // then the threshold masks that a picture kept as gray is drawn through:
 // blue noise of 64 by 64 and of 32 by 32, and Bayer's of 8 by 8, as planes
-// of bits (util/bluenoise.c, mask_planes).  Last are the blocks the viewer
+// of bits (util/bluenoise.h, mask_planes).  Last are the blocks the viewer
 // writes its dithered bitmap to, and those it writes the picture kept as
 // gray to, which start out empty.  The picture itself is not on this
 // disk: the pictures are on a disk of their own (--disk), and the viewer
@@ -49,9 +49,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../vm_constants.h"
-#include "bluenoise.c"
+#include "bluenoise.h"
 #include "image.h"
-#include "lines.c"
+#include "lines.h"
 
 #define BLOCK_LINES (DISK_BLOCK / DISK_LINE)
 

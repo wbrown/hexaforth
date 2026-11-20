@@ -185,7 +185,9 @@ header names-unload
 
 : rec-next ( rec -- rec' ) \ past a record
     dup @ 0< 0= if CELL2 + exit then    \ a word's
-    CELL2 +  begin dup @  swap 1+ swap  0< until
+    \ the address is stepped on top, and the cell fetched
+    \ through its old value on R: six a turn for seven
+    CELL2 +  begin dup >r 1+ r> @  0< until
 ;
 
 : rec-find ( key a -- rec|0 ) \ the record of a key, in a block
@@ -791,12 +793,12 @@ create wto 0 ,    \ and after
     drop words-in ;
 
 : nwords ( -- n )
+    \ the header goes to R while the count, on top, is stepped,
+    \ and r> @ is one instruction: a turn is six, where swap 1+
+    \ swap @ with the test at the top was seven
+    \ (doc/superoptimizations.md)
     d# 0 forth @
-    begin
-        dup
-    while
-        swap 1+ swap @
-    repeat
+    dup if begin >r 1+ r> @  dup 0= until then
     drop
 ;
 

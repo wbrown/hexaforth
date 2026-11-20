@@ -8,7 +8,7 @@
 #include <string.h>
 #include "nucleus.h"
 #include "../util/image.h"
-#include "../util/room.c"
+#include "../util/room.h"
 
 context machine;                // too big for the stack: it has the machine's memory
 char* said = "";                // all it printed, however much

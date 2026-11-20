@@ -48,7 +48,7 @@ static void filled(context* ctx, uint64_t cell, uint64_t cells);
 #define STORES(addr, x)     stored(ctx, addr, x, EIP, RSP, R)
 #define FILLS(cell, cells)  filled(ctx, cell, cells)
 #include "../vm.c"
-#include "../util/layout.c"
+#include "../util/layout.h"
 
 #define CELLS   ((uint64_t)1 << ADDR_BITS)     // the cells of the machine's memory
 #define DEEP    8                               // how far down the return stack who asked is looked for

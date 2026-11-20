@@ -2,7 +2,7 @@
 // examine IMAGE.hex IMAGE.tables IMAGE.sizes [FILE.fs]
 //
 // What an image is made of: its pages of code, the source files its code
-// is from, and the rest of its memory.  layout.c says what each of those
+// is from, and the rest of its memory.  layout.h says what each of those
 // is and finds them; this prints what it found, in bytes.
 //
 //   The kernel: its words, how long it is, and what is left of its ROM.
@@ -23,7 +23,7 @@
 // long.  It fails if the image has no words: then it looked at nothing.
 //
 
-#include "layout.c"
+#include "layout.h"
 
 static layout IMAGE;
 

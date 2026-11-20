@@ -19,7 +19,7 @@
 //
 // The clocks are of the whole run.  The 68000 has the picture in memory
 // when it starts, and reads no file.  What it took is printed as the
-// machine's own figures are (figure.c), and says FAIL if the bitmap is not
+// machine's own figures are (figure.h), and says FAIL if the bitmap is not
 // the dither's.
 //
 
@@ -29,7 +29,7 @@
 #include <string.h>
 #include "m68k.h"
 #include "../../test/dither.h"
-#include "../figure.c"
+#include "../figure.h"
 #include "../tiff.h"
 
 // The 68000's memory, and where things are put in it.  The program is

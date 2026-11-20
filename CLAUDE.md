@@ -203,8 +203,29 @@ That a thing has no tool is not leave to write a script for it. What is
 written to look into something, to measure it or to compare two things is
 not a script, in the tree or out of it. If it is worth writing it is a
 function of the tree's C, which a test or a tool has in it
-(`util/words.c`, `util/cut.c`, `util/reach.c`, `test/nucleus.c`), and a
+(`util/words.h`, `util/cut.h`, `util/reach.h`, `test/nucleus.c`), and a
 test is CMake's to build and run.
+
+A question about an image, a profile or what a program printed is asked
+of a tool of the tree, and not worked out at the command line: no
+program is piped into another or fed what is typed at it, and nothing
+whose work is to search, count, compare or script is run
+(`.claude/hooks/validate-bash.sh` refuses them). Where no tool answers,
+the tool is extended. What there is to ask:
+
+- what the nucleus makes of what is typed: `disasm_hex-64 IMAGE.hex
+  --typed FILE.fs`, which types the file at the nucleus and shows the
+  words it defines as the nucleus compiled them
+- how often each instruction of a word was run: `disasm_hex-64 IMAGE.hex
+  NAME --counts WORK`, of the work a counting VM left (`RUN_WORK`)
+- what the nucleus makes of a word of the system beside what `cross.fs`
+  makes: the target `peephole`, which leaves every word they make
+  different lengths of in `build/peephole/words.txt`, and then
+  `typed-64 word build/peephole/typed.txt NAME...`, a run at a time
+- what it costs a machine to boot and compile from its disk, and where
+  that goes: the targets `compiling-64`, `compiling-32` and
+  `compiling-16`
+- how many words, headers and bytes an image has: `examine`
 
 ## Writing Forth here
 
@@ -305,11 +326,12 @@ test is CMake's to build and run.
   and after; no figure is kept in the repository
 - The target `peephole` is what the nucleus's compiler is worth: what it
   makes of the system's code as typed beside what `cross.fs` makes, by
-  source file, and what each of its rules saves in the code and when the
-  desktop and the drawing are run. A rule is kept or cut by what that
-  prints, and a change to `join.fs` is measured by it before and after. A
-  rule that is rare in the source may be in the hottest loop: how often it
-  is used does not say what it saves
+  source file, and what each thing it joins saves in the code and when the
+  desktop and the drawing are run; and whether each thing it joined is
+  what the machine's step says it is. A change to `join.fs` or
+  `compose.fs` is measured by it before and after. A join that is rare in
+  the source may be in the hottest loop: how often it is made does not say
+  what it saves
 - A thing the machine is compared with does the same work and is checked
   against the same model: the 68000 in `bench/m68k/` runs the machine's
   own dither, written for it, and makes the same bitmap
@@ -324,16 +346,16 @@ What is in the kernel, and what a change to it saves, is asked of the
 image and not of the source, on every size of machine: the peephole, and
 the small words compiled in place of calls to them, make a count from
 the source wrong. What asks is functions of the tree's C, which a test or
-a tool has in it: `util/words.c` (an image's words, and how long each
-is), `util/cut.c` (its calls, jumps and branches, and where each goes),
-`util/reach.c` (what reaches each word) and `util/layout.c` (its pages of
+a tool has in it: `util/words.h` (an image's words, and how long each
+is), `util/cut.h` (its calls, jumps and branches, and where each goes),
+`util/reach.h` (what reaches each word) and `util/layout.h` (its pages of
 code, and what each source file has of them). The target `examine`
 prints what the last finds of the nucleus's image: how long the kernel
 is, what is on each page, and each file's words, code and tables; and
 `examine-16`, `examine-32` and `examine-64` the same of each machine of
 `util/machines`.
 
-- Before a word is made shorter, find what reaches it (`util/reach.c`):
+- Before a word is made shorter, find what reaches it (`util/reach.h`):
   the calls and jumps to it from the kernel and from every other page,
   its place pushed as a number or kept in a cell of data, and the word
   before it running into it. `kernel_test`, which the target `tests`
@@ -405,7 +427,7 @@ tool, a test or a report that is added is added there: not a compiler's
 command line in a script, not a script, and not a Makefile. What looks at
 what a program printed, or works something out of it, is a function of
 the tree's C that a tool has in it, and not a pipe of `grep` and `awk`:
-`baremetal/symbols.c` is where a kernel's symbols are, `bench/figure.c`
+`baremetal/symbols.h` is where a kernel's symbols are, `bench/figure.h`
 what a test bench said passed between two marks.
 
 `util/machines` is the machines the system is tried on, and CMake reads
@@ -422,7 +444,7 @@ tested on the machine `vm_constants.h` gives each size of cell when
 nothing else is said (`build/default-32/`). None of that is built until
 a target wants it: `check`, which runs every test, each of which has
 what it needs built first; the
-reports, `profile`, `subtracts`, `peephole`, `hits` and `phrases`, and
+reports, `profile`, `subtracts`, `peephole`, `pairs` and `phrases`, and
 `examine-16` and the like; `screenshot`, which makes the
 README's picture of the desktop again (`doc/desktop.png`), `hello`, and
 `seen`, which builds what shows a machine's display from the memory the
@@ -486,15 +508,15 @@ it needs through those).
 
 `cross.fs` asks the machine which instruction does the work of two or
 three, and what shorter run does the work of a run that has numbers or
-variables in it: `util/fuse.c`, which has `vm.c` in it, is built by gforth
+variables in it: `util/fuse.h`, which has `vm.c` in it, is built by gforth
 each time an image is and called through gforth's C interface. gforth
 builds C with `libtool`. An answer is found by
 the machine's step on terms and then run on `vm.c`, and the build stops if
 the two do not agree. What was found and run is kept in the tree's
 `build/`, whatever `BUILD` says (`build/fuse-*.kept`, named for the text
-of `fuse.c` and of the machine, so that a change to either starts
+of `fuse.h` and of the machine, so that a change to either starts
 another), so the first image built after such a change takes longer than
-the rest. gforth prints the C compiler's warnings of `fuse.c` each time. Where gforth is
+the rest. gforth prints the C compiler's warnings of `fuse.h` each time. Where gforth is
 Homebrew's, the compiler is told where Homebrew's headers are:
 `CMakeLists.txt` does, and by hand it is
 `CPATH="$(brew --prefix)/include" gforth ...`.
@@ -504,16 +526,16 @@ from `vm_constants.h` and `vm_opcodes.h`); `forth/folds.fs` (what the
 nucleus's peephole is told of numbers, by `util/joins.c`, which reads no
 image); and `forth/fused.fs` (the words the decompiler shows an
 instruction as, by `util/fused.c`, from a built image). Both have
-`fuse.c` in them and ask the machine. The build of the default machine's
+`fuse.h` in them and ask the machine. The build of the default machine's
 nucleus (`build/nuc.hex`) makes the two again, and every other nucleus is
 built after it: the decompiler's table is in the image it is made from,
 so `util/tables.cmake` builds until the table stops changing. Each is
 written only when it changes.
 
-`forth/joins.fs`, the rules of the nucleus's peephole, is not generated:
-it is the rules that are kept, and says at its top which and why. The
-nucleus counts each rule's uses; the target `hits` works the desktop and
-prints the counts.
+The nucleus's peephole has no table of what two instructions or three are
+together: it works that out (`forth/compose.fs`). The target `pairs` puts
+every pair it can meet to it and holds each answer to the machine's step,
+and `peephole` does the same of what it joins of the system's code.
 
 ## Testing
 
@@ -533,10 +555,10 @@ added says its needs: one that says none stops CMake.
 - `hexaforth_test`: each test of `test/tests.h` compiled by the C compiler
   and by `cross.fs` and the instructions compared, then run on the VM
 - `kernel_test`: nothing is in the kernel that nothing comes to
-  (`util/reach.c`). CMake builds it and the target `tests` runs it, for
+  (`util/reach.h`). CMake builds it and the target `tests` runs it, for
   the default machine
 - `fewer_test`: the search for the fewest instructions that do the work
-  of a run, and of a turn of a loop (`util/fewer.c`, `util/turns.c`),
+  of a run, and of a turn of a loop (`util/fewer.h`, `util/turns.h`),
   held to runs whose fewest is known, and each answer run on `vm.c`. The
   target `tests` runs it
 - The target `check` runs every test CMake has (`ctest`): a line a test,
@@ -607,7 +629,7 @@ The machine, in C:
   an instruction. `vm_opcodes.h`: the fields' names, the basewords
   (`FORTH_OPS`), and the codes of a name (`NAME_CODES_REPR`)
 - `vm.c`: the machine. `vm_step.h`: what a literal or an instruction of
-  the ALU does, said once: `vm.c` runs it on cells, and `util/fuse.c` on
+  the ALU does, said once: `vm.c` runs it on cells, and `util/fuse.h` on
   terms. `main.c`: loads an image and runs it.
   `vm_debug.c`: the trace. `vm_opcodes.c`: makes instructions of the
   definitions, and reads an image's dictionary (`read_header`)
@@ -622,32 +644,34 @@ The machine, in C:
   starts from with its ROM alone, `doc/boot.md`, which with `--boot-desk`
   is the desktop's disk as well; and with `--disk`, a disk that is an
   index and its files, which a machine has besides the one it starts
-  from), `lines.c` (a line of
+  from), `lines.h` (a line of
   Forth source as
   what lays source out reads it: its words, strings and comments),
   `wrap.c` (source fitted to the lines of a block: the target `wrap`),
-  `fuse.c` (which instruction does the work of others: found by the
+  `fuse.h` (which instruction does the work of others: found by the
   machine's step on terms, and each answer then run on `vm.c`; what it
   trusts and why is said at its top), `joins.c` and `fused.c` (the two
   generators that have it in them), `tables.cmake` (which runs the second
   until its table settles),
   `phrases.c` (the phrase book, which has it in it too),
   `survey.c` (the encoding against a profile, which has it too),
-  `room.c` (room for as many of a thing as there are: a list that grows,
+  `room.h` (room for as many of a thing as there are: a list that grows,
   a file or a line of any length, text that grows.  Nothing in the tools
   or the tests has room for only so many of what it reads),
-  `named.c` (a word of `vm_opcodes.h` by its name), `rules.c` (the rules
-  of `joins.fs`, as it writes them),
-  `words.c` (an image's words, by header and by label, for the tools
-  that read an image), `cut.c` (two builds of an image cut into the same
-  straight-line runs), `reach.c` (what reaches each word of an image:
+  `named.h` (a word of `vm_opcodes.h` by its name, and an instruction's
+  name), `pairs.c` (what the nucleus works two instructions and three
+  out to be, held to the machine's step: every pair it can meet, and what
+  it joined of the system's code),
+  `words.h` (an image's words, by header and by label, for the tools
+  that read an image), `cut.h` (two builds of an image cut into the same
+  straight-line runs), `reach.h` (what reaches each word of an image:
   calls and jumps, its place pushed or kept in a cell, the word before
-  running into it), `kinds.c` (the instructions by what they leave, those
-  with a number in them, and an instruction as it is said), `loops.c`
-  (an image's loops, and the turn of one), `fewer.c` (the fewest
+  running into it), `kinds.h` (the instructions by what they leave, those
+  with a number in them, and an instruction as it is said), `loops.h`
+  (an image's loops, and the turn of one), `fewer.h` (the fewest
   instructions that leave what is wanted: a search on the step's terms,
-  each answer run on `vm.c`), `turns.c` (a turn of a loop looked at the
-  ways fewer could do it), `layout.c` (how an image is laid out: its
+  each answer run on `vm.c`), `turns.h` (a turn of a loop looked at the
+  ways fewer could do it), `layout.h` (how an image is laid out: its
   pages of code, the tables after them, what each file has, the
   dictionary and the data) and `examine.c` (which prints it), `map.c`
   (where a machine's memory goes: every part of an image, or of the
@@ -657,7 +681,12 @@ The machine, in C:
   from a disk and the desktop), `screen.c`
   (a machine's display, out of the memory the reference VM writes when it
   stops) and `png.c` (a screen as a PNG; the writer itself is
-  `png_file.c`, which a tool with a bitmap of its own includes)
+  `png_file.h`, which a tool with a bitmap of its own includes) and
+  `clangd.c` (what clangd, the language server, says of the C, from what
+  it printed of each file: the target `clangd`, which is to find nothing)
+  and `said.c` (the files the tree's text says by name, each of which is
+  to be there: the target `said`, which is run when a file is given
+  another name or taken away)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `nucleus.c` (the
   nucleus on `vm.c`, typed at its prompt, once or again as it was left,
@@ -679,7 +708,7 @@ The machine, in C:
   prompt: its compiler, its arithmetic, variables, tasks and names, each
   a check that is what is typed and what that is to leave);
   `kernel_test.c` (the kernel's words and what comes to each: it has
-  `reach.c` in it); `fewer_test.c` (the search for fewer instructions:
+  `reach.h` in it); `fewer_test.c` (the search for fewer instructions:
   runs and turns as words, and the fewest that is to be found for each);
   `region_test.c` (regions
   against their pixels: what is typed is done to a plane of pixels too,
@@ -688,8 +717,7 @@ The machine, in C:
   a time too, and every pixel compared after every step); `tables.c`
   (the system's tables read from the Forth that says them, for a test
   that needs a font, a pattern or where the windows go: a test has none
-  of its own); `hits.c` (how often each rule of the nucleus's peephole
-  was used, read out of the memory the VM wrote: the target `hits`);
+  of its own);
   `deskcheck.c` (what the desktop is checked for: a table of
   what is done with the keys and the pointer and what is then to be on
   the screen, for whatever machine it runs on), `deskvm.c` (the
@@ -701,7 +729,7 @@ The machine, in C:
   directory, on a disk of bytes by chance, dithered by the machine and a
   pixel at a time);
   `builds_test.c` (the two
-  builds, run for run: it has `fuse.c` in it, and asks the machine);
+  builds, run for run: it has `fuse.h` in it, and asks the machine);
   `session_test.c` (what the Verilog sent of a session against what
   `vm.c` sent)
 - `bench/`: the benchmarks (the target `bench`, and `CMakeLists.txt`
@@ -711,7 +739,7 @@ The machine, in C:
   machine's disks); `grays.c` and `tiff.c` (the picture's grays as files,
   which are on a disk of their own beside the pictures' disk); `check.c` (what looks at what the
   work made, and then prints what it cost: the table of the benchmarks is
-  its too) and `figure.c` (a line of that table, and what a test bench
+  its too) and `figure.h` (a line of that table, and what a test bench
   said passed between two marks);
   `m68k/` (the same dither for a 68000, in its assembler, and the 68000
   to run it on: the one place here that is not C or Forth, since it is
@@ -724,9 +752,9 @@ The machine, in C:
   what it made of them), `counting.c` (the reference VM, counting how
   often each place is run: by itself, or as the VM in a test), `idle.fs`
   (the machine come up and stopped, which is taken from the rest) and
-  `weigh.c` (the runs and the rules weighed by that);
-  `profile.c` (where the desktop's instructions go), with `work.c` (the
-  work by place, as the file the profile leaves), `files.c` (the source
+  `weigh.c` (the runs, and what the nucleus joined, weighed by that);
+  `profile.c` (where the desktop's instructions go), with `work.h` (the
+  work by place, as the file the profile leaves), `files.h` (the source
   files an image is made of, from its `.sizes`: the one place the C reads
   that file), `costs.c` (what the
   work costs: each word with all it calls, the loops, the variables),
@@ -766,11 +794,14 @@ The toolchain and the nucleus, in Forth (`forth/`):
   ports a driver is made of, which the ROM has if its driver needs
   them and `machine.fs` includes if it has not
 - `join.fs`: the nucleus's own peephole, for what is typed at the prompt
-  and for source read from blocks: the rules (`joins.fs`), numbers, which
-  it works out by running the instruction (`folds.fs`), and the one
-  instruction that fetches or stores a variable (`var,`). Whatever can be
-  compiled in place it compiles in place, and the kernel's `(compile,)`
-  is left with a call
+  and for source read from blocks: what two instructions or three are
+  together, which `compose.fs` works out by stepping them on a machine
+  whose cells hold where each thing came from; numbers, which it works
+  out by running the instruction (`folds.fs`); and the one instruction
+  that fetches or stores a variable (`var,`). Whatever can be compiled in
+  place it compiles in place, and the kernel's `(compile,)` is left with
+  a call. The words that move the return stack are here, each an
+  immediate that offers its instruction to the one before
 - `cross-words.fs`: the words of `cross.fs` that the system's source
   says (`d#`, `,"`, `[if]`, `::`, the machine's sizes), for the
   nucleus to compile that source too: each a header named as `cross.fs`'s
@@ -818,7 +849,7 @@ the picture at full size:
   time, to black and white or to sixteen levels. `gray.fs`: a picture
   kept as gray in bit planes, made by the 16-level dither, and drawn
   through a mask stored on the disk as bit planes too (Bayer's, or blue
-  noise; `util/bluenoise.c` makes them and describes the layout). The
+  noise; `util/bluenoise.h` makes them and describes the layout). The
   viewer keeps neither its bitmap nor its gray whole in memory: each is
   made a block at a time and written to the disk, and the window is
   painted from the blocks its clip asks for (`view.fs`).
@@ -846,7 +877,7 @@ The other two machines:
   (decoded by table), which behave the same; `ramfb.S`, the bridge that
   shows the display on QEMU; `difftest_dump.c`, the cases they and the
   Verilog are run against, and `difftest.c`, which runs a kernel on them;
-  `symbols.c` (where a kernel's own symbols are, for the tools that are
+  `symbols.h` (where a kernel's own symbols are, for the tools that are
   told); `size.c` (how big a kernel is, and each part of it from one label
   to the next); `qemu.c` (QEMU as a machine the
   desktop's checks can be run on: told keys and the pointer, and its

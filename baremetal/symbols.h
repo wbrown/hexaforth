@@ -1,5 +1,5 @@
 //
-// symbols.c - where a kernel's own symbols are, for the tools that have
+// symbols.h - where a kernel's own symbols are, for the tools that have
 // this in them.
 //
 // The build keeps beside a kernel what llvm-nm says of it (KERNEL.symbols):
@@ -7,14 +7,14 @@
 // and its name.
 //
 
-#ifndef HEXAFORTH_SYMBOLS_C
-#define HEXAFORTH_SYMBOLS_C
+#ifndef HEXAFORTH_SYMBOLS_H
+#define HEXAFORTH_SYMBOLS_H
 
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../util/room.c"
+#include "../util/room.h"
 
 // Where a symbol is.  It stops if the kernel has no such symbol: whoever
 // asks cannot go on without it.
@@ -89,4 +89,4 @@ static long symbols_between(const char* symbols, uint64_t from, uint64_t to, sym
     return(n);
 }
 
-#endif //HEXAFORTH_SYMBOLS_C
+#endif //HEXAFORTH_SYMBOLS_H

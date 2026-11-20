@@ -99,9 +99,14 @@ header F-UNDER     : code-under       F-UNDER ;
     over >r  >cb  d# 1 swap lshift 1- BLANKS and  over @ or
     begin dup ctl? 0= while drop 1+ dup @ repeat
     swap r> - BYTESHIFT lshift swap
-    begin dup h# ff and d# 32 u< 0= while
-        d# 8 rshift swap 1+ swap
-    repeat
+    \ the test is at the bottom, and made once before; the cell
+    \ goes to R while the count is stepped, and the shift takes
+    \ it from there (doc/superoptimizations.md)
+    dup h# ff and d# 32 u< 0= if
+        begin
+            >r 1+ r> d# 8 rshift  dup h# ff and d# 32 u<
+        until
+    then
     drop
 ;
 

@@ -4,15 +4,13 @@
 \ display is.  Painting the window is then copying the bitmap to
 \ the screen.
 
-\ Reading and dithering take a while: 10 million instructions
-\ for the Mandrill.  So a task does it, one image row per turn,
-\ while the desktop carries on.  Only the row being dithered is
-\ read.  The window shows the rows as they are made, so the
-\ picture comes down the window.  Rows are marked for repaint
-\ four at a time rather than one, since each mark costs about
-\ ten thousand instructions, half of what dithering a row does:
-\ at 1 MIPS the picture finished at 18.8 seconds marking eight
-\ at a time, 19.6 with four, 20.8 with two and 23.2 with one.
+\ Reading and dithering take a while.  So a task does it, one
+\ image row per turn, while the desktop carries on.  Only the
+\ row being dithered is read.  The window shows the rows as they
+\ are made, so the picture comes down the window.  Rows are
+\ marked for repaint four at a time rather than one, since a
+\ mark costs about half of what dithering a row does, and the
+\ picture is finished sooner the more rows a mark is of.
 \ After the last row the task takes itself out of the ring.
 
 \ A viewer is a record: its bitmap, how much is made and shown,

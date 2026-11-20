@@ -298,7 +298,7 @@ image. Code is split into pages: a branch is relative to its page, and a
 call to another page goes through an execution token. Its peephole
 optimizer replaces a sequence of instructions with a single one wherever
 one does the same work, and it has no table of which sequences those are:
-it asks the machine. `util/fuse.c`, which gforth builds and calls, finds
+it asks the machine. `util/fuse.h`, which gforth builds and calls, finds
 each answer by stepping the machine on symbols instead of numbers
 (`vm_step.h`, the same step `vm.c` runs on real values), and each answer is
 then run on `vm.c` before it is used. A word without a dictionary header

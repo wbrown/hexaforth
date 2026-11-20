@@ -1211,11 +1211,10 @@ header-imm repeat
 \ which joins instructions as they are compiled and comes here for the rest.
 create 'compile 0 ,
 
-\ Where its rules are, and how many: they are instructions laid down after
-\ its code, and the tools that read an image must not take them for code.
-\ The third cell is where what it is told of numbers is (folds.fs), and
-\ the fourth where the count of each rule's uses is.
-header join-rules create join-rules 0 , 0 , 0 , 0 ,
+\ Where what it is told of numbers is (folds.fs): instructions laid down
+\ after its code, which the tools that read an image must not take for
+\ code (util/words.h).
+header folds-at create folds-at 0 ,
 
 \ A call to a word, and nothing else.  Whatever can be compiled in place (a
 \ word that is one instruction, or a number, or a few instructions that
@@ -1416,19 +1415,13 @@ header io@      :noname     io@      ;
 header rshift   :noname     rshift   ;
 header lshift   :noname     lshift   ;
 header 1+       :noname     1+       ;
-\ A word that moves the return stack cannot be called: it is immediate, and
-\ lays its one instruction down where it is written (inline;).
-header-imm >r   :noname     inline; >r ;fallthru
-header-imm r>   :noname     inline; r> ;fallthru
-header-imm r@   :noname     inline; r@ ;fallthru
+\ A word that moves the return stack cannot be called.  Those are
+\ immediate, and are with the peephole (join.fs), which every image has:
+\ >r r> r@ rdrop @r swap>r swapr>.
 \ Words the image's fused instructions are made of, which the decompiler
 \ shows by their headers (fused.fs).
 header dup@     :noname     dup@     ;
 header over@    :noname     over@    ;
-header-imm rdrop  :noname   inline; rdrop ;fallthru
-header-imm @r     :noname   inline; @r ;fallthru
-header-imm swap>r :noname   inline; swap>r ;fallthru
-header-imm swapr> :noname   inline; swapr> ;fallthru
 
 \   (doubleAlso) ( c-addr u -- x 1 | x x 2 )
 \               If the string is legal, give a single or double cell number
@@ -1933,6 +1926,7 @@ include-system
 meta lofty [if]  thi @ byte-shift rshift 1+ -2 and  t' himem tvar!  [then] target
 [else]
 include join.fs
+include folds.fs
 [then]
 
 meta

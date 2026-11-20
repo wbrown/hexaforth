@@ -1,0 +1,25 @@
+# What clangd is told of this tree.  How each file is compiled it has from
+# CMake (build/compile_commands.json, which CMakeLists.txt says); a header
+# it reads by itself, as a file near it is compiled.  The target `clangd`
+# asks it of every file of C and every header, and it is to say nothing.
+#
+# It is not to say that a header is included and not used directly: a
+# header here is included for what it brings with it.
+Diagnostics:
+  UnusedIncludes: None
+---
+# The search for fewer instructions is told how long it may take by what
+# compiles it (SEARCH_STATES, which CMakeLists.txt says once), and stops
+# the compiler if it is not told.  Read by itself it is told nothing, and
+# how long a search takes is nothing to what clangd looks at.
+If:
+  PathMatch: util/(fewer|turns)\.h
+CompileFlags:
+  Add: [-DSEARCH_STATES=0]
+---
+# The machine's step is the middle of a function, which vm.c and
+# util/fuse.h each have in their own: by itself it is not C.
+If:
+  PathMatch: vm_step\.h
+Diagnostics:
+  Suppress: '*'

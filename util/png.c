@@ -3,13 +3,13 @@
 //
 // Converts a screen saved by the desktop's test to a PNG, for a page that
 // shows it.  The screen is a binary PBM (test/deskvm.c writes it), and
-// png_file.c writes the PNG.
+// png_file.h writes the PNG.
 //
 // It fails if the file is not a binary PBM, or has fewer rows than it says.
 //
 
 #include <ctype.h>
-#include "png_file.c"
+#include "png_file.h"
 
 // A number of a PBM's header, past the spaces and the comments before it.
 static long header_number(const unsigned char* bytes, size_t len, size_t* at) {

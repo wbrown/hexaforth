@@ -17,7 +17,7 @@
 #include <unistd.h>
 #include "../vm_constants.h"
 #include "../test/deskcheck.h"
-#include "../util/room.c"
+#include "../util/room.h"
 #include "qemu.h"
 
 #define W       DISP_W

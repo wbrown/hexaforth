@@ -34,7 +34,7 @@
 #include "dither.h"
 #include "gray.h"
 #include "tables.h"
-#include "../util/bluenoise.c"
+#include "../util/bluenoise.h"
 
 #define W       DISP_W
 #define H       DISP_H
@@ -1087,7 +1087,7 @@ static bool view_on_disk(char* why) {
     return(!differ);
 }
 
-// The picture's menu (forth/viewmenu.fs), as the checks pick its lines: how
+// The picture's menu (the end of forth/view.fs), as the checks pick its lines: how
 // the picture is drawn (dithered, through Bayer's mask, or through blue
 // noise), how many of its pixels a side a sample of the gray is as drawn,
 // as a shift, and what is added to the mask's thresholds.  A sample is 4
@@ -1128,7 +1128,7 @@ static void picture_picked(int line) {
 // sample to 1 << (d + half) of its pixels a side, in 4 bits, and drawn
 // through the mask, a sample to 1 << d pixels a side.  Blue noise is of 64
 // by 64, or 32 by 32 where a cell is 16 bits: its thresholds as what makes
-// the disk makes them (util/bluenoise.c), and not as the disk has them.
+// the disk makes them (util/bluenoise.h), and not as the disk has them.
 static void picture_expected(void) {
     picture();
     if (pic_mode == 0) {

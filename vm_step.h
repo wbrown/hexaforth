@@ -2,7 +2,7 @@
 // vm_step.h - what one instruction does, if it is a literal or of the ALU.
 //
 // This is the machine's step, and it is said here once.  vm.c has it in its
-// loop and runs it on cells.  util/fuse.c has it too, and runs it on terms:
+// loop and runs it on cells.  util/fuse.h has it too, and runs it on terms:
 // the name of what would be in each cell, in place of the number, so that
 // what a run of instructions leaves is known for every state at once.
 // Nothing in it looks at a value, but through what is named below: it only

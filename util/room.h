@@ -1,5 +1,5 @@
 //
-// room.c - room for as many of a thing as there are, for whatever has this
+// room.h - room for as many of a thing as there are, for whatever has this
 // in it.
 //
 // Nothing that reads an image, a file or what a machine printed knows
@@ -9,8 +9,8 @@
 // stops and says so; it does not go on with less than it was asked for.
 //
 
-#ifndef HEXAFORTH_ROOM_C
-#define HEXAFORTH_ROOM_C
+#ifndef HEXAFORTH_ROOM_H
+#define HEXAFORTH_ROOM_H
 
 #include <stdarg.h>
 #include <stdint.h>
@@ -157,4 +157,4 @@ static char* line_of(FILE* in, char** line, long* room) {
     return(*line);
 }
 
-#endif // HEXAFORTH_ROOM_C
+#endif // HEXAFORTH_ROOM_H

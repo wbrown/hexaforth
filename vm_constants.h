@@ -58,7 +58,7 @@
 #define DISK_CANVAS_BLOCK   (DISK_NAMES_BLOCK + DISK_NAMES_BLOCKS)      // HexaPaint's canvas,
 #define DISK_CANVAS_BLOCKS  16      // and how many blocks are kept for it
 #define DISK_MASKS_BLOCK    (DISK_CANVAS_BLOCK + DISK_CANVAS_BLOCKS)
-                                    // threshold masks, as planes of bits (util/bluenoise.c says how):
+                                    // threshold masks, as planes of bits (util/bluenoise.h says how):
                                     // blue noise of 64 by 64 from this block,
 #define DISK_MASK32_BLOCK   (DISK_MASKS_BLOCK + 2)                      // blue noise of 32 by 32 from this,
 #define DISK_BAYER_BLOCK    (DISK_MASKS_BLOCK + 3)                      // and Bayer's of 8 by 8 from this,

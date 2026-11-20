@@ -11,11 +11,11 @@
 // includes this file.
 //
 
-#ifndef HEXAFORTH_PNG_FILE_C
-#define HEXAFORTH_PNG_FILE_C
+#ifndef HEXAFORTH_PNG_FILE_H
+#define HEXAFORTH_PNG_FILE_H
 
 #include <stdbool.h>
-#include "room.c"
+#include "room.h"
 
 static void be32(unsigned char* to, uint32_t x) {
     to[0] = x >> 24, to[1] = x >> 16, to[2] = x >> 8, to[3] = x;
@@ -92,4 +92,4 @@ static bool png_bits(const char* path, const unsigned char* rows, long across, l
     return(true);
 }
 
-#endif // HEXAFORTH_PNG_FILE_C
+#endif // HEXAFORTH_PNG_FILE_H

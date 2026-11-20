@@ -3,17 +3,16 @@
 \ What is typed is plain words: `2dup xor`, `over +`, `dup @`.
 \ Each of those is one instruction of this machine, and this is
 \ what makes it one: an instruction about to be compiled is
-\ offered to the one or two before it, and if there is a rule
-\ for them they become one, which is then offered again.  So the
-\ source is what reads well and the code is what the machine
-\ does best, and nobody needs a name for the instruction.
+\ offered to the one or two before it, and if they are together
+\ what one instruction does they become that one, which is then
+\ offered again.  So the source is what reads well and the code
+\ is what the machine does best, and nobody needs a name for the
+\ instruction.
 
-\ The rules are in joins.fs, which says which they are and why
-\ those.  A rule is four instructions, in order: nothing or the
-\ instruction two before, the one before, the one being
-\ compiled, and what they are together.  Every instruction a
-\ rule gives is one the image itself has, so the decompiler can
-\ show whatever is compiled here, as the words that were typed.
+\ What they are together is not looked up: it is worked out, by
+\ stepping them on a machine whose cells hold where each thing
+\ came from (compose.fs).  The targets `pairs` and `peephole`
+\ hold what it works out to the machine's own step.
 
 \ Nothing is joined across a place a branch lands on (syncpt),
 \ or to an instruction with a return in it.  A word of up to
@@ -25,50 +24,7 @@
 \ is nearly full: the kernel's compile, goes through a vector,
 \ which the build sets to pcompile, here.
 
-create jk 0 , 0 , 0 ,  \ the three instructions looked for
-create jlo 0 ,         \ where the rules still to look in start,
-create jn# 0 ,         \ and how many they are
 create jn 0 ,          \ the instruction being compiled
-
-\ less than nothing if the rule is before what is looked for,
-\ nothing if it is it
-: jcmp ( rule -- n )
-    dup i@ jk @ - ?dup if nip exit then
-    dup 1+ i@ jk CELL + @ - ?dup if nip exit then
-    d# 2 + i@ jk CELL2 + @ -
-;
-
-\ Each rule has a count of how often it has been used since the
-\ image was made, so that it can be seen which rules earn their
-\ place.  The counts are after the rules and in their order, an
-\ instruction's place each: join-rules' fourth cell says where.
-: used ( rule -- ) \ count it
-    join-rules @ - d# 2 rshift  join-rules c# 3 + @ +
-    dup i@ 1+ swap i!
-;
-
-\ the rule halfway through those left: what it makes, if it is
-\ the one looked for; or nothing, and those left the half of
-\ them it is in
-: jtry ( -- y|0 )
-    jn# @ d# 1 rshift        ( half )
-    dup d# 2 lshift jlo @ +  ( half rule )
-    dup jcmp                 ( half rule n )
-    dup 0= if drop nip  dup used  d# 3 + i@ exit then
-    0< if                    \ it is after this rule,
-        drop  dup 1+ d# 2 lshift jlo +!  invert jn# +!
-    else                     \ or before it
-        drop  jn# !
-    then
-    d# 0
-;
-
-: jfind ( x a b -- y|0 ) \ by halving: the rules are in order
-    jk CELL2 + !  jk CELL + !  jk !
-    join-rules @ jlo !  join-rules CELL + @ jn# !
-    begin jn# @ while jtry ?dup if exit then repeat
-    d# 0
-;
 
 \ an ALU instruction with no return, that no branch lands after
 : plain? ( ia -- f )
@@ -76,26 +32,33 @@ create jn 0 ,          \ the instruction being compiled
     i@ h# f000 and h# 6000 =
 ;
 
-\ The two before are tried first: a rule for three leaves less
-\ than one for two, and `2dup xor` is three (over over xor), of
-\ which the last two alone are `over xor`.
+\ What two instructions are together, and three, is worked out
+\ and not looked up (compose.fs).  The two before are tried
+\ first: three that are one instruction leave less than two
+\ that are.  What is made is offered again.
+include compose.fs
 
 \ join the instruction in jn to the two before, or the one, if
-\ there is a rule
+\ they are one instruction
 : join1 ( -- f )
     prev plain? 0= if false exit then
     prev 1- plain? if
-        prev 1- i@ prev i@ jn @ jfind ?dup if
+        prev 1- i@ prev i@ jn @ jthree ?dup if
             jn !  d# -2 cp +!  true exit
         then
     then
-    d# 0 prev i@ jn @ jfind ?dup if
+    prev i@ jn @ jtwo ?dup if
         jn !  d# -1 cp +!  true exit
     then
     false
 ;
 
-: join, ( insn -- ) jn !  begin join1 0= until  jn @ code, ;
+\ What is left may be the instruction that does nothing, as
+\ `>r r>` is together: then nothing is compiled, as cross.fs
+\ compiles nothing for it.
+: join, ( insn -- )
+    jn !  begin join1 0= until
+    jn @ dup h# 6400 = if drop exit then  code, ;
 
 \ @ or ! straight after a literal that is the address of one of
 \ the 4,096 cells from VARS: the machine has one instruction for
@@ -153,18 +116,18 @@ create jn 0 ,          \ the instruction being compiled
 \ the machine was asked when this was built: folds.fs, which
 \ says its own form.
 
-: folds ( -- ia ) join-rules CELL2 + @ ;
+: folds ( -- ia ) folds-at @ ;
 
 \ how many numbers an instruction makes one of: one, two, or
 \ none if it is not such
 : makes ( w -- n )
-    folds d# 4 +  folds i@ folds 1+ i@ +  bounds    ( w end a )
+    folds d# 3 +  folds i@ folds 1+ i@ +  bounds    ( w end a )
     begin
         2dupxor
     while
         >r  over r@ i@ = if
             \ those of one are first
-            2drop  r> folds d# 4 + -  folds i@ u<  d# 2 +  exit
+            2drop  r> folds d# 3 + -  folds i@ u<  d# 2 +  exit
         then
         r> 1+
     repeat
@@ -233,10 +196,24 @@ create jn 0 ,          \ the instruction being compiled
     jn @ code,  tidy dup 0= if d# -1 cp +! then
 ;
 
-: crossed ( w -- y | 0 )
-    \ what w is after a dup and a push, by the rules
-    folds dup i@ over 1+ i@ + + d# 4 +              ( w rules )
-    folds d# 2 + i@ d# 3 *  bounds
+\ The rules are in sets, one for each instruction a push is
+\ taken across (dup, r@, r>): the instruction, how many rules,
+\ and the rules.
+: set-of ( x -- set | 0 ) \ the set for that instruction
+    folds dup i@ over 1+ i@ + + d# 3 +              ( x set )
+    folds d# 2 + i@ negate                          ( x set -n )
+    begin
+        dup
+    while
+        >r  2dup i@ = if rdrop nip exit then
+        dup 1+ i@ d# 3 * + d# 2 +  r> 1+
+    repeat
+    drop 2drop d# 0
+;
+
+: crossed ( w set -- y | 0 )
+    \ what w is after that set's instruction and a push
+    dup d# 2 +  swap 1+ i@ d# 3 *  bounds           ( w end rule )
     begin
         2dupxor
     while
@@ -249,13 +226,15 @@ create jn 0 ,          \ the instruction being compiled
 ;
 
 \ a dup, an instruction that pushes and jn are that instruction
-\ and another: make them so
+\ and another: make them so.  So are an r@ or an r> in the dup's
+\ place: r> 8 rshift is the 8 pushed, and a shift that has the
+\ return stack for its input.
 : across ( -- )
     prev 1- syncpt @ u< if exit then
     \ what pushes: a number, or a variable fetched
     prev i@ h# c000 and h# 8000 <> if exit then
-    prev 1- i@  folds d# 3 + i@ <> if exit then
-    jn @ crossed ?dup 0= if exit then  jn !
+    prev 1- i@ set-of ?dup 0= if exit then
+    jn @ swap crossed ?dup 0= if exit then  jn !
     prev i@ prev 1- i!  d# -1 cp +!
 ;
 
@@ -295,6 +274,23 @@ create jn 0 ,          \ the instruction being compiled
     then
     jn @ join,
 ;
+
+\ A word that moves the return stack cannot be called: it is
+\ immediate, and where it is written it offers its one
+\ instruction to the one before, as emit1 offers any other.
+\ rdrop, @r, swap>r and swapr> are among them for the decompiler
+\ too, which shows the image's fused instructions by the headers
+\ of the words they are made of (fused.fs).
+: offered ( -- ) \ the instruction after the call of this
+    r> i@ emit1 ;
+inline-operand
+header-imm >r      :noname  offered >r ;fallthru
+header-imm r>      :noname  offered r> ;fallthru
+header-imm r@      :noname  offered r@ ;fallthru
+header-imm rdrop   :noname  offered rdrop ;fallthru
+header-imm @r      :noname  offered @r ;fallthru
+header-imm swap>r  :noname  offered swap>r ;fallthru
+header-imm swapr>  :noname  offered swapr> ;fallthru
 
 \ Does an instruction leave the return stack alone but for how
 \ it moves?
@@ -345,13 +341,6 @@ create jn 0 ,          \ the instruction being compiled
     2drop
 ;
 
-\ The rules come last, so that they are the end of what their
-\ page has: they are not code, and nothing that reads the image
-\ as code goes that far.
-include joins.fs
-meta  \ a count for each rule
-    t' join-rules 1+ byte-shift lshift tcell@
-    dup table-room  tcp @ 2/ t' join-rules 3 + tvar!
-    0 swap is,
-target
-include folds.fs
+\ What is told of numbers (folds.fs) is a table, and whoever
+\ includes this includes that after all the code of its page:
+\ nothing that reads the image as code goes as far as a table.

@@ -1,5 +1,5 @@
 //
-// lines.c - a line of Forth source, as what lays source out reads it: its
+// lines.h - a line of Forth source, as what lays source out reads it: its
 // pieces, and which of them are comments or strings, so that nothing cuts
 // a line inside one, or between a word that reads the next and that word.
 // util/wrap.c fits source to the lines of a block, and mkdisk lays it on
@@ -12,13 +12,13 @@
 // whoever reads lines one after another says whether a line starts in one.
 //
 
-#ifndef HEXAFORTH_LINES_C
-#define HEXAFORTH_LINES_C
+#ifndef HEXAFORTH_LINES_H
+#define HEXAFORTH_LINES_H
 
 #include <ctype.h>
 #include <string.h>
 #include <strings.h>
-#include "room.c"
+#include "room.h"
 
 typedef enum { PLAIN, STRING, BRACKETS, TO_END } piece_kind;
 
@@ -185,4 +185,4 @@ static int ends_in_comment(const char* line, int columns, int brackets) {
     return(in);
 }
 
-#endif // HEXAFORTH_LINES_C
+#endif // HEXAFORTH_LINES_H

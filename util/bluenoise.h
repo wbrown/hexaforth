@@ -1,5 +1,5 @@
 //
-// bluenoise.c - threshold masks of blue noise and of Bayer's order, for
+// bluenoise.h - threshold masks of blue noise and of Bayer's order, for
 // drawing a picture kept as gray.  bench/masks.c uses them to measure how
 // that looks, and util/mkdisk.c puts them on the disk the machine reads
 // them from, in the layout mask_planes() makes.  Tools use it by #include,
@@ -17,6 +17,9 @@
 // diffusion, where an ordered mask makes a grid.  The same n always makes
 // the same mask.
 //
+
+#ifndef HEXAFORTH_BLUENOISE_H
+#define HEXAFORTH_BLUENOISE_H
 
 #include <stdint.h>
 #include <stdio.h>
@@ -133,3 +136,5 @@ static void mask_planes(const uint8_t* bytes, int n, uint8_t* out) {
         }
     }
 }
+
+#endif // HEXAFORTH_BLUENOISE_H

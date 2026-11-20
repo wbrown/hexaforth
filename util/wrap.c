@@ -34,7 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../vm_constants.h"
-#include "lines.c"
+#include "lines.h"
 
 #define WIDTH DISK_LINE
 #define LINES (DISK_BLOCK / DISK_LINE)

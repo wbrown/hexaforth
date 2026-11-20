@@ -15,7 +15,7 @@
 
 // An instruction with a number in it reads memory if it fetches a
 // variable, which whoever asks says: what such an instruction does is the
-// machine's step's to say (util/kinds.c), and not its fields'.
+// machine's step's to say (util/kinds.h), and not its fields'.
 static int cycles_of(instruction ins, int fetches_a_variable) {
     if (ins.lit.lit_f) return(fetches_a_variable ? 2 : 1);
     if (ins.alu.op_type != OP_TYPE_ALU) return(1);

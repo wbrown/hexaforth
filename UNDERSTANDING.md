@@ -208,7 +208,7 @@ with memories left out (the target `gates`; the README has its figures).
 ## One definition
 
 What an instruction does is defined once, in `vm_step.h`. `vm.c` includes
-it and runs it on real values. `util/fuse.c` includes it too and runs it on
+it and runs it on real values. `util/fuse.h` includes it too and runs it on
 symbolic terms: a name for whatever is in each cell instead of a number, so
 that the effect of a sequence of instructions is known for every possible
 state at once.

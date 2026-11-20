@@ -1,5 +1,5 @@
 //
-// files.c - the source files an image is made of, for the tools that have
+// files.h - the source files an image is made of, for the tools that have
 // this in them.
 //
 // cross.fs writes beside an image its .sizes: a line a file, with the
@@ -11,10 +11,13 @@
 // file.
 //
 
+#ifndef HEXAFORTH_FILES_H
+#define HEXAFORTH_FILES_H
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "../util/room.c"
+#include "../util/room.h"
 
 typedef struct {
     long from, to;              // where its code is,
@@ -81,3 +84,5 @@ static const char* file_at(const span* spans, int n, long at) {
     int is = file_holding(spans, n, at);
     return(is < 0 ? NULL : spans[is].file);
 }
+
+#endif // HEXAFORTH_FILES_H

@@ -1,8 +1,16 @@
 //
-// disasm_hex IMAGE.hex [NAME... | FROM TO] [LABELS.lst] [--color | --no-color]
+// disasm_hex IMAGE.hex [NAME... | FROM TO] [LABELS.lst] [--typed FILE.fs] [--counts WORK]
+//                      [--color | --no-color]
 //
 // An image's code, word by word, as the decompiler shows it (forth/see.fs),
 // with the machine's form of every instruction beside it.
+//
+// --typed FILE.fs is the image as the machine has it when that file has
+// been typed at the nucleus's prompt: the words the file defines are
+// there as the nucleus's own compiler made them, and with no word named
+// those are the words shown.  --counts WORK has beside each instruction
+// how often it was run: WORK is the work by place that the reference VM
+// that counts leaves (RUN_WORK, bench/counting.c).
 //
 // Each word starts with its name, and its code is laid out as source is
 // written: what is inside an if or a begin is indented, and its branches
@@ -25,10 +33,10 @@
 //                     `;` where the word ends
 //
 // The names are the image's dictionary and the labels in the file of names
-// beside it (IMAGE.tables, which util/words.c reads), and the file a
-// word's code is from is from the .sizes beside it (bench/files.c).  A
+// beside it (IMAGE.tables, which util/words.h reads), and the file a
+// word's code is from is from the .sizes beside it (bench/files.h).  A
 // listing (.lst) may be given too, for whatever it names at a place of
-// code.  How long a word is, is util/words.c's to say.
+// code.  How long a word is, is util/words.h's to say.
 // With no word named and no range, it is every word of the image; a range
 // is the words that have code in it.  The nucleus's tables, which are laid
 // down after the code of their page, are not code and are not shown.
@@ -43,10 +51,23 @@
 #include <unistd.h>
 #include "../vm.c"
 #include "image.h"
-#include "words.c"
-#include "../bench/files.c"
+#include "words.h"
+#include "../bench/files.h"
+#include "../bench/work.h"
+
+// The nucleus typed at (test/nucleus.c): what of it is used here.  Its
+// header is not had: it names a function as vm.c, which this has, names
+// one of its own.
+extern context machine;
+extern char* said;
+void nucleus_is(const char* path);
+void start(void);
+void line(const char* format, ...);
+void type(void);
 
 static int COLOR;
+static double* RAN;             // how often the instruction at each place was run, if that was asked for,
+static long RAN_PLACES;         // and of how many places it is said
 
 // ---- the image
 
@@ -55,11 +76,11 @@ static uint8_t* PLAIN;          // and with the nucleus's tables made nothing
 static size_t LEN;
 static const uint16_t* INSN;    // its instructions
 static long INSTRUCTIONS;
-static word* WORDS;             // its words, by header and by label (words.c)
+static word* WORDS;             // its words, by header and by label (words.h)
 static int NWORDS;
 static word* DATA;              // its labels of data
 static long NDATA;
-static span* FILES;             // the source files its code is from (bench/files.c)
+static span* FILES;             // the source files its code is from (bench/files.h)
 static int NFILES;
 
 typedef struct { long at; char* name; } named;
@@ -238,9 +259,11 @@ static void line_done(void) {
 }
 
 #define SOURCE_AT 13            // where the source starts on a line,
-#define FIELDS_AT 58            // and where the fields do
+#define FIELDS_AT 58            // where the fields do,
+#define RAN_AT    96            // and where how often it was run does
 
-// An instruction's fields, as vm_opcodes.h names them.
+// An instruction's fields, as vm_opcodes.h names them; and after them how
+// often it was run, if that is known.
 static void fields(long at) {
     uint16_t w = INSN[at];
     instruction ins = *(instruction*)&w;
@@ -258,6 +281,10 @@ static void fields(long at) {
         if (ins.alu.r_eip) put(DIM, " RET");
     } else {
         putf(DIM, "%s %04lx", (const char*[]){ "jump", "0jump", "call" }[kind_of(w)], target_of(at));
+    }
+    if (RAN) {
+        to_column(RAN_AT);
+        putf(PLAIN_STYLE, "%12.0f", at < RAN_PLACES ? RAN[at] : 0.0);
     }
 }
 
@@ -465,13 +492,47 @@ static int numeric(const char* text, long* value) {
     return(*text && !*end);
 }
 
+// The image as the machine has it when a file has been typed at the
+// nucleus's prompt (test/nucleus.c): what is typed is compiled by the
+// nucleus's own compiler, and its words are in the dictionary after.  It
+// stops if the nucleus said anything was wrong.  `had` is the places the
+// image's words were at before, so that those typed can be told.
+static void type_at_it(const char* image, const char* tables, const char* file, long** had, int* nhad) {
+    word* before;
+    *nhad = words_of(BYTES, LEN, tables, &before);
+    *had = room_for(*nhad + 1, sizeof(long));
+    for(int idx=0; idx < *nhad; idx++) (*had)[idx] = before[idx].at;
+    free(before);
+
+    FILE* in = fopen(file, "r");
+    if (!in) { perror(file); exit(EXIT_FAILURE); }
+    nucleus_is(image);
+    start();
+    char* text = NULL;
+    long room = 0;
+    while (line_of(in, &text, &room)) {
+        text[strcspn(text, "\r\n")] = 0;
+        line("%s", text);
+    }
+    fclose(in);
+    free(text);
+    type();
+    if (strstr(said, "error")) {
+        fprintf(stderr, "disasm_hex: the nucleus, typed %s, said:\n%s\n", file, said);
+        exit(EXIT_FAILURE);
+    }
+    memcpy(BYTES, machine.memory, LEN);
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        fprintf(stderr, "usage: %s IMAGE.hex [NAME... | FROM TO] [LABELS.lst] [--color | --no-color]\n", argv[0]);
+        fprintf(stderr, "usage: %s IMAGE.hex [NAME... | FROM TO] [LABELS.lst] [--typed FILE.fs] [--counts WORK]"
+                        " [--color | --no-color]\n", argv[0]);
         return(1);
     }
     COLOR = isatty(STDOUT_FILENO) && !getenv("NO_COLOR");
     const char* wanted[argc];
+    const char* typed = NULL;
     int nwanted = 0;
     long range[2];
     int nrange = 0;
@@ -480,6 +541,8 @@ int main(int argc, char *argv[]) {
         long value;
         if (!strcmp(argv[a], "--color")) COLOR = 1;
         else if (!strcmp(argv[a], "--no-color")) COLOR = 0;
+        else if (!strcmp(argv[a], "--typed") && a + 1 < argc) typed = argv[++a];
+        else if (!strcmp(argv[a], "--counts") && a + 1 < argc) RAN_PLACES = work_read(argv[++a], &RAN, NULL);
         else if (len > 4 && !strcmp(argv[a] + len - 4, ".lst")) read_listing(argv[a]);
         else if (numeric(argv[a], &value) && nrange < 2) range[nrange++] = value;
         else wanted[nwanted++] = argv[a];
@@ -493,6 +556,9 @@ int main(int argc, char *argv[]) {
     char* tables = beside(argv[1], ".tables");          // the names beside the image,
     char* sizes = beside(argv[1], ".sizes");            // and the files its code is from
     if (access(sizes, R_OK) == 0) NFILES = files_of(sizes, &FILES);
+    long* was = NULL;                                   // with a file typed: where the image's words were before
+    int nwas = 0;
+    if (typed) type_at_it(argv[1], tables, typed, &was, &nwas);
 
     PLAIN = room_for(LEN + CELL_BYTES, 1);
     memcpy(PLAIN, BYTES, LEN);
@@ -514,6 +580,9 @@ int main(int argc, char *argv[]) {
         int label;
         const char* name = code_name(w->at, &label);
         int want = !nwanted && !nrange;
+        if (want && typed) {                            // with a file typed and no word named: the words it made
+            for(int k=0; k < nwas && want; k++) want = was[k] != w->at;
+        }
         for(int k=0; k < nwanted && name; k++) want |= !strcmp(name, wanted[k]);
         if (nrange) want |= w->at <= range[1] && w->at + w->size > range[0];
         if (!want) continue;

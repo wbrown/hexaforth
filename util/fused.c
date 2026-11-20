@@ -26,15 +26,15 @@
 // see.fs does.
 //
 // Whether some words are an instruction is asked of the machine: the step
-// on terms says what each leaves (fuse.c), and they are the instruction
+// on terms says what each leaves (fuse.h), and they are the instruction
 // if they leave the same.  Nothing here says what an instruction does.
 // The names of an instruction's fields, which the table ends with, are
 // read from vm_opcodes.h.
 //
 
-#include "fuse.c"
+#include "fuse.h"
 #include "image.h"
-#include "words.c"
+#include "words.h"
 
 #define MOST 4                          // the most words an instruction is shown as: chosen, and not the machine's
 
@@ -179,7 +179,7 @@ static void settle(int standard) {
 #define LONGEST 48                      // instructions in a phrase: chosen
 typedef struct { int phrase[MOST]; int n; uint16_t code[LONGEST]; int len; } reached;
 
-static number_set REACHED;              // what has been reached, by the number for what it leaves (room.c)
+static number_set REACHED;              // what has been reached, by the number for what it leaves (room.h)
 
 static void four_words(void) {
     int* left = room_for(wants, sizeof(int));   // the instructions that have no words yet

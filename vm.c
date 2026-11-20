@@ -50,7 +50,7 @@ static inline uint64_t ucell(int64_t x) {
 // A machine may be given cells that are not in its memory: FAR_CELL says
 // where the cell of an address is, or that it has none.  What runs a small
 // machine to try what a run of instructions does gives it the cells the
-// run names, wherever they are (util/fuse.c).  Such a cell is fetched from
+// run names, wherever they are (util/fuse.h).  Such a cell is fetched from
 // and stored to; nothing is run from it.
 #ifndef FAR_CELL
 #define FAR_CELL(addr) ((uint8_t *)0)
@@ -275,19 +275,6 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
 }
 #endif
 
-// Code is paged.  The program counter is a flat word address, and a page is
-// 4096 words (8KB).  Page 0 is the kernel.  A 13-bit branch target with bit 12
-// clear is an absolute address in the kernel, reachable from anywhere; with
-// bit 12 set it is an offset within the page the branch itself is in.  Return
-// addresses and execution tokens are full program counters, so `exit` and
-// `execute` cross pages with no extra state.
-static inline int64_t branch(int64_t next_pc, uint16_t target) {
-    if (target & 0x1000) {
-        return ((next_pc - 1) & ~(int64_t)0xfff) | (target & 0xfff);
-    }
-    return target;
-}
-
 // The arithmetic: what an operation makes of its two inputs, and of nothing
 // else.  Which two they are is the step's to say (vm_step.h).
 static inline int64_t alu(int op, int64_t a, int64_t b) {
@@ -308,7 +295,7 @@ static inline int64_t alu(int op, int64_t a, int64_t b) {
 }
 
 // What is so of the arithmetic whatever its inputs, for what reasons about
-// it and does not run it (util/fuse.c, which also tries each on the
+// it and does not run it (util/fuse.h, which also tries each on the
 // machine): the operations whose two inputs may be exchanged; those of
 // which a run may be regrouped as well, since the cell they make is the
 // same, and for each of those the number that, as one input, leaves the

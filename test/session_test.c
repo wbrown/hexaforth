@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../util/room.c"
+#include "../util/room.h"
 
 #define OWN_FIRST   2                           // the lines the VM writes before the machine sends anything,
 static const char OWN_LAST[] = " instructions executed]";       // and what the one it writes after ends with

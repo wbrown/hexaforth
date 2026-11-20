@@ -1,13 +1,13 @@
 //
-// reach.c - what reaches each word of an image, for the tools and the tests
-// that have this in them.  It is had after cut.c, which cuts an image into
+// reach.h - what reaches each word of an image, for the tools and the tests
+// that have this in them.  It has in it cut.h, which cuts an image into
 // its straight-line runs and the instructions that leave a run.
 //
 // A word is reached
 //
 //   by a call, a jump or a branch from another word that goes to where it
 //   starts: a call to a word on another page, which is the word's place
-//   pushed and a call of execute, is a call of that word (cut.c);
+//   pushed and a call of execute, is a call of that word (cut.h);
 //
 //   by its place being pushed as a number, which is how its execution token
 //   is said.  A number that only happens to be a word's place is counted
@@ -22,6 +22,11 @@
 // A word that goes to its own start, as a loop does, is not reached by
 // that.  A word with a header can be typed, whatever else reaches it.
 //
+
+#ifndef HEXAFORTH_REACH_H
+#define HEXAFORTH_REACH_H
+
+#include "cut.h"
 
 typedef struct {
     long calls[2], pushed[2];           // from the kernel, and from the other pages
@@ -92,7 +97,7 @@ static void reach(const cut_image* m, reached* how) {
         }
     }
 
-    // Cells of data: those of the pages that have no code (cut.c says
+    // Cells of data: those of the pages that have no code (cut.h says
     // which have), but for the dictionary, where every header has its
     // word's place.
     const unsigned char* has_code = m->has_code;
@@ -124,3 +129,5 @@ static void reach(const cut_image* m, reached* how) {
 static int is_reached(const reached* how) {
     return(how->calls[0] || how->calls[1] || how->pushed[0] || how->pushed[1] || how->cells || how->into);
 }
+
+#endif // HEXAFORTH_REACH_H

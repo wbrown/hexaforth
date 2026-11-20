@@ -39,4 +39,5 @@ include console.fs      \ the screen as the console, and the boot from a disk
 include gray.fs       \ a picture kept as gray, drawn through a mask
 include view.fs         \ image viewer, and its menu: how it is drawn
 include viewdesk.fs     \ the picture's window, by itself
-include join.fs      \ instructions joined as they are compiled, and the rules
+include join.fs      \ instructions joined as they are compiled,
+include folds.fs     \ and what that is told of numbers: a table, last

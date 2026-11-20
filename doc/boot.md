@@ -5,8 +5,9 @@ disk, and compile the rest of the system from source on that disk. This
 is a plan, and the first of it is built (What is built, below). The
 disk's index, which it rests on, is `doc/disk.md`.
 
-The figures here are what the target `examine` and `mkdisk --pack` said
-when this was written. An estimate says that it is one.
+How big a thing is, and what it costs, is not written here: it is what
+the targets `examine`, `memory-map-64` and `bench` print, and what
+`mkdisk` says when it makes a disk.
 
 ## What is built
 
@@ -165,9 +166,8 @@ When this was planned:
   (`bench/tb-disk.fs`), and QEMU through virtio, driven by Forth
   (`virtio.fs`, `virtio-blk.fs`).
 - `load` and `block` are in `blocks.fs`, on page 1, not in the kernel.
-- The kernel's headers cannot be in the ROM: they are 4,872 bytes on 64
-  bits, 2,572 on 32 and 1,550 on 16, where the ROM has 718, 720 and 770
-  left.
+- The kernel's headers cannot be in the ROM: on every machine they are
+  more than the ROM has left.
 
 ## Decided
 
@@ -204,8 +204,8 @@ When this was planned:
    fit in 256KB. (This was first written as every word keeping its
    header, the headers after the display and the image 256KB, and it was
    built so, with what is given out starting at byte $40000, which
-   nobody decided. The headers were then 34,488 bytes on 64 bits, where
-   those the source says are 15,496.)
+   nobody decided. The headers were then more than twice what those the
+   source says are.)
 9. The system is one source, which `cross.fs` and the nucleus both
    compile.
 10. How an application finds its data on the disk is the application's
@@ -214,8 +214,8 @@ When this was planned:
 12. A disk is 1,024 blocks, which is what an 8-inch floppy holds, and the
     pictures are on a second one. (This was written here as "the picture
     may go on a second disk", which is not what was decided, and a disk
-    with the picture on it, of 1,600 blocks, was built on that. It is
-    built now as decided: `doc/disk.md`, Several disks.)
+    with the picture on it, longer than a floppy, was built on that. It
+    is built now as decided: `doc/disk.md`, Several disks.)
 
 ## The ROM
 
@@ -223,17 +223,17 @@ When this was planned:
 
 All three machines start at instruction 0: `vm.c`'s context is
 zeroed, `soc.v` gives the Verilog a `start_pc` of 0, and the AArch64
-kernels set the PC to 0 (`hexaforth.S:124`). `cross.fs` lays `main` at
+kernels set the PC to 0 (`hexaforth.S`). `cross.fs` lays `main` at
 instruction 0 and `quit` at 1, and `throw` starts again at 1.
 
 - Instruction 0 is the cold boot.
 - Instruction 1 is the warm start. `throw` sets `'emit` to `uart-emit`
-  (`nuc.fs:939`), so the warm start sets it to the screen console again,
+  (`nuc.fs`), so the warm start sets it to the screen console again,
   if there is one, and runs `quit`.
 
-`vm.c` stops when it fetches an instruction that is nothing
-(`vm.c:360`). A run of the ROM with nothing else in memory stops at the
-first call into memory that has not been read.
+`vm.c` stops when it fetches an instruction that is nothing. A run of
+the ROM with nothing else in memory stops at the first call into memory
+that has not been read.
 
 ### The cold boot
 
@@ -277,8 +277,8 @@ ports. While what it takes is not an index for this machine, it says so
 again and takes another block 0. `mkdisk --boot` writes what is to be
 sent, beside the disk it makes.
 
-The console's port gives each byte as it is (`vm.c:241`,
-`hexaforth.S:262`). What can change a byte is the sender's side, such as
+The console's port gives each byte as it is (`vm.c`, `hexaforth.S`).
+What can change a byte is the sender's side, such as
 a terminal that turns line ends round. A serial line can lose a byte, so
 a check of the binary runs (Not decided) is how the IPL would say that a
 transfer was bad. After the IPL the machine has its dictionary and the
@@ -308,31 +308,26 @@ prompt, and no disk.
 
 ### Room
 
-Estimates: the cold boot about 55 instructions, blocks about 55, `.(`
-and what is said of an error about 25, and the IPL's taking a block
-from the console about 15. That is about 300 bytes, which fits in what
-the ROM has left on every machine without moving anything out of it.
+What the ROM has left on each machine is what `examine` says of its
+image. Where it is not enough, these are the words nothing in the boot
+uses (`disasm_hex-64` says how long each is):
 
-If it does not, these are the words nothing in the boot uses, with how
-many instructions each group is on 64 bits (`disasm_hex-64`):
-
-| What | Words | Instructions |
-|---|---|---|
-| Doubles that reading a number does not use | `dabs` `2rot` `d>s` `d=` `d<` `du<` `d-` `d0<` `d0=` `d2/` | 47 |
-| Division and printing in decimal | `divstep` `um/mod` `u/mod` `(.)` `.` | ~58 |
-| Typed lines | `accept` `delchar` `3rd` `3dup` | ~71 |
-| Showing names | `code>` `name>` `words` | 70 |
-| Tasks | `spawn` `(task)` `idle` `pause` | 85 |
-| Characters a byte at a time | `cmove` `cmove>` `fill` | 42 |
-| The rest | `lo32` `hi32` `lo16` `hi16` `2over` `abs` `max` `depth` `w,` | 36 |
+| What | Words |
+|---|---|
+| Doubles that reading a number does not use | `dabs` `2rot` `d>s` `d=` `d<` `du<` `d-` `d0<` `d0=` `d2/` |
+| Division and printing in decimal | `divstep` `um/mod` `u/mod` `(.)` `.` |
+| Typed lines | `accept` `delchar` `3rd` `3dup` |
+| Showing names | `code>` `name>` `words` |
+| Tasks | `spawn` `(task)` `idle` `pause` |
+| Characters a byte at a time | `cmove` `cmove>` `fill` |
+| The rest | `lo32` `hi32` `lo16` `hi16` `2over` `abs` `max` `depth` `w,` |
 
 They can go in the upper half of page 0, which a call reaches from any
 page in one instruction, as it reaches the ROM. The doubles, `fill` and
-`cmove>` are there now (What is built), which is 71 instructions. Of the
-rest, three things in the ROM call into them and would first have to
-stop: `throw` prints with `.`,
-`ckey` calls `pause`, and the prompt, which is all that works without a
-disk, uses `accept`.
+`cmove>` are there now (What is built). Of the rest, three things in
+the ROM call into them and would first have to stop: `throw` prints
+with `.`, `ckey` calls `pause`, and the prompt, which is all that works
+without a disk, uses `accept`.
 
 ## The boot image
 
@@ -340,7 +335,7 @@ disk, uses `accept`.
   `picture.fs` is: the kernel, `join.fs` (as the machine with no display
   has it now), and the screen console with mono.
 - `cross.fs` writes it. `mkdisk` makes its binary entries: a run for
-  each part of it as `util/layout.c` knows them (the data and the
+  each part of it as `util/layout.h` knows them (the data and the
   headers, the pages of code, the upper half of page 0, and on 16 bits
   the data above the display), since memory is not nothing when a
   machine is turned on.
@@ -359,7 +354,7 @@ outside `display.fs` knows how the display is laid out:
   a blank, and the screen goes up a line (`scroll-rect`) when the last
   line is full;
 - `key?` is read at the end of a line, since QEMU's bridge copies the
-  bitmap only when the key's port is read (`hexaforth.S:255-269`);
+  bitmap only when the key's port is read (`hexaforth.S`);
 - `boot` starts the console before it loads block 1, and the warm start
   is `throw` setting `'emit` from `'console` (nuc.fs), so that after an
   error the prompt is drawn on the screen as well.
@@ -389,26 +384,19 @@ from source, and is built on these.
 
 A header is of a name the source gives one, and they are where they
 were, below the code (`build/64/nuc.sizes` and the others say what they
-take; the room is what `cross.fs` gives them):
+take; the room is what `cross.fs` gives them, `hdr-base`).
 
-| Cell | Room | The image's headers |
-|---|---|---|
-| 64 | 24,576 bytes, from `$a000` | 15,496 |
-| 32 | 16,384 bytes, from `$c000` | 8,828 |
-| 16 | 8,192 bytes, from `$6000` | 5,726 |
-
-- Of those, the headers of `cross-words.fs` (2,744 bytes on 64 bits) and
-  of the basewords and sizes `system.fs` lays are there only for the
-  nucleus to compile the system's source with.
+- Of those, the headers of `cross-words.fs` and of the basewords and
+  sizes `system.fs` lays are there only for the nucleus to compile the
+  system's source with.
 - `mkheader` checks the header pointer against where the code starts
   (`HDR-LIMIT`), and `header`, while a file is read, the headers that
   stay against where the file's own start.
 - Looking a name up goes through every header, so fewer headers is a
-  shorter boot: the machine of 64 bits that compiles the applications
-  runs 41.4 million instructions from its start to its prompt, 36.1
-  million on 32 bits, and on 16, which compiles `desk.fs` alone, 1.9
-  million (`build/64/map/boot.out`, which `memory-map-64` makes). With a
-  header for every word it was 76.7 million on 64 bits.
+  shorter boot: how many instructions a machine runs from its start to
+  its prompt is in `build/64/map/boot.out`, which `memory-map-64` makes.
+  With a header for every word the machine of 64 bits ran nearly twice
+  as many.
 - A file's own names are in no table for the decompiler: it shows a word
   the boot compiled that has no header as a number, where the same word
   compiled by `cross.fs` has a label on the disk. (When every word had a
@@ -417,8 +405,7 @@ take; the room is what `cross.fs` gives them):
   token are cells, and `sfind` follows them with `@`. Two things in the
   tree take the headers to be where they are now: the decompiler takes a
   number between `VARS` and the pages of code to be data or a header
-  (`see.fs:345-350`), and the tools read headers out of the image's
-  128KB.
+  (`see.fs`), and the tools read headers out of the image's 128KB.
 
 ## One source
 
@@ -430,24 +417,20 @@ What the system's source says that only `cross.fs` knows:
   `[if]`, `[else]`, `[then]`, `bulk`, `unbulk`, `high`, `unhigh`,
   `in-place`.
 - The machine's sizes and the disk's layout as names (`CELL`, `PXMASK`
-  and the rest, 49 of which are used outside the kernel), and the values
+  and the rest, many of them used outside the kernel), and the values
   the files' `::` words reckon with (`cell-bits`, `lanes`, `spaces-cell`
   and the like). `cross.fs` refuses a word that has a macro's name, so
   these cannot yet be words.
 - What `cross.fs` runs as gforth: the `meta` sections and the bodies of
   `::` words; the builders of fonts, pictures, keys and patterns
-  (`cross.fs`, lines 1202-1445); `hdr,` and `at:`; and an instruction
-  said by its fields (`display.fs:740`).
+  (`cross.fs`); `hdr,` and `at:`; and an instruction said by its fields
+  (`display.fs`).
 - `literal` in the body of a `::` word compiles when the macro runs in
   `cross.fs`, and when it is defined in the nucleus.
 
-Estimates: the two groups of words about 100 instructions, the names
-about 130, and the builders about 250, by the kernel's one instruction
-to a line of its source.
-
 ## Source in blocks
 
-- 23 of the system's files had a line longer than 64 characters, or a
+- Many of the system's files had a line longer than 64 characters, or a
   run of more than 16 lines with no line of nothing in it (`mkdisk
   --pack`). Done so far, with each machine's image the same, byte for
   byte, after each:
@@ -461,28 +444,28 @@ to a line of its source.
     one is lines with none of nothing between them, so that it is laid
     in one block. `mkdisk` says so of one that is not, since `desk.fs`
     ended in one of three runs that the boot of 32 and 16 bits skipped
-    the first of and then compiled the rest. It says it now of three
-    files that no boot compiles yet: `display.fs` (line 521), `tiff.fs`
-    (429) and `atkinson.fs` (369);
+    the first of and then compiled the rest. It says it now of files
+    that no boot compiles yet: `display.fs`, `tiff.fs` and
+    `atkinson.fs`;
   - `fused.c` and `joins.c` write `fused.fs` and `folds.fs` to fit;
   - `s" ..." evaluate` too long for a line is two of them.
 
   Left: the definitions longer than a block, which are factored by
-  hand, and the three lines in them that cannot be cut until they are.
-  The cold ones are done (`desk.fs`, `viewdesk.fs`, `virtio-input.fs`,
-  `join.fs`, `tiff-open` and `selem`, and `wm.fs`'s seven). The hot
+  hand, and the lines in them that cannot be cut until they are. The
+  cold ones are done (`desk.fs`, `viewdesk.fs`, `virtio-input.fs`,
+  `join.fs`, `tiff-open` and `selem`, and those of `wm.fs`). The hot
   ones are factored into words that are right when called, measured
   with `bench-draw`, `bench-dither` and `bench-gray` before and after,
-  and given `in-place` only where a call shows in the figures:
-  `region.fs`'s 3, `display.fs`'s 17, `atkinson.fs`'s 8, and `tiff.fs`'s
+  and given `in-place` only where a call shows in the figures: those of
+  `region.fs`, `display.fs` and `atkinson.fs`, and `tiff.fs`'s
   `gray-lanes`, `gray-pairs` and `pixels`.
 
-  Three of the desktop's checks showed a system word longer than its
+  Some of the desktop's checks showed a system word longer than its
   window (`tiff-open`, `scroll-rect`), and once every definition fits a
   block no system word is sure to be: those checks are to type a long
   word of their own.
-- The applications that fit take 250 blocks for 3,421 lines. The whole
-  system is 8,972 lines, so about 650 blocks (estimate).
+- How many blocks the source takes is what `mkdisk` says when it lays a
+  disk, and it makes no disk longer than a floppy.
 - `DISK_NAMES_BLOCK` and the others like it leave `vm_constants.h`.
   `mkdisk` lays the parts down one after another and writes the index.
   The picture's block has left it (`doc/disk.md`, Several disks).
@@ -529,10 +512,9 @@ For later: the editor on a machine of several disks. It opens on block
 
 Next, now that QEMU starts from its disk:
 
-- Text on 16 bits. With a font laid as lanes, `bench-draw` has text at
-  13,521,166 cycles on 16 bits where it was 13,210,366, 2.4% more, for
-  about a hundred bytes: the glyph's lane and a multiply are where two
-  fetches were. On that machine a lane is a cell, so the lane for a glyph
+- Text on 16 bits. With a font laid as lanes, `bench-draw` has text a
+  little slower on 16 bits than it was: the glyph's lane and a multiply
+  are where two fetches were. On that machine a lane is a cell, so the lane for a glyph
   can be the cell in front of its rows, and what is noted of a glyph its
   address: no multiply and no second fetch when it is drawn.
 - The desktop's profile after the fonts. It was taken before
@@ -542,8 +524,8 @@ Next, now that QEMU starts from its disk:
 - Data laid at run time is checked against where it must stop only
   before a definition (`mkheader`): a table laid after `create` can run
   into the dictionary and nothing says so until the next definition. The
-  fonts found it, when they were 1.8KB more data than the boot had room
-  for on 64 bits.
+  fonts found it, when they were more data than the boot had room for
+  on 64 bits.
 
 - The virtio driver of the keyboard and the pointer, `virtio.fs` and
   `virtio-input.fs`, is still written for cells of 64 bits and included
@@ -558,56 +540,47 @@ Next, now that QEMU starts from its disk:
   high halves of the queue's addresses, which queue is meant (it has
   one), and that its interrupt was seen. The driver's status writes are
   the four the device's protocol has.
-- The ROM of QEMU's virt has 4 bytes left (`examine`, of
+- The ROM of QEMU's virt is all but full (`examine`, of
   `build/virt/boot/nuc.hex`).
 - `kernel_test` is built for the default machine alone. What comes to a
   word was asked of the other sizes, before words were moved out of the
   ROM, only by building them: a call from the kernel to a word laid
   after it does not compile.
-- The memory layout, which `memory-map-64` and the others show. What is
-  given out starts after the display again, which on 64 and 32 bits
-  ends at byte $2d800: 75,776 bytes from there to the end of the first
-  256KB. The desktop does not fit in them yet, on 64 bits or on 32:
-  - while the desktop's checks are run the heap reaches 57,184 bytes
-    from its start on 64 bits, which is 18,592 short of the end of the
-    first 256KB, and 37,880 on 32, which is 37,896 short of it; when
-    they are done it holds 49,136 and 27,048. On 16 bits it reaches
-    21,816, with 13,340 left of the machine's 128KB. So the desktop is
-    in the first 256KB on 64 and 32 bits. Everything the heap holds is
-    counted in cells, and is four times as many bytes on 64 bits as on
-    16 (a region is 2,064 bytes against 516). What it is given out to,
-    and how much of each piece is ever stored to, `memory-map-64` says:
-    fourteen regions of 2,064 with no more than 328 bytes of any stored
-    to, and the Words window's buffers (14,336, with 1,512 stored to);
+- The memory layout, which `memory-map-64` and the others show: where
+  everything is, how far the heap reaches while the desktop's checks
+  are run, what it is given out to, and how much of each piece is ever
+  stored to. What is given out starts after the display again, and the
+  desktop is in the first 256KB on 64 and 32 bits, and in the machine's
+  128KB on 16:
+  - everything the heap holds is counted in cells, and is four times as
+    many bytes on 64 bits as on 16. Most of it is regions, of each of
+    which little is ever stored to, and the Words window's buffers;
   - the fonts are not among them. They were: opened out the first time
-    each was used, a cell for every row of every glyph, 31,360 bytes on
-    64 bits. A font is now laid down by `cross.fs` as its rows in lanes
-    of a cell, as many bytes as it has pixels to the nearest lane, and
-    drawn from that (`cross.fs`, `display.fs`); `bench-draw` has text
-    at 4,874,824 cycles on 64 bits, where it was 7,611,239, and
-    6,847,937 on 32, where it was 9,618,751. On 16 bits, where a cell
-    is one lane, a font takes what it took and text is 13,521,166
-    cycles where it was 13,210,366;
+    each was used, a cell for every row of every glyph. A font is now
+    laid down by `cross.fs` as its rows in lanes of a cell, as many
+    bytes as it has pixels to the nearest lane, and drawn from that
+    (`cross.fs`, `display.fs`), and text is quicker for it on 64 and 32
+    bits (`bench-draw`). On 16 bits, where a cell is one lane, a font
+    takes what it took and text is a little slower;
   - the picture is not among them. Its bitmap was: all of it in memory
-    while it was dithered (32,768 bytes), given back when it had been
-    written to the disk, and then a hole under what was given out
-    meanwhile; the menu took it again to draw into; and the picture
-    kept as gray was 32,768 more, above them all. Now the dither makes
-    a block of the bitmap at a time and writes each, the gray is made
-    and kept on the disk the same way, and the window is painted from
-    the blocks its clip asks for (`view.fs`). That is what brought the
-    reach down from 139,328, 107,560 and 32,544;
-  - the boot's own heap, at its prompt with the applications compiled:
-    25,216 bytes on 64 bits and 17,144 on 32 (a font opened out, the
-    blocks' buffer, and the 8.7KB that `picture[` keeps);
+    while it was dithered, given back when it had been written to the
+    disk, and then a hole under what was given out meanwhile; the menu
+    took it again to draw into; and the picture kept as gray was as
+    much again, above them all. Now the dither makes a block of the
+    bitmap at a time and writes each, the gray is made and kept on the
+    disk the same way, and the window is painted from the blocks its
+    clip asks for (`view.fs`). That is what brought the heap's reach
+    down to where it is;
+  - the boot's own heap, at its prompt with the applications compiled,
+    is a font opened out, the blocks' buffer, and what `picture[`
+    keeps;
   - below the display the slots are fixed, each by a constant in
-    `cross.fs` for the size of machine, and part empty. On 64 bits, as
-    it was measured with the headers elsewhere: 4KB after the ROM, 27KB
-    after the data, which the headers are in again, and 24KB of the code
-    pages kept for definitions made at run time, which with the desktop
-    up had 402 bytes;
-  - `hfree` keeps one run of what is given back, the biggest: on 64 bits
-    38,768 bytes, and what else is given back is not had again.
+    `cross.fs` for the size of machine, and part empty: after the ROM,
+    after the data, where the headers are again, and in the code pages
+    kept for definitions made at run time, of which the desktop uses
+    little;
+  - `hfree` keeps one run of what is given back, the biggest, and what
+    else is given back is not had again.
 
   The display is right where it is: just past the first 65,536
   instructions, where code can be, and on 16 bits past the first 32K
@@ -636,12 +609,6 @@ Next, now that QEMU starts from its disk:
   - what gives memory back by putting `himem` where it was (`with-room`,
     the tables of names, the picture's memory) is to allow for a stretch
     taken while it had the memory.
-
-  The headers when every word had one, in bytes: the image's own 34,464
-  on 64 bits, 19,696 on 32 and 5,642 on 16; the boot image's dictionary
-  once its boot had compiled the applications 37,320, 21,156 and 5,782,
-  of which 8,544, 4,384 and 150 were made at run time.  What they are
-  now is in Headers, above.
 
 ## Not decided
 

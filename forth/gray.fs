@@ -22,7 +22,7 @@
 \ cells, one bit per sample, in the display's pixel order.
 
 \ A mask is also four bit planes per row, and is stored on the
-\ disk that way (util/bluenoise.c), so loading one is copying
+\ disk that way (util/bluenoise.h), so loading one is copying
 \ cells.  While copying, the thresholds can be raised or lowered
 \ a level at a time, by a bit-sliced add across the four planes
 \ that does every pixel of a cell at once.  A mask row is as

@@ -1,5 +1,5 @@
 //
-// words.c - the words of an image, for the tools that have this in them:
+// words.h - the words of an image, for the tools that have this in them:
 // every definition that has a header or a label, where its code starts,
 // and how many instructions it is.
 //
@@ -14,12 +14,15 @@
 // put in the rest of the page, with nothing between the two.
 //
 
+#ifndef HEXAFORTH_WORDS_H
+#define HEXAFORTH_WORDS_H
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "../vm_opcodes.h"
-#include "room.c"
+#include "room.h"
 
 #define PAGE 4096                       // instructions to a page of code
 
@@ -150,23 +153,20 @@ static long place_of(const word* words, int n, const char* name) {
     return(-1);
 }
 
-// The nucleus's tables (join.fs) are instructions laid down after its
-// code, each to the end of what its page has, and join-rules says where
-// they are.  They are not code: here they are made nothing, in an image
-// that is to be read as code.
+// The nucleus's table (join.fs, folds.fs) is instructions laid down after
+// its code, to the end of what its page has, and folds-at says where it
+// is.  It is not code: here it is made nothing, in an image that is to be
+// read as code.
 static void without_tables(uint8_t* image, size_t len, const word* words, int n) {
     uint16_t* code = (uint16_t*)image;
-    long rules = place_of(words, n, "join-rules");
-    if (rules < 0) return;
-    uint64_t cells = 0;                 // the word pushes where its cells are
-    for(const instruction* ins = (const instruction*)code + rules; ins->lit.lit_f; ins++) {
-        cells += (uint64_t)ins->lit.lit_v << (ins->lit.lit_shifts * LIT_BITS);
+    long told = place_of(words, n, "folds-at");
+    if (told < 0) return;
+    uint64_t cell = 0;                  // the word pushes where its cell is
+    for(const instruction* ins = (const instruction*)code + told; ins->lit.lit_f; ins++) {
+        cell += (uint64_t)ins->lit.lit_v << (ins->lit.lit_shifts * LIT_BITS);
     }
-    for(int which=0; which < 4; which++) {
-        if (which == 1) continue;       // how many rules: not a place
-        uint64_t at = cell_of(image, cells + which);
-        for(uint64_t idx=at; at && idx < (at / PAGE + 1) * PAGE && idx < len / 2; idx++) code[idx] = 0;
-    }
+    uint64_t at = cell_of(image, cell);
+    for(uint64_t idx=at; at && idx < (at / PAGE + 1) * PAGE && idx < len / 2; idx++) code[idx] = 0;
 }
 
 // The word that the instruction at a place is in.
@@ -191,3 +191,5 @@ static int headers_of(const uint8_t* image, size_t len, size_t* from, size_t* to
     }
     return(n);
 }
+
+#endif // HEXAFORTH_WORDS_H

@@ -31,7 +31,7 @@
 // is to have been drawn.
 //
 // TIMED is what the Verilog's test bench said of the run: what passed
-// between each mark the machine made and the next (figure.c).  WHAT is the
+// between each mark the machine made and the next (figure.h).  WHAT is the
 // work and ON the machine; a PIECE is the name of what was done between a
 // mark and the next, in order, and with none named there is one piece and
 // it is the work.  A line a piece is printed, or one line that says FAIL
@@ -54,8 +54,8 @@
 #include "../vm_constants.h"
 #include "../test/dither.h"
 #include "../test/gray.h"
-#include "../util/bluenoise.c"
-#include "figure.c"
+#include "../util/bluenoise.h"
+#include "figure.h"
 #include "tiff.h"
 
 // A file, whole, with nothing after it.
@@ -186,7 +186,7 @@ static char* pictures(const char* is_picture, const char* size, const char* is_m
 // sixteen levels, one sample per 1 << shift pixels a side, all of it drawn
 // with each sample 1 << dshift pixels a side through n by n blue noise.
 // It is compared with the same done a pixel at a time (test/gray.h), using
-// the thresholds the disk's masks are made from (util/bluenoise.c), and
+// the thresholds the disk's masks are made from (util/bluenoise.h), and
 // then the display is.  Returns what is wrong, or NULL.
 static char* on_display(const uint8_t* black, int w, int h, int dx, const char* is_memory) {
     size_t len;

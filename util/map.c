@@ -11,7 +11,7 @@
 // The parts:
 //
 //   the kernel's ROM, and each page of code: the code and the tables of
-//   the words that start on it (layout.c); and the code compiled at run
+//   the words that start on it (layout.h); and the code compiled at run
 //   time, from where the image left the code pointer (cp) to where it is
 //
 //   the data, from VAR_BASE to the data pointer (dp)
@@ -39,7 +39,7 @@
 //
 
 #include <stdarg.h>
-#include "layout.c"
+#include "layout.h"
 
 #define MEMORY ((size_t)CELL_BYTES << ADDR_BITS)       // the machine's memory, in bytes
 #define CLOSE  256                                      // the bytes of nothing that two stretches of something may have between them and be one

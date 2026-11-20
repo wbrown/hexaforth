@@ -1,18 +1,18 @@
 //
-// figure.c - a line of what the benchmarks print, for the tools that have
+// figure.h - a line of what the benchmarks print, for the tools that have
 // this in them: what was done, on which machine, and what it came to.
 //
 // A figure is printed by what checked the work it is of, and is not
 // printed for work that was not checked.
 //
 
-#ifndef HEXAFORTH_FIGURE_C
-#define HEXAFORTH_FIGURE_C
+#ifndef HEXAFORTH_FIGURE_H
+#define HEXAFORTH_FIGURE_H
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../util/room.c"
+#include "../util/room.h"
 
 // A line: the work, and a piece of it if it is one of several; the
 // machine; and the figure.
@@ -48,4 +48,4 @@ static char* between(const char* timed, int mark) {
     return(is);
 }
 
-#endif //HEXAFORTH_FIGURE_C
+#endif //HEXAFORTH_FIGURE_H
