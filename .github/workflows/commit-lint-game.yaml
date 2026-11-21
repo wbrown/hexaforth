@@ -1,0 +1,51 @@
+name: Commit Lint Game
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  commit-lint:
+    name: Validate Commit Messages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Show commit and comparison history
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          echo "Commit being validated:"
+          git show -s --format="%H %s" "$HEAD_SHA"
+
+          echo ""
+          echo "Previous 50 first-parent commit titles (excluding tested commit):"
+          git log --first-parent -n 50 --format="- %h %s" "${HEAD_SHA}^"
+
+      - name: Validate latest commit
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          git show -s --format=%B "$HEAD_SHA" > "$RUNNER_TEMP/commit-message.txt"
+
+          python commit-lint-game/commit-lint.py \
+            --stdin \
+            --history-ref "${HEAD_SHA}^" \
+            < "$RUNNER_TEMP/commit-message.txt"
