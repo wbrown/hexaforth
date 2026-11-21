@@ -310,7 +310,10 @@ static check CHECKS[] = {
 static const desk* machine;     // what is so of the machine the checks are run on
 static const char* boot;        // what its console said as the desktop came up
 static const uint8_t* shot;     // its screen, as it was last looked at,
+static char* shot_path;         // the file it was kept in, if look() was given a name,
 static uint8_t* kept;           // and a screen that was kept, to compare a later one with
+const char* desk_checking;      // the check being run,
+const char* desk_doing;         // and the step of does() in hand
 
 static bool on_screen(int x, int y) { return(x >= 0 && x < W && y >= 0 && y < H); }
 static bool black(int x, int y) { return(on_screen(x, y) && shot[(size_t)y * W + x]); }
@@ -322,17 +325,19 @@ static int high(int a, int b) { return(a > b ? a : b); }
 static void look(const char* name) {
     desk_turns(12);
     shot = desk_screen();
+    free(shot_path);
+    shot_path = NULL;
     if (!name) return;
     static const char form[] = "%s/%s.pbm";
-    char* path = malloc(strlen(machine->out) + strlen(name) + sizeof(form));
-    if (path == NULL) {
+    shot_path = malloc(strlen(machine->out) + strlen(name) + sizeof(form));
+    if (shot_path == NULL) {
         fprintf(stderr, "there is no room for the name of a screen's file\n");
         exit(EXIT_FAILURE);
     }
-    sprintf(path, form, machine->out, name);
-    FILE* out = fopen(path, "wb");
+    sprintf(shot_path, form, machine->out, name);
+    FILE* out = fopen(shot_path, "wb");
     if (out == NULL) {
-        perror(path);
+        perror(shot_path);
         exit(EXIT_FAILURE);
     }
     fprintf(out, "P4\n%d %d\n", W, H);
@@ -344,7 +349,6 @@ static void look(const char* name) {
         }
     }
     fclose(out);
-    free(path);
 }
 
 static void click(int x, int y) {
@@ -532,9 +536,14 @@ static void title_of(int n, int dx, int dy, int* tx, int* ty) {
 }
 
 // Is a window's title, with its x, shown as that of the window in front is?
+static bool title_shown(int n) {
+    return(shows(TITLES[n], rect[n].x + 8, rect[n].y + 2, &sans, true));
+}
+static bool x_shown(int n) {
+    return(rect[n].x + rect[n].w > W || shows("x", rect[n].x + rect[n].w - 12, rect[n].y + 2, &sans, true));
+}
 static bool shown_in_front(int n) {
-    return(shows(TITLES[n], rect[n].x + 8, rect[n].y + 2, &sans, true) &&
-           (rect[n].x + rect[n].w > W || shows("x", rect[n].x + rect[n].w - 12, rect[n].y + 2, &sans, true)));
+    return(title_shown(n) && x_shown(n));
 }
 
 // Where the windows start: desk.fs has two arrangements, for a big screen
@@ -794,11 +803,15 @@ static struct { int w, x, y, dx, dy; uint8_t before[SCREEN]; } grabbed;
 static void does(const char* said) {
     for(const char* at = said; ; ) {
         while (*at == ' ') at++;
-        if (!*at) return;
+        if (!*at) {
+            desk_doing = NULL;
+            return;
+        }
         // a word of it, with room for all that is said and for each %W or
         // %H as a number, which is no more digits than three a byte
         static char* word;
         const size_t room = strlen(said) * (1 + 3 * sizeof(int)) + 1;
+        desk_doing = NULL;
         free(word);
         word = malloc(room);
         if (word == NULL) {
@@ -819,6 +832,7 @@ static void does(const char* said) {
                 }
             }
             word[out] = '\0';
+            desk_doing = word;
             desk_type(word);
             desk_turns(4);
             at += len + 2;
@@ -827,6 +841,7 @@ static void does(const char* said) {
         len = strcspn(at, " ");
         memcpy(word, at, len);
         word[len] = '\0';
+        desk_doing = word;
         at += len;
 
         const char* of = strchr(word, ':');     // what the word is done to: a name, or numbers, or both
@@ -1193,8 +1208,11 @@ static bool outlined(char* why) {
 }
 
 static bool moved(char* why) {
-    snprintf(why, WHY, "its title is not at %d, %d", rect[VIEWER].x + 8, rect[VIEWER].y + 2);
-    return(shown_in_front(VIEWER));
+    bool titled = title_shown(VIEWER), has_x = x_shown(VIEWER);
+    snprintf(why, WHY, "its title at %d, %d is%s shown, and its x at %d, %d is%s shown",
+             rect[VIEWER].x + 8, rect[VIEWER].y + 2, titled ? "" : " not",
+             rect[VIEWER].x + rect[VIEWER].w - 12, rect[VIEWER].y + 2, has_x ? "" : " not");
+    return(titled && has_x);
 }
 
 static bool listed_both(char* why) {
@@ -1381,27 +1399,48 @@ static int menu_lines(void) {
 static bool bar_plain(void) { return(shows("hexaforth", 8, 2, &sans, false)); }
 
 static bool menu_down(char* why) {
-    snprintf(why, WHY, "%d of its %d lines are where they should be", menu_lines(), WINDOWS);
-    return(menu_lines() == WINDOWS && shows("hexaforth", 8, 2, &sans, true));
+    int lines = menu_lines();
+    bool bar_open = shows("hexaforth", 8, 2, &sans, true);
+    snprintf(why, WHY, "%d of its %d lines are where they should be (%s), and the bar title \"hexaforth\" is%s inverted",
+             lines, WINDOWS, "bold if open, plain if closed", bar_open ? "" : " not");
+    return(lines == WINDOWS && bar_open);
 }
 
 static bool line_shown(char* why) {
-    int at = menu_line(WORDS);
-    snprintf(why, WHY, "%d lines are plain, and line %d is to be the other", menu_lines(), at);
-    return(shows_text(TITLES[WORDS], 12, 20 + 16 * at, &sans, is_open(WORDS), true) && menu_lines() == WINDOWS - 1);
+    int at = menu_line(WORDS), lines = menu_lines();
+    bool hot = shows_text(TITLES[WORDS], 12, 20 + 16 * at, &sans, is_open(WORDS), true);
+    snprintf(why, WHY, "%d of the other lines are where they should be (expected %d), and line %d (%s) is%s highlighted",
+             lines, WINDOWS - 1, at, TITLES[WORDS], hot ? "" : " not");
+    return(hot && lines == WINDOWS - 1);
 }
 
 static bool picked(int n, char* why) {
-    snprintf(why, WHY, "%d lines of the menu are still there, and %s is%s in front", menu_lines(), NAMED[n],
-             shown_in_front(n) ? "" : " not");
-    return(shown_in_front(n) && !menu_lines());
+    int lines = menu_lines();
+    bool front = shown_in_front(n);
+    snprintf(why, WHY, "%d lines of the menu are still there, and %s is%s in front at %d, %d",
+             lines, NAMED[n], front ? "" : " not", rect[n].x, rect[n].y);
+    return(front && !lines);
 }
 
-static bool calc_picked(char* why) { return(picked(CALC, why) && bar_plain()); }
+static bool calc_picked(char* why) {
+    if (!picked(CALC, why)) return(false);
+    bool plain = bar_plain();
+    snprintf(why, WHY, "the bar title \"hexaforth\" is%s plain", plain ? "" : " not");
+    return(plain);
+}
 static bool words_held(char* why) { return(picked(WORDS, why)); }
 static bool menu_away(char* why) { return(picked(FORTH, why)); }
-static bool forth_closed(char* why) { return(picked(WORDS, why) && !shown_in_front(FORTH)); }
-static bool words_reopened(char* why) { return(picked(FORTH, why) && open_wins == WINDOWS); }
+static bool forth_closed(char* why) {
+    if (!picked(WORDS, why)) return(false);
+    bool gone = !shown_in_front(FORTH);
+    snprintf(why, WHY, "the closed Forth window is%s still shown in front", gone ? " not" : "");
+    return(gone);
+}
+static bool words_reopened(char* why) {
+    if (!picked(FORTH, why)) return(false);
+    snprintf(why, WHY, "%d of %d windows are open", open_wins, WINDOWS);
+    return(open_wins == WINDOWS);
+}
 
 static bool menu_whole(char* why) {
     snprintf(why, WHY, "%d of its %d lines are where they should be", menu_lines(), WINDOWS);
@@ -1409,8 +1448,11 @@ static bool menu_whole(char* why) {
 }
 
 static bool menu_gone(char* why) {
-    snprintf(why, WHY, "%d lines of the menu are still there", menu_lines());
-    return(!menu_lines() && bar_plain());
+    int lines = menu_lines();
+    bool plain = bar_plain();
+    snprintf(why, WHY, "%d lines of the menu are still there, and the bar title \"hexaforth\" is%s plain",
+             lines, plain ? "" : " not");
+    return(!lines && plain);
 }
 
 static bool canvas_right(char* why) {
@@ -1551,8 +1593,10 @@ bool desk_sees(const desk* on, const uint8_t* on_screen, const char* text_of, in
 
 bool desk_begins(const desk* on) {
     begin(on);
+    desk_checking = "the desktop comes up";
     boot = desk_boot();
     look(NULL);
+    desk_checking = NULL;
     if (!windows_start()) return(false);
     // The canvas is HexaPaint's content, less its tools down the left and
     // its patterns along the bottom.
@@ -1589,6 +1633,7 @@ int desk_checks(const desk* on) {
 
     for(const check* c = CHECKS; c->label; c++) {
         if (c->when == (machine->names ? NO_NAMES : NAMES)) continue;
+        desk_checking = c->label;
         char why[WHY] = "";
         does(c->does);
         if (c->does[0] || c->shot) look(c->shot);
@@ -1597,8 +1642,11 @@ int desk_checks(const desk* on) {
         if (right && c->also) right = c->also(why);
         checks++;
         if (!right) failed++;
-        printf("%s %s%s%s\n", right ? "ok  " : "FAIL", c->label, right ? "" : ": ", right ? "" : why);
+        printf("%s %s%s%s", right ? "ok  " : "FAIL", c->label, right ? "" : ": ", right ? "" : why);
+        if (!right && shot_path) printf(" (screen: %s)", shot_path);
+        printf("\n");
     }
+    desk_checking = NULL;
     if (!checks) failed++;      // nothing was checked
     return(failed);
 }
