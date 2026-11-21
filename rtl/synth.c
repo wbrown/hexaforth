@@ -15,7 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../util/room.c"
+#include "../util/room.h"
 
 // The number that follows some text, in the last line of a file that says
 // a thing and has the text; or the number before the text, if that is

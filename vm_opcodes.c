@@ -70,6 +70,35 @@ uint8_t lookup_word(word_node* nodes, const char* word, instruction* lookup) {
     return(0);
 }
 
+// A name with a space in it is a phrase, and not a word (vm_opcodes.h).
+bool is_phrase(const char* repr) {
+    return(strchr(repr, ' ') != NULL);
+}
+
+// What the words from here are in the table: the longest phrase they
+// begin, or the word the first is.  How many instructions that is, which
+// are put in `lookup`, and how many of the words it took; nothing, if the
+// first is no word of the table.
+#define PHRASE_WORDS 4                  // more words than any phrase of the table has
+uint8_t lookup_said(word_node* nodes, char* const* words, int count, instruction* lookup, int* took) {
+    for(int n = count < PHRASE_WORDS ? count : PHRASE_WORDS; n > 0; n--) {
+        char said[160];
+        size_t len = 0;
+        said[0] = '\0';
+        for(int idx=0; idx < n && len < sizeof(said); idx++) {
+            len += snprintf(said + len, sizeof(said) - len, "%s%s", idx ? " " : "", words[idx]);
+        }
+        if (len >= sizeof(said)) continue;
+        uint8_t num_ins = lookup_word(nodes, said, lookup);
+        if (num_ins) {
+            *took = n;
+            return(num_ins);
+        }
+    }
+    *took = 0;
+    return(0);
+}
+
 bool interpret_imm(const char* word, instruction* literal) {
     char* decode_end;
     int64_t num = strtoll(word, &decode_end, 10);
@@ -228,53 +257,48 @@ bool init_opcodes(word_node* opcodes) {
         uint64_t input_len = strlen(input) + 1;
         char* buffer = malloc(input_len);
         memcpy(buffer, input, input_len);
-        // Our word point into the buffer and are adjusted as we go.
-        char* word = buffer;
-        // Are we scanning a string literal?
-        bool string = false;
+        // The words of the definition, each where it is in the copy.
+        char* words[sizeof(op->code) / 2];
+        int count = 0;
+        for(char* word = strtok(buffer, " "); word; word = strtok(NULL, " ")) words[count++] = word;
 
-        // Loop through the characters in our buffer.
-        for(int i=0; i<input_len; i++) {
-           if (input[i]==' ' || input[i] == '\0') {
-                // We replace spaces with null bytes to indicate to C that it's
-                // the termination of the string.
-                buffer[i]='\0';
-                if (strlen(word)) {
-                    instruction lookup[128];
-                    if (lookup_op_word(opcodes, word, (instruction*)&lookup)) {
-                        // if we're a `term` or `code` field, we need to flush our
-                        // accumulated instruction.
-                        uint8_t num_ins = lookup_word(opcodes, word, (instruction*)&lookup);
-                        if (num_ins) {
-                            opcodes[num_words].repr = op->repr;
-                            opcodes[num_words].type = op->type;
-                            for(int ins_idx=0; ins_idx < num_ins; ins_idx++) {
-                                instruction idxed_ins = lookup[ins_idx];
-                                opcodes[num_words].ins[op_idx+ins_idx] = idxed_ins;
-                                report_opcode(&idxed_ins, opcodes, num_words);
-                            }
-                            op_idx += num_ins;
-                            opcodes[num_words].num_ins = op_idx;
-                            instruction_acc = 0;
-                        } else if (is_term(word)) {
-                            instruction_acc = instruction_acc | *(uint16_t*)&lookup;
-                            instruction flush = *(instruction *)&instruction_acc;
-                            opcodes[num_words].ins[op_idx] = flush;
-                            opcodes[num_words].num_ins = ++op_idx;
-                            opcodes[num_words].repr = op->repr;
-                            opcodes[num_words].type = op->type;
-                            instruction_acc = 0;
-                            report_opcode(&flush, opcodes, num_words);
-                        } else {
-                            instruction_acc = instruction_acc | *(uint16_t*)&lookup;
-                        }
-                    } else {
-                        printf("ERROR: Lookup of %s failed!", word);
-                        return(false);
-                    }
+        for(int at=0; at < count; ) {
+            instruction lookup[128];
+            // A word of the table defined before this one, or a phrase of
+            // them: its instructions are this word's next.
+            int took;
+            uint8_t num_ins = lookup_said(opcodes, words + at, count - at, (instruction*)&lookup, &took);
+            if (num_ins) {
+                opcodes[num_words].repr = op->repr;
+                opcodes[num_words].type = op->type;
+                for(int ins_idx=0; ins_idx < num_ins; ins_idx++) {
+                    instruction idxed_ins = lookup[ins_idx];
+                    opcodes[num_words].ins[op_idx+ins_idx] = idxed_ins;
+                    report_opcode(&idxed_ins, opcodes, num_words);
                 }
-                // Adjust our word pointer to the beginning of the next word.
-                word = &buffer[i+1];
+                op_idx += num_ins;
+                opcodes[num_words].num_ins = op_idx;
+                instruction_acc = 0;
+                at += took;
+                continue;
+            }
+            char* word = words[at++];
+            if (!lookup_op_word(opcodes, word, (instruction*)&lookup)) {
+                printf("ERROR: Lookup of %s failed!", word);
+                return(false);
+            }
+            if (is_term(word)) {
+                // a `term` field flushes our accumulated instruction.
+                instruction_acc = instruction_acc | *(uint16_t*)&lookup;
+                instruction flush = *(instruction *)&instruction_acc;
+                opcodes[num_words].ins[op_idx] = flush;
+                opcodes[num_words].num_ins = ++op_idx;
+                opcodes[num_words].repr = op->repr;
+                opcodes[num_words].type = op->type;
+                instruction_acc = 0;
+                report_opcode(&flush, opcodes, num_words);
+            } else {
+                instruction_acc = instruction_acc | *(uint16_t*)&lookup;
             }
         }
         free(buffer);

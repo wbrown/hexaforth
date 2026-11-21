@@ -75,10 +75,10 @@ multiply.
 - **`T->N,IN->`** also writes T into the cell under it. In the J1 that is one
   of the routes. Here the output is T, R, memory or a port, and N is
   otherwise written only by a push, so this has to be an operation. It
-  gives `swap`, `nip` and `swap>r`
+  gives a store that keeps its address, `tuck !`, in one instruction
 - **`T<>N,IN->`** swaps T and N and passes on its input as it was before the
-  swap. Combined with a push, that rearranges three cells in one
-  instruction: `tuck`, and `swap r>`
+  swap. It is `swap`, and `swap >r`. Combined with a push, it rearranges
+  three cells in one instruction: `tuck`, and `swap r>`
 - **`IN+N`** adds two cells, and subtraction is built from it. A literal
   with its add flag set also adds: that adds a constant, and this adds two
   computed values
@@ -88,7 +88,7 @@ multiply.
 - **`IN&N`, `IN|N`, `IN^N`** are the ways of drawing on a bitmap: clear, set
   and invert. With memory as both input and output, each changes a cell of
   the display in one instruction. `xor` is also how a loop over memory
-  ends: `2dupxor while` gives zero when the two addresses meet
+  ends: `2dup xor while` gives zero when the two addresses meet
 - **`IN*N`** is new compared to the J1. Without it a multiply is a loop with
   a step for every bit. It takes two extra clocks, and the target `gates`
   counts the CPU with it and without it
@@ -208,7 +208,7 @@ with memories left out (the target `gates`; the README has its figures).
 ## One definition
 
 What an instruction does is defined once, in `vm_step.h`. `vm.c` includes
-it and runs it on real values. `util/fuse.c` includes it too and runs it on
+it and runs it on real values. `util/fuse.h` includes it too and runs it on
 symbolic terms: a name for whatever is in each cell instead of a number, so
 that the effect of a sequence of instructions is known for every possible
 state at once.

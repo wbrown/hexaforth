@@ -1,4 +1,7 @@
+#include <signal.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include "vm.h"
 #include "vm_debug.h"
 
@@ -105,26 +108,65 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     fflush(stdout);
 }
 
+// A machine that does not stop is stopped, if STOP_AFTER in the environment
+// says after how many seconds, and its memory is written where it was to
+// be written when it stopped: so what it was at can be looked at
+// (disasm_hex --memory, memory-map).
+static context* stopped;
+static const char* stopped_to;
+static void stop_it(int signal) {
+    (void)signal;
+    if (stopped_to) {
+        FILE* memory = fopen(stopped_to, "wb");
+        if (memory) {
+            fwrite(stopped->memory, 1, sizeof(stopped->memory), memory);
+            fclose(memory);
+        }
+    }
+    fprintf(stderr, "\nstopped after the %s seconds STOP_AFTER says\n", getenv("STOP_AFTER"));
+    _exit(4);
+}
+
 int main(int argc, char *argv[]) {
     context *ctx = calloc(sizeof(context), 1);
+    if (getenv("STOP_AFTER")) {
+        stopped = ctx;
+        stopped_to = argc > 3 ? argv[3] : NULL;
+        signal(SIGALRM, stop_it);
+        alarm((unsigned)atoi(getenv("STOP_AFTER")));
+    }
     ctx->words = FORTH_WORDS;
 #ifdef DEBUG
     init_opcodes(ctx->words);
 #endif
     load_hex(argv[1], NULL, ctx);
+    // What the machine says is written a line at a time, so that a machine
+    // that is stopped from outside has said what it said until then.
+    setvbuf(stdout, NULL, _IOLBF, 0);
     ctx->OUT=stdout;
     ctx->IN=stdin;
-    // A second argument is a file to be the disk (vm.c): one that can be
-    // written, if it can be opened so.
+    // A second argument is a file to be the disk (vm.c), or several with
+    // commas between them to be disk 0, disk 1 and so on: each one that
+    // can be written, if it can be opened so.
     if (argc > 2) {
-        ctx->DISK = fopen(argv[2], "r+b");
-        if (!ctx->DISK) ctx->DISK = fopen(argv[2], "rb");
-        if (!ctx->DISK) {
-            perror(argv[2]);
-            exit(EXIT_FAILURE);
+        char* files = strdup(argv[2]);
+        int drive = 0;
+        for(char* file = strtok(files, ","); file; file = strtok(NULL, ","), drive++) {
+            if (drive == DISK_DRIVES) {
+                fprintf(stderr, "%s: more disks than the %d a machine has\n", argv[2], DISK_DRIVES);
+                exit(EXIT_FAILURE);
+            }
+            FILE* disk = fopen(file, "r+b");
+            if (!disk) disk = fopen(file, "rb");
+            if (!disk) {
+                perror(file);
+                exit(EXIT_FAILURE);
+            }
+            fseek(disk, 0, SEEK_END);
+            ctx->DISKS[drive] = disk;
+            ctx->DISKBLOCKS[drive] = ftell(disk) / DISK_BLOCK;
         }
-        fseek(ctx->DISK, 0, SEEK_END);
-        ctx->DISKBLOCKS = ftell(ctx->DISK) / DISK_BLOCK;
+        free(files);
     }
     // ctx->EIP=0x462C / 2;
     vm(ctx);

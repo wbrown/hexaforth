@@ -16,7 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../util/room.c"
+#include "../util/room.h"
 
 // The number a line has: the first of its words that is all digits.
 static long count_in(const char* line) {

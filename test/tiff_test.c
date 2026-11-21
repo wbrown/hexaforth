@@ -249,13 +249,12 @@ static void disk_start(void) {
     memcpy(disk, bytes, (size_t)DISK_BLOCKS * DISK_BLOCK);
 }
 
-// The machine started, with the disk, and told that its disk is this VM's.
+// The machine started, with the disk, which it finds when it starts.
 static FILE* machine_start(void) {
     start();
-    machine.DISK = fmemopen(disk, (size_t)DISK_BLOCKS * DISK_BLOCK, "rb");
-    machine.DISKBLOCKS = DISK_BLOCKS;
-    line("vmdisk-init");
-    return(machine.DISK);
+    machine.DISKS[0] = fmemopen(disk, (size_t)DISK_BLOCKS * DISK_BLOCK, "rb");
+    machine.DISKBLOCKS[0] = DISK_BLOCKS;
+    return(machine.DISKS[0]);
 }
 
 // A bitmap in the machine's memory, at a place and of so many cells to a

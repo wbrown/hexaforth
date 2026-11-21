@@ -270,13 +270,19 @@ bool compile(context *ctx, const char *input) {
   char *word = buffer;
   // Are we scanning a string literal?
   bool string = false;
+  // The words of the input, in the buffer, and which are string literals:
+  // no more of them than the input has characters.
+  char **words = malloc(input_len * sizeof(char *));
+  bool *quoted = malloc(input_len * sizeof(bool));
+  int count = 0;
 
   // Loop through the characters in our buffer.
-  for (int i = 0; i <= input_len; i++) {
+  for (int i = 0; i < input_len; i++) {
     if (input[i] == '\'' && string) {
       buffer[i] = '\0';
       if (strlen(word)) {
-        insert_string_literal(ctx, word);
+        words[count] = word;
+        quoted[count++] = true;
       }
       string = false;
       word = &buffer[i + 1];
@@ -288,15 +294,43 @@ bool compile(context *ctx, const char *input) {
       // the termination of the string.
       buffer[i] = '\0';
       if (strlen(word)) {
-        if (!compile_word(ctx, word)) {
-          free(buffer);
-          return (false);
-        };
+        words[count] = word;
+        quoted[count++] = false;
       }
       // Adjust our word pointer to the beginning of the next word.
       word = &buffer[i + 1];
     }
   }
+
+  // Words that are a phrase of the table are the phrase's one instruction
+  // (vm_opcodes.h): `dup >r` is written as two words, and is one.  What
+  // generates the same tests for cross.fs finds them the same way
+  // (generate_test_cases.c).
+  for (int at = 0; at < count;) {
+    if (quoted[at]) {
+      insert_string_literal(ctx, words[at++]);
+      continue;
+    }
+    int plain = 0, took = 0;
+    while (at + plain < count && !quoted[at + plain])
+      plain++;
+    instruction said[64] = {};
+    int ins_ct = lookup_said(ctx->words, words + at, plain, said, &took);
+    if (ins_ct && took > 1) {
+      for (int idx = 0; idx < ins_ct; idx++)
+        insert_opcode(ctx, said[idx]);
+      at += took;
+      continue;
+    }
+    if (!compile_word(ctx, words[at++])) {
+      free(words);
+      free(quoted);
+      free(buffer);
+      return (false);
+    }
+  }
+  free(words);
+  free(quoted);
   // Only insert halt if the last instruction isn't already an exit
   if (ctx->HERE > 0) {
     uint16_t last_insn = ctx->memory[ctx->HERE - 1];

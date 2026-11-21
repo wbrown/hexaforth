@@ -1,7 +1,10 @@
 //
-// profile IMAGE.hex IMAGE.tables IMAGE.sizes DISK.img PICTURE.tiff FORTH OUT
+// profile IMAGE.hex IMAGE.tables IMAGE.sizes DISK.img PICTURES.img PICTURE.tiff FORTH OUT
 //
 // Where the desktop's instructions go.
+//
+// The machine has two disks, as the desktop's test gives it (test/deskvm.h):
+// DISK.img, and PICTURES.img, which has PICTURE.tiff under its label.
 //
 // The desktop is run on the reference VM that counts how often the
 // instruction at each place is run (counting.c), and worked through a few
@@ -24,7 +27,7 @@
 // used: every task has a part of each.
 //
 // It leaves OUT/desktop.counts: the work of all the activities by place,
-// and what a turn with nothing happening runs (work.c says the file).
+// and what a turn with nothing happening runs (work.h says the file).
 //
 
 #include <stdio.h>
@@ -35,19 +38,34 @@
 #include "../test/nucleus.h"
 #include "../test/tables.h"
 #include "../util/image.h"
-#include "../util/words.c"
+#include "../util/words.h"
 #include "counting.h"
-#include "files.c"
-#include "work.c"
+#include "files.h"
+#include "work.h"
 
 static const struct { const char* name; const char* does; } DONE[] = {
     {"typing two lines in the Forth window", "'2 3 + .\r' ': sq dup * ; 12 sq .\r'"},
     {"printing 40 lines, which scroll", "': p 40 0 do i . cr loop ; p\r'"},
+    {"the Forth window: a page back, and forward again", "pgup pgdn"},
     {"raising the calculator", "front:calc"},
     {"the calculator: keys and buttons", "'12\r34+' click:calc+17+108 click:calc+119+132"},
     {"bringing windows to the front in turn, until it is the Words window", "cycle:words"},
+    {"the Words window: finding dither-row, and choosing it",
+     "click:words+10+8 away down find:dither-row,dither-start name:dither-row"},
+    // The Words window's definition starts 112 across its content, 8 by 16
+    // a character: the pointer is put on every other character of the
+    // definition's second and third lines.
+    {"the Words window: the pointer over the definition, from one word to the next",
+     "at:words+116+18 at:words+132+18 at:words+148+18 at:words+164+18 at:words+180+18 at:words+196+18 "
+     "at:words+212+18 at:words+228+18 at:words+244+18 at:words+260+18 at:words+276+18 at:words+292+18 "
+     "at:words+308+18 at:words+324+18 "
+     "at:words+116+34 at:words+132+34 at:words+148+34 at:words+164+34 at:words+180+34 at:words+196+34 "
+     "at:words+212+34 at:words+228+34 at:words+244+34 at:words+260+34 at:words+276+34 at:words+292+34 "
+     "at:words+308+34 at:words+324+34"},
     {"the Words window: choosing a word", "click:words+10+72"},
-    {"the Words window: six words down, and a page", "down down down down down down pgdn"},
+    {"the Words window: a long definition, a page down and back",
+     "find:tiff-open,tiff-close name:tiff-open pgdn pgup"},
+    {"the Words window: six words down, and a page", "down down down down down down right"},
     {"raising the Forth window, and dragging it away and back", "front:forth drag:forth+60+50 drag:forth-60-50"},
     {"raising the editor", "front:editor"},
     {"typing eleven characters in the editor", "'hello there'"},
@@ -59,10 +77,10 @@ static const struct { const char* name; const char* does; } DONE[] = {
 
 // ---- what a place is in
 
-static word* WORDS;             // the image's words (words.c)
+static word* WORDS;             // the image's words (words.h)
 static int words;
 static long image_places;       // the instructions the image was built with
-static span* SPANS;             // the files its code is of (files.c)
+static span* SPANS;             // the files its code is of (files.h)
 static int spans;
 
 // The word a place is in; or that it is in what was defined at the
@@ -93,7 +111,7 @@ static const char* kind_of(long at) {
 // ---- what is counted, by what it is of
 
 typedef struct { const char* of; double much, calls; } share;
-static share* SHARES;           // as many as there are, and room for more as they are found (room.c)
+static share* SHARES;           // as many as there are, and room for more as they are found (room.h)
 static long shares, shares_room;
 
 static void shared(const char* of, double much, double calls) {
@@ -171,8 +189,9 @@ static void used(const char* stack, const int64_t* cells) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 8) {
-        fprintf(stderr, "Usage: %s IMAGE.hex IMAGE.tables IMAGE.sizes DISK.img PICTURE.tiff FORTH OUT\n", argv[0]);
+    if (argc != 9) {
+        fprintf(stderr, "Usage: %s IMAGE.hex IMAGE.tables IMAGE.sizes DISK.img PICTURES.img PICTURE.tiff FORTH OUT\n",
+                argv[0]);
         return(1);
     }
     alarm(1800);                // a machine that does not stop is stopped
@@ -181,9 +200,9 @@ int main(int argc, char *argv[]) {
     image_places = len / 2;
     words = words_of(image, len, argv[2], &WORDS);
     spans = files_of(argv[3], &SPANS);
-    tables_are(argv[6]);
+    tables_are(argv[7]);
 
-    desk on = deskvm_start(argv[1], argv[4], argv[5], argv[7], true);
+    desk on = deskvm_start(argv[1], argv[4], argv[5], argv[6], argv[8], true, false);
     if (!desk_begins(&on)) {
         fprintf(stderr, "the desktop did not come up with its windows where forth/desk.fs puts them\n");
         return(1);
@@ -238,7 +257,7 @@ int main(int argc, char *argv[]) {
     used("return", machine.RSTACK);
 
     static const char file[] = "/desktop.counts";
-    char* path = room_for(strlen(argv[7]) + sizeof(file), 1);
-    sprintf(path, "%s%s", argv[7], file);
+    char* path = room_for(strlen(argv[8]) + sizeof(file), 1);
+    sprintf(path, "%s%s", argv[8], file);
     return(work_written(path, work, a_turn, places) ? 0 : 1);
 }

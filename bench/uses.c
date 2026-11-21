@@ -9,8 +9,8 @@
 // found in the image built with the peephole off (PLAIN), where a word in
 // place is still the word's own instructions one after another; and how
 // often each place ran is read at the same place of the image built with
-// it on (IMAGE), which the work was counted on (COUNTS: work.c).  The two
-// are cut into the same runs in the same order (cut.c), and this stops if
+// it on (IMAGE), which the work was counted on (COUNTS: work.h).  The two
+// are cut into the same runs in the same order (cut.h), and this stops if
 // they are not.
 //
 // What a use is given is what is on top of the stack when it comes to it:
@@ -29,11 +29,11 @@
 // if the work used none of the words.
 //
 
-#include "../util/fuse.c"
-#include "../util/cut.c"
-#include "../util/reach.c"
-#include "../util/kinds.c"
-#include "work.c"
+#include "../util/fuse.h"
+#include "../util/cut.h"
+#include "../util/reach.h"
+#include "../util/kinds.h"
+#include "work.h"
 
 static cut_image PLAIN, BUILT;
 static double* work;                    // how often each of IMAGE's instructions ran
@@ -106,7 +106,7 @@ static char* top_after(const uint16_t* typed, long len) {
         else if (is_number) text_more(&is, "the cell %ld", cell);
         else text_more(&is, "a cell of a record, fetched");
     } else {
-        char one[2 * sizeof(((forth_op*)0)->repr) + 64];    // as kinds.c has room for one
+        char one[2 * sizeof(((forth_op*)0)->repr) + 64];    // as kinds.h has room for one
         say_ins(one, sizeof(one), last, 1);
         text_more(&is, "what `%s` left", one);
     }

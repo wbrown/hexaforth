@@ -15,7 +15,7 @@
 // does).  It is kept at one sample per pixel, per 2 by 2 and per 4 by 4,
 // with one sample per pixel and with three, and drawn through Bayer's mask
 // and through 32 by 32 and 64 by 64 blue noise.  The masks are put in the
-// machine's memory in the disk's layout (mask_planes, util/bluenoise.c)
+// machine's memory in the disk's layout (mask_planes, util/bluenoise.h)
 // and loaded from there (mask-from); the expected bitmap uses the same
 // thresholds before that layout.  A picture is either whole cells wide,
 // which the machine reads a cell at a time, or a few pixels wider, which it
@@ -37,7 +37,7 @@
 #include "nucleus.h"
 #include "dither.h"
 #include "gray.h"
-#include "../util/bluenoise.c"
+#include "../util/bluenoise.h"
 
 #define BITS    CELL_BITS
 
@@ -74,13 +74,13 @@ static int expected(const uint8_t* bytes, int w, int h, int samples, int sh, int
 static int pictures, compared, failed;
 
 // A mask: its name, its size, its thresholds as bytes, and the same in the
-// disk's layout (mask_planes, util/bluenoise.c).
+// disk's layout (mask_planes, util/bluenoise.h).
 typedef struct { const char* name; int n; const uint8_t* bytes; const uint8_t* planes; } a_mask;
 
 #define BITS_KEPT 4             // bits per level, as the machine keeps them
 
 // Draw the picture whole, each sample as many pixels as it was kept for;
-// or, with `part`, as the viewer draws it (forth/viewmenu.fs): part of it,
+// or, with `part`, as the viewer draws it (forth/view.fs): part of it,
 // each sample half as many pixels, from a cell in and three rows down,
 // darker or lighter.  A picture row is whole cells (`over` false) or has
 // some pixels over: whole cells are read a cell at a time, the others a
@@ -172,7 +172,7 @@ int main(int argc, char *argv[]) {
     room = left(0);
 
     // The masks: Bayer's from gray.h, and Bayer's as the disk's maker
-    // (util/bluenoise.c) makes it; and blue noise.
+    // (util/bluenoise.h) makes it; and blue noise.
     uint8_t bayer8[64], bayer_disk[64];
     for(int y=0; y < 8; y++) for(int x=0; x < 8; x++) bayer8[y * 8 + x] = gray_bayer(x, y);
     bayer_bytes(bayer_disk);

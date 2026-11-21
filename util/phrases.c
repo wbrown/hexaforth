@@ -13,10 +13,10 @@
 // three words or fewer.
 //
 // Whether a run of words is an instruction is asked of the machine: the
-// step on terms says what each leaves (fuse.c), and they are the
+// step on terms says what each leaves (fuse.h), and they are the
 // instruction if they leave the same.  Nothing here says what an
 // instruction does.  Each phrase is then run on vm.c beside its
-// instruction (fuse.c, tried), and this stops if the two do not leave the
+// instruction (fuse.h, tried), and this stops if the two do not leave the
 // same there.
 //
 // It then asks two things.
@@ -35,8 +35,8 @@
 // ../build/phrases.txt if none is named, and its first part is printed.
 //
 
-#include "fuse.c"
-#include "kinds.c"
+#include "fuse.h"
+#include "kinds.h"
 #include "image.h"
 
 // How much is looked for and how it is tried were chosen, and are not the
@@ -65,7 +65,7 @@ typedef struct {
 static vocable TYPED[COUNT(FORTH_WORDS)];
 static int vocab;
 
-// What is found of a kind of instruction (kinds.c): of each kind that does
+// What is found of a kind of instruction (kinds.h): of each kind that does
 // not return.
 typedef struct {
     const kind* is;
@@ -87,6 +87,12 @@ static entry* entry_leaving(uint64_t leaves) {
     return(k >= 0 ? entry_of[k] : NULL);
 }
 
+// Has a kind of instruction a name: is it a word of vm_opcodes.h, and not
+// only a phrase there?
+static int has_name(const kind* k) {
+    return(k->name && !is_phrase(k->name));
+}
+
 // Does the step say a run uses the data stack alone: the return stack and
 // memory as they were, nothing fetched, and no return?
 static int only_data(const uint16_t* code, int len) {
@@ -102,7 +108,7 @@ static int only_data(const uint16_t* code, int len) {
 
 typedef struct { int phrase[MOST]; int n; uint16_t code[LONG]; int len; } reached;
 
-static number_set REACHED;              // what has been reached, by the number for what it leaves (room.c)
+static number_set REACHED;              // what has been reached, by the number for what it leaves (room.h)
 
 // The shortest run of words for each instruction that a run of up to so
 // many gives: the runs of one word, then each that left something new
@@ -331,7 +337,7 @@ static int in_gforth(const char* text, int64_t result[STACKS][FILLED], int* dept
 
 // Are two sets of what was left the same?  The cell at the bottom of each
 // stack is not looked at: what sets the machine's depths before a run
-// (fuse.c's lead) leaves a number of its own there, and no word here
+// (fuse.h's lead) leaves a number of its own there, and no word here
 // reaches as far down.
 static int same_results(int64_t a[STACKS][FILLED], const int* da, int64_t b[STACKS][FILLED], const int* db) {
     for(int s=0; s < STACKS; s++) {
@@ -379,7 +385,7 @@ int main(int argc, char *argv[]) {
     make_stacks();
     word_node* const shown = FORTH_WORDS;       // an instruction is shown by the machine's own names for it
 
-    // The instructions that do different things (kinds.c), not counting
+    // The instructions that do different things (kinds.h), not counting
     // those that also return: which the step says.
     list_kinds();
     ENTRY = room_for(kinds, sizeof(entry));
@@ -391,14 +397,15 @@ int main(int argc, char *argv[]) {
         if (!names(&KIND[k].ins, 1, &m) || m.next >= 0) continue;
         entry_of[k] = &ENTRY[entries];
         ENTRY[entries++].is = &KIND[k];
-        have_name += KIND[k].name != NULL;
+        have_name += has_name(&KIND[k]);
     }
 
     // The words that may be written: those of vm_opcodes.h that the step
-    // says of.
+    // says of.  A phrase there is not a word: it is words that are here
+    // already.
     for(word_node* w = FORTH_WORDS; w->repr && strlen(w->repr); w++) {
-        if (!w->num_ins) continue;
-        if (!strcmp(w->repr, "noop") || !strcmp(w->repr, "halt") || !strcmp(w->repr, "exit") || !strcmp(w->repr, "r@;")) continue;
+        if (!w->num_ins || is_phrase(w->repr)) continue;
+        if (!strcmp(w->repr, "noop") || !strcmp(w->repr, "halt") || !strcmp(w->repr, "exit")) continue;
         named m;
         forget();
         if (!names((const uint16_t*)w->ins, w->num_ins, &m)) continue;
@@ -461,7 +468,7 @@ int main(int argc, char *argv[]) {
     // leave the same.
     for(int n=0; n < entries; n++) {
         entry* k = &ENTRY[n];
-        k->stack_only = !k->is->name && only_data(&k->is->ins, 1) && on_machine(&k->is->ins, 1, k->result, k->depth);
+        k->stack_only = !has_name(k->is) && only_data(&k->is->ins, 1) && on_machine(&k->is->ins, 1, k->result, k->depth);
     }
     SAY("%s", "");
     SAY("Words other Forths have, that are one instruction here and have no name here:");
@@ -501,7 +508,7 @@ int main(int argc, char *argv[]) {
         char is[256], phrase[PHRASES_ROOM];
         decode_instruction(is, *(instruction*)&said[n]->is->ins, shown);
         say_phrases(phrase, said[n]);
-        SAY("    %04x  %-9s %s = %s", said[n]->is->ins, said[n]->is->name ? said[n]->is->name : "", is, phrase);
+        SAY("    %04x  %-9s %s = %s", said[n]->is->ins, has_name(said[n]->is) ? said[n]->is->name : "", is, phrase);
     }
     fclose(out);
     printf("...\nall of it: %s\n", report);

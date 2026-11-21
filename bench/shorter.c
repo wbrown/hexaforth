@@ -4,16 +4,16 @@
 // Fewer instructions that do what a loop does, wherever its values are
 // kept: for each loop of the image that ran, with the words it calls put in
 // place, what a turn costs now, and the fewest instructions found that do a
-// turn.  What a loop and its turn are is loops.c's to say, the ways fewer
-// are looked for turns.c's, and the search fewer.c's; this orders the loops
+// turn.  What a loop and its turn are is loops.h's to say, the ways fewer
+// are looked for turns.h's, and the search fewer.h's; this orders the loops
 // by the work done in them and says what was found.
 //
 // COUNTS is the work by place, as bench/profile.c leaves it
-// (build/profile/desktop.counts; work.c).  ONLY in the environment is
+// (build/profile/desktop.counts; work.h).  ONLY in the environment is
 // words, with commas between, whose loops alone are looked at.  Every loop
 // that ran and has a turn is looked at, however long its turn; how long a
 // search may take is said once, in CMakeLists.txt (SEARCH_STATES, which
-// fewer.c has).
+// fewer.h has).
 //
 // The report is build/shorter.txt if none is named: for each loop, the
 // turn as it is, each way that fewer do it, and for each way it was looked
@@ -26,14 +26,14 @@
 // loop says how far it has got.  It fails if no loop ran.
 //
 
-#include "../util/fuse.c"
-#include "../util/cut.c"
-#include "../util/reach.c"
-#include "../util/kinds.c"
-#include "../util/loops.c"
-#include "../util/fewer.c"
-#include "../util/turns.c"
-#include "work.c"
+#include "../util/fuse.h"
+#include "../util/cut.h"
+#include "../util/reach.h"
+#include "../util/kinds.h"
+#include "../util/loops.h"
+#include "../util/fewer.h"
+#include "../util/turns.h"
+#include "work.h"
 
 static cut_image IMAGE;
 static double* work;                    // how often each of the image's instructions ran
@@ -58,7 +58,7 @@ static int named_in(const char* list, const char* name) {
     return(0);
 }
 
-// A search as it is made, a line to stderr (turns.c, a_search).
+// A search as it is made, a line to stderr (turns.h, a_search).
 static const char* searching_in;        // the loop: its word and places
 static long searches;                   // made of it so far
 
@@ -146,7 +146,7 @@ int main(int argc, char *argv[]) {
         }
         if (is.bodies + is.tests > LAID) {
             fprintf(out, "%s, %d instructions a turn: not looked at (with the words it calls in place it is %d, and a run "
-                    "vm.c is given is no more than %d: fuse.c, LAID)\n", title, turn_now(&is), is.bodies + is.tests, LAID);
+                    "vm.c is given is no more than %d: fuse.h, LAID)\n", title, turn_now(&is), is.bodies + is.tests, LAID);
             free(is.own);
             continue;
         }

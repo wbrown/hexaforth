@@ -15,7 +15,7 @@
 // starts from the machine as that left it.  image is where the kernel has
 // the machine's memory, which the stacks follow, and halt where it stops.
 // The four are the kernel's own symbols, which the build keeps beside it
-// (symbols.c).  This is built for the machine the kernel is built for, and
+// (symbols.h).  This is built for the machine the kernel is built for, and
 // so has how much memory that is.
 //
 
@@ -27,7 +27,7 @@
 #include <string.h>
 #include <unicorn/unicorn.h>
 #include "../vm_constants.h"
-#include "symbols.c"
+#include "symbols.h"
 
 #define RAM        0x40000000ull       // where QEMU's virt machine has its memory,
 #define UART        0x09000000ull       // and its UART

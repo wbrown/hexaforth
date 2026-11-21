@@ -5,7 +5,7 @@
 //
 // A word of the kernel that has no header cannot be typed: it is there for
 // what calls it, and for nothing else.  What reaches each word is asked of
-// the image (reach.c).  If nothing reaches a word that has no header, it is
+// the image (reach.h).  If nothing reaches a word that has no header, it is
 // instructions the kernel's ROM carries for nothing: this fails, and says
 // which.  So a word is taken out when the last thing that called it is.
 //
@@ -21,8 +21,8 @@
 //
 
 #include "../vm.c"
-#include "../util/cut.c"
-#include "../util/reach.c"
+#include "../util/cut.h"
+#include "../util/reach.h"
 
 static cut_image IMAGE;
 static reached* HOW;                    // of each of its words

@@ -2,7 +2,7 @@
 // fewer_test
 //
 // The search for the fewest instructions that do the work of a run, and of
-// a turn of a loop (util/fewer.c, util/turns.c).
+// a turn of a loop (util/fewer.h, util/turns.h).
 //
 // A check is words of vm_opcodes.h, as they are written, and how many
 // instructions are the fewest that do their work: which is said here, of
@@ -13,19 +13,19 @@
 // as a branch asks.
 //
 // A turn is a loop's test and body, as words, looked at every way the
-// tools look at one (turns.c, shorten).  The fewest that do it are said
+// tools look at one (turns.h, shorten).  The fewest that do it are said
 // for what it keeps where it is, for it kept in any cell, and for a number
 // it pushes kept on the return stack.
 //
 // It says how many checks it made, and fails if that is none.
 //
 
-#include "../util/fuse.c"
-#include "../util/cut.c"
-#include "../util/kinds.c"
-#include "../util/loops.c"
-#include "../util/fewer.c"
-#include "../util/turns.c"
+#include "../util/fuse.h"
+#include "../util/cut.h"
+#include "../util/kinds.h"
+#include "../util/loops.h"
+#include "../util/fewer.h"
+#include "../util/turns.h"
 
 typedef struct {
     const char* label;
@@ -65,9 +65,9 @@ typedef struct {
 } turn_check;
 
 static turn_check TURNS[] = {
-    // begin 2dupxor while 1+ repeat is four instructions a turn; begin 1+ 2dup= until is three
+    // begin 2dup xor while 1+ repeat is four instructions a turn; begin 1+ 2dup = until is three
     {"a loop up to an end that is under the count", "over over xor", "1+", 3, 3},
-    // the end on the return stack: 1+ r@ over= until, four; and with the end under the count, three
+    // the end on the return stack: 1+ r@ over = until, four; and with the end under the count, three
     {"a loop up to an end that is on the return stack", "dup r@ xor", "1+", 4, 3},
     // a loop that tests at the bottom already, and has no fewer
     {"a loop that tests at the bottom", NULL, "1+ over over =", 3, 3},
@@ -77,10 +77,10 @@ static turn_check TURNS[] = {
 
 // A search here is of a few instructions, and is never to be given up: none
 // of these looks at as many states as a search may (SEARCH_STATES, which
-// CMakeLists.txt says and fewer.c has).
+// CMakeLists.txt says and fewer.h has).
 
 // Words as their instructions: how many.  A number is the instruction
-// that pushes it, as the step found them (kinds.c).
+// that pushes it, as the step found them (kinds.h).
 static int compiled(const char* words, uint16_t* code) {
     int len = 0;
     char word[64];

@@ -39,20 +39,20 @@
 //
 // Cycles are the Verilog CPU's, as cycles.h has them.  What an instruction
 // with a number in it does (pushes it, adds it, fetches or stores the
-// variable at it) is asked of the machine's step (kinds.c).
+// variable at it) is asked of the machine's step (kinds.h).
 //
 // Nothing here has room for only so many of anything: what there is is
 // counted, and room is made for that.
 //
 
 #include <stdarg.h>
-#include "../util/fuse.c"
-#include "../util/cut.c"
-#include "../util/kinds.c"
-#include "../util/loops.c"
+#include "../util/fuse.h"
+#include "../util/cut.h"
+#include "../util/kinds.h"
+#include "../util/loops.h"
 #include "cycles.h"
-#include "files.c"
-#include "work.c"
+#include "files.h"
+#include "work.h"
 
 static cut_image IMAGE;         // the image, cut into its runs: its instructions, its words, and where its loops are
 static const uint16_t* code;    // its instructions,
@@ -61,7 +61,7 @@ static double* work;            // how often each ran
 static const word* WORDS;       // the words, in order of where they are
 static int words;
 static int* in_word;            // the word each place is in, or less than nothing
-static span* SPANS;             // the files the code is of (files.c)
+static span* SPANS;             // the files the code is of (files.h)
 static int spans;
 static double all_work, all_cycles;
 static FILE* out;               // the report being written,
@@ -140,7 +140,7 @@ static void load(const char* hex, const char* tables, const char* sizes, const c
 // ---- each word, with all it calls
 
 typedef struct { int from, to; double times; } call;
-static call* CALLS;                     // as many as there are, and room for more as they are found (room.c)
+static call* CALLS;                     // as many as there are, and room for more as they are found (room.h)
 static long calls, calls_room;
 static double (*own)[2];                // by word.  What each did itself: instructions, and cycles
 static double* called;
@@ -324,7 +324,7 @@ static int by_cycles(const void* a, const void* b) {
 }
 
 static void the_loops(const char* hex) {
-    loop* back;                         // the image's loops (loops.c), of which those that ran are kept
+    loop* back;                         // the image's loops (loops.h), of which those that ran are kept
     int backs = loops_of(&IMAGE, &back), loops = 0;
     ran_loop* LOOPS = room_for(backs, sizeof(ran_loop));
     for(int b=0; b < backs; b++) {
@@ -380,7 +380,7 @@ static void the_loops(const char* hex) {
 // ---- the variables
 
 // Each of these has as many as there are, and room for more as they are
-// found (room.c).
+// found (room.h).
 static word* LABELS;            // the names of cells: of each label for data, and of each word that only pushes one
 static long labels, labels_room;
 typedef struct { const char* name; double fetched, stored; int users, user; } variable;
@@ -420,7 +420,7 @@ static int by_use(const void* a, const void* b) {
     return(p < q ? 1 : p > q ? -1 : 0);
 }
 
-// What an instruction does with a variable, as the step says (kinds.c);
+// What an instruction does with a variable, as the step says (kinds.h);
 // and which variable it is of, as where the one that stores to it is among
 // those that store, or less than nothing if it is of none.
 static bool is_fetch(uint16_t w) { return(NUMBER_IN[w].does == FETCHES_AT_IT); }

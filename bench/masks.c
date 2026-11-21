@@ -24,7 +24,7 @@
 //
 // The masks are Bayer's of 8 by 8, and blue noise of 64 by 64 (blue), 32 by
 // 32 (blue32) and 16 by 16 (blue16), made by Ulichney's void and cluster
-// (util/bluenoise.c, which the disk's masks are made by too): its
+// (util/bluenoise.h, which the disk's masks are made by too): its
 // thresholds are in the order that keeps the pixels of each level as far
 // apart as can be, so that what it makes looks like what error diffusion
 // makes, where Bayer's is a grid.  The smaller the mask the less room it
@@ -62,7 +62,7 @@
 #include <math.h>
 #include "../test/dither.h"
 #include "tiff.h"
-#include "../util/bluenoise.c"
+#include "../util/bluenoise.h"
 
 static int pw, ph;
 static const int* gray;
@@ -93,7 +93,7 @@ static mask bayer(void) {
     return(m);
 }
 
-// Blue noise of n by n (util/bluenoise.c).
+// Blue noise of n by n (util/bluenoise.h).
 static mask blue(int n, const char* name) {
     return((mask){ n, blue_noise(n), n * n, name });
 }

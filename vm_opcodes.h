@@ -177,6 +177,19 @@ typedef struct {
 //           1      (0x0001)
 //        || imm+   (0x4001)   => 0x4001
 //        || imm    (0x8000)   => 0xc001    (final 16-bit instruction written out)
+//
+// A name with a space in it is a phrase, and not a word: `dup >r` is what
+// is written, two words, and the entry says which one instruction the two
+// are.  Nobody types it as one name, and there is no word of it: the
+// compilers make the instruction of the phrase (cross.fs's peephole, and
+// the nucleus's), and the entry is where a trace, a test or a reader looks
+// the instruction up by what is written for it.  A definition here that
+// says the words of a phrase one after another has the phrase's
+// instruction (`-rot` is `swap >r swap r>`, which is two).
+//
+// Every name is held to the machine when an image is built (util/joins.c):
+// the instruction it is given is to be the one that stands for all that do
+// the same, and a phrase's is to do what its words do.
 
 
 static forth_define FORTH_OPS[] = {
@@ -192,10 +205,10 @@ static forth_define FORTH_OPS[] = {
         {"=",       "       T->IN   IN==N      ->T       d-1       alu"},
         {"<",       "       T->IN   N<IN       ->T       d-1       alu"},
         {"u<",      "       T->IN   Nu<IN      ->T       d-1       alu"},
-        {"swap",    "       N->IN   T->N,IN->  ->T                 alu"},
-        {"dup>r",   "       T->IN              ->R            r+1  alu"},
+        {"swap",    "       N->IN   T<>N,IN->  ->T                 alu"},
+        {"dup >r",  "       T->IN              ->R            r+1  alu"},
         {"dup",     "       T->IN              ->T       d+1       alu"},
-        {"nip",     "       T->IN   T->N,IN->  ->T       d-1       alu"},
+        {"nip",     "       T->IN              ->T       d-1       alu"},
         {"tuck",    "       T->IN   T<>N,IN->  ->T       d+1       alu"},
         {"drop",    "       N->IN              ->T       d-1       alu"},
         {"2drop",   "       R->IN              ->R       d-2       alu"},
@@ -203,18 +216,18 @@ static forth_define FORTH_OPS[] = {
         {"over",    "       N->IN              ->T       d+1       alu"},
         {">r",      "       T->IN              ->R       d-1  r+1  alu"},
         {"r>",      "       R->IN              ->T       d+1  r-1  alu"},
-        {"over>r",  "       N->IN              ->R            r+1  alu"},
+        {"over >r", "       N->IN              ->R            r+1  alu"},
         {"r@",      "       R->IN              ->T       d+1       alu"},
         {"@",       "       [T]->IN            ->T                 alu"},
-        {"@+",      "       [T]->IN IN+N       ->T       d-1       alu"},
-        {"@and",    "       [T]->IN IN&N       ->T       d-1       alu"},
-        {"@or",     "       [T]->IN IN|N       ->T       d-1       alu"},
-        {"@xor",    "       [T]->IN IN^N       ->T       d-1       alu"},
-        {"@*",      "       [T]->IN IN*N       ->T       d-1       alu"},
-        {"@=",      "       [T]->IN IN==N      ->T       d-1       alu"},
-        {"@<",      "       [T]->IN N<IN       ->T       d-1       alu"},
-        {"@u<",     "       [T]->IN Nu<IN      ->T       d-1       alu"},
-        {"@not",    "       [T]->IN ~IN        ->T                 alu"},
+        {"@ +",     "       [T]->IN IN+N       ->T       d-1       alu"},
+        {"@ and",   "       [T]->IN IN&N       ->T       d-1       alu"},
+        {"@ or",    "       [T]->IN IN|N       ->T       d-1       alu"},
+        {"@ xor",   "       [T]->IN IN^N       ->T       d-1       alu"},
+        {"@ *",     "       [T]->IN IN*N       ->T       d-1       alu"},
+        {"@ =",     "       [T]->IN IN==N      ->T       d-1       alu"},
+        {"@ <",     "       [T]->IN N<IN       ->T       d-1       alu"},
+        {"@ u<",    "       [T]->IN Nu<IN      ->T       d-1       alu"},
+        {"@ invert", "      [T]->IN ~IN        ->T                 alu"},
         {"!",       "       N->IN              ->[T]     d-2       alu"},
         {"io@",     "       T->IN   io[IN]     ->T                 alu"},
         {"io!",     "       N->IN              ->io[T]   d-2       alu"},
@@ -227,19 +240,19 @@ static forth_define FORTH_OPS[] = {
         {"rshift",  "       N->IN   IN>>T      ->T       d-1       alu"},
         {"lshift",  "       N->IN   IN<<T      ->T       d-1       alu"},
         {"exit",    "       T->IN              ->T  RET       r-1  alu"},
-        {"@@",      "       [T]->IN [IN]       ->T                 alu"},
-        {"dup@",    "       [T]->IN            ->T       d+1       alu"},
-        {"dup@@",   "       [T]->IN [IN]       ->T       d+1       alu"},
-        {"over@",   "       N->IN   [IN]       ->T       d+1       alu"},
-        {"@r",      "       R->IN   [IN]       ->T       d+1       alu"},
-        {"r@;",     "       R->IN              ->T  RET  d+1  r-1  alu"},
-        {"2dup<",   "       T->IN   N<IN       ->T       d+1       alu"},
-        {"overand", "       T->IN   IN&N       ->T                 alu"},
-        {"2dupxor", "       T->IN   IN^N       ->T       d+1       alu"},
-        {"over+",   "       T->IN   IN+N       ->T                 alu"},
-        {"over=",   "       T->IN   IN==N      ->T                 alu"},
-        {"swap>r",  "       N->IN   T->N,IN->  ->R       d-1  r+1  alu"},
-        {"swapr>",  "       R->IN   T<>N,IN->  ->T       d+1  r-1  alu"},
+        {"@ @",     "       [T]->IN [IN]       ->T                 alu"},
+        {"dup @",   "       [T]->IN            ->T       d+1       alu"},
+        {"dup @ @", "       [T]->IN [IN]       ->T       d+1       alu"},
+        {"over @",  "       N->IN   [IN]       ->T       d+1       alu"},
+        {"r@ @",    "       R->IN   [IN]       ->T       d+1       alu"},
+        {"r@ exit", "       R->IN              ->T  RET  d+1  r-1  alu"},
+        {"2dup <",  "       T->IN   N<IN       ->T       d+1       alu"},
+        {"over and", "      T->IN   IN&N       ->T                 alu"},
+        {"2dup xor", "      T->IN   IN^N       ->T       d+1       alu"},
+        {"over +",  "       T->IN   IN+N       ->T                 alu"},
+        {"over =",  "       T->IN   IN==N      ->T                 alu"},
+        {"swap >r", "       N->IN   T<>N,IN->  ->R       d-1  r+1  alu"},
+        {"swap r>", "       R->IN   T<>N,IN->  ->T       d+1  r-1  alu"},
         {"1+",      "1      imm+                                   imm"},
         {"2+",      "2      imm+                                   imm"},
         {"2*",      "1                                             imm lshift", CODE},
@@ -250,10 +263,10 @@ static forth_define FORTH_OPS[] = {
         {"8emit",   "240                                           imm io!", CODE},
         {"key",     "224                                           imm io@", CODE},
         {"rot",     ">r swap r> swap", CODE},
-        {"-rot",    "swap>r swapr>", CODE},
+        {"-rot",    "swap >r swap r>", CODE},
         {"2dup",    "over over", CODE},
         {"2swap",   "rot >r rot r>", CODE},
-        {"2over",   ">r >r over over r> swapr> swap>r >r swapr> swapr>", CODE},
+        {"2over",   ">r >r over over r> swap r> swap >r >r swap r> swap r>", CODE},
         {"3rd",     ">r over r> swap", CODE},
         {"3dup",    "3rd 3rd 3rd", CODE},
         {">",       "swap <", CODE},
@@ -264,7 +277,7 @@ static forth_define FORTH_OPS[] = {
         {"<>",      "= invert", CODE},
         {"0<>",     "0 imm <>", CODE},
         {"1-",      "1 imm -", CODE},
-        {"bounds",  "over+ swap", CODE},
+        {"bounds",  "over + swap", CODE},
         {"s>d",     "dup 0<", CODE},
         {"hi32",    "32 imm rshift", CODE},
         {"lo32",    "32 imm lshift 32 imm rshift", CODE},
@@ -293,6 +306,8 @@ void decode_instruction(char* out, instruction ins, word_node words[]);
 bool ins_eq(instruction a, instruction b);
 bool interpret_imm(const char* word, instruction* literal);
 uint8_t lookup_word(word_node* nodes, const char* word, instruction* lookup);
+bool is_phrase(const char* repr);
+uint8_t lookup_said(word_node* nodes, char* const* words, int count, instruction* lookup, int* took);
 const char* lookup_opcode(word_node nodes[], instruction ins);
 char* instruction_to_str(instruction ins);
 bool init_opcodes(word_node opcodes[]);

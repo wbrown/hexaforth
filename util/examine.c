@@ -2,7 +2,7 @@
 // examine IMAGE.hex IMAGE.tables IMAGE.sizes [FILE.fs]
 //
 // What an image is made of: its pages of code, the source files its code
-// is from, and the rest of its memory.  layout.c says what each of those
+// is from, and the rest of its memory.  layout.h says what each of those
 // is and finds them; this prints what it found, in bytes.
 //
 //   The kernel: its words, how long it is, and what is left of its ROM.
@@ -11,7 +11,8 @@
 //   tables, which are not code, and what of the page is left after them.
 //
 //   A line a source file: its words, its code and its tables as they are
-//   in the image, and the pages they are on; then the data and the
+//   in the image, and the pages they are on, which are its own and the
+//   kernel's if some of its words are laid there; then the data and the
 //   dictionary headers that cross.fs counted for it (.sizes), which for a
 //   file that includes others have theirs in them.  The nucleus's own is
 //   what no file it includes has.
@@ -23,7 +24,7 @@
 // long.  It fails if the image has no words: then it looked at nothing.
 //
 
-#include "layout.c"
+#include "layout.h"
 
 static layout IMAGE;
 
@@ -31,9 +32,7 @@ static layout IMAGE;
 static long bytes(long instructions) { return(instructions * (long)sizeof(instruction)); }
 
 static void pages_said(const held* has) {
-    if (has->first_page < 0) return;
-    printf(" %ld", has->first_page);
-    if (has->last_page != has->first_page) printf("-%ld", has->last_page);
+    for(int page=0; page < (int)(8 * sizeof(has->pages)); page++) if (has->pages >> page & 1) printf(" %d", page);
 }
 
 int main(int argc, char *argv[]) {
@@ -83,7 +82,7 @@ int main(int argc, char *argv[]) {
     pages_said(own);
     printf("\n");
     for(int idx=0; idx < files; idx++) {
-        if (is_all_of_it(&FILES[idx])) continue;
+        if (is_all_of_it(&FILES[idx]) || is_laid_near(&FILES[idx])) continue;   // what is laid near is in its file's line
         printf("  %-16s %7ld %7ld %7ld %7ld %7ld ", FILES[idx].file, HAS[idx].words, bytes(HAS[idx].code), bytes(HAS[idx].tables),
                FILES[idx].data, FILES[idx].headers);
         pages_said(&HAS[idx]);
@@ -99,7 +98,7 @@ int main(int argc, char *argv[]) {
 
     if (argc == 5) {
         int which = -1;
-        for(int idx=0; idx < files; idx++) if (!strcmp(FILES[idx].file, argv[4])) which = idx;
+        for(int idx=0; idx < files; idx++) if (!is_laid_near(&FILES[idx]) && !strcmp(FILES[idx].file, argv[4])) which = idx;
         if (which < 0) {
             fprintf(stderr, "examine: the image's .sizes has no %s\n", argv[4]);
             return(1);

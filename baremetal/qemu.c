@@ -17,7 +17,7 @@
 #include <unistd.h>
 #include "../vm_constants.h"
 #include "../test/deskcheck.h"
-#include "../util/room.c"
+#include "../util/room.h"
 #include "qemu.h"
 
 #define W       DISP_W
@@ -38,6 +38,7 @@ static const char SHIFTED[] = "!@#$%^&*()_+:\"<>?{}|~";
 static const char UNSHIFTED[] = "1234567890-=;',./[]\\`";
 
 int qemu_scale = 1, qemu_shots, qemu_inexact;
+int qemu_boot_said, qemu_boot_shown;
 
 static pid_t qemu;              // QEMU,
 static int serial;              // what its console says,
@@ -127,7 +128,7 @@ static const char* copy_of(const char* from, const char* in) {
     return(to);
 }
 
-void qemu_start(const char* elf, const char* on, const char* out) {
+void qemu_start(const char* elf, const char* on, const char* pictures, const char* out) {
     disk = copy_of(on, out);
     if (getenv("SCALE") && atoi(getenv("SCALE")) > 1) qemu_scale = atoi(getenv("SCALE"));
     int rate = getenv("DISK") ? (int)(atof(getenv("DISK")) * 1024) : 0;
@@ -139,6 +140,9 @@ void qemu_start(const char* elf, const char* on, const char* out) {
     char* drive = rate          // QEMU holds the drive to it, as it does for the target `demo`
         ? text("file=%s,if=none,format=raw,id=hd0,throttling.bps-read=%d,throttling.bps-write=%d", disk, rate, rate)
         : text("file=%s,if=none,format=raw,id=hd0", disk);
+    char* second = rate
+        ? text("file=%s,if=none,format=raw,id=hd1,readonly=on,throttling.bps-read=%d", pictures, rate)
+        : text("file=%s,if=none,format=raw,id=hd1,readonly=on", pictures);
 
     int said[2];
     if (pipe(said)) fail("a pipe");
@@ -153,8 +157,10 @@ void qemu_start(const char* elf, const char* on, const char* out) {
         // (QEMU_AARCH64 is where QEMU is, which the build says.)
         execlp(QEMU_AARCH64, QEMU_AARCH64, "-M", "virt", "-cpu", "cortex-a53", "-m", "256",
                "-display", "none", "-serial", "stdio", "-nic", "none", "-qmp", qmp_is, "-device", "ramfb",
-               "-global", "virtio-mmio.force-legacy=false", "-drive", drive,
-               "-device", "virtio-blk-device,drive=hd0", "-device", "virtio-keyboard-device",
+               "-global", "virtio-mmio.force-legacy=false",
+               "-drive", drive, "-device", "virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0",
+               "-drive", second, "-device", "virtio-blk-device,drive=hd1,bus=virtio-mmio-bus.1",
+               "-device", "virtio-keyboard-device",
                "-device", "virtio-tablet-device", "-kernel", elf, (char*)NULL);
         _exit(127);
     }
@@ -179,6 +185,7 @@ void qemu_start(const char* elf, const char* on, const char* out) {
     free(sock);
     free(qmp_is);
     free(drive);
+    free(second);
 }
 
 const char* qemu_said(void) {
@@ -192,6 +199,11 @@ const char* qemu_said(void) {
     }
     said[have] = '\0';
     return(said);
+}
+
+void qemu_memory(uint64_t address, uint64_t bytes, const char* to) {
+    command("{\"execute\": \"pmemsave\", \"arguments\": {\"val\": %llu, \"size\": %llu, \"filename\": \"%s\"}}",
+            (unsigned long long)address, (unsigned long long)bytes, to);
 }
 
 uint64_t qemu_cell(uint64_t address) {
@@ -237,9 +249,29 @@ static const char* key_of(char c, bool* shift) {
 
 // ---- what test/deskcheck.h says a machine does
 
+const uint8_t* desk_screen(void);
+
+// Has the screen text on it: pixels that are black, and pixels that are
+// not?  A screen nothing has been copied to yet is all black, and one that
+// is only cleared is all white.
+static bool text_on_screen(void) {
+    const uint8_t* is = desk_screen();
+    long black = 0;
+    for(long at=0; at < (long)W * H; at++) black += is[at];
+    return(black && black < (long)W * H);
+}
+
+// While the desktop is waited for, a machine that compiles its system from
+// its disk says each file as it starts (blocks.fs, include): its label, a
+// space, and how many blocks it is.  Once it has said one, its screen is
+// looked at until it has text on it or the desktop is up.
 const char* desk_boot(void) {
     const char* said = qemu_said();
     for(int waited=0; !strstr(said, "desktop") && waited < BOOTS; waited += STEP) {
+        if (strstr(said, ".fs ")) {
+            qemu_boot_said = 1;
+            if (!qemu_boot_shown) qemu_boot_shown = text_on_screen();
+        }
         wait_ms(STEP);
         said = qemu_said();
     }

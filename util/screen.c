@@ -14,7 +14,7 @@
 //
 
 #include "../vm_constants.h"
-#include "room.c"
+#include "room.h"
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {

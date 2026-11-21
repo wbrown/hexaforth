@@ -5,38 +5,72 @@
 #include <stdio.h>
 #include "../vm_opcodes.h"
 
+// The machine's sizes and what is where on its disk, from vm_constants.h:
+// a constant each for cross.fs, and (sizes-words, below) a word each for
+// the nucleus.  A name with no value ends a group.
+static const struct { const char* name; long value; } SIZES[] = {
+    {"\\ machine sizes, from vm_constants.h"},
+    {"cell-bits", CELL_BITS}, {"addr-bits", ADDR_BITS}, {"stack-cells", STACK_CELLS},
+    {"var-base", (long)VAR_BASE}, {"disp-w", DISP_W}, {"disp-h", DISP_H}, {"disp-base", DISP_BASE},
+    {"disp-left-low", DISP_LEFT_LOW}, {"disp-ink-black", DISP_INK_BLACK}, {"disp-stride", DISP_STRIDE},
+    {"disp-banks", DISP_BANKS}, {"disp-bank-step", DISP_BANK_STEP}, {"krom-bytes", KROM_BYTES},
+    {"\\ what is where on the disk, from vm_constants.h"},
+    {"disk-block", DISK_BLOCK}, {"disk-line", DISK_LINE}, {"disk-source-block", DISK_SOURCE_BLOCK},
+    {"disk-block-bits", DISK_BLOCK_BITS}, {"disk-drives", DISK_DRIVES},
+    {"disk-names-block", DISK_NAMES_BLOCK},
+    {"disk-canvas-block", DISK_CANVAS_BLOCK}, {"disk-masks-block", DISK_MASKS_BLOCK},
+    {"disk-mask32-block", DISK_MASK32_BLOCK}, {"disk-bayer-block", DISK_BAYER_BLOCK},
+    {"disk-mask-width", DISK_MASK_WIDTH}, {"disk-mask-planes", DISK_MASK_PLANES},
+    {"disk-view-block", DISK_VIEW_BLOCK}, {"disk-view-blocks", DISK_VIEW_BLOCKS},
+    {"disk-gray-block", DISK_GRAY_BLOCK}, {"disk-gray-blocks", DISK_GRAY_BLOCKS},
+    {"disk-own-blocks", DISK_OWN_BLOCKS},
+    {"disk-entry", DISK_ENTRY}, {"disk-entry-type", DISK_ENTRY_TYPE}, {"disk-entry-first", DISK_ENTRY_FIRST},
+    {"disk-entry-blocks", DISK_ENTRY_BLOCKS}, {"disk-entry-where", DISK_ENTRY_WHERE},
+    {"disk-binary", DISK_BINARY}, {"disk-source", DISK_SOURCE}, {"disk-index", DISK_INDEX},
+    {NULL}};
+
+// The names of a field's values, in the order of the values, as a table of
+// the nucleus's (`create`, and a counted string each): they are the words
+// of vm_opcodes.h, under the field's heading there, that are that field
+// with a value and nothing else.  They go on over lines a block's line
+// long, each under the first.  Each table has a header, since the file
+// that reads them (see.fs) may be compiled on the machine, from a disk,
+// where a name with no header is not found.
+static void field_names(FILE* out, const char* table, const char* heading, int values, uint16_t (*with)(int)) {
+    fprintf(out, "    header %s\n", table);
+    int len = fprintf(out, "    create %-5s ", table);  // and a space before each name
+    const int indent = len;                             // where the space before each line's first name is
+    for(int value=0; value < values; value++) {
+        const char* name = NULL;
+        int under = 0;
+        for(forth_op* op = INS_FIELDS; strlen(op->repr) && !name; op++) {
+            if (op->type == COMMT) { under = !strcmp(op->repr, heading); continue; }
+            if (under && *(uint16_t*)&op->ins == with(value)) name = op->repr;
+        }
+        if (!name) { fprintf(stderr, "basewords: vm_opcodes.h has no name for %s %d\n", heading, value); exit(1); }
+        if (value && len + (int)strlen(name) + 5 > DISK_LINE) len = fprintf(out, "\n%*s", indent, "") - 1;
+        len += fprintf(out, " ,\" %s\"", name);
+    }
+    fprintf(out, "\n");
+}
+static uint16_t with_in(int v)  { instruction ins = {0}; ins.alu.in_mux = v;  return(*(uint16_t*)&ins); }
+static uint16_t with_op(int v)  { instruction ins = {0}; ins.alu.alu_op = v;  return(*(uint16_t*)&ins); }
+static uint16_t with_out(int v) { instruction ins = {0}; ins.alu.out_mux = v; return(*(uint16_t*)&ins); }
+#define VALUES(names) ((int)(sizeof(names) / sizeof((names)[0])))
+
 void generate_basewords_fs(const char* path) {
     init_opcodes(FORTH_WORDS);
     FILE* out = fopen(path, "w");
 
-    fprintf(out, "\\ machine sizes, from vm_constants.h\n");
-    fprintf(out, "#%d constant cell-bits\n", CELL_BITS);
-    fprintf(out, "#%d constant addr-bits\n", ADDR_BITS);
-    fprintf(out, "#%d constant stack-cells\n", STACK_CELLS);
-    fprintf(out, "#%d constant var-base\n", (int)VAR_BASE);
-    fprintf(out, "#%d constant disp-w\n", DISP_W);
-    fprintf(out, "#%d constant disp-h\n", DISP_H);
-    fprintf(out, "#%d constant disp-base\n", DISP_BASE);
-    fprintf(out, "#%d constant disp-left-low\n", DISP_LEFT_LOW);
-    fprintf(out, "#%d constant disp-ink-black\n", DISP_INK_BLACK);
-    fprintf(out, "#%d constant disp-stride\n", DISP_STRIDE);
-    fprintf(out, "#%d constant disp-banks\n", DISP_BANKS);
-    fprintf(out, "#%d constant disp-bank-step\n", DISP_BANK_STEP);
-
-    fprintf(out, "\n\\ what is where on the disk, from vm_constants.h\n");
-    fprintf(out, "#%d constant disk-block\n", DISK_BLOCK);
-    fprintf(out, "#%d constant disk-line\n", DISK_LINE);
-    fprintf(out, "#%d constant disk-source-block\n", DISK_SOURCE_BLOCK);
-    fprintf(out, "#%d constant disk-picture-block\n", DISK_PICTURE_BLOCK);
-    fprintf(out, "#%d constant disk-names-block\n", DISK_NAMES_BLOCK);
-    fprintf(out, "#%d constant disk-canvas-block\n", DISK_CANVAS_BLOCK);
-    fprintf(out, "#%d constant disk-masks-block\n", DISK_MASKS_BLOCK);
-    fprintf(out, "#%d constant disk-mask32-block\n", DISK_MASK32_BLOCK);
-    fprintf(out, "#%d constant disk-bayer-block\n", DISK_BAYER_BLOCK);
-    fprintf(out, "#%d constant disk-mask-width\n", DISK_MASK_WIDTH);
-    fprintf(out, "#%d constant disk-mask-planes\n", DISK_MASK_PLANES);
-    fprintf(out, "#%d constant disk-view-block\n", DISK_VIEW_BLOCK);
-    fprintf(out, "#%d constant disk-view-blocks\n", DISK_VIEW_BLOCKS);
+    fprintf(out, "\\ basewords.fs - the machine, for cross.fs: its sizes, the fields\n"
+                 "\\ of an instruction, and a word for each instruction that has a\n"
+                 "\\ name.  GENERATED by basewords-fs-gen.  MODEL.md says what each\n"
+                 "\\ size is, what each field of an instruction does, and which\n"
+                 "\\ instruction fetches or stores a variable.\n\n");
+    for(int n=0; SIZES[n].name; n++) {
+        if (SIZES[n].name[0] == '\\') fprintf(out, "%s%s\n", n ? "\n" : "", SIZES[n].name);
+        else fprintf(out, "#%ld constant %s\n", SIZES[n].value, SIZES[n].name);
+    }
 
     // The characters of a name that are not letters, a lot to a table: the
     // characters as their numbers, and how many there are.
@@ -68,8 +102,14 @@ void generate_basewords_fs(const char* path) {
     }
     fprintf(out, "\n\\ words\n");
 
+    // A phrase is not a word (vm_opcodes.h): cross.fs has none for it, and
+    // nor has the nucleus.
     word_node* curr_word = &FORTH_WORDS[0];
     while(curr_word->repr && strlen(curr_word->repr)) {
+        if (is_phrase(curr_word->repr)) {
+            curr_word++;
+            continue;
+        }
         char* decoded = instruction_to_str(curr_word->ins[0]);
         fprintf(out, ":: %-9s %s",
             curr_word->repr,
@@ -86,6 +126,37 @@ void generate_basewords_fs(const char* path) {
         fprintf(out, " ;\n");
         curr_word++;
     }
+
+    // What follows is the program's to lay, and is read where the program
+    // says its name: source, as it would be written there (cross.fs,
+    // source:).
+    //
+    // Every baseword as a word of the nucleus too, so that source the
+    // nucleus compiles can say it: a header of its name on a word that is
+    // the baseword, which the nucleus compiles in place.  cross.fs lets no
+    // word of the program take a macro's name, so the word is bw- and the
+    // name, and the header is given the name (forth/names.fs runs this).
+    fprintf(out, "\n\\ the words as the nucleus's\nsource: baseword-words\n");
+    for(curr_word = &FORTH_WORDS[0]; curr_word->repr && strlen(curr_word->repr); curr_word++) {
+        if (is_phrase(curr_word->repr)) continue;
+        fprintf(out, "    bw-header %s\n", curr_word->repr);
+    }
+    // and the sizes, each what cross.fs has (HOST)
+    for(int n=0; SIZES[n].name; n++) {
+        if (SIZES[n].name[0] == '\\') continue;
+        fprintf(out, "    bw-size %s\n", SIZES[n].name);
+    }
+    fprintf(out, ";source\n");
+
+    // The names of an instruction's fields, for the decompiler (see.fs):
+    // where the ALU's input is from, the operation, and where the result
+    // goes.  Each is counted strings laid end to end: text, so bulk.
+    fprintf(out, "\n\\ the names of an instruction's fields, as the nucleus's tables\nsource: field-names\n"
+                 "    bulk\n");
+    field_names(out, "f-in", "input_mux", VALUES(INPUT_MUX_REPR), with_in);
+    field_names(out, "f-op", "alu_op", VALUES(ALU_OPS_REPR), with_op);
+    field_names(out, "f-out", "output_mux", VALUES(OUTPUT_MUX_REPR), with_out);
+    fprintf(out, "    unbulk\n;source\n");
     fclose(out);
 }
 

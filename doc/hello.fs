@@ -1,9 +1,6 @@
-\ hello.fs - a window, typed at the prompt
-\
-\ It shows how many keys it has been given, in a frame.  The key q prints
-\ that and how many windows there are, and halts the machine.  The target
-\ `hello` types this at the reference VM and makes a picture of its
-\ display (DESKTOP.md).
+\ hello.fs - a window, typed at the prompt (DESKTOP.md, the target
+\ `hello`).  It shows how many keys it has been given; q prints that
+\ and how many windows there are, and halts the machine.
 
 create t-hello  34 parse Hello" s,
 variable presses

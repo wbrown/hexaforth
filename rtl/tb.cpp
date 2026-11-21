@@ -6,8 +6,10 @@
 //   tb run IMAGE.hex [DISK.img [MEMORY.out]]
 //                          boot an image; stdin is the UART; prints what it
 //                          sends, then cycle and instruction counts.
-//                          DISK.img is a file to be a disk, and MEMORY.out
-//                          is where memory is written when it has stopped
+//                          DISK.img is a file to be a disk, or several with
+//                          commas between them to be disk 0, disk 1 and so
+//                          on, and MEMORY.out is where memory is written
+//                          when it has stopped
 //
 // The memory here is a plain array with the timing the CPU expects:
 // one read port, whose address is sampled on the clock edge and whose data
@@ -29,7 +31,9 @@
 // first, and when the eighth has come the block's bytes are in memory from
 // that cell, as the reference VM's disk puts them there.  It costs the CPU
 // what sending nine characters does, and the disk is as fast as it likes.
-// Neither character is printed.
+// Neither character is printed.  A block's number says which disk it is of,
+// as it does to any driver (MODEL.md): the top four bits of its sixteen are
+// the disk, and a block of a disk that is not there is nothing.
 
 #include "Vhexaforth.h"
 #include "Vhexaforth___024root.h"
@@ -54,6 +58,8 @@ static const uint64_t CELL_MASK = W == 64 ? ~0ull : (1ull << W) - 1;
 #define MARK        30      // the character that says: note where the machine has got to
 #define ASK         29      // and the one that asks the disk for a block,
 #define DISK_BLOCK  1024    // which is this many bytes
+#define DISK_BLOCK_BITS 12  // of a block's number, the bits that are the block: the four above are the disk
+                            // (vm_constants.h, whose these two are)
 
 struct Mark { uint64_t cycles, executed, fetches, reads, writes; };
 
@@ -70,7 +76,7 @@ struct Machine {
     uint64_t fetches = 0, reads = 0, writes = 0;
     bool timing = false;            // "run": marks are noted, and the disk answers
     std::vector<Mark> marks;
-    std::vector<uint8_t> disk;
+    std::vector<std::vector<uint8_t>> disks;
     int asked = -1;                 // how many of the eight characters have come, or -1
     uint8_t ask[8];
 
@@ -83,7 +89,7 @@ struct Machine {
                 marks.push_back({cycles, executed, fetches, reads, writes});
                 return true;
             }
-            if (c != ASK || disk.empty()) return false;
+            if (c != ASK || disks.empty()) return false;
             asked = 0;
             return true;
         }
@@ -91,7 +97,10 @@ struct Machine {
         if (asked == 8) {
             uint64_t blk = 0, cell = 0;
             for (int i = 3; i >= 0; i--) { blk = blk << 8 | ask[i];  cell = cell << 8 | ask[4 + i]; }
-            size_t from = blk * DISK_BLOCK, to = (cell % CELLS) * (W / 8);
+            size_t drive = blk >> DISK_BLOCK_BITS & 15;
+            static const std::vector<uint8_t> none;
+            const std::vector<uint8_t> &disk = drive < disks.size() ? disks[drive] : none;
+            size_t from = (blk & ((1 << DISK_BLOCK_BITS) - 1)) * DISK_BLOCK, to = (cell % CELLS) * (W / 8);
             for (size_t i = 0; i < DISK_BLOCK && to + i < MEM; i++)
                 mem[to + i] = from + i < disk.size() ? disk[from + i] : 0;
             asked = -1;
@@ -241,14 +250,18 @@ static int run_image(const char *path, const char *disk, const char *memory) {
         memcpy(&m->mem[at], &v, 4);
     }
     fclose(f);
-    if (disk) {
-        f = fopen(disk, "rb");
-        if (!f) { perror(disk); return 2; }
+    for (std::string rest = disk ? disk : ""; !rest.empty();) {     // each disk, a comma between them
+        size_t comma = rest.find(',');
+        std::string one = rest.substr(0, comma);
+        rest = comma == std::string::npos ? "" : rest.substr(comma + 1);
+        f = fopen(one.c_str(), "rb");
+        if (!f) { perror(one.c_str()); return 2; }
         fseek(f, 0, SEEK_END);
-        m->disk.resize(ftell(f));
+        std::vector<uint8_t> is(ftell(f));
         rewind(f);
-        if (fread(m->disk.data(), 1, m->disk.size(), f) != m->disk.size()) { perror(disk); return 2; }
+        if (fread(is.data(), 1, is.size(), f) != is.size()) { perror(one.c_str()); return 2; }
         fclose(f);
+        m->disks.push_back(is);
     }
     for (int c; (c = getchar()) != EOF;) m->in.push_back(c);
     std::vector<uint8_t> input = m->in;

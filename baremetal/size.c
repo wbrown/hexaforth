@@ -2,7 +2,7 @@
 // kernel_size KERNEL.symbols KERNEL.bin
 //
 // How big a kernel is: its own code, which is from its symbol _start to
-// its symbol native_end (symbols.c), and the whole of it with the image it
+// its symbol native_end (symbols.h), and the whole of it with the image it
 // has in it, which is the file.
 //
 // Then the parts of its own code: a line for each label it has, with the
@@ -12,7 +12,7 @@
 //
 
 #include <stdio.h>
-#include "symbols.c"
+#include "symbols.h"
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {

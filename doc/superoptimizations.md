@@ -12,7 +12,7 @@ instruction. The search is `bench/shorter.c` (built per machine as
 `shorter-16` and so on, and run at the end of the target `profile`). It
 takes one turn of a loop, puts the words it calls inline, and looks for the
 fewest instructions that leave the same result, wherever the values are
-kept (`util/loops.c`, `util/turns.c`, `util/fewer.c`). Every answer is run
+kept (`util/loops.h`, `util/turns.h`, `util/fewer.h`). Every answer is run
 on `vm.c` before it is reported.
 
 Changes to the Verilog that made the CPU itself faster are not included:
@@ -61,8 +61,8 @@ it takes two.
 The stack depths used to be an operation and are now read through a port
 (be583fd, bee7834), and writing a port became an output, replacing `->N`
 (5aa2d94). The two freed slots hold `T<>N,IN->`, which makes `tuck`,
-`swap>r` and `swapr>` one instruction each, and `IN*N`, the multiply, which
-replaced a 32-step loop in the nucleus (37e9578).
+`swap >r` and `swap r>` one instruction each, and `IN*N`, the multiply,
+which replaced a 32-step loop in the nucleus (37e9578).
 
 ### Operating on memory in place
 
@@ -70,8 +70,9 @@ replaced a 32-step loop in the nucleus (37e9578).
 operation, and write it back, all in one instruction (51a6058, 3c73365,
 23a56ff). Written the usual Forth way, `tuck @ or swap !` is five
 instructions and six clocks; the single instruction takes two. Reading a
-cell and combining it with N without writing it back (`@and`, `@+`,
-`@xor`, `@*`) is also one instruction. `ink` is `or!`, and `x!` is `xor!`.
+cell and combining it with N without writing it back (`@ and`, `@ +`,
+`@ xor`, `@ *`) is also one instruction. `ink` is `or!`, and `x!` is
+`xor!`.
 
 Setting pixels in a display cell is `or!`; clearing them is `and!`; ORing a
 glyph row onto the screen is one `or!` per row (`or-plain`); and inverting
@@ -80,13 +81,17 @@ a cell in place while keeping its address is `dup not!`, one instruction
 
 ### Stack shuffles folded into one instruction
 
-`dup@`, `over@`, `dup@@`, `@r`, `tuck`, `swap>r`, `swapr>`, `over>r`,
-`dup>r`, `2drop`, `rdrop` and `r@;` are each one instruction, and `-rot` is
-two, `swap>r swapr>` (188eff1, be583fd, 4692757, 5c4b487). The J1b's
-`2dupxor`, `over+`, `2dup<`, `overand` and `over=` are an operation with
-`d+1` (keep both operands and push the result) or `d+0` (replace the top
-with the result). `2drop` routes R back to R, leaving it unchanged, so
-that the value it writes doesn't take the new top's place.
+`dup @`, `over @`, `dup @ @`, `r@ @`, `tuck`, `swap >r`, `swap r>`,
+`over >r`, `dup >r`, `2drop`, `rdrop` and `r@ exit` are each one
+instruction, and `-rot` is two, `swap >r swap r>` (188eff1, be583fd,
+4692757, 5c4b487). The J1b's `2dupxor`, `over+`, `2dup<`, `overand` and
+`over=` are an operation with `d+1` (keep both operands and push the
+result) or `d+0` (replace the top with the result), and are written here
+as the words they are made of: `2dup xor`, `over +`. None of these phrases
+is a word. Each is written as its words, the compilers make the one
+instruction of them, and `vm_opcodes.h` has an entry for each, which the
+build holds to what the words do. `2drop` routes R back to R, leaving it
+unchanged, so that the value it writes doesn't take the new top's place.
 
 ### Literals that add
 
@@ -128,10 +133,10 @@ and in the nucleus (`texit`).
 ### Loops count up, and loops over memory keep no count
 
 ```
-bounds begin 2dupxor while ... 1+ repeat 2drop
+bounds begin 2dup xor while ... 1+ repeat 2drop
 ```
 
-The address goes up until it reaches the end address. `2dupxor` is one
+The address goes up until it reaches the end address. `2dup xor` is one
 instruction that keeps both addresses (`T->IN IN^N ->T d+1`); the
 conditional branch pops the result and only asks whether it is zero; `1+`
 is one instruction; and `bounds` runs once. The old way kept a count and
@@ -160,7 +165,7 @@ A loop from one address to another needs only the end address. Working out
 how many there are costs a subtraction before the loop and an addition
 inside it. `glyph-or` keeps the end of a glyph's rows (`rend`), and whether
 any row is drawn at all is whether the first comes before the last, which
-is one instruction (`2dup<`) (3f47c72).
+is one instruction (`2dup <`) (3f47c72).
 
 ### Loops test at the bottom
 
@@ -170,8 +175,8 @@ the test at the bottom using the other of the two operations (they are
 `h# f0` apart), followed by a branch back while the result is non-zero:
 
 ```
-begin 2dupxor while BODY repeat        is compiled as
-2dupxor if begin BODY 2dup= until then
+begin 2dup xor while BODY repeat        is compiled as
+2dup xor if begin BODY 2dup = until then
 ```
 
 Each turn is then the body, the test and the branch, where it used to be the
@@ -187,10 +192,11 @@ and used directly, never brought to the data stack. `r@ over !` is one
 instruction (`R->IN ->[T]`): a turn of `cells-fill` is that store, `1+`,
 the test and the branch, four instructions, and the search finds nothing
 shorter (e310347). `fast-slab` stores the pattern row into every whole cell
-of a fill this way, and the column fills of a plain rectangle (`col!`,
-`col-and!`, `col-or!`) go down each column with the value on R. Where the
-store is `or!` or `and!`, the value has to be N, because the input is the
-memory cell, so each cell there is `r@ over or!`, three instructions.
+of a fill this way, and `col!` goes down a column of a plain rectangle with
+the value on R. Where the store is `or!` or `and!`, the value has to be N,
+because the input is the memory cell, and from R each cell is `r@ over
+or!`, three instructions. So `col-and!` and `col-or!` keep the value under
+the address instead, and the end on R (What the search has found, below).
 
 ### A second address is the first plus a distance on R
 
@@ -201,7 +207,7 @@ the first whenever it's needed, with `over r@ +`, one instruction
 
 ```
 >r over - r> swap >r bounds               ( end from ) ( R: distance from source to destination )
-begin 2dupxor while  dup @  over r@ + !  1+  repeat  2drop rdrop
+begin 2dup xor while  dup @  over r@ + !  1+  repeat  2drop rdrop
 ```
 
 That is `cells-move`. `same?` compares two bands this way, and the dither
@@ -261,7 +267,7 @@ the data stack and its write pointer on R, replacing eighteen variables
 
 ### Many values: variables, saved only on re-entry
 
-`copy-bits` and `draw-text` each have around thirty values in play. A record
+`copy-bits` and `draw-text` each have a great many values in play. A record
 reached through a pointer would cost a fetch of the pointer, an add and a
 fetch for each value, against one instruction for a variable; that was
 tried, and cost the drawing benchmark a fifth of its cycles (6ef65be). So
@@ -314,15 +320,15 @@ either that number or zero, which can then be added in, with no branch.
 ### A branch only asks whether a value is zero
 
 The conditional branch pops T and branches if it is zero. So `<> if` becomes
-`xor if`, `0<> if` becomes `if` (44a704d), `2dup = if` becomes `2dupxor if`
-with the two branches swapped (4bfc710), and `0= if A else B then` becomes
+`xor if`, `0<> if` becomes `if` (44a704d), `2dup = if` becomes `2dup xor
+if` with the two branches swapped (4bfc710), and `0= if A else B then` becomes
 `if B else A then` (771d2c9).
 
 ### Branches that end in exit
 
 `drop exit` is one instruction, since the return is merged into the `drop`.
-So `2dup< if drop else nip then` becomes `2dup< if drop exit then nip`, and
-the jump over the `else` disappears (771d2c9). In the image, `min` is four
+So `2dup < if drop else nip then` becomes `2dup < if drop exit then nip`,
+and the jump over the `else` disappears (771d2c9). In the image, `min` is four
 instructions: the test, the branch, and two instructions that each return.
 
 ### 0 ≤ i < n is one comparison
@@ -370,7 +376,7 @@ instruction per row (`+rows`, dae91c3):
 
 ```
 tend @ tband
-begin 2dupxor while  dup gd @ + @ hi @ PIXR over or!  1+  repeat  2drop
+begin 2dup xor while  dup gd @ + @ hi @ PIXR over or!  1+  repeat  2drop
 ```
 
 `gd` is the distance from the band to the glyph's rows, so one add finds the
@@ -518,7 +524,7 @@ almost every entry with one fetch (492b608, 12fb034, 24c033a).
 ### Asking the machine which instructions combine
 
 `cross.fs` offers each new instruction to the one or two before it, and asks
-`util/fuse.c` which single instruction does the work of two or three, and
+`util/fuse.h` which single instruction does the work of two or three, and
 which two do the work of three (eea6888, ef98284, 4df3ca4, 6019675). A
 combined instruction is offered again, so combinations can chain. Nothing is
 combined across a branch target. The answers come from stepping the machine
@@ -549,13 +555,25 @@ and can be combined (eea6888).
 
 ### The nucleus's compiler
 
-Code typed at the prompt is combined as it is compiled (ac4f758): by 59
-rules, kept for what each saves in the system's code and at run time
-(a1cf834, 88eee3c); by working out constant arithmetic by running it
-(`100 30 - 2 *` becomes 140); by folding a `dup` before a push into the
-following instruction (`across`); and by the one-instruction variable
-access (`var,`). A small word is compiled inline so its instructions can be
-combined.
+Code typed at the prompt is combined as it is compiled (ac4f758). What two
+instructions or three are together is worked out on the machine, not
+looked up: they are stepped on a machine whose cells hold where each value
+came from, the one instruction that would leave the same is made from what
+is left and stepped too, and if the two machines agree that instruction is
+compiled (`compose.fs`). Where they come to nothing, as `>r r>` does,
+nothing is compiled. It replaced a table of rules (a1cf834, 88eee3c), and
+the targets `pairs` and `peephole` hold what it works out to the machine's
+own step. Constant arithmetic is worked out by running it (`100 30 - 2 *`
+becomes 140); a `dup`, an `r@` or an `r>` before a push is folded into the
+following instruction (`across`); and a variable is fetched or stored by
+its one instruction (`var,`). A small word is compiled inline so its
+instructions can be combined. The return-stack words are immediates that
+offer their instruction to the one before, so `r> @` typed is one
+instruction.
+
+It does not do all that `cross.fs` does: it makes one instruction of two or
+three, and does not replace three with two, or know that a comparison left
+a flag. The target `peephole` says what that comes to.
 
 ## The kernel's size
 
@@ -572,7 +590,7 @@ at the word, along with what the other way would cost or save.
   no exit: `r>` takes the return address and doesn't put it back, so the
   copy returns straight to the caller's caller (ef4ae70)
 - code nothing can reach is removed, along with cases of a word that are
-  never used (`util/reach.c`, ef4ae70)
+  never used (`util/reach.h`, ef4ae70)
 - `segs,` uses the literal it is building as its own state: adding `h# 1000`
   moves its shift up one step, and ORing in `h# 4000` makes it an add
   (771d2c9)
@@ -588,8 +606,12 @@ finished, is in `shorter`'s report.
 
 The earlier search tool, `util/shorter.py`, found `move-row`'s two-instruction
 move (above) and `cells-fill`'s fill with the value on R (e310347).
-`bench/shorter.c` has shown that `aquarters`, `adown2`, `cells-fill` and
-`cells-move` can't be made shorter, and found the three below.
+`bench/shorter.c` has shown that `aquarters`, `adown2`, `cells-fill`,
+`cells-move`, `move-row`, `col!`, `column-run` and `fast-slab` can't be
+made shorter, and found those below: first what it found in the dither and
+the TIFF reader, on the 16-bit machine, and after What the three have in
+common what it found in the desktop's own loops, on the 64-bit machine.
+All of them are in the source.
 
 ### Using a value twice from the return stack
 
@@ -600,7 +622,7 @@ from the gray row to the sums.
 
 As it was (12 instructions):
 
-    dup@                        end a x
+    dup @                       end a x
     8 (N->IN IN>>T ->T d+0)     end a x hi        x's high byte; x kept underneath
     swap                        end a hi x        x back on top
     255 and                     end a hi lo
@@ -651,7 +673,7 @@ and the error goes to all three cells unchanged.
 As it was (15):
 
     over (R->IN IN+N ->T d+0)   end p t           t computed first
-    over@ 4095 and              end p t e         the fetch has to reach past t
+    over @ 4095 and             end p t e         the fetch has to reach past t
     over ([T]->IN IN+N ->[T] d+0)
                                 end p t e t       e added at t; t copied
     2 + ([T]->IN IN+N ->[T] d-1)
@@ -662,7 +684,7 @@ As it was (15):
 
 As found (13):
 
-    dup@ 4095 and               end p e           fetch first, while p is on top
+    dup @ 4095 and              end p e           fetch first, while p is on top
     (R->IN IN+N ->T d+1)        end p e t         t = p (under the top) + R, pushed
     ([T]->IN IN+N ->[T] d+0)    end p e t         e added at t
     2 + ([T]->IN IN+N ->[T] d-1)
@@ -676,7 +698,7 @@ one instruction: R as the input, added to N, the result pushed (`over r@ +`
 compiles to it). Copying a kept value is also one instruction (`over`). So
 recomputing it costs no more than keeping it, and keeping it costs extra:
 a kept value is in the way of everything beneath it. Computed first and
-kept, `t` got in the way of the fetch (`over@`, reaching past it), had to be
+kept, `t` got in the way of the fetch (`over @`, reaching past it), had to be
 copied for the first add, and had to be swapped back on top for the last.
 Computed where it is used, it is consumed there, and nothing has to reach
 past it or be swapped back.
@@ -710,7 +732,7 @@ As it was (22 instructions), from the threshold on:
     (T->IN T<>N,IN-> ->[T] d+0) end g p           g stored in this pixel's lane
     (N->IN T<>N,IN-> ->T d+1)   end p g g
     (R->IN IN+N ->T d+0 r-1)    end p g s         s = g + the last one's, popped from R
-    swap>r                      end p s           R: g, pushed back
+    swap >r                     end p s           R: g, pushed back
     4095 and                    end p s'
     over 1 + +!                 end p             s' added to the next lane
     1 + (T->IN IN==N ->T d+1) until
@@ -726,7 +748,7 @@ As it is now (20):
     (T->IN IN==N ->T d+1) until
 
 The old turn took the carried value off R (`r>`, folded into the add) and
-put the new one back (`swap>r`). An instruction whose output is `->R` with
+put the new one back (`swap >r`). An instruction whose output is `->R` with
 the return stack not moving (`r+0`) does both at once: it writes over R's
 top. So `swap rdrop >r` is a single instruction, `(N->IN T<>N,IN-> ->R
 d-1)`, which replaces what the last pixel gave with what this one gives,
@@ -763,3 +785,209 @@ one instruction; in the third, the value carried on R is replaced where it
 is, rather than taken off and put back. The data stack ends up holding only
 what can't be rebuilt from R and the cell under the top, and the `swap`s,
 `over`s and `>r`s that kept things in order are gone.
+
+### The value under the address, and the end on R
+
+Found in `col-and!` and `col-or!` (`display.fs`) and `band-along`
+(`region.fs`), on the 64-bit machine. The first two go down a column of the
+display, one cell in every row, and AND or OR a value into it; a row is 12
+cells there. The stack was `end a`, the end and the current address, with
+the value `x` on R (Values that don't change go on the return stack,
+above).
+
+As it was (6 instructions), for `col-and!`:
+
+    r@                          end a x
+    over                        end a x a
+    and!                        end a             x ANDed into the cell at a
+    12 +                        end a'            the same cell of the next row
+    (T->IN IN==N ->T d+1)       end a' f          is a' the end?
+    until                       end a'
+
+As found (5), with the value and the end in each other's places. The stack
+is `x a`, and R holds the end:
+
+    ([T]->IN IN&N ->R d+1 r+1)  x a a             the cell ANDed with x; the result
+                                                  m pushed onto R (R: end m)
+    12 +                        x a a'            R: end m
+    (R->IN T<>N,IN-> ->[T] r-1) x a' a            m stored at a and popped (R: end)
+    (R->IN IN==N ->T d+0)       x a' f            is a' the end? written over a
+    until                       x a'
+
+`col-or!` is the same with `IN|N`. So is `band-along` (`region.fs`), which
+adds what is on R into every cell of a band, with `IN+N` and a step of one
+cell: 6 instructions a turn as it was, and 5 as found.
+
+`and!` takes its value from N, because its input is the memory cell. A
+value on R has to be brought there, with the address copied on top of it:
+`r@ over`, two instructions before the one that does the work. In the turn
+that was found the value is under the address for the whole loop, where the
+operation wants it, and the end is on R instead. Only the test reads the
+end, and the test can take R as its input as easily as it took T.
+
+That leaves the address on top, and the test needs it as N. The turn gets
+it there with no `dup` or `swap` of its own. The AND's result isn't stored
+at once: it goes to R. An instruction that pushes leaves the old top in the
+cell underneath, so with `d+1` on it there are now two copies of the
+address, for nothing. The top one is stepped to the next row. Then one
+instruction stores the result from R at the old address and pops it, and
+its operation swaps the two addresses on the way: the old one comes to the
+top to be stored at, and the new one goes under it. The test writes its
+flag over the old address, which is finished with.
+
+The general rule: an operation on memory in place takes its other operand
+from N. If that operand is the same on every turn, keep it under the
+address and not on R, and put on R what only the test needs. And an
+instruction whose result goes to R can still move the data stack up, which
+is a copy of the top that costs nothing.
+
+This is now in `display.fs` and `region.fs`, written in standard words. The
+words set the loop up with the value under the address and the end on R,
+make the test once before the loop, and say a turn as
+
+    begin  2dup and!  DISP-STRIDE +  r@ over =  until
+
+Of that `cross.fs` makes another turn of the same length:
+
+    ([T]->IN IN&N ->[T] d+0)    x a               2dup and!: x ANDed into the cell at a
+    12 +                        x a'
+    r@                          x a' end
+    (T->IN IN==N ->T d+0)       x a' f            over =: is a' the end?
+    until                       x a'
+
+With the value where the operation takes it from, `2dup and!` is one
+instruction: the cell ANDed with N and stored back, and the data stack not
+moved. Nothing is parked on R, and the test is the end pushed and compared
+with the address under it. The search's turn and this one are both five,
+and the search found none of four. `col!`, the same loop with a plain
+store, is four instructions a turn and the search finds nothing shorter.
+
+### A count under a value: the value goes to R, and the test pops it
+
+Found in `nwords` and `rec-next` (`see.fs`), `code-at` (`text.fs`) and
+`lights` (`wm.fs`), on the 64-bit machine. All but `rec-next` kept a count
+under the value they are working along, and added one to it every turn with
+`swap 1+ swap`; `rec-next` stepped an address that way.
+
+`nwords` counts the dictionary's headers. The stack is `n h`, the count and
+a header, and a turn follows the header's link until there is none.
+
+As it was (7):
+
+    dup                         n h h
+    while                       n h               out, if h is nothing
+    swap 1 + swap               n' h
+    @                           n' h'             the next header
+    repeat
+
+As found (6), with the test at the bottom:
+
+    >r                          n                 R: h
+    1 +                         n'                R: h
+    r@ @                        n' h'             the link, fetched through R
+    0                           n' h' 0
+    (T->IN IN==N ->T d+0 r-1)   n' h' f           is h' nothing? and h popped from R
+    until                       n' h'
+
+`code-at` looks along the character codes in a cell for the first that is
+below a space. The stack is `k w`: how far along it is, and the cell with
+the codes already passed shifted out of it.
+
+As it was (12):
+
+    255 over and                k w c             the code at the bottom of w
+    32 u<                       k w f             is it below a space?
+    invert                      k w ~f
+    while                       k w               out, if it is
+    8 rshift                    k w'              the next code
+    swap 1 + swap               k' w'
+    repeat
+
+As found (9), with the test at the bottom:
+
+    >r                          k                 R: w
+    1 +                         k'                R: w
+    8                           k' 8
+    (R->IN IN>>T ->T d+0)       k' w'             w from R, shifted right 8
+    255 over and                k' w' c
+    32                          k' w' c 32
+    (T->IN Nu<IN ->T d-1 r-1)   k' w' f           u<, and w popped from R
+    until                       k' w'
+
+`swap 1+ swap` is three instructions to add one to the cell under the top.
+With the value put on R (`>r`) the count is on top, where adding one is one
+instruction. The value doesn't have to come back as it was: what the turn
+does with it next, following its link or shifting it, takes R as its input
+and pushes the new value (`r@ @`, and `R->IN IN>>T`). So `>r`, `1 +` and an
+operation the turn had anyway do what `swap 1 + swap` and that operation
+did, in one instruction fewer. The old value is still on R, and the test
+pops it: its comparison has `r-1` on it, so nothing is spent clearing R.
+
+`rec-next` (`see.fs`) is the same thing with an address. It goes along the
+cells of a record to the first that is negative, and steps past it. The
+stack is the address alone. As it was (7), the cell is fetched and the
+address then stepped underneath it:
+
+    dup @                       a x
+    swap 1 + swap               a' x
+    0 <                         a' f              is x negative?
+    until                       a'
+
+As found (6):
+
+    dup >r                      a                 R: a
+    1 +                         a'                R: a
+    r@ @                        a' x              the cell, fetched through R
+    0                           a' x 0
+    (T->IN N<IN ->T d-1 r-1)    a' f              <, and a popped from R
+    until                       a'
+
+The address is stepped first, on top, and its old value is on R for the
+fetch to go through.
+
+`lights` (`wm.fs`) counts how many times a mask of the disks can be shifted
+right before it is nothing. As it was (8), a turn is `dup`, the branch out,
+`1 rshift swap 1 + swap` and the jump back. As found (7), it is `nwords`'s
+turn with `code-at`'s shift in it:
+
+    >r                          n                 R: m
+    1 +                         n'                R: m
+    1                           n' 1
+    (R->IN IN>>T ->T d+0)       n' m'             m from R, shifted right 1
+    0                           n' m' 0
+    (T->IN IN==N ->T d+0 r-1)   n' m' f           is m' nothing? and m popped from R
+    until                       n' m'
+
+The rest of what `code-at` saves is the loop's shape. Tested at the bottom,
+a turn has one branch where it had a branch out and a jump back. And
+`until` goes round while the flag is nothing, which is the sense `u<` gives
+here, so the `invert` that `while` needed is gone. `cross.fs` puts a test
+at the bottom by itself only when the test is one instruction of `IN^N` or
+`IN==N` (Loops test at the bottom, above); this test is five instructions,
+and `nwords`'s is a `dup`. In `nwords` the test at the bottom is an
+instruction longer than the `dup` it replaces, since it has to keep the
+header while asking whether it is nothing, and the turn still comes out one
+ahead.
+
+The general rule: don't count in the cell under the top. Put the value on
+R, count on top, bring the value back through the operation that changes
+it, with R as that operation's input, and let the test pop R. And where a
+loop's test is more than one instruction, look at the loop with the test at
+the bottom: a turn has one branch fewer, and loses the `invert` if `while`
+needed one.
+
+What the search counts is a turn. In the source each loop is written with
+its test at the bottom, and the test is made once more before the loop is
+entered, as `cross.fs` does when it rotates one. The four are now in
+`see.fs`, `text.fs` and `wm.fs`, in standard words:
+
+    begin  >r 1+ r> @  dup 0=  until                            nwords
+    begin  dup >r 1+ r> @  0<  until                            rec-next
+    begin  >r 1+ r> d# 8 rshift  dup h# ff and d# 32 u<  until  code-at
+    begin  >r 1+ r> u2/  dup 0=  until                          lights
+
+`cross.fs` makes turns of the lengths the search found, 6, 6, 9 and 7. It
+pops R in the operation that brings the value back, where the search popped
+it in the test: `r> @` is one instruction (`R->IN [IN] ->T d+1 r-1`), and
+`r> d# 8 rshift` is the 8 pushed and then one (`R->IN IN>>T ->T r-1`).
+`dup 0=` is two, a 0 pushed and `over =`.

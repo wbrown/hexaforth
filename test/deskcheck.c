@@ -34,20 +34,21 @@
 #include "dither.h"
 #include "gray.h"
 #include "tables.h"
-#include "../util/bluenoise.c"
+#include "../util/bluenoise.h"
 
 #define W       DISP_W
 #define H       DISP_H
 #define SCREEN  ((size_t)W * H)
 #define ROWS    16              // the rows of a window's text, and of a glyph
 #define COLS    64              // the most columns a window's text has
+#define MOST_LINES (H / ROWS)   // the most lines of text a window can show: as many as the screen
 
 typedef struct {
     const char* grid;           // where: a window's text (GRIDS, below)
     int row;                    // which row of it
     char how;                   // = it is the text; ^ it starts with it; $ it ends with it; ~ it has it
-    const char* text;           // %1 and %2 are the machine's two newest words, and %e how the first ends
-} seen;
+    const char* text;           // %1 and %2 are the machine's two newest words, %e how the first ends,
+} seen;                         // and %b the first line of block 1 of its disk
 
 enum { ALWAYS, NAMES, NO_NAMES };       // whether the disk has the tables of names
 
@@ -64,10 +65,12 @@ typedef struct {
 
 static bool came_up(char* why), saved(char* why), dithered(char* why), moved(char* why), bold(char* why);
 static bool fused_told(char* why), a_number(char* why), word_told(char* why), box_gone(char* why);
+static bool scrolled_down(char* why), words_marked(char* why), more_above(char* why), more_both(char* why);
 static bool one_cursor(char* why), prints_behind(char* why), keep(char* why), others_same(char* why);
-static bool remember(char* why);
+static bool remember(char* why), lights_right(char* why);
 static bool last_dragged(char* why);
 static bool sees_all(char* why), memory(char* why), menu_down(char* why), line_shown(char* why);
+static bool sees_label(char* why), data_place(char* why), see_blocks(char* why);
 static bool calc_picked(char* why), words_held(char* why), menu_whole(char* why), menu_away(char* why);
 static bool menu_gone(char* why), forth_closed(char* why), words_reopened(char* why);
 static bool paint_front(char* why), canvas_right(char* why), shape_shown(char* why);
@@ -79,6 +82,8 @@ static void picture_picked(int line), picture_made(void);
 
 static check CHECKS[] = {
     {"the desktop comes up", "", "1-desktop", .also = came_up},
+    // The machine has two disks, each a floppy: the bar has a light for each.
+    {"the bar has a light for each of the machine's two disks, and for no more", "", NULL, .also = lights_right},
 
     // The Forth window: text is inset by 2 from its content.
     {"the Forth window opens with a prompt", "'2 3 + .\r' ': sq dup * ; 12 sq .\r' 'nosuch\r'", "2-forth",
@@ -93,7 +98,7 @@ static check CHECKS[] = {
      "3-calculator", {{"calc", 3, '~', "322"}}},
 
     // The editor: brought forward, typed in on the second line of block 1, and saved.
-    {"the editor shows block 1", "front:editor ^s", "4-editor", {{"editor", 0, '^', ": hello 104 emit"}}},
+    {"the editor shows block 1", "front:editor ^s", "4-editor", {{"editor", 0, '=', "%b"}}},
     {"the editor saves to the disk", "down '( edited )' ^s", "5-edited", .also = saved},
 
     // The picture: brought forward, and compared with a dither done here.
@@ -130,18 +135,32 @@ static check CHECKS[] = {
     // first listed; a click on its name shows it.
     {"the Words window lists the dictionary", "cycle:words click:words+10+8 away", "8-words",
      {{"names", 0, '=', "sq"}, {"names", 1, '=', "%1"}, {"names", 2, '=', "%2"}}},
+    // What is inside a definition is indented three columns a level.
     {"the Words window decompiles", "", NULL,
-     {{"source", 0, '=', ": sq"}, {"source", 1, '=', "  dup *"}, {"source", 2, '=', ";"}}},
-    {"a word in a definition is a link", "click:words+132+24 away", "9-link",
-     {{"source", 0, '=', ": dup"}, {"source", 1, '=', "  dup"}, {"source", 2, '=', ";"}}},
+     {{"source", 0, '=', ": sq"}, {"source", 1, '=', "   dup *"}, {"source", 2, '=', ";"}}, words_marked},
+    {"a word in a definition is a link", "click:words+140+24 away", "9-link",
+     {{"source", 0, '=', ": dup"}, {"source", 1, '=', "   dup"}, {"source", 2, '=', ";"}}},
     {"Backspace goes back", "backspace", "10-back",
-     {{"source", 0, '=', ": sq"}, {"source", 1, '=', "  dup *"}, {"source", 2, '=', ";"}}},
+     {{"source", 0, '=', ": sq"}, {"source", 1, '=', "   dup *"}, {"source", 2, '=', ";"}}},
     {"Down moves to the next word", "down", "10-down",
      {{"source", 0, '=', ": %1"}, {"source", 1, '$', "%e"}, {"source", 2, '=', ";"}}},
+    // A definition longer than the window: PgDn shows it from a window
+    // less a line further down, or as far down as fills the window, and
+    // PgUp from where it was.  [PGDN] ends its last row while more of it
+    // is below, and [PGUP] its first while more is above.  words-key, a
+    // few lines for each key the Words window takes, is longer than the
+    // window on either screen; it is newer than the words of the dither,
+    // which the list is paged on to next.
+    {"a definition longer than the window is shown from its start", "find:words-key,words-click name:words-key",
+     "10-long", {{"source", 0, '=', ": words-key"}}, remember},
+    {"and says that more of it is below", "", NULL, .also = words_marked},
+    {"PgDn scrolls it", "pgdn", "10-pgdn", .also = scrolled_down},
+    {"and says that more of it is above", "", NULL, .also = words_marked},
+    {"and PgUp scrolls it back", "pgup", "10-pgup", .also = box_gone},
     // Two words of the dither, which are next to each other in the list:
     // dither-row has fused instructions in it, and dither-start a variable
     // that has no header and a plain word that is one instruction.
-    {"PgDn pages through the dictionary", "find:dither-row,dither-start", "10-list", .also = listed_both},
+    {"Right pages through the dictionary", "find:dither-row,dither-start", "10-list", .also = listed_both},
     // Words in bold are one instruction between them.  With the pointer on
     // them a box by them says which: its number, and its fields.
     {"a fused instruction is shown as its words, in bold", "name:dither-row", "10-fused",
@@ -160,9 +179,11 @@ static check CHECKS[] = {
      {{"forth", 8, '=', "0  ok"}, {"forth", 10, '=', "15 0  ok"}}},
     // The Forth window is filled so that it scrolls.  The text is moved on
     // the screen, not drawn again, so what is there is looked at: the last
-    // lines, the first, and that the only solid cell is the cursor.
+    // lines, the first, and that the only solid cell is the cursor.  The
+    // first row ends with [PGUP] now, since more is above.
     {"the Forth window scrolls", "'0 .\r' '1 .\r' '2 .\r' '3 .\r' '4 .\r' '5 .\r' '6 .\r' '7 .\r'", "11-scrolled",
-     {{"forth", 13, '=', "7 ."}, {"forth", 14, '=', "7  ok"}, {"forth", 0, '=', "0  ok"}}, one_cursor},
+     {{"forth", 13, '=', "7 ."}, {"forth", 14, '=', "7  ok"}, {"forth", 0, '^', "0  ok"}}, one_cursor},
+    {"and says that more of its text is above", "", NULL, .also = more_above},
     // The Forth window is a task of its own.  A word is started in it that
     // waits, taking turns, until another window comes to the front, and
     // then prints twenty lines.  The viewer is brought to the front: since
@@ -175,25 +196,38 @@ static check CHECKS[] = {
      "11-behind", .also = prints_behind},
     {"the Forth window runs as a task", "front:forth", "11-task",
      {{"forth", 12, '=', "18"}, {"forth", 13, '=', "19"}, {"forth", 14, '=', " ok"}}, keep},
+    // What is printed is kept as lines of their own lengths, and when there
+    // is no more room the first go.  Thirty lines of forty-odd characters
+    // are more than the window keeps on any machine.  Forty short lines
+    // are not: PgUp shows the lines a window less a line further back,
+    // with [PGDN] at the end of the last row, and PgDn the last again.
+    {"the Forth window keeps its last lines",
+     "':noname 30 0 do i . 40 0 do 42 emit loop cr loop ;\r' 'execute\r'", "11-rolled",
+     {{"forth", 12, '^', "28 ****"}, {"forth", 13, '^', "29 ****"}, {"forth", 14, '=', " ok"}}, more_above},
+    {"PgUp shows the lines before", "':noname 40 0 do i . cr loop ;\r' 'execute\r' pgup", "11-back",
+     {{"forth", 0, '^', "11"}, {"forth", 13, '^', "24"}, {"forth", 14, '^', "25"}}, more_both},
+    {"and PgDn the last again", "pgdn", "11-forth",
+     {{"forth", 13, '^', "39"}, {"forth", 14, '=', " ok"}}, more_above},
     // The whole screen is put out of date from the prompt.  Every window is
     // painted again, each only where it can be seen, so nothing outside the
     // Forth window may change, except the disk light in the bar.
     {"a full repaint leaves the other windows as they were", "'0 0 %W %H inval-rect\r'", "12-repainted",
      .also = others_same},
 
-    // The tables of names for the decompiler are on the disk.  They are
-    // read into memory, which says they were found and are this image's,
-    // and the memory is given back.  A disk without them says so.
+    // The tables of names for the decompiler are on the disk, and are read
+    // through a buffer that is kept only if they are this image's, and then
+    // given back.  A disk without them says so.
     {"the tables of names load from the disk and unload", "'names-load names? . names-unload names? .\r'",
      "13-names", {{"forth", 14, '=', "-1 0  ok"}}, .when = NAMES},
     {"with no tables of names on the disk, none are loaded", "'names-load names? . names-unload names? .\r'",
      "13-names", {{"forth", 14, '=', "0 0  ok"}}, .when = NO_NAMES},
-    // see has them in memory for as long as it runs, and what it prints
+    // see has them in for as long as it runs, and what it prints
     // scrolls the window, which wants memory of its own for as long as a
     // scroll takes: there has to be room for both.  The word decompiled is
     // long enough to scroll, and near its end calls a word with no header,
-    // which is shown by its name only if the names are in.
-    {"see prints a word longer than the window, with the names in memory", "'see scroll-rect\r'", "13-see",
+    // which is shown by its name only if the names are in: words-key ends
+    // with wall.
+    {"see prints a word longer than the window, with the names in memory", "'see words-key\r'", "13-see",
      {{"forth", 14, '$', " ok"}}, sees_all},
     // Where memory has got to: the next cell that would be given out, with
     // the names out and in.  see scrolled the window while it had the names
@@ -203,6 +237,16 @@ static check CHECKS[] = {
      "'0 halloc . names-load 0 halloc . names-unload\r'", "13-memory", .also = memory, .when = NAMES},
     {"with no tables of names on the disk, loading them takes no memory",
      "'0 halloc . names-load 0 halloc . names-unload\r'", "13-memory", .also = memory, .when = NO_NAMES},
+    // see finds a word with no header by its label, which is on the disk,
+    // and for a label on data says where the data is.
+    {"see finds a word with no header by its label", "'see in-port\r'", "13-see-label", .also = sees_label,
+     .when = NAMES},
+    {"and a label on data by where the data is", "'see img\r'", "13-see-data", .also = data_place, .when = NAMES},
+    // What it reads of the disk to show a word, which blk-moved counts.
+    {"see reads the disk for the names", "'blk-moved @ see words-key blk-moved @ swap - .\r'", "13-see-blocks",
+     .also = see_blocks, .when = NAMES},
+    {"with no tables of names on the disk, a word with no header is not found", "'see in-port\r'",
+     "13-see-label", {{"forth", 14, '^', "? -13"}}, .when = NO_NAMES},
     // The picture was read and dithered by a task of its own, a row at a
     // turn, which took itself out of the ring when the last row was made.
     // The tasks round the ring are counted: the desktop's and the Forth
@@ -232,7 +276,7 @@ static check CHECKS[] = {
      "front:forth ':noname begin pause menu-open @ until 20 0 do i . cr loop ;\r' 'execute\r' menu away",
      "15-over", {{"forth", 12, '=', "18"}, {"forth", 13, '=', "19"}, {"forth", 14, '=', " ok"}}, menu_whole},
     {"a press off the menu takes it away, and what was under it is painted", "click:forth-40-40 away", "15-away",
-     {{"forth", 0, '=', "6"}, {"forth", 1, '=', "7"}, {"forth", 2, '=', "8"}}, menu_away},
+     {{"forth", 0, '^', "6"}, {"forth", 1, '=', "7"}, {"forth", 2, '=', "8"}}, menu_away},
     {"and so does a key", "menu backspace away", "15-key", .also = menu_gone},
     // The x at the right of a window's title bar closes it when the button
     // goes up over it, and so does ^Q for the window in front.  In the menu
@@ -275,7 +319,7 @@ static check CHECKS[] = {
     {"behind another window it is painted from the disk", "", "16-behind", .also = from_disk},
     {"what was drawn is there when the window has been under another", "menu pick:paint away", "16-again",
      .also = paint_front},
-    // The tables of names are memory while the Words window is drawn, and
+    // The names' buffer is memory while the Words window is drawn, and
     // the canvas is while HexaPaint is in front.  The Words window, brought
     // to the front, has its names.
     {"there is room for the canvas and the tables of names", "menu pick:words away", "17-names",
@@ -448,6 +492,45 @@ static bool shows(const char* text, int x, int y, const font* f, bool inverse) {
     return(shows_text(text, x, y, f, false, inverse));
 }
 
+// The disk lights (wm.fs): a floppy at the right of the bar for each disk
+// the machine has, the first disk's rightmost and each next one a light's
+// width to its left, which is the first number of disk-corner.  A floppy is
+// one of the first four glyphs of the font spin, a quarter turn apart, ten
+// pixels in from the left of its light and two down.  The machine has two
+// disks, the one it is given or starts from and the pictures': so there is
+// to be a floppy for each of those, and not a pixel where a third's would
+// be.  (A machine once showed sixteen, and nothing looked.)
+static bool lights_right(char* why) {
+    enum { IN = 10, DOWN = 2, TURNS = 4, DISKS = 2 };
+    static font spin;
+    static int wide;
+    if (!wide) {
+        int64_t* corner;
+        spin = font_named("spin");
+        table("wm.fs", "disk-corner", &corner, 2);
+        wide = (int)corner[0];
+        free(corner);
+    }
+    bool shown[DISKS + 1];
+    for(int d=0; d <= DISKS; d++) {
+        int x = W - (d + 1) * wide + IN, width, ink = 0;
+        shown[d] = false;
+        for(int turn=0; turn < TURNS && !shown[d]; turn++) {
+            int start = glyph_of(&spin, turn, &width), wrong = 0;
+            for(int row=0; row < spin.rows; row++) {
+                for(int k=0; k < width; k++) wrong += black(x + k, DOWN + row) != strike_pixel(&spin, start + k, row);
+            }
+            shown[d] = !wrong;
+        }
+        for(int row=0; row < spin.rows; row++) for(int k=0; k < width; k++) ink += black(x + k, DOWN + row);
+        if (d == DISKS) shown[d] = ink != 0;
+    }
+    if (shown[0] && shown[1] && !shown[DISKS]) return(true);
+    snprintf(why, WHY, "a floppy is shown for the first disk: %s; for the second: %s; and where a third's would be "
+             "there is %s", shown[0] ? "yes" : "no", shown[1] ? "yes" : "no", shown[DISKS] ? "something" : "nothing");
+    return(false);
+}
+
 // ---- where the windows are
 
 // The windows, in the order desk.fs says where each goes; their titles;
@@ -515,21 +598,25 @@ static bool under(int x, int y, int n) {
 
 // A point of a window's title bar, left of its x, that no window in front
 // covers, from which the pointer can go dx and dy further and still be on
-// the screen.
+// the screen.  The bar is 18 rows under the frame's top, and a press on any
+// of them is on the title: its middle row is tried first, then the others.
 static void title_of(int n, int dx, int dy, int* tx, int* ty) {
+    static const int ROWS_OF_TITLE[] = { 8, 4, 12, 2, 16 };
     int at = 0;
     while (order[at] != n) at++;
-    *ty = rect[n].y + 8;
-    for(*tx = rect[n].x + rect[n].w - 16; *tx > rect[n].x + 4; *tx -= 4) {
-        if (!(*tx >= 0 && *tx < W - 8 - dx && *ty >= 20 && *ty < H - 12 - dy)) continue;
-        bool covered = false;
-        for(int ahead=at + 1; ahead < open_wins; ahead++) {
-            int a = order[ahead];
-            if (*tx >= rect[a].x && *tx < rect[a].x + rect[a].w && *ty >= rect[a].y && *ty < rect[a].y + rect[a].h) {
-                covered = true;
+    for(int r=0; r < (int)(sizeof(ROWS_OF_TITLE) / sizeof(ROWS_OF_TITLE[0])); r++) {
+        *ty = rect[n].y + ROWS_OF_TITLE[r];
+        for(*tx = rect[n].x + rect[n].w - 16; *tx > rect[n].x + 4; *tx -= 4) {
+            if (!(*tx >= 0 && *tx < W - 8 - dx && *ty >= 20 && *ty < H - 12 - dy)) continue;
+            bool covered = false;
+            for(int ahead=at + 1; ahead < open_wins; ahead++) {
+                int a = order[ahead];
+                if (*tx >= rect[a].x && *tx < rect[a].x + rect[a].w && *ty >= rect[a].y && *ty < rect[a].y + rect[a].h) {
+                    covered = true;
+                }
             }
+            if (!covered) return;
         }
-        if (!covered) return;
     }
     fprintf(stderr, "deskcheck: no part of the title of %s can be seen\n", NAMED[n]);
     exit(EXIT_FAILURE);
@@ -574,15 +661,15 @@ typedef struct {
     const char* name;
     int window;
     int dx, dy;                 // where its first cell is, from the window's content
-    int cols, rows;
+    int cols, rows;             // rows: 0 for as many as the window is tall
 } grid;
 
 static const grid GRIDS[] = {
     {"forth", FORTH, 2, 2, 50, 16},
     {"calc", CALC, 6, 4, 14, 5},
     {"editor", EDITOR, 2, 2, 64, 16},
-    {"names", WORDS, 2, 0, 13, 16},         // the Words window's list,
-    {"source", WORDS, 112, 0, 45, 16},      // and the definition beside it
+    {"names", WORDS, 2, 0, 13, 0},          // the Words window's list,
+    {"source", WORDS, 112, 0, 45, 0},       // and the definition beside it
     {NULL}};
 
 static const grid* grid_named(const char* name) {
@@ -595,6 +682,13 @@ static const grid* grid_named(const char* name) {
 
 static int grid_x(const grid* g) { return(content_x(g->window) + g->dx); }
 static int grid_y(const grid* g) { return(content_y(g->window) + g->dy); }
+
+// The rows a window's text has: as many as it says, or as many lines as
+// its content is tall.
+static int grid_rows(const grid* g) {
+    int rows = g->rows ? g->rows : (rect[g->window].h - 20) / ROWS;
+    return(rows < MOST_LINES ? rows : MOST_LINES);
+}
 
 static void read_grid(const char* name, int row, char* text) {
     const grid* g = grid_named(name);
@@ -745,11 +839,11 @@ static int canvas_wrong(const uint8_t* should, bool but, int but_x, int but_y, i
 
 // ---- what is done
 
-static char names[ROWS][COLS + 1];      // the Words window's list, when it was last looked for names in
-static bool both;                       // and whether both of those looked for were in it
+static char names[MOST_LINES][COLS + 1];        // the Words window's list, when it was last looked for names in
+static bool both;                               // and whether both of those looked for were in it
 
 static int listed(const char* name) {   // the row a name is on, or -1
-    for(int row=0; row < ROWS; row++) {
+    for(int row=0; row < grid_rows(grid_named("names")); row++) {
         if (!strcmp(names[row], name)) return(row);
     }
     return(-1);
@@ -784,6 +878,7 @@ static struct { int w, x, y, dx, dy; uint8_t before[SCREEN]; } grabbed;
 //   click:NAME+X+Y     a click in a window, from the top left of its content;
 //   click:NAME-X-Y     or back from the bottom right of its frame
 //   point:X,Y          the pointer is put at a place of the screen
+//   at:NAME+X+Y        or of a window, from the top left of its content
 //   away               the pointer is put where it is off everything
 //   menu               the title in the bar is clicked, which brings the menu down
 //   pick:NAME          a window's line of the menu is clicked
@@ -792,7 +887,7 @@ static struct { int w, x, y, dx, dy; uint8_t before[SCREEN]; } grabbed;
 //   pmenu              the picture's title in the bar is clicked, which brings its menu down
 //   picture:LINE       a line of the picture's menu is picked (atkinson, ordered, blue, finer,
 //                      coarser, darker or lighter), and the picture looked at until it is so
-//   find:A,B           PgDn, until the Words window lists both names
+//   find:A,B           Right, until the Words window lists both names
 //   name:A             a name in the Words window's list is clicked
 //   tool:N pattern:N   HexaPaint's tool or pattern is clicked
 //   pull:X0,Y0,X1,Y1   the button down at a place of the canvas, the pointer to another, the button up
@@ -905,6 +1000,9 @@ static void does(const char* said) {
             to_front(w);                        // a click in a window brings it to the front
         } else if (!strncmp(word, "point:", 6) && count == 2) {
             desk_pointer(n[0], n[1]);
+        } else if (!strncmp(word, "at:", 3) && count == 2) {
+            int w = window(of, name);
+            desk_pointer(content_x(w) + n[0], content_y(w) + n[1]);
         } else if (!strcmp(word, "pmenu")) {
             click(picture_title() + 12, 8);
         } else if (!strncmp(word, "picture:", 8)) {
@@ -930,16 +1028,28 @@ static void does(const char* said) {
             const char* second = of[comma] ? of + comma + 1 : "";
             first[comma] = '\0';
             // a page of the list at a time, until both are on one, or a
-            // page down shows the page there was: that was the last
-            static char before[ROWS][COLS + 1];
+            // page down shows the page there was: that was the last.  Two
+            // that are next to each other may be the last of a page and the
+            // first of the next: when one is on the last line and the other
+            // is not listed, the choice goes down a line at a time, which
+            // moves the list a line once the choice is on its last line.
+            static char before[MOST_LINES][COLS + 1];
+            const int rows = grid_rows(grid_named("names"));
             bool last = false;
             for(int page=0; !last; page++) {
                 look("10-list");
                 memcpy(before, names, sizeof(names));
-                for(int row=0; row < ROWS; row++) read_grid("names", row, names[row]);
+                for(int row=0; row < rows; row++) read_grid("names", row, names[row]);
                 both = listed(first) >= 0 && listed(second) >= 0;
+                for(int line=0; !both && line < rows && (listed(first) == rows - 1 || listed(second) == rows - 1 ||
+                                                         (line && (listed(first) >= 0 || listed(second) >= 0))); line++) {
+                    desk_key("down", NULL);
+                    look("10-list");
+                    for(int row=0; row < rows; row++) read_grid("names", row, names[row]);
+                    both = listed(first) >= 0 && listed(second) >= 0;
+                }
                 last = both || (page && !memcmp(before, names, sizeof(names)));
-                if (!last) desk_key("pgdn", NULL);
+                if (!last) desk_key("right", NULL);
             }
         } else if (!strncmp(word, "name:", 5)) {
             const grid* g = grid_named("names");
@@ -1067,7 +1177,7 @@ static bool view_on_disk(char* why) {
     return(!differ);
 }
 
-// The picture's menu (forth/viewmenu.fs), as the checks pick its lines: how
+// The picture's menu (the end of forth/view.fs), as the checks pick its lines: how
 // the picture is drawn (dithered, through Bayer's mask, or through blue
 // noise), how many of its pixels a side a sample of the gray is as drawn,
 // as a shift, and what is added to the mask's thresholds.  A sample is 4
@@ -1108,7 +1218,7 @@ static void picture_picked(int line) {
 // sample to 1 << (d + half) of its pixels a side, in 4 bits, and drawn
 // through the mask, a sample to 1 << d pixels a side.  Blue noise is of 64
 // by 64, or 32 by 32 where a cell is 16 bits: its thresholds as what makes
-// the disk makes them (util/bluenoise.c), and not as the disk has them.
+// the disk makes them (util/bluenoise.h), and not as the disk has them.
 static void picture_expected(void) {
     picture();
     if (pic_mode == 0) {
@@ -1225,7 +1335,7 @@ static int bold_row = -1, bold_col;
 static bool bold(char* why) {
     const grid* g = grid_named("source");
     bold_row = -1;
-    for(int row=0; row < g->rows && bold_row < 0; row++) {
+    for(int row=0; row < grid_rows(g) && bold_row < 0; row++) {
         for(int col=0; col < g->cols && bold_row < 0; col++) {
             uint8_t cell[ROWS], any = 0;
             cell_at_screen(grid_x(g) + col * 8, grid_y(g) + row * 16, cell);
@@ -1249,7 +1359,7 @@ static bool told(int row, int col, const char* shot_name, const char* form, char
     regcomp(&is, form, REG_EXTENDED | REG_NOSUB);
     desk_pointer(grid_x(g) + col * 8 + 4, grid_y(g) + row * 16 + 1);
     look(shot_name);
-    int y = grid_y(g) + (row < 14 ? (row + 1) * 16 + 1 : row * 16 - 17);
+    int y = grid_y(g) + (row < grid_rows(g) - 2 ? (row + 1) * 16 + 1 : row * 16 - 17);
     bool found = false;
     for(int x=grid_x(g) + 1 + col * 8; x > grid_x(g) - 3 && !found; x--) {
         read_row(x, y, low(40, (W - x) / 8), text);
@@ -1267,10 +1377,10 @@ static bool fused_told(char* why) {
 
 // The definition as it is, to look in and to see that it is so again; and
 // the screen as it is, to see what of it changes.
-static char source[ROWS][COLS + 1];
+static char source[MOST_LINES][COLS + 1];
 static bool remember(char* why) {
     (void)why;
-    for(int row=0; row < ROWS; row++) read_grid("source", row, source[row]);
+    for(int row=0; row < grid_rows(grid_named("source")); row++) read_grid("source", row, source[row]);
     return(true);
 }
 
@@ -1298,8 +1408,79 @@ static bool word_told(char* why) {
     return(dup && told(1, (int)(dup - source[1]), "10-hover-word", "^[0-9A-F]{4} T->IN IN-> ->T d\\+1", why));
 }
 
+// A window that shows part of a text ends its first row with [PGUP] when
+// more of the text is above, and its last with [PGDN] when more is below.
+static const char PGUP[] = "[PGUP]", PGDN[] = "[PGDN]";
+
+static bool ends_with(const char* text, const char* end) {
+    size_t n = strlen(text), e = strlen(end);
+    return(n >= e && !strcmp(text + n - e, end));
+}
+
+// The first n columns of two rows, where a row that is shorter has spaces.
+static bool same_to(const char* a, const char* b, int n) {
+    for(int col=0; col < n; col++) {
+        char ca = *a ? *a++ : ' ', cb = *b ? *b++ : ' ';
+        if (ca != cb) return(false);
+    }
+    return(true);
+}
+
+// The marks the Words window's definition has are where more of it is:
+// [PGUP] if its first line, the colon's, is not shown, and [PGDN] if its
+// last, the semicolon's, is not.
+static bool words_marked(char* why) {
+    const grid* g = grid_named("source");
+    const int rows = grid_rows(g);
+    char text[COLS + 1], first[COLS + 1], last[COLS + 1];
+    bool start = false, end = false;
+    for(int row=0; row < rows; row++) {
+        read_grid("source", row, text);
+        if (row == 0) strcpy(first, text), start = text[0] == ':';
+        if (row == rows - 1) strcpy(last, text);
+        end = end || text[0] == ';';
+    }
+    bool up = ends_with(first, PGUP), down = ends_with(last, PGDN);
+    snprintf(why, WHY, "its first line is%s shown and its last is%s, and its first row is: %s; its last: %s",
+             start ? "" : " not", end ? "" : " not", first, last);
+    return(up == !start && down == !end);
+}
+
+// The definition from further down: a window less a line, so that its
+// last row is now its first, if more of it is still below; or else as far
+// as fills the window, with its semicolon on the last row.  The rows are
+// compared but for the columns a mark may be in.
+static bool scrolled_down(char* why) {
+    const grid* g = grid_named("source");
+    const int rows = grid_rows(g), upto = g->cols - (int)strlen(PGUP);
+    char now[MOST_LINES][COLS + 1];
+    for(int row=0; row < rows; row++) read_grid("source", row, now[row]);
+    int by = 0;
+    for(int k=1; k < rows && !by; k++) {
+        bool same = true;
+        for(int row=0; row + k < rows && same; row++) same = same_to(now[row], source[row + k], upto);
+        if (same) by = k;
+    }
+    bool more = ends_with(now[rows - 1], PGDN);
+    snprintf(why, WHY, "it moved %d rows of %d, with %s below; its first row is: %s; its last: %s",
+             by, rows, more ? "more" : "nothing", now[0], now[rows - 1]);
+    return(by > 0 && (more ? by == rows - 1 : now[rows - 1][0] == ';'));
+}
+
+// The marks the Forth window has: [PGUP] and [PGDN], as they are to be.
+static bool forth_marked(bool up, bool down, char* why) {
+    const grid* g = grid_named("forth");
+    char first[COLS + 1], last[COLS + 1];
+    read_grid("forth", 0, first);
+    read_grid("forth", g->rows - 1, last);
+    snprintf(why, WHY, "its first row is: %s; its last: %s", first, last);
+    return(ends_with(first, PGUP) == up && ends_with(last, PGDN) == down);
+}
+static bool more_above(char* why) { return(forth_marked(true, false, why)); }
+static bool more_both(char* why) { return(forth_marked(true, true, why)); }
+
 static bool box_gone(char* why) {
-    for(int row=0; row < ROWS; row++) {
+    for(int row=0; row < grid_rows(grid_named("source")); row++) {
         char text[COLS + 1];
         read_grid("source", row, text);
         snprintf(why, WHY, "row %d of the definition is now: %s", row, text);
@@ -1363,10 +1544,51 @@ static bool sees_all(char* why) {
         char text[COLS + 1];
         read_grid("forth", row, text);
         if (strstr(text, "? -")) error = true;          // an error is ? and its number
-        if (strstr(text, "in-port")) label = true;
+        if (strstr(text, "wall")) label = true;
     }
-    snprintf(why, WHY, "%s", error ? "an error was printed" : "in-port, which has no header, is not shown by its name");
+    snprintf(why, WHY, "%s", error ? "an error was printed" : "wall, which has no header, is not shown by its name");
     return(!error && (label || !machine->names));
+}
+
+static bool sees_label(char* why) {
+    bool error = false, named = false;
+    for(int row=0; row < ROWS; row++) {
+        char text[COLS + 1];
+        read_grid("forth", row, text);
+        if (strstr(text, "? -")) error = true;
+        if (!strcmp(text, ": in-port")) named = true;
+    }
+    snprintf(why, WHY, "%s", error ? "an error was printed" : "no line is : in-port");
+    return(!error && named);
+}
+
+// The last line is a number, and then ok.
+static bool data_place(char* why) {
+    char text[COLS + 1];
+    regex_t is;
+    read_grid("forth", 14, text);
+    regcomp(&is, "^[0-9]+  ok$", REG_EXTENDED | REG_NOSUB);
+    bool placed = !regexec(&is, text, 0, NULL, 0);
+    regfree(&is);
+    snprintf(why, WHY, "the last line is: %s", text);
+    return(placed);
+}
+
+// The last line ends with how many blocks were read, and then ok.
+static bool see_blocks(char* why) {
+    char text[COLS + 1];
+    read_grid("forth", 14, text);
+    size_t len = strlen(text), at = len;
+    long blocks = -1;
+    if (len > 4 && !strcmp(text + len - 4, "  ok")) {
+        at = len - 4;
+        while (at && isdigit((unsigned char)text[at - 1])) at--;
+        if (at < len - 4) blocks = strtol(text + at, NULL, 10);
+    }
+    snprintf(why, WHY, "how many blocks were read is not on the last line: %s", text);
+    if (blocks <= 0) return(false);
+    printf("note see read %ld blocks of the disk to show words-key\n", blocks);
+    return(true);
 }
 
 static bool memory(char* why) {
@@ -1378,8 +1600,8 @@ static bool memory(char* why) {
         return(false);
     }
     if (CELL_BITS < 64) out &= (1ll << CELL_BITS) - 1, in &= (1ll << CELL_BITS) - 1;
-    printf("note the next cell to be given out is %lld, and with the tables of names in memory %lld: "
-           "they are %lld cells\n", out, in, in - out);
+    printf("note the next cell to be given out is %lld, and with the names in %lld: "
+           "they take %lld cells\n", out, in, in - out);
     snprintf(why, WHY, "the next cell is %lld with the names out and %lld with them in", out, in);
     return(machine->names ? in > out : in == out);
 }
@@ -1537,12 +1759,27 @@ static bool from_disk(char* why) {
 
 // ---- the checks, run
 
+// The first line of block 1 of the machine's disk, as it was when the
+// desktop came up: what the editor opens on.  It is the disk's to say: a
+// disk the machine starts from has there what its boot loads.
+static char first_line[DISK_LINE + 1];
+
+static void block1_read(void) {
+    uint8_t bytes[DISK_BLOCK];
+    desk_block(DISK_SOURCE_BLOCK, 1, bytes);
+    int wide = DISK_LINE;
+    while (wide && (bytes[wide - 1] == ' ' || !bytes[wide - 1])) wide--;
+    memcpy(first_line, bytes, wide);
+    first_line[wide] = '\0';
+}
+
 // A text a check has, with what the machine says of itself in it.
 static void with_names(const char* text, char* out, size_t len) {
     size_t n = 0;
     for(; *text && n + 1 < len; text++) {
         const char* is = text[0] != '%' ? NULL : text[1] == '1' ? machine->newest[0] :
-                         text[1] == '2' ? machine->newest[1] : text[1] == 'e' ? machine->ending : NULL;
+                         text[1] == '2' ? machine->newest[1] : text[1] == 'e' ? machine->ending :
+                         text[1] == 'b' ? first_line : NULL;
         if (is) n += snprintf(out + n, len - n, "%s", is), text++;
         else out[n++] = *text;
     }
@@ -1596,6 +1833,7 @@ bool desk_begins(const desk* on) {
     desk_checking = "the desktop comes up";
     boot = desk_boot();
     look(NULL);
+    block1_read();
     desk_checking = NULL;
     if (!windows_start()) return(false);
     // The canvas is HexaPaint's content, less its tools down the left and

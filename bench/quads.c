@@ -37,7 +37,7 @@
 #include <math.h>
 #include "../test/dither.h"
 #include "tiff.h"
-#include "../util/png_file.c"
+#include "../util/png_file.h"
 
 static int pw, ph;                      // the picture's size, which is even
 static const int* gray;                 // its grays

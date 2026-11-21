@@ -1,93 +1,56 @@
 \ view.fs - the image viewer
-\
-\ The image is dithered once into a bitmap laid out as the display is.
-\ Painting the window is then copying the bitmap to the screen.
-\
-\ Reading and dithering take a while: 10 million instructions for the
-\ Mandrill.  So a task does it, one image row per turn, while the desktop
-\ carries on.  Only the row being dithered is read.  The window shows the
-\ rows as they are made, so the picture comes down the window.  Rows are
-\ marked for repaint four at a time rather than one, since each mark costs
-\ about ten thousand instructions, half of what dithering a row does: at 1
-\ MIPS the picture finished at 18.8 seconds marking eight at a time, 19.6
-\ with four, 20.8 with two and 23.2 with one.  After the last row the task
-\ takes itself out of the ring.
-\
-\ A viewer is a record: its bitmap, how much is made and shown, its window,
-\ its image and dither, and the task that makes it, whose own record is
-\ the end of the viewer's.  So several viewers can load pictures at once.
-\ `vw` is the viewer in use.  The task finds its viewer from its own
-\ record's address; a window that shows a viewer keeps it in win-data.
-\
-\ Each task needs its own part of the two stacks.  Above what the desktop's
-\ task uses there are two parts of 32 cells, at cell 64 and cell 96, so two
-\ pictures can load at once and a third must wait.
-\
-\ If the picture is bigger than its window, it is shown at half size, each
-\ pixel the gray of four of the image's (dither-half).  The 16-bit machine
-\ needs this: the Mandrill is 512 by 512, a 16,384-cell bitmap it cannot
-\ spare, and its screen is 512 by 342; at half size the whole picture is
-\ the 256 by 256 its window shows, in 4,096 cells.  If even half size is
-\ bigger than the window, only the middle part that shows is kept: the
-\ rows above it are dithered but not kept, since each pixel depends on the
-\ rows above, and the rows below are not read.
-\
-\ The bitmap is allocated first.  When the dither finishes, it is written
-\ to the disk and its memory freed, if the disk can take it (see below).
-\ Reading and dithering allocate their memory after the bitmap, all when
-\ the picture starts, and free it after the last row; the task allocates
-\ and frees nothing while it works.  Reading's memory comes from freed
-\ memory if there is enough (tiff-open); the dither's is new.  When the
-\ dither's memory is freed: if nothing was allocated after it, himem goes
-\ back; otherwise it goes to the free run (hfree), where the next picture's
-\ reading will take it.
+
+\ A viewer is a record with its task's record at its end; a
+\ window keeps its viewer in win-data.
 
 create vw 0 ,           \ the viewer in use: its record
 
-$2a constant VIEW-CELLS
-#31 constant VTASK-AT   \ where the viewer's task record starts: the last eleven cells
+$2f constant VIEW-CELLS
+#36 constant VTASK-AT   \ where its task's record starts
 
-: bm     ( -- a ) vw @ ;                \ the bitmap: address and cells per row, two cells
-: bmh    ( -- a ) vw @ CELL2 + ;        \ rows of the picture made so far,
-: vseen  ( -- a ) vw @ c# 3 + ;         \ and how many bitmap rows have been marked for repaint
-: vwin   ( -- a ) vw @ c# 4 + ;         \ the window it is shown in, once known
-: vpart  ( -- a ) vw @ c# 5 + ;         \ which part of the stacks its task has: 1 or 2
-: vimg   ( -- a ) vw @ c# 6 + ;         \ its image, while being read,
-: vdth   ( -- a ) vw @ c# 7 + ;         \ and its dither
-: vy0    ( -- a ) vw @ c# 8 + ;         \ the row of the picture as shown where the bitmap starts,
-: vkw    ( -- a ) vw @ c# 9 + ;         \ and the bitmap's width and height in pixels
-: vkh    ( -- a ) vw @ c# 10 + ;
-: vhalf  ( -- a ) vw @ c# 11 + ;        \ true if the picture is shown at half size
-\ How the picture is drawn, as chosen in its menu (viewmenu.fs): dithered,
-\ or kept as gray and drawn through a mask.
-: vmode  ( -- a ) vw @ c# 12 + ;        \ 0 dithered, 1 Bayer's mask, 2 blue noise
-: vd     ( -- a ) vw @ c# 13 + ;        \ pixels per side of a gray sample as shown, as a shift
-: vbr    ( -- a ) vw @ c# 14 + ;        \ levels added to the mask's thresholds: more is darker
-: vgray  ( -- a ) vw @ c# 15 + ;        \ the gray, if kept, or 0
-: vmask  ( -- a ) vw @ c# 16 + ;        \ the mask
-: vblk   ( -- a ) vw @ c# 17 + ;        \ the block the picture's file starts at
-: vleft  ( -- a ) vw @ c# 18 + ;        \ the pixel across the picture as shown where the bitmap starts
-: vbusy  ( -- a ) vw @ c# 19 + ;        \ true while its task is working
-: vstate ( -- a ) vw @ c# 20 + ;        \ what the task is doing, when it is doing the menu's work,
-: vrow   ( -- a ) vw @ c# 21 + ;        \ and how many rows of samples are kept
-\ The menu's work uses the memory from varena up to vtop, allocated as one
-\ run as long as nothing else is allocated after it.  The gray comes first;
-\ the mask and drawing from vmark; and what making the gray uses from vtemp.
-: varena ( -- a ) vw @ c# 22 + ;
-: vtop   ( -- a ) vw @ c# 23 + ;
-: vmark  ( -- a ) vw @ c# 24 + ;
-: vks    ( -- a ) vw @ c# 25 + ;        \ pixels per side of a sample of the gray as kept, as a shift
-: vwhole ( -- a ) vw @ c# 26 + ;        \ true once every row of the bitmap has been made
-: vtemp  ( -- a ) vw @ c# 27 + ;
-: vpw    ( -- a ) vw @ c# 28 + ;        \ the picture's width and height
-: vph    ( -- a ) vw @ c# 29 + ;
-: vdrw   ( -- a ) vw @ c# 30 + ;        \ the drawing of the gray through the mask
-: vtask  ( -- a ) vw @ VTASK-AT + ;     \ its task record: eleven cells
+: bm     ( -- a ) vw @ ;          \ the bitmap: two cells
+: bmh    ( -- a ) vw @ CELL2 + ;  \ rows of the picture made,
+: vseen  ( -- a ) vw @ c# 3 + ;   \ and rows put out of date
+: vwin   ( -- a ) vw @ c# 4 + ;   \ its window, once known
+: vpart  ( -- a ) vw @ c# 5 + ;   \ its task's part of stacks
+: vimg   ( -- a ) vw @ c# 6 + ;   \ its image, while read,
+: vdth   ( -- a ) vw @ c# 7 + ;   \ and its dither
+: vy0    ( -- a ) vw @ c# 8 + ;   \ the bitmap's first row,
+: vkw    ( -- a ) vw @ c# 9 + ;   \ its width
+: vkh    ( -- a ) vw @ c# 10 + ;  \ and height in pixels
+: vhalf  ( -- a ) vw @ c# 11 + ;  \ true if at half size
+: vmode  ( -- a ) vw @ c# 12 + ;  \ 0 dither, 1 Bayer, 2 blue
+: vd     ( -- a ) vw @ c# 13 + ;  \ a sample's side, a shift
+: vbr    ( -- a ) vw @ c# 14 + ;  \ added to the mask: darker
+: vgray  ( -- a ) vw @ c# 15 + ;  \ the gray, if kept, or 0
 
-create vparts 3 ,       \ the parts of the stacks no task is using: one bit each
+: vmask  ( -- a ) vw @ c# 16 + ;  \ the mask
+: vblk   ( -- a ) vw @ c# 17 + ;  \ the picture's first block
+: vleft  ( -- a ) vw @ c# 18 + ;  \ the bitmap's first pixel
+: vbusy  ( -- a ) vw @ c# 19 + ;  \ true while its task works
+: vband  ( -- a ) vw @ c# 20 + ;  \ the band the gray draws in
+: vrow   ( -- a ) vw @ c# 21 + ;  \ rows of samples kept
+: varena ( -- a ) vw @ c# 22 + ;  \ the menu's memory: start,
+: vtop   ( -- a ) vw @ c# 23 + ;  \ end,
+: vmark  ( -- a ) vw @ c# 24 + ;  \ and where its gray ends
+: vks    ( -- a ) vw @ c# 25 + ;  \ a kept sample's side
+: vwhole ( -- a ) vw @ c# 26 + ;  \ true once all rows made
+: vsaved ( -- a ) vw @ c# 27 + ;  \ bitmap rows on the disk
+: vpw    ( -- a ) vw @ c# 28 + ;  \ the picture's width
+: vph    ( -- a ) vw @ c# 29 + ;  \ and height
+: vdrw   ( -- a ) vw @ c# 30 + ;  \ the gray's drawing
 
-: retire ( -- ) \ take the running task out of the ring after this turn
-    up @ begin dup @ up @ <> while @ repeat         \ the task before it in the ring
+: vgpb    ( -- a ) vw @ c# 31 + ; \ the gray's paint block,
+: vgin    ( -- a ) vw @ c# 32 + ; \ or 0; its first row;
+: vgmk    ( -- a ) vw @ c# 33 + ; \ the block rows are made in
+: vgsaved ( -- a ) vw @ c# 34 + ; \ rows of samples on disk;
+: vgrpb   ( -- a ) vw @ c# 35 + ; \ and how many to a block
+: vtask  ( -- a ) vw @ VTASK-AT + ;
+
+create vparts 3 ,  \ the parts of the stacks free: a bit each
+
+: retire ( -- ) \ the running task out of the ring
+    up @ begin dup @ up @ <> while @ repeat
     up @ @ swap !
 ;
 
@@ -95,99 +58,73 @@ create vparts 3 ,       \ the parts of the stacks no task is using: one bit each
     bmh @ vy0 @ -  d# 0 max  vkh @ min
 ;
 
-: view-shown ( -- ) \ mark the rows made since the last call for repaint
+: view-shown ( -- ) \ the rows made since are out of date
     made vseen @ > if
-        vwin @ ?dup if >r  d# 0 vseen @  vkw @  made vseen @ -  r> win-inval then
+        vwin @ ?dup if
+            >r  d# 0 vseen @  vkw @  made vseen @ -
+            r> win-inval
+        then
         made vseen !
     then
 ;
 
-: vback ( a -- ) \ free the viewer's memory from a up to vtop: lower himem if nothing came after, else hfree
+\ the viewer's memory from a up to vtop is freed: by setting
+\ himem back if it was the last given out, and if not by hfree
+: vback ( a -- )
     himem @ vtop @ = if dup himem ! vtop ! exit then
     vtop @ over - hfree
 ;
 
-: vdone ( a -- ) \ done reading: free the dither's memory from a, and reading's (tiff-close)
+: vdone ( a -- ) \ the dither's memory from a, and the reader's
     himem @ vtop @ = >r  vback  vimg @ tiff-close
-    r> if himem @ vtop ! then                       \ the viewer's memory now ends here, if it was the most recent
+    r> if himem @ vtop ! then
 ;
 
-: vkept? ( -- f ) \ true if the menu's memory is still the most recent allocation; if not, start a new one at himem
+\ is the menu's memory still the last given out?  If not, it
+\ starts again at himem.
+: vkept? ( -- f )
     varena @ if
         himem @ vtop @ = if true exit then
-        varena @ vtop @ over - hfree                \ something was allocated after it: free it
+        varena @ vtop @ over - hfree
     then
     himem @ dup varena ! vtop !  d# 0 vgray !  false
 ;
 
 \ ---- the bitmap on the disk
-\
-\ When the dither finishes, the bitmap is written to the blocks from
-\ VIEW-BLK and its memory is freed.  The window is then painted from the
-\ disk: the first and last blocks needed are worked out from the clip's top
-\ and bottom, and only those are read.
-\ Each block holds as many whole rows as fit, so a block can be copied to
-\ the screen as a bitmap of its own.  Blocks are read into memory taken
-\ just for the paint (with-room), not the block buffer, so that the
-\ editor's block is left alone.
-\
-\ The menu draws into the bitmap, so before it does, view-in allocates the
-\ bitmap again and reads it back from the disk.
-\
-\ There is room on the disk for one bitmap.  If another viewer's is there,
-\ or the bitmap is too big, or there is no disk, or a write fails, the
-\ bitmap stays in memory.  The disk copy has no header: it is only trusted
-\ by the viewer that wrote it, while the machine runs.
 
-create vondisk 0 ,      \ the viewer whose bitmap is on the disk, or 0
+\ The blocks from VIEW-BLK, whole rows to a block.  bm says
+\ where the rows would be were they all in memory.
 
-: vcells ( -- n ) bm 1+ @ vkh @ * ;                 \ cells in the bitmap
-: vrpb ( -- n ) BLKCELLS bm 1+ @ u/mod nip ;        \ rows in a block
-: vrows ( row -- n ) vkh @ swap - vrpb min ;        \ rows in the block that starts at this row
+create vondisk 0 ,  \ the viewer whose bitmap is on disk, or 0
 
-: v-chunk ( row -- a n ) \ the block's rows in the bitmap: their address, and how many cells they are
+: vcells ( -- n ) \ cells in the bitmap
+    bm 1+ @ vkh @ * ;
+: vrpb ( -- n ) \ rows in a block
+    BLKCELLS bm 1+ @ u/mod nip ;
+: vrows ( row -- n ) \ rows in the block that starts at this row
+    vkh @ swap - vrpb min ;
+
+: v-chunk ( row -- a n ) \ the block's rows in the bitmap
     dup bm 1+ @ * bm @ +
     swap vrows bm 1+ @ *
 ;
 
-: (view-write) ( x a -- ) \ write the bitmap to the disk, a block at a time, copying each through a
-    nip >r  VIEW-BLK d# 0                           ( blk row ) ( R: a )
-    begin
-        dup vkh @ <
-    while
-        dup v-chunk r@ swap cells-move
-        over r@ swap blk-write
-        vrpb +  swap 1+ swap
-    repeat
-    2drop rdrop
-;
-
-: (view-read) ( x a -- ) \ read the bitmap back from the disk, through a
-    nip >r  VIEW-BLK d# 0                           ( blk row ) ( R: a )
-    begin
-        dup vkh @ <
-    while
-        over r@ swap blk-read
-        dup v-chunk r@ -rot cells-move
-        vrpb +  swap 1+ swap
-    repeat
-    2drop rdrop
-;
-
-: vshow ( row b -- ) \ copy the block in bitmap b, which starts at that row, to its place in the window
+: vshow ( row b -- ) \ the block in bitmap b, to the window
     swap >r  d# 0 d# 0 d# 0 r@  vkw @  r> vrows  copy-bits
 ;
 
-: vblock ( row -- blk ) vrpb u/mod nip VIEW-BLK + ;   \ the block a row of the bitmap is in
+: vblock ( row -- blk ) \ the block a row of the bitmap is in
+    vrpb u/mod nip VIEW-BLK + ;
 
-: (view-show) ( x a -- ) \ paint the blocks that overlap the clip; a is a bitmap record, then room for a block
-    nip >r  r@ CELL2 + r@ !  bm 1+ @ r@ 1+ !        ( R: a )
-    clip c# 3 + @ oy @ -  vkh @ min                 ( bottom ) \ the clip's rows, in the bitmap
-    clip CELL + @ oy @ -  d# 0 max                  ( bottom top )
-    2dup > 0= if 2drop rdrop exit then              \ no rows of the bitmap to paint
-    vblock  swap 1- vblock 1+  swap                 ( end blk ) \ the blocks those rows are in
+\ the blocks the clip asks for, from row `top` of the bitmap; a
+\ is a bitmap's record and then room for a block
+: (view-show) ( top a -- )
+    >r  r@ CELL2 + r@ !  bm 1+ @ r@ 1+ !      ( top ) ( R: a )
+    clip-rows vsaved @ min  swap rot max      ( bottom top )
+    2dup > 0= if 2drop rdrop exit then
+    vblock  swap 1- vblock 1+  swap           ( end blk )
     begin
-        2dupxor
+        2dup xor
     while
         r@ @ over blk-read
         dup VIEW-BLK - vrpb *  r@ vshow
@@ -196,96 +133,378 @@ create vondisk 0 ,      \ the viewer whose bitmap is on the disk, or 0
     2drop rdrop
 ;
 
-: view-out ( -- ) \ write the bitmap to the disk and free its memory, if the disk can take it
-    bm @ 0=  'blk-read @ 0=  or if exit then
-    vondisk @ ?dup if vw @ <> if exit then then
-    vrpb VIEW-BLKS *  vkh @  < if exit then
-    d# 0 d# 1024 ['] (view-write) with-room 0= if exit then
-    vw @ vondisk !
-    bm @ vcells hgive  d# 0 bm !
+: to-disk? ( -- f ) \ can the disk take the bitmap?
+    'blk-read @ 0<>
+    vondisk @ dup 0= swap vw @ = or  and
+    vrpb VIEW-BLKS * vkh @ < 0=  and
 ;
 
-\ If the viewer's memory is still the most recent allocation, the bitmap
-\ goes at its start and the menu's work after it.  Otherwise view-out's
-\ hgive left the bitmap's old memory in the free run, and hreuse takes it
-\ from there if it is still free.
-: view-in ( -- ) \ allocate the bitmap again and read it back from the disk
-    bm @ if exit then
-    vkept? if
-        varena @ himem !  vcells >c halloc bm !  himem @ dup varena ! vtop !
-    else
-        vcells >c hreuse bm !
+: whole-bitmap ( -- ) \ memory for all of it
+    vcells >c halloc bm ! ;
+
+: vbitmap ( -- ) \ its memory: a block, or all of it
+    vkw @ PXMASK + PXSHIFT rshift bm 1+ !  d# 0 vsaved !
+    to-disk? if
+        vw @ vondisk !  BLKCELLS >c halloc bm !  exit
     then
-    d# 0 vgray !
-    d# 0 d# 1024 ['] (view-read) with-room drop
-    d# 0 vondisk !
+    whole-bitmap
 ;
 
-: view-done ( -- ) \ the task's last turn: free its part of the stacks and take it out of the ring
-    view-shown  true vwhole !  vpart @ vparts or!  d# 0 vbusy !  retire
+: dither-begin ( -- )
+    vblk @ tiff-open  dup vimg ! image!
+    d# 0 bmh !  d# 0 vseen !
+    bm vimg @ vleft @ vy0 @ vkw @ vkh @
+    vhalf @ if dither-half else dither-part then  vdth !
+    himem @ vtop !
+;
+
+: in-block ( -- a ) \ where the block being made is in memory
+    vsaved @ v-chunk drop ;
+
+\ the disk did not take a block: dithered again, into memory
+: in-memory ( -- )
+    d# 0 vondisk !
+    vdth @ vdone  in-block BLKCELLS hgive
+    d# 0 vsaved !  whole-bitmap  dither-begin
+;
+
+: block-out ( -- ) \ the block's rows are made: it is written
+    in-block dup vsaved @ vblock ['] blk-write catch
+    if 2drop drop in-memory exit then
+    vsaved @ vrows vsaved +!
+    vsaved @ bm 1+ @ * - bm !
+;
+
+: view-done ( -- ) \ the task's last turn
+    view-shown  true vwhole !  vpart @ vparts or!  d# 0 vbusy !
+    retire
+;
+
+: view-made ( -- ) \ the last row is made: its memory given back
+    vimg @ if vdth @ vdone  d# 0 vimg !  d# 0 vdth ! then
+    vondisk @ vw @ = if
+        in-block BLKCELLS hgive  d# 0 bm !
+    then
+    view-done
 ;
 
 : view-row ( -- ) \ one turn of a viewer's task
-    up @ VTASK-AT - vw !                            \ the viewer whose record contains this task's
-    bmh @ vy0 @ vkh @ + < 0= if                     \ the last kept row is made
-        vimg @ if                                   \ free what reading and dithering used,
-            vdth @ vdone                            \ which is the whole arena if it was the menu's
-            d# 0 varena !  d# 0 vimg !  d# 0 vdth !
-        then
-        view-out  view-done  exit
-    then
+    up @ VTASK-AT - vw !
+    bmh @ vy0 @ vkh @ + < 0= if view-made exit then
     vdth @ dither-row
     d# 1 bmh +!
+    vondisk @ vw @ = if
+        made vsaved @ -  vsaved @ vrows = if block-out then
+    then
     bmh @ d# 3 and 0= if view-shown then
 ;
 
-: pic-w ( -- n ) vpw @ vhalf @ if d# 1 rshift then ; \ the picture's size as shown
+: pic-w ( -- n ) \ the picture's size as shown
+    vpw @ vhalf @ if d# 1 rshift then ;
 : pic-h ( -- n ) vph @ vhalf @ if d# 1 rshift then ;
 
-: view-spawn ( xt -- ) \ start the viewer's task, running xt each turn, in a free part of the stacks
-    vparts @ d# 1 and if d# 1 else d# 2 then        \ the higher part, if it is free
+: view-spawn ( xt -- ) \ its task, in a free part of the stacks
+    vparts @ d# 1 and if d# 1 else d# 2 then
     dup vpart !  dup vparts xor!
     d# 1 = if d# 96 else d# 64 then
     dup vtask spawn
     true vbusy !
 ;
 
-: view-dither ( -- ) \ start dithering the picture into the viewer's bitmap, from the first row
-    vblk @ tiff-open  dup vimg ! image!
-    d# 0 bmh !  d# 0 vseen !
-    bm vimg @ vleft @ vy0 @ vkw @ vkh @  vhalf @ if dither-half else dither-part then  vdth !
-    himem @ vtop !
-    ['] view-row view-spawn
+\ the picture's size; at half size if it is bigger than w by h
+: vsize ( w h img -- w h )
+    dup image!  tw @ vpw !  th @ vph !  tiff-close
+    over vpw @ <  over vph @ <  or vhalf !
+    vhalf @ if d# 1 else d# 2 then vd !
+;
+
+: vkeep ( w h -- ) \ the middle of the picture that fits is kept
+    pic-h min dup vkh !  pic-h swap - d# 1 rshift vy0 !
+    pic-w min dup vkw !  pic-w swap - d# 1 rshift
+    PXMASK invert and vleft !
 ;
 
 header view-load
-: view-load ( blk# w h -- viewer ) \ start loading the TIFF at a block, to be shown in w by h
-    vparts @ 0= d# 8 -throw                         \ no part of the stacks is free for its task
-    blk-need                                        \ allocate the block buffer now, so it is not among what is freed
+: view-load ( blk# w h -- viewer ) \ the TIFF at a block
+    vparts @ 0= d# 8 -throw
+    blk-need    \ before anything that is freed
     VIEW-CELLS >c halloc  dup vw !
     d# 0 swap VIEW-CELLS cells-fill
-    rot dup vblk ! tiff-open                        ( w h img ) \ read the picture's size,
-    dup image!  tw @ vpw !  th @ vph !  tiff-close  \ and free the reader before allocating the bitmap
-    over vpw @ <  over vph @ <  or vhalf !          \ bigger than the window: show it at half size
-    pic-h min dup vkh !  pic-h swap - d# 1 rshift vy0 !     \ keep the middle rows that fit,
-    pic-w min dup vkw !  pic-w swap - d# 1 rshift           \ and the middle columns,
-    PXMASK invert and vleft !                       \ starting on a cell boundary
-    vkw @ PXMASK + PXSHIFT rshift  dup bm 1+ !      \ the bitmap
-    vkh @ * >c halloc bm !
-    vhalf @ if d# 1 else d# 2 then vd !             \ a gray sample, if one is kept, covers 4 by 4 of the picture's pixels
-    view-dither
+    rot dup vblk ! tiff-open  vsize  vkeep  vbitmap
+    dither-begin  ['] view-row view-spawn
     vw @
+;
+
+\ ---- the gray on the disk
+
+\ The blocks from GRAY-BLK, whole rows of samples to a block, a
+\ row being its four plane rows.
+
+: gs-cells ( -- n ) \ cells in a row of samples
+    vgray @ 1+ @ d# 2 lshift ;
+: gs-rows ( row -- n ) \ the rows in the block that starts at it
+    vgray @ gray-rows swap - vgrpb @ min ;
+: gs-blk ( row -- blk ) \ the block a row of samples is in
+    vgrpb @ u/mod nip GRAY-BLK + ;
+: gs-at ( a row -- ) \ the rows from `row` are in the block at a
+    gs-cells * - vgray @ ! ;
+
+: make-in ( -- ) \ the rows being made are in their block
+    vgpb @ if vgmk @ vgsaved @ gs-at then ;
+
+: gray-in ( sy -- ) \ row sy is where the gray says
+    vgpb @ 0= if drop exit then
+    dup vgsaved @ < 0= if drop make-in exit then
+    dup vgin @ - vgrpb @ u< 0= if
+        dup vgrpb @ u/mod drop -       ( its block's first row )
+        vgpb @ over gs-blk blk-read  dup vgin !
+    then
+    drop  vgpb @ vgin @ gs-at
+;
+
+: gray-out ( -- ) \ the block's rows are made: it is written
+    vgmk @ vgsaved @ gs-blk blk-write
+    vgsaved @ gs-rows vgsaved +!
+;
+
+\ ---- painting the window
+
+: dithered ( top -- ) \ the bitmap, from row top
+    bm @ if
+        dup vsaved @ max >r
+        bm d# 0 r@  d# 0 r@  vkw @
+        vwhole @ if vkh @ else made then r> -  copy-bits
+    then
+    vondisk @ vw @ =  clip-rows drop vsaved @ < and if
+        d# 1024 CELLB 2* +  ['] (view-show) with-room
+    then
+    drop
+;
+
+\ the gray is drawn through the mask into a band, a bitmap
+#16 constant BAND-ROWS
+
+: band-at ( y -- ) \ the band holds the rows from y
+    vband @ >r  r@ 1+ @ * negate  r@ CELL2 + +  r> ! ;
+
+: gray-line ( y -- ) \ row y of the bitmap, drawn into the band
+    dup vy0 @ + vd @ rshift gray-in  vdrw @ gray-draw-row ;
+
+: band-draw ( y n -- ) \ n rows from y, no more than a bandful
+    over band-at
+    2dup bounds
+    begin 2dup xor while dup gray-line 1+ repeat
+    2drop
+    >r >r  vband @ d# 0 r@  d# 0 r>  vkw @ r>  copy-bits
+;
+
+\ what is made of the gray, and the dithered rows under it
+: gray-shown ( -- )
+    clip-rows nip made >
+    made vkh @ < and if made dithered then
+    clip-rows made min  swap d# 0 max       ( bottom top )
+    begin
+        2dup >
+    while
+        2dup - BAND-ROWS min  2dup band-draw  +
+    repeat
+    2drop
 ;
 
 header view-draw : view-draw ( win -- )
     dup win-data @ ?dup 0= if drop exit then
     vw !  vwin !
     copy-mode
-    bm @ 0= if                                      \ not in memory: paint it from the disk
-        vondisk @ vw @ = if  d# 0  d# 1024 CELLB 2* +  ['] (view-show) with-room drop  then
-        exit
-    then                                            \ once all rows have been made, show them all: a remake
-    bm d# 0 d# 0  d# 0 d# 0  vkw @  vwhole @ if vkh @ else made then  copy-bits    \ draws over the old picture
+    vmode @ if vgray @ if gray-shown exit then then
+    d# 0 dithered
 ;
 
 header ignore-key : ignore-key ( c win -- ) 2drop ;
+
+\ ---- the picture's menu: how the picture is drawn
+
+create t-picture ," Picture"
+create t-atkinson ," Atkinson"
+create t-ordered ," Ordered"
+create t-blue ," Blue noise"
+create t-finer ," Finer"
+create t-coarser ," Coarser"
+create t-darker ," Darker"
+create t-lighter ," Lighter"
+
+create pic-menu 0 , 0 , 0 , 0 , 0 ,
+create pic-lines 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
+
+: pic-vw ( -- viewer|0 ) \ the front window's, in use
+    top win-data @ dup vw ! ;
+: pic-n ( -- n ) d# 7 ;
+: pic-line ( i -- title bold? ) pic-lines + @ false ;
+: pic-mark ( i -- f ) \ marks the way it is drawn now
+    pic-vw if vmode @ = else drop false then ;
+
+: pic-ks ( -- shift ) \ the picture's pixels a side of a sample
+    vd @ vhalf @ if 1+ then ;
+
+W32+? [if]
+: mask-blue ( bright -- mask ) mask-blue64 ;
+[else]
+: mask-blue ( bright -- mask ) mask-blue32 ;
+[then]
+
+\ ---- what the task does
+
+: pic-made ( -- ) \ the rows the samples kept so far make
+    vrow @ vd @ lshift  vy0 @ vkh @ + min  bmh @ max bmh !
+    view-shown
+;
+
+: pic-unread ( -- ) \ the reader freed, if outside the arena
+    vimg @ ?dup if
+        dup varena @ u<  over himem @ u< 0=
+        or if tiff-close else drop then
+    then
+;
+
+: pic-dither ( -- ) \ as it was dithered; the gray given back
+    vkept? drop  varena @ himem !  d# 0 varena !  d# 0 vgray !
+    vy0 @ vkh @ + bmh !  d# 0 vseen !  view-shown
+;
+
+: gray-lost ( -- ) \ the disk did not take a block of the gray
+    pic-unread  d# 0 vimg !  d# 0 vmode !  pic-dither
+    view-done
+;
+
+: make-free ( -- ) \ the block the gray's rows were made in
+    vgmk @ ?dup if
+        BLKCELLS hgive  d# 0 vgmk !  himem @ vtop !
+    then
+;
+
+: block-kept ( -- f ) \ false if the disk did not take a block
+    vgpb @ 0= if true exit then
+    vrow @ vgsaved @ -  vgsaved @ gs-rows <> if true exit then
+    ['] gray-out catch 0=
+;
+
+: pic-turn ( -- ) \ a turn of the task: a row of samples
+    up @ VTASK-AT - vw !
+    make-in  vgray @ gray-row  d# 1 vrow +!
+    block-kept 0= if gray-lost exit then
+    pic-made
+    vrow @ vgray @ gray-rows < if exit then
+    himem @ vtop @ = if
+        vgray @ gray-dither vdone make-free
+    then
+    d# 0 vimg !
+    view-done
+;
+
+\ ---- what a pick does
+
+: band-new ( -- band ) \ a band as wide as the bitmap is
+    bm 1+ @ BAND-ROWS * CELL2 + >c halloc
+    bm 1+ @ over 1+ !
+;
+
+: pic-mask ( -- ) \ the mask, a band, and a drawing into it
+    vbr @
+    vmode @ d# 1 = if mask-bayer else mask-blue then vmask !
+    band-new dup vband !
+    vmask @ vgray @ vd @ vleft @ vy0 @
+    gray-draw-start vdrw !
+    vy0 @ bmh !  d# 0 vseen !
+;
+
+\ the gray's record, and its planes in memory or on the disk
+: gray-plan ( w h shift -- )
+    gray-record vgray !
+    d# 0 vgsaved !  d# -1 u2/ vgin !  d# 0 vgmk !  d# 0 vgpb !
+    BLKCELLS gs-cells u/mod nip vgrpb !
+    vondisk @ vw @ =
+    vgrpb @ GRAY-BLKS * vgray @ gray-rows < 0=  and if
+        BLKCELLS >c halloc vgpb !  exit
+    then
+    vgray @ gray-planes
+;
+
+: pic-start ( -- ) \ the arena again, from its start
+    varena @ himem !
+    vpw @ vph @ pic-ks gray-plan  pic-ks vks !
+    himem @ vmark !
+    pic-mask
+    vgpb @ if BLKCELLS >c halloc vgmk ! then
+    vblk @ tiff-open  dup vimg !  vgray @ gray-open
+    himem @ vtop !
+;
+
+\ the gray through the mask again, if it is kept as fine as this
+: pic-again ( -- f )
+    vkept? if vgray @ if vks @ pic-ks = if
+        vmark @ himem !  pic-mask  himem @ vtop !
+        vgray @ gray-rows vrow !  pic-made  true exit
+    then then then
+    false
+;
+
+: pic-gray ( -- ) \ through the mask, the gray made first
+    pic-again if exit then
+    begin               \ as fine as memory allows
+        d# 0 vimg !
+        ['] pic-start catch
+    while
+        pic-unread
+        vd @ d# 2 < 0= if d# -8 throw then
+        d# 1 vd +!
+    repeat
+    d# 0 vrow !  ['] pic-turn view-spawn
+;
+
+: changed! ( x a -- f ) \ x stored at a: true if that changed it
+    2dup @ = if 2drop false exit then  ! true ;
+
+: pic-way ( i -- ) \ dithered, or through one of the masks
+    dup vmode changed! 0= if drop exit then
+    if pic-gray else pic-dither then
+;
+
+: pic-do ( i -- ) \ what line i asks, if that changes anything
+    dup d# 3 < if pic-way exit then
+    dup d# 5 < if
+        d# 3 = if d# -1 else d# 1 then  vd @ +  d# 0 max
+        d# 2 min  vd changed!
+    else
+        d# 5 = if d# 1 else d# -1 then  vbr @ +  d# -15 max
+        d# 15 min  vbr changed!
+    then
+    vmode @ and if pic-gray then
+;
+
+: pic-pick ( i -- )
+    pic-vw 0= if drop exit then
+    vbusy @  vparts @ 0= or if drop exit then
+    vmode @ >r  vd @ >r  vbr @ >r
+    ['] pic-do catch if     \ out of memory: as it was
+        drop  r> vbr !  r> vd !  r> vmode !  d# 0 vgray !
+        exit
+    then
+    rdrop rdrop rdrop
+;
+
+header view-menu
+: view-menu ( win -- )
+    t-atkinson pic-lines !  t-ordered pic-lines 1+ !
+    t-blue pic-lines CELL2 + !
+    t-finer pic-lines c# 3 + !  t-coarser pic-lines c# 4 + !
+    t-darker pic-lines c# 5 + !  t-lighter pic-lines c# 6 + !
+    t-picture pic-menu !  ['] pic-n pic-menu 1+ !
+    ['] pic-line pic-menu CELL2 + !
+    ['] pic-pick pic-menu c# 3 + !
+    ['] pic-mark pic-menu c# 4 + !
+    pic-menu swap win-menu !
+;
+
+create t-mandrill ," mandrill.tiff"  \ the picture's label
+
+header picture-blk
+: picture-blk ( -- blk|0 ) t-mandrill >c count labelled drop ;

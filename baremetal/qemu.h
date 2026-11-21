@@ -23,8 +23,12 @@
 #include <stdint.h>
 
 // Start QEMU on a kernel, with a copy of a disk that is made in a
-// directory (disk.img).  It is stopped when the program ends.
-void qemu_start(const char* elf, const char* disk, const char* out);
+// directory (disk.img), and the pictures' disk as its second, which is
+// not written to.  Each is a device of its own, the first in the first
+// place for one and the second in the next: the machine's disks are its
+// block devices in the order of their places (forth/virt-disk.fs).  It is
+// stopped when the program ends.
+void qemu_start(const char* elf, const char* disk, const char* pictures, const char* out);
 
 // All the console has said so far, however much: it does not wait for
 // more.  The text is where it is only until this is next asked.
@@ -33,8 +37,18 @@ const char* qemu_said(void);
 // Eight bytes of the machine's memory, at an address of the machine's.
 uint64_t qemu_cell(uint64_t address);
 
+// As many bytes of its memory as are said, from an address of the
+// machine's, written to a file.
+void qemu_memory(uint64_t address, uint64_t bytes, const char* to);
+
 // With SCALE: how many each pixel is across and down, the screens taken,
 // and those that were not in whole blocks.
 extern int qemu_scale, qemu_shots, qemu_inexact;
+
+// A machine that compiles its system from its disk says each file as it
+// starts, and its screen is to show that while it does.  While the desktop
+// was waited for (desk_boot): whether the console said a file, and whether
+// the screen then had text on it, black on white, before the desktop came.
+extern int qemu_boot_said, qemu_boot_shown;
 
 #endif //HEXAFORTH_QEMU_H
