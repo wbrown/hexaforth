@@ -2,76 +2,39 @@
 \ row at a time
 
 \ Either byte order, 8-bit gray or RGB, any number of strips.
-\ The image is never all in memory: what is kept is a window, a
-\ row and a block long.  A place in the file is a block and a
-\ byte in it, never a count of bytes.
-
-\ An image is a record: `img` is the one in hand, and the words
-\ below are its cells.
+\ What is in memory is a window, a row and a block long.  A
+\ place in the file is a block and a byte in it.
 
 create img 0 ,          \ the image in hand: its record
 
-$18 constant IMG-CELLS  \ even, since hreuse gives even numbers
-                        \ of cells
+$18 constant IMG-CELLS  \ even, as hreuse gives
 
-header tw : tw     ( -- a ) \ width, height
-    img @ ;
-header th : th     ( -- a ) img @ 1+ ;
-: tspp      ( -- a ) \ samples per pixel
-    img @ CELL2 + ;
-: tphoto    ( -- a )
-    \ 0: white is zero  1: black is zero  2: RGB
-    img @ c# 3 + ;
-: tcomp     ( -- a ) \ compression
-    img @ c# 4 + ;
-: tiff-base ( -- a )
-    \ the block of the device the file starts at
-    img @ c# 5 + ;
-: tiff-be   ( -- a ) \ true for a big-endian file
-    img @ c# 6 + ;
+header tw : tw ( -- a ) img @ ;       \ width
+header th : th ( -- a ) img @ 1+ ;    \ height
+: tspp      ( -- a ) img @ CELL2 + ;  \ samples per pixel
+: tphoto    ( -- a ) img @ c# 3 + ;   \ 0 white is zero, 1 black
+: tcomp     ( -- a ) img @ c# 4 + ;   \ compression
+: tiff-base ( -- a ) img @ c# 5 + ;   \ the file's first block
+: tiff-be   ( -- a ) img @ c# 6 + ;   \ true if big-endian
+: tfblk     ( -- a ) img @ c# 7 + ;   \ bytes count from here
+: tdblk     ( -- a ) img @ c# 8 + ;   \ the directory's block,
+: tstrips   ( -- a ) img @ c# 9 + ;   \ its strips' entry, or 0
+: trps      ( -- a ) img @ c# 10 + ;  \ rows in a strip
+: raw       ( -- a ) img @ c# 11 + ;  \ the window
+: wend      ( -- a ) img @ c# 12 + ;  \ the end of what it has
+: tblk      ( -- a ) img @ c# 13 + ;  \ the next block,
 
-: tfblk     ( -- a )
-    \ the block of the file that bytes are counted from
-    img @ c# 7 + ;
-: tdblk     ( -- a ) \ the block the directory is in,
-    img @ c# 8 + ;
-: tstrips   ( -- a )
-    \ and the byte from there of its StripOffsets entry, or 0
-    img @ c# 9 + ;
-: trps      ( -- a ) \ rows in a strip
-    img @ c# 10 + ;
-: raw       ( -- a )
-    \ the window; or the whole image, if it is in memory
-    img @ c# 11 + ;
-: wend      ( -- a )
-    \ the cell after the last that has been read into it
-    img @ c# 12 + ;
-
-: tblk      ( -- a ) \ the block of the device that comes next
-    img @ c# 13 + ;
-: tstrip    ( -- a ) \ the strip that comes next,
-    img @ c# 14 + ;
-: tsleft    ( -- a )
-    \ and the rows still to come of the one being read
-    img @ c# 15 + ;
-: tbuf      ( -- a ) \ bits fetched and not yet taken,
-    img @ c# 16 + ;
-: tbn       ( -- a ) img @ c# 17 + ;                \ how many,
-: tbp       ( -- a ) \ and the next cell
-    img @ c# 18 + ;
-header 'pixel : 'pixel ( -- a )
-    \ ( -- g )  the next pixel's gray
-    img @ c# 19 + ;
-
-header 'grays : 'grays ( -- a )
-    \ ( lanes -- )  a row's grays, or 0: see rows-how
-    img @ c# 20 + ;
-header 'pairs : 'pairs ( -- a )
-    \ ( lanes -- )  the same, two pixels to a lane, or 0
-    img @ c# 21 + ;
-: traw      ( -- a )
-    \ the window's size in cells, when reading a file
-    img @ c# 22 + ;
+: tstrip    ( -- a ) img @ c# 14 + ;  \ the next strip,
+: tsleft    ( -- a ) img @ c# 15 + ;  \ the rows left of this
+: tbuf      ( -- a ) img @ c# 16 + ;  \ bits not yet taken,
+: tbn       ( -- a ) img @ c# 17 + ;  \ how many,
+: tbp       ( -- a ) img @ c# 18 + ;  \ and the next cell
+\ ( -- g ) the next pixel's gray
+header 'pixel : 'pixel ( -- a ) img @ c# 19 + ;
+\ ( lanes -- ) a row's grays, and two pixels to a lane; or 0
+header 'grays : 'grays ( -- a ) img @ c# 20 + ;
+header 'pairs : 'pairs ( -- a ) img @ c# 21 + ;
+: traw      ( -- a ) img @ c# 22 + ;  \ the window's cells
 
 meta
 :: BLKSHIFT \ from a count of cells to a count of blocks
@@ -94,11 +57,9 @@ meta
 
 target
 
-\ the dither says it too, and a macro is its file's own: so a
-\ word with a header says it (text.fs has the same for its own)
 header HALFMASK : half-mask HALFMASK ;
 
-: new-image ( -- ) \ a record with nothing in it, in hand
+: new-image ( -- )
     IMG-CELLS >c halloc  dup img !
     d# 0 swap IMG-CELLS cells-fill
 ;
@@ -124,9 +85,7 @@ header HALFMASK : half-mask HALFMASK ;
 : t32@ ( byte -- lo hi )
     dup t16@ swap d# 2 + t16@  tiff-be @ if swap then ;
 
-\ a place in the file: bytes are counted from its block, and it
-\ is this one
-: tseek ( lo hi -- byte )
+: tseek ( lo hi -- byte ) \ bytes are counted from its block
     d# 6 lshift over d# 10 rshift or tfblk !
     h# 3ff and
 ;
@@ -144,13 +103,12 @@ header HALFMASK : half-mask HALFMASK ;
 : tval ( entry -- x ) \ as much of it as a cell holds
     tval2 d# 16 lshift or ;
 
+\ if the tag is n, its value is kept, or the entry
 : tfield ( entry tag n var -- entry tag )
-    \ if the tag is n, keep its value
     >r over = if over tval r@ ! then rdrop
 ;
 
 : tentry ( entry tag n var -- entry tag )
-    \ if the tag is n, keep the entry
     >r over = if over r@ ! then rdrop
 ;
 
@@ -162,7 +120,7 @@ header HALFMASK : half-mask HALFMASK ;
     d# 4 t32@ tseek  tfblk @ tdblk !
 ;
 
-: tiff-tag ( entry -- ) \ what an entry of the directory says
+: tiff-tag ( entry -- )
     dup t16@                                  ( entry tag )
     d# 256 tw      tfield
     d# 257 th      tfield
@@ -174,16 +132,14 @@ header HALFMASK : half-mask HALFMASK ;
     2drop
 ;
 
-: tiff-tags ( ifd -- ) \ what the directory's entries say
+: tiff-tags ( ifd -- )
     dup t16@ swap d# 2 +                      ( n entry )
     swap d# 12 * over + swap                  ( end entry )
     begin 2dup xor while dup tiff-tag d# 12 + repeat
     2drop
 ;
 
-\ Only an uncompressed file is read.  The window is a row, a
-\ block and a cell, made an even number of cells.
-: tiff-window ( -- )
+: tiff-window ( -- ) \ a row, a block and a cell
     tcomp @ d# 1 <> d# 38 -throw
     tstrips @ 0= d# 38 -throw
     trps @ 1- th @ u< 0= if th @ trps ! then
@@ -193,8 +149,7 @@ header HALFMASK : half-mask HALFMASK ;
 ;
 
 header tiff-open
-: tiff-open ( blk# -- img )
-    \ read the directory of the TIFF starting at a block
+: tiff-open ( blk# -- img ) \ the TIFF that starts at a block
     IMG-CELLS >c hreuse  dup img !
     d# 0 swap IMG-CELLS cells-fill
     tiff-base !
@@ -203,14 +158,12 @@ header tiff-open
     img @
 ;
 
-\ free what reading the file took: its window, then its record
 header tiff-close
-: tiff-close ( img -- )
+: tiff-close ( img -- ) \ its window, then its record
     img !  raw @ traw @ hgive  img @ IMG-CELLS hgive
 ;
 
-\ where the strips' starts are: in the entry, if they fit in it,
-\ and if not, where it says
+\ where the strips' starts are: in the entry, or where it says
 : starts-at ( entry shorts? -- byte )
     >r  dup d# 4 + t32@ drop  r> if d# 3 else d# 2 then u< if
         d# 8 +
@@ -233,14 +186,11 @@ header tiff-close
 
 \ ---- the window
 
-\ tbuf holds the bits fetched and not yet taken, lowest first,
-\ and tbn how many.  `take` gives the next n, up to a cell.
-: take ( n -- x )
+: take ( n -- x ) \ the next n bits, up to a cell
     dup tbn @ > if
         tbp @ @  d# 1 tbp +!            ( n next )
-        dup tbn @ lshift tbuf @ or >r   \ the bits, with
-                                        \ rubbish above
-        over tbn @ - rshift tbuf !      \ the rest of the cell
+        dup tbn @ lshift tbuf @ or >r   \ with rubbish above
+        over tbn @ - rshift tbuf !
         CELLBITS over - tbn +!
         drop r>
     else
@@ -250,32 +200,25 @@ header tiff-close
 ;
 
 : win-block ( -- ) \ the next block, after what the window has
-    tblk @ blk-cur @ = if flush then  \ as it now is, if it is
-                                      \ the one being edited
+    tblk @ blk-cur @ = if flush then
     wend @ tblk @ blk-read
     BLKCELLS wend +!  d# 1 tblk +!
 ;
 
-: next-strip ( -- ) \ go to where the next strip starts
+: next-strip ( -- )
     tstrip @ selem  d# 1 tstrip +!                  ( lo hi )
     tseek  tfblk @ tiff-base @ + tblk !             ( byte )
     raw @ wend !  win-block
     dup BYTESHIFT rshift raw @ + tbp !  d# 0 tbn !  d# 0 tbuf !
-    \ it does not start where a cell does:
-    CELLB 1- and d# 3 lshift ?dup if
-        \ then its rows are not cells
+    CELLB 1- and d# 3 lshift ?dup if    \ its rows are not cells
         take drop  d# 0 'grays !  d# 0 'pairs !
     then
     trps @ tsleft !
 ;
 
-\ What has not been taken is moved to the front, and blocks are
-\ read after it: nothing is read past the end of the image.
-: row-there ( -- )
-    \ read on until the next row is all in the window
-    tw @ tspp @ * d# 3 lshift  tbn @ -  \ the bits of it that
-                                        \ are not fetched yet,
-    CELLBITS 1- + BITSHIFT rshift       ( n ) \ as cells
+: row-there ( -- ) \ the next row is all in the window
+    tw @ tspp @ * d# 3 lshift  tbn @ -
+    CELLBITS 1- + BITSHIFT rshift       ( n ) \ cells to fetch
     dup tbp @ + wend @ u> if
         tbp @ raw @  wend @ tbp @ -  dup >r cells-move
         raw @ dup tbp !  r> + wend !
@@ -286,21 +229,16 @@ header tiff-close
     drop
 ;
 
-\ take the image in hand, with its next row all there to
-\ be taken
 header tiff-row
-: tiff-row ( img -- )
+: tiff-row ( img -- ) \ in hand, its next row there to be taken
     img !
     tsleft @ 0= if next-strip then
     d# -1 tsleft +!
     row-there
 ;
 
-\ An image that is in memory already: one strip, and a window
-\ that has everything in it.
-header image-is
+header image-is \ an image that is in memory already
 : image-is ( cell w h samples -- img )
-    \ gray, black being nothing, if it has one sample to a pixel
     new-image
     tspp !  th !  tw !  raw !
     d# 1 tphoto !
@@ -319,8 +257,7 @@ header image-is
     2drop
 ;
 
-\ the gray of a pixel in the low three bytes of a cell, red
-\ lowest: a macro, compiled in line where rows are converted
+\ of a pixel in the low three bytes of a cell, red lowest
 W32+? [if]
 meta
 :: WEIGH24 ( x -- g )
@@ -344,25 +281,21 @@ W32+? [if]
 ;
 [then]
 
-\ ---- a row's grays, a cell at a time
+\ ---- a row's grays, a cell at a time: a gray is the low eight
+\ bits of a lane of sixteen
 
-\ Whoever dithers keeps each pixel in a lane, sixteen bits of a
-\ cell, and a gray is the low eight of its lane.
-header gray-mask
-\ a gray in each lane
+header gray-mask  \ a gray in each lane
 create gray-mask  meta $00ff00ff00ff00ff cell-mask and target ,
 W64? [if]
-\ the lower lane of each two
-header pair-mask
+header pair-mask  \ the lower lane of each two
 create pair-mask  meta $0000ffff0000ffff target ,
 [then]
 
-\ Three cells of a row of three samples are as many pixels as a
-\ cell has bytes, and two cells of lanes: lanes-a and lanes-b.
-\ At half size each two grays are added as they are made: sums.
+\ Three cells of RGB are two cells of lanes: lanes-a, lanes-b.
 
-\ grays of two pixels, first lowest, at bits 0 and 24, with junk
-\ above each: a macro, since it runs for every two pixels
+\ two pixels' grays at bits 0 and 24, with junk above each:
+\ h# ff0000ff is one colour of both pixels, 24 bits apart, so
+\ one multiply weighs both: 77, 150, 29 of 256 for R, G, B
 W64? [if]
 meta
 :: WEIGHED ( w -- x )
@@ -383,8 +316,7 @@ W64? [if]
 ;
 [then]
 
-\ the eight pixels in the three cells at p: pairs of grays
-\ summed, in four lanes
+\ the pixels in the three cells at p, in pairs, a sum a lane
 W64? [if]
 : sums ( p -- y )
     dup CELL2 + @ d# 16 rshift twain d# 48 lshift >r  \ 6 and 7
@@ -396,7 +328,6 @@ W64? [if]
 ;
 [then]
 
-\ the eight pixels in the three cells at p, four and four
 W64? [if]
 : quad ( wa wb -- y ) \ four pixels' grays, in four lanes
     pair swap pair swap d# 32 lshift or
@@ -411,8 +342,6 @@ W64? [if]
 ;
 [then]
 
-\ With cells of 32 bits a cell is a pixel and a byte of the
-\ next: four pixels are three cells, two and two.
 W32? [if]
 : lanes-a ( p -- y )
     dup @ tuck  d# 24 rshift swap 1+ @ d# 8 lshift or WEIGH24
@@ -425,24 +354,18 @@ W32? [if]
 ;
 [then]
 
-\ the four pixels in the three cells at p: pairs of grays
-\ summed, in two lanes
 W32? [if]
 : sums ( p -- y )
     dup CELL2 + @ >r  dup 1+ @ >r  @  ( c0 ) ( R: c2 c1 )
-    \ pixels 0 and 1,
     dup WEIGH24  swap d# 24 rshift r@ d# 8 lshift or WEIGH24  +
-    \ 2 and 3
     r> d# 16 rshift r@ d# 16 lshift or WEIGH24
     r> d# 8 rshift WEIGH24  +
     d# 16 lshift or
 ;
 [then]
 
-\ With cells of 16 bits two pixels are three cells: red and
-\ green, blue and red, green and blue.  A pixel's gray is a cell
-\ of lanes by itself.  Macros: the first pixel's, and the
-\ second's.
+\ two pixels in three cells of 16 bits: the first's gray, and
+\ the second's
 W32+? [if] [else]
 meta
 :: PIXEL-A ( p -- y )
@@ -465,10 +388,8 @@ meta
 target
 [then]
 
-: gray-lanes ( lanes -- )
-    \ the next row's grays, each added to its pixel's lane
+: gray-lanes ( lanes -- ) \ a row's grays, each to its lane
     tbp @ >r  ( a ) ( R: the three cells )
-    \ two cells of lanes to three of the row
     tw @ BYTESHIFT rshift 2*  over + swap  ( end a )
     begin 2dup xor while
 W32+? [if]
@@ -481,8 +402,7 @@ W32+? [if]
     2drop  r> tbp !
 ;
 
-\ adjacent lanes added in pairs, the sums packed in the lower
-\ half of the cell: for the dither to sixteen levels too
+\ lanes added in pairs, the sums in the lower half of the cell
 W64? [if]
 header fold-pairs
 : fold-pairs ( y -- z )
@@ -497,8 +417,7 @@ header fold-pairs
 ;
 [then]
 
-: gray-pairs ( lanes -- )
-    \ the next row's grays, each two pixels' added into a lane
+: gray-pairs ( lanes -- ) \ the same, two pixels to a lane
     tbp @ >r  ( a ) ( R: the three cells )
     tw @ BYTESHIFT rshift over + swap  ( end a )
     begin 2dup xor while
@@ -512,12 +431,7 @@ W32+? [if]
     2drop  r> tbp !
 ;
 
-\ A cell of a row of one sample is twice as many grays as it has
-\ lanes: each half of it is a cell of lanes, its grays moved
-\ apart.
-
-\ the grays in half a cell, nothing above them: each in a lane,
-\ the first lowest
+\ the grays in half a cell, each in a lane, the first lowest
 : spread ( x -- y )
 W64? [if]
     dup d# 16 lshift or  pair-mask @ and
@@ -527,9 +441,7 @@ W32+? [if]
 [then]
 ;
 
-\ the next row's grays, if white is nothing: each made what
-\ black being nothing has it, where it is
-: white-row ( -- )
+: white-row ( -- ) \ the next row inverted, if white is 0
     tphoto @ if exit then
     tbp @  tw @ BYTESHIFT rshift  bounds
     begin
@@ -541,8 +453,7 @@ W32+? [if]
     2drop
 ;
 
-: gray1-lanes ( lanes -- )
-    \ the next row's grays, each added to its pixel's lane
+: gray1-lanes ( lanes -- ) \ of a row of one sample
     white-row
     >r  ( R: the two cells of lanes a cell of the row is )
     tbp @  tw @ BYTESHIFT rshift  bounds  ( end p )
@@ -557,7 +468,6 @@ W32+? [if]
 ;
 
 : gray1-pairs ( lanes -- )
-    \ the next row's grays, each two pixels' added into a lane
     white-row
     tbp @ - >r
     ( R: from a cell of the row to its cell of lanes )
@@ -574,10 +484,9 @@ W32+? [if]
 
 \ ---- how an image's pixels are asked for
 
-header image! : image! ( img -- ) \ take an image in hand
-    img ! ;
+header image! : image! ( img -- ) img ! ;
 
-: pixel-how ( -- ) \ how a pixel of the image is asked for
+: pixel-how ( -- )
     tspp @ d# 3 = if
         ['] rgb
     else
@@ -586,10 +495,7 @@ header image! : image! ( img -- ) \ take an image in hand
     'pixel !
 ;
 
-\ 'grays and 'pairs are 0 where a row is not whole cells, or
-\ does not start where a cell does: then it is asked a pixel at
-\ a time.
-: rows-how ( -- ) \ and a row, if a row is whole cells
+: rows-how ( -- ) \ 'grays and 'pairs, if a row is whole cells
     d# 0 'grays !  d# 0 'pairs !
     tw @ CELLB 1- and if exit then
     tspp @ d# 3 = if
@@ -601,11 +507,9 @@ header image! : image! ( img -- ) \ take an image in hand
 ;
 
 header pixels
-: pixels ( -- )
-    \ the image in hand starts again from its first pixel
+: pixels ( -- ) \ the image in hand, from its first pixel
     raw @ tbp !  d# 0 tbn !  d# 0 tbuf !
     d# 0 tstrip !
-    \ a file starts at its first strip
     tstrips @ if d# 0 else th @ then tsleft !
     pixel-how rows-how
 ;

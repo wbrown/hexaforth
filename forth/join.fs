@@ -1,29 +1,10 @@
 \ join.fs - the nucleus's peephole
 
-\ What is typed is plain words: `2dup xor`, `over +`, `dup @`.
-\ Each of those is one instruction of this machine, and this is
-\ what makes it one: an instruction about to be compiled is
-\ offered to the one or two before it, and if they are together
-\ what one instruction does they become that one, which is then
-\ offered again.  So the source is what reads well and the code
-\ is what the machine does best, and nobody needs a name for the
-\ instruction.
-
-\ What they are together is not looked up: it is worked out, by
-\ stepping them on a machine whose cells hold where each thing
-\ came from (compose.fs).  The targets `pairs` and `peephole`
-\ hold what it works out to the machine's own step.
-
-\ Nothing is joined across a place a branch lands on (syncpt),
-\ or to an instruction with a return in it.  A small word, which
-\ has no call or branch and leaves the return stack as it was,
-\ is compiled in place where that is no longer than a call of
-\ it, so that its instructions can be joined: 2dup is two.
-
-\ This is the first thing on code page 1, straight after the
-\ kernel, whose ROM is nearly full: the kernel's compile, goes
-\ through a vector, which the build sets to pcompile, here.  It
-\ uses nothing but the kernel.
+\ An instruction being compiled is combined with the one or two
+\ before it, if one instruction does the same (compose.fs).  No
+\ instruction before syncpt, where a branch lands, is changed.
+\ 7403 exit, 643c +, 6800 @, 6308 !, 6400 does nothing, 8000 a
+\ literal pushed, c000 added, b000 f000 a variable (MODEL.md).
 
 create jn 0 ,          \ the instruction being compiled
 
@@ -33,15 +14,9 @@ create jn 0 ,          \ the instruction being compiled
     i@ h# f000 and h# 6000 =
 ;
 
-\ What two instructions are together, and three, is worked out
-\ and not looked up (compose.fs).  The two before are tried
-\ first: three that are one instruction leave less than two
-\ that are.  What is made is offered again.
 include compose.fs
 
-\ join the instruction in jn to the two before, or the one, if
-\ they are one instruction
-: join1 ( -- f )
+: join1 ( -- f ) \ jn and the two before, or the one, as one
     prev plain? 0= if false exit then
     prev 1- plain? if
         prev 1- i@ prev i@ jn @ jthree ?dup if
@@ -54,33 +29,17 @@ include compose.fs
     false
 ;
 
-\ What is left may be the instruction that does nothing, as
-\ `>r r>` is together: then nothing is compiled, as cross.fs
-\ compiles nothing for it.
-: join, ( insn -- )
+: join, ( insn -- ) \ compiled, unless it comes to 6400
     jn !  begin join1 0= until
     jn @ dup h# 6400 = if drop exit then  code, ;
 
-\ @ or ! straight after a literal that is the address of one of
-\ the 4,096 cells from VARS: the machine has one instruction for
-\ the two together.  The literal is one instruction, or a push
-\ and an add.  Nothing is joined across a place a branch
-\ lands on.
-
-\ These three are here and not in the kernel because only this
-\ file calls them: the kernel's own (compile,) compiles a call
-\ and nothing else.
-: lval ( insn -- n )
+: lval ( insn -- n ) \ the number a literal has
     dup h# fff and swap d# 12 rshift d# 3 and d# 12 * lshift ;
 
-\ Is it a literal of this kind: h# 8000 for a push, h# c000 for
-\ an add?
-: lit? ( insn kind -- f )
+: lit? ( insn kind -- f ) \ h# 8000 a push, h# c000 an add
     over h# c000 and =  swap h# 3000 and h# 3000 <>  and ;
 
-\ the address the literal just compiled pushes, and how many
-\ instructions it is (a push, or a push and an add); or nothing
-\ if the instruction before is not such a literal
+\ the address just pushed, and how many instructions push it
 : var-lit ( -- address n | 0 )
     prev i@ dup h# 8000 lit? if lval d# 1 exit then
     dup h# c000 lit?  prev 1- i@ h# 8000 lit?  and if
@@ -89,7 +48,7 @@ include compose.fs
     drop d# 0
 ;
 
-: var, ( insn -- )
+: var, ( insn -- ) \ @ or ! after a variable's address is one
     >r
     var-lit ?dup 0= if r> code, exit then
     ( address instructions )
@@ -101,33 +60,18 @@ include compose.fs
     r> h# 6308 = if h# f000 else h# b000 then or code,
 ;
 
-\ Numbers.  Most of what is typed has a number in it, and
-\ nothing is joined to a number by a rule.  But the nucleus is
-\ on the machine: what some instructions make of numbers it
-\ finds by running them, and compiles the number that comes of
-\ it.  `16 3 lshift` is 128, and `100 30 - 2 *` is 140.  What
-\ was just compiled is a number if it is pushes, and
-\ instructions that make one number of one or of two, and leaves
-\ one: so it is read back from the code, and nothing is kept
-\ beside it.
-
-\ Which instructions make one number of one or of two and touch
-\ nothing else, and what a dup, a push and an instruction are
-\ together (`dup 16 rshift` is the push and one instruction),
-\ the machine was asked when this was built: folds.fs, which
-\ says its own form.
+\ ---- numbers: code that only computes a number is run, and
+\ the number compiled.  folds.fs lists the instructions that
+\ compute one number from one or from two.
 
 : folds ( -- ia ) folds-at @ ;
 
-\ how many numbers an instruction makes one of: one, two, or
-\ none if it is not such
-: makes ( w -- n )
+: makes ( w -- n ) \ numbers w computes one from: 1, 2 or 0
     folds d# 4 +  folds i@ folds 1+ i@ +  bounds    ( w end a )
     begin
         2dup xor
     while
         >r  over r@ i@ = if
-            \ those of one are first
             2drop  r> folds d# 4 + -  folds i@ u<  d# 2 +  exit
         then
         r> 1+
@@ -135,14 +79,8 @@ include compose.fs
     2drop drop d# 0
 ;
 
-\ What ends at e is a number if, going back from there, every
-\ instruction is a push, or adds to what is there, or makes one
-\ number of one or of two, and at some push nothing more is
-\ wanted: that is where it starts.
-\ How many numbers are wanted before instruction w, going back:
-\ one fewer before a push, as many before an add, and one more
-\ before one that makes one number of two; or, before any other,
-\ there is no number.
+\ how many numbers are needed before w, going back: a push
+\ gives one, and what `makes` n takes n and gives one
 : wants ( wanted w -- wanted' true | false )
     dup h# 8000 lit? if drop 1- true exit then
     dup h# c000 lit? if drop true exit then
@@ -151,6 +89,7 @@ include compose.fs
 ;
 
 : number-at ( e -- s | 0 )
+    \ where the number that ends at e starts
     d# 1 swap                                       ( wanted a )
     begin
         1-  dup syncpt @ u< if 2drop d# 0 exit then
@@ -160,22 +99,17 @@ include compose.fs
     nip
 ;
 
-\ What number it is, the machine is asked: an exit is put where
-\ it ends, and it is run.
-: number@ ( s e -- n )
-    dup i@ >r  ( R: what is where it ends )
+: number@ ( s e -- n ) \ run, with an exit put at e
+    dup i@ >r  ( R: the instruction at e )
     cp @ >r  dup cp !  exit,  r> cp !
     >r execute
     r> r> swap i!
 ;
 
-\ The number n in place of the code from s, if it is no more
-\ instructions than are there: it is compiled past the end
-\ first, to see how many it is.
+\ n replaces the code from s, if that is no longer
 : renumber ( n s -- )
     cp @ >r  over tliteral  cp @ r@ -  r@ cp !
     ( n s len ) ( R: where the code ends )
-    \ more: what is there stays
     over r> swap - u> if 2drop exit then
     cp ! tliteral
 ;
@@ -183,24 +117,20 @@ include compose.fs
 : room? ( -- f ) \ past the code, for a number to be tried in
     cp @ h# fff and h# ff0 u< ;
 
-\ if what was just compiled is a number, it is made as few
-\ instructions as it can be
-: tidy ( -- f )
+: tidy ( -- f ) \ a number just compiled, as few instructions
     cp @ number-at dup if
         dup cp @ number@ swap renumber  true
     then
 ;
 
-\ jn is compiled: if what ends with it is a number that is the
-\ end of it, and if not it is taken off again
-: fold ( -- f )
+: fold ( -- f ) \ jn compiled, if what ends with it is a number
     jn @ code,  tidy dup 0= if d# -1 cp +! then
 ;
 
-\ The rules are in sets, one for each instruction a push is
-\ taken across (dup, r@, r>): the instruction, how many rules,
-\ and the rules.
-: set-of ( x -- set | 0 ) \ the set for that instruction
+\ ---- after dup, r@ or r>, a push and an instruction are the
+\ push and another instruction.  folds.fs has a set of rules
+\ for each of the three, and says what a rule is.
+: set-of ( x -- set | 0 ) \ the set for dup, r@ or r>
     folds dup i@ over 1+ i@ + + d# 4 +              ( x set )
     folds d# 2 + i@ negate                          ( x set -n )
     begin
@@ -212,8 +142,8 @@ include compose.fs
     drop 2drop d# 0
 ;
 
+\ w as the first rule of the set that it matches changes it
 : crossed ( w set -- y | 0 )
-    \ what w is after that set's instruction and a push
     dup d# 2 +  swap 1+ i@ d# 3 *  bounds  ( w end rule )
     begin
         2dup xor
@@ -226,16 +156,12 @@ include compose.fs
     2drop drop d# 0
 ;
 
-\ How many instructions what was just pushed is: a number or a
-\ variable fetched is one, and a number that is a push and an
-\ add is two.
-: pushed ( -- n )
+: pushed ( -- n ) \ how many instructions pushed what was pushed
     prev i@ dup h# c000 and h# 8000 = if drop d# 1 exit then
     h# c000 lit?  prev 1- i@ h# 8000 lit?  and  d# 2 and
 ;
 
-\ What is pushed, the n instructions after the one at `at`, goes
-\ down over that instruction, and jn is y.
+\ the n instructions after the one at `at` go down over it
 : push-down ( n at y -- end end )
     jn !  swap bounds                               ( end at )
     begin 2dup xor while
@@ -244,10 +170,8 @@ include compose.fs
     d# -1 cp +!
 ;
 
-\ a dup, what is pushed and jn are what is pushed and another
-\ instruction: make them so.  So are an r@ or an r> in the dup's
-\ place: r> 8 rshift is the 8 pushed, and a shift that has the
-\ return stack for its input.
+\ a dup, r@ or r>, what is pushed and jn become what is pushed
+\ and another instruction
 : across ( -- )
     pushed ?dup 0= if exit then                     ( n )
     prev over -                                     ( n at )
@@ -260,9 +184,8 @@ include compose.fs
 ;
 
 \ `0 =` after an instruction that leaves a flag is invert.
-\ Which leave one is the last set of what is told (folds.fs): it
-\ is the set of `=`, and what its rules change is `invert`.
-\ True if jn, an `=` after a push of nothing, was compiled so.
+\ The last set's instruction is = and each rule's third is
+\ invert, so y is w xor invert and ( w y ) xor is invert.
 : flag-set ( -- set ) folds dup d# 3 + i@ + ;
 : flag-not ( -- f )
     prev i@ h# 8000 =  flag-set i@ jn @ =  and if
@@ -276,13 +199,10 @@ include compose.fs
     false
 ;
 
-\ A literal, which an add may make one number with those before.
-: emit-lit ( w -- )
+: emit-lit ( w -- ) \ a literal: after an add, tidy
     dup code,  h# c000 lit? if room? if tidy drop then then ;
 
-\ a number that jn, a +, comes after is added to it: true if it
-\ was
-: add-to ( -- f )
+: add-to ( -- f ) \ jn, a +, is added to the number before it
     jn @ h# 643c <> if false exit then
     cp @ number-at ?dup 0= if false exit then
     dup cp @ number@                ( s n )
@@ -290,22 +210,17 @@ include compose.fs
     swap cp !  h# c000 segs,  true
 ;
 
-\ After a literal: @ or ! may be a variable's; `0 =` may follow
-\ a flag; a dup before it may be taken up; and nothing else is
-\ joined to it.
-: after-lit ( -- )
+: after-lit ( -- ) \ jn, with a literal before it
     jn @  dup h# 6800 = over h# 6308 = or if var, exit then
     drop  flag-not if exit then  across  jn @ code,
 ;
 
-\ One instruction of a word that is being compiled in place.
-: emit0 ( w -- )
+: emit0 ( w -- ) \ an instruction of a word compiled inline
     dup h# 8000 and if emit-lit exit then
     dup h# 1000 and if h# effc and then     \ without the return
     jn !
     prev syncpt @ u< 0= if
         room? if
-            \ it and the numbers before it are a number;
             jn @ makes if fold if exit then then
             add-to if exit then
         then
@@ -314,22 +229,18 @@ include compose.fs
     jn @ join,
 ;
 
-: lays ( xt n -- ) \ n instructions of a word, in place
+: lays ( xt n -- ) \ n instructions of a word, inline
     bounds begin 2dup xor while dup i@ emit0 1+ repeat 2drop ;
 
-\ Does an instruction leave the return stack alone but for how
-\ it moves?
-: quiet? ( w -- f )
+: quiet? ( w -- f ) \ does it neither read R nor write it?
     dup h# c00 and h# c00 <>  swap h# 300 and h# 100 <>  and ;
 
-\ What instruction w of a word says of compiling the word in
-\ place: it goes on (0), it returns as it is and is the last
-\ (1), or it cannot be (-1): a call or a branch, or one that
-\ moves the return stack otherwise.
+\ of a word inline: w goes on (0), is the last (1), or cannot
+\ be inline (-1): a call, a branch, or what uses or moves R
 : inline-kind ( w -- k )
-    dup h# 8000 and if drop d# 0 exit then  \ a literal
+    dup h# 8000 and if drop d# 0 exit then
     dup h# e000 and h# 6000 <> if drop d# -1 exit then
-    dup h# 1000 and if                  \ the return is in it
+    dup h# 1000 and if
         dup quiet? swap d# 3 and d# 3 = and if d# 1 exit then
         d# -1 exit
     then
@@ -337,15 +248,14 @@ include compose.fs
     d# -1
 ;
 
-\ how many instructions, if the word can be compiled in place,
-\ which for a word that is only its exit is none (cells); or
-\ less than nothing
+\ how many instructions a word is inline, a bare exit not
+\ counted, or -1 if it cannot be inline or is too long
 : small ( xt -- n )
     d# 0 swap                                       ( n ia )
     begin
         over d# 3 > if 2drop d# -1 exit then
         dup i@                                      ( n ia w )
-        dup h# 7403 = if 2drop exit then            \ its exit
+        dup h# 7403 = if 2drop exit then
         inline-kind ?dup if
             nip 0< if drop d# -1 exit then  1+ exit
         then
@@ -353,12 +263,10 @@ include compose.fs
     again
 ;
 
-\ A small word is in place only where that is no longer than the
-\ call of it: it is tried, and if what is left is longer the
-\ code is put back as it was and the word is called.  The eight
-\ instructions before it are kept past the code while it is
-\ tried, and nothing is joined further back than those (syncpt).
-: imove ( from to n -- ) \ instructions, going up
+\ A small word is tried inline, and called if that is longer.
+\ keep copies the eight instructions before it to 16 past cp
+\ and moves syncpt up to them; fits puts them back.
+: imove ( from to n -- ) \ instructions, lowest first
     >r over - r> swap >r  ( from n ) ( R: far )
     bounds begin 2dup xor while
         dup i@ over r@ + i!  1+
@@ -373,8 +281,8 @@ include compose.fs
     dup d# 8 -  dup syncpt @ max syncpt !
     over d# 16 + d# 8 imove ;
 
-\ True if no more than `more` instructions are there than were;
-\ if not, the code is as it was.
+\ true if no more than `more` instructions were added; if not,
+\ the code is as it was
 : fits ( syncpt cp more -- f )
     over + cp @ u< if
         dup cp !  dup d# 16 + swap d# 8 - d# 8 imove
@@ -382,34 +290,33 @@ include compose.fs
     then
     drop syncpt !  true ;
 
-\ The word that was called waits for the instruction that comes
-\ next: with that joined to it, it may be no longer in place
-\ than its call and the instruction are.  It waits only while
-\ its call is the last thing compiled and no branch lands after.
-create waits 0 ,        \ the word, or nothing
+\ the word just called, to be tried again with what comes next
+create waits 0 ,        \ its xt, or 0
 
-: again? ( w -- w false | true ) \ w is what comes next
+\ w is what comes next.  If the waiting word's call is still
+\ the last instruction, the word and w are tried inline in its
+\ place.  True if w was compiled.
+: again? ( w -- w false | true )
     waits @ ?dup 0= if false exit then      ( w xt )
     d# 0 waits !
     prev i@ over near h# 4000 or <>
     syncpt @ cp @ = or  roomy? 0= or if drop false exit then
-    d# -1 cp +!                             \ the call is off
+    d# -1 cp +!
     2dup >r >r  keep 2swap                  ( syncpt cp w xt )
     dup small lays  emit0
     d# 2 fits if rdrop rdrop true exit then
     r> r> (compile,)  false ;
 
-: emit1 ( w -- )
+: emit1 ( w -- ) \ emit0, after a waiting word is tried again
     dup h# 8000 and 0= if
         dup h# 1000 and if h# effc and then
         again? if exit then
     then
     emit0 ;
 
-\ A word that moves the return stack cannot be called: it is
-\ immediate, and where it is written it offers its one
-\ instruction to the one before, as emit1 offers any other.
-: offered ( -- ) \ the instruction after the call of this
+\ compiles the instruction after the call of it, and returns to
+\ its caller's caller: each word below compiles one instruction
+: offered ( -- )
     r> i@ emit1 ;
 inline-operand
 header-imm >r      :noname  offered >r ;fallthru
@@ -417,44 +324,39 @@ header-imm r>      :noname  offered r> ;fallthru
 header-imm r@      :noname  offered r@ ;fallthru
 header-imm rdrop   :noname  offered rdrop ;fallthru
 
-\ An exit is an instruction, and is offered to those before it
-\ as any other is: `@ ;` is one, which returns.  A call before
-\ it the kernel's exit makes a jump, and lays no exit.
-: returns ( -- ) \ the word being made returns here
+\ an exit: texit makes a call before it a jump; an exit it
+\ compiles instead is taken back and given to join,
+: returns ( -- )
     cp @  texit  cp @ = if exit then
     d# -1 cp +!  h# 7403 join, ;
 header-imm exit    :noname  returns ;
 header-imm ;       :noname  returns attach t[ ;
 
-\ In place whatever comes of it: the first instruction may be
-\ what a word that waits was waiting for.
-: placed ( xt n -- )
+: placed ( xt n -- ) \ inline, whatever comes of it
     dup 0= if 2drop exit then
     over i@ emit1  1- swap 1+ swap lays ;
 
-\ A word that only pushes a number, which is in place wherever
-\ it is said: a push, and what is added.
-: number? ( xt n -- f )
+: number? ( xt n -- f ) \ does the word only push a number?
     over i@ h# 8000 lit? >r  + 1- i@ h# 8000 and  r> and ;
 
-: near? ( xt -- f ) \ does one instruction call it from here
+: near? ( xt -- f ) \ does one instruction call it from here?
     dup d# 12 rshift 0=  swap cp @ xor d# 12 rshift 0=  or ;
 
-\ in-place before a word: it is in place whatever is joined
-create placing 0 ,
+create placing 0 ,      \ true after in-place
 header-imm in-place  :noname  true placing ! ;
 
-\ Is the word tried?  One of two instructions or more that one
-\ instruction calls, and that is not a number or said to be in
-\ place.
+\ a trial is for a word of two instructions or more that one
+\ instruction calls, not a number and not after in-place; any
+\ other small word is inlined outright
 : tried? ( xt n -- f )
     placing @  d# 0 placing !  if 2drop false exit then
     dup d# 2 < if 2drop false exit then
     over near? 0= if 2drop false exit then
     number? 0=  roomy? and ;
 
+\ a call, if xt is being defined or is not small; inline, by
+\ a trial if tried? says.  A word whose trial failed waits.
 : pcompile, ( xt -- )
-    \ the word being made is not all there
     dup thisxt @ = if (compile,) exit then
     dup small dup 0< if drop (compile,) exit then   ( xt n )
     2dup tried? 0= if placed exit then
@@ -462,7 +364,3 @@ header-imm in-place  :noname  true placing ! ;
     over >r  keep 2swap lays
     d# 1 fits if rdrop exit then
     r> dup (compile,) waits ! ;
-
-\ What is told of numbers (folds.fs) is a table, and whoever
-\ includes this includes that after all the code of its page:
-\ nothing that reads the image as code goes as far as a table.

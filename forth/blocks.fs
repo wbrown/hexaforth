@@ -1,33 +1,15 @@
 \ blocks.fs - the block device interface and classic block words
 
-\ A block is 1024 bytes.  A driver stores its routines in
-\ 'blk-read and 'blk-write, ( buf blk# -- ); the buffer it is
-\ handed is the address of a cell.  The two are the kernel's,
-\ and the ROM sets them to the disk it finds (nuc.fs).
+\ A block's number says which disk it is of (doc/disk.md).
 
-\ Counted for the disk lights in the menu bar (wm.fs), which are
-\ one for each disk there is.  A block's number says which disk
-\ it is of (doc/disk.md): the light that shows a read or a write
-\ is that disk's.
 header blk-moved create blk-moved 0 ,  \ blocks read and written
-                                       \ so far
 header blk-wrote create blk-wrote 0 ,  \ true if the last was
-                                       \ a write
-header blk-disk  create blk-disk 0 ,   \ the disk the last
-                                       \ was of
-header disks-there                     \ the disks there are
-    create disks-there 0 ,             \ known to be, bit d for
-                                       \ disk d: whoever finds
-                                       \ one says so here
-                                       \ (files.fs)
+header blk-disk  create blk-disk 0 ,   \ a write; and its disk
+header disks-there                     \ bit d: disk d is there
+    create disks-there 0 ,
 
-\ What reads and writes a block is in the kernel's page, where a
-\ call from any page is one instruction (nearby, cross.fs):
-\ everything that reads a disk comes here.  What says where an
-\ error was, and what compiles a definition again, are run
-\ seldom, and are on this file's own page.
 nearby
-: moved ( blk# write? -- ) \ a block was read or written
+: moved ( blk# write? -- )
     blk-wrote !  DISK-SHIFT rshift blk-disk !
     d# 1 blk-moved +! ;
 
@@ -40,11 +22,7 @@ header blk-write
     dup >r  'blk-write @ dup 0= d# 37 -throw execute
     r> true moved ;
 
-\ One block buffer.  `block` gives the address of its first
-\ byte, so it has to be where the address of a byte can say:
-\ with cells of 16 bits that is the lower half of memory, and
-\ the buffer is in the data and not in the memory that halloc
-\ gives out, which is all above the display.
+\ One block buffer, where a byte has an address.
 
 W32+? [if]
 : blk-room ( -- a ) d# 1024 halloc ;
@@ -67,16 +45,13 @@ header flush
     then
 ;
 
-\ see that there is a buffer: for whoever must have it made
-\ before memory of its own
 header blk-need
-: blk-need ( -- )
+: blk-need ( -- ) \ see that there is a buffer
     blk-buf @ 0= if blk-room blk-buf ! then
 ;
 
 header cblock
-: cblock ( blk# -- a )
-    \ the cell that a buffer holding the block starts at
+: cblock ( blk# -- a ) \ the block's buffer, as a cell's address
     blk-need
     dup blk-cur @ = if drop blk-buf @ exit then
     flush
@@ -87,8 +62,7 @@ header cblock
 ;
 
 header block
-: block ( blk# -- a )
-    \ address of the first byte of a buffer holding the block
+: block ( blk# -- a ) \ and as a byte's
     cblock >c
 ;
 
@@ -96,25 +70,9 @@ header update
 : update ( -- ) true blk-dirty ! ;
 nearby-end
 
-\ A block of source is read as one thing, all its characters, a
-\ word at a time, and blk says which block it is: so a comment
-\ in brackets may end lines after it began, and \ is what knows
-\ that a block has lines.  The block is asked for again before
-\ each word, since the word before may have put another in the
-\ buffer: it may have read the disk, or loaded a block itself.
-\ What was being read is what is read again when the block is
-\ done, and so it is when something in the block throws, which
-\ is then thrown on.  Nothing of this is on the data stack while
-\ the block is read, which may leave there whatever it likes.
+\ ---- a block read as source
 
-\ What was thrown is said where load catches it, before it puts
-\ blk back: what it was, the block, the line and the word that
-\ was being read, and that line of the block.  It is then thrown
-\ on as -1, which says nothing more (throw, nuc.fs), and each
-\ load it passes back through throws it on as it is.
-
-\ From the end of the n characters from a, back over those xt
-\ says yes to.
+\ from the end, back over the characters xt says yes to
 : back-over ( a n xt -- a n' )
     >r
     begin
@@ -126,8 +84,7 @@ nearby-end
     rdrop
 ;
 
-: the-word ( a n -- c-addr u )
-    \ the last word of the n characters from a
+: the-word ( a n -- c-addr u ) \ the last word of them
     ['] isspace? back-over  dup >r
     ['] isnotspace? back-over
     tuck +  swap r> swap -
@@ -142,11 +99,7 @@ nearby-end
     r> LINE-SHIFT lshift r> + LINE-CHARS type cr
 ;
 
-\ What was thrown in the block being read, and where.  A word of
-\ the block may have been reading text of its own when it was
-\ thrown (evaluate, as a macro does): blk is then nothing, and
-\ what is said is the word of that text, and the text.  (It was
-\ said as block 0's, and a line of the disk's index shown.)
+\ what was thrown, and where; blk is 0 if text was evaluated
 : said-where ( n blk# -- )
     base @ >r decimal
     swap say" error " .  say" in block " dup .
@@ -157,28 +110,15 @@ nearby-end
     r> base !
 ;
 
-\ A definition is all in one page of code, and the kernel begins
-\ none where less than a kilobyte of its page is left, since
-\ what is typed has no source to go back to (newpage?, nuc.fs):
-\ the end of most pages was left empty for that.  A block has
-\ its source to hand.  While one is read, a definition may begin
-\ nearly at a page's end (cpr), and one that runs off its page
-\ (code, throws) is compiled again on the next, from where it
-\ began: its header and the data it laid are taken back, the
-\ stack is as deep as it was, and a header that names it
-\ (files.fs) is told where it starts now.
+\ A definition of a block that runs off its page of code is
+\ compiled again on the next, from where it began.
 
-\ where a definition may begin: >in, the cell headers go in, the
-\ data pointer, how deep the stack is, and the base numbers are
-\ read in, which a word that compiles one changes while it does
+\ where one may begin: >in, hdp, dp, the stack's depth and base
 create began 0 , 0 , 0 , 0 , 0 ,
-\ the cell of a header that stays which says where the
-\ definition after it starts (files.fs), or nothing
+\ the xt's cell of the header that stays for it (files.fs), or 0
 header stay-xt create stay-xt 0 ,
 
-\ Was it a definition running off its page?  One that began
-\ where its page does is longer than a page, and is not.
-: ran-off? ( n -- f )
+: ran-off? ( n -- f ) \ and did not begin where its page does
     d# -8 =  state @ 0<> and
     cp @ 1+ h# fff and 0= and
     thisxt @ h# fff and 0<> and
@@ -196,10 +136,8 @@ header stay-xt create stay-xt 0 ,
     drop
 ;
 
-\ What was thrown while a word of the block was read: a
-\ definition that ran off its page is begun again, if what the
-\ stack had when it began is still there, and anything else is
-\ thrown on.
+\ begun again if it ran off its page and the stack is no
+\ shallower than it was; if not, thrown on
 : thrown ( x x n blk# -- )
     >r >r 2drop r>
     dup ran-off? 0= if throw then
@@ -208,11 +146,7 @@ header stay-xt create stay-xt 0 ,
 ;
 
 nearby
-\ Is nothing being defined?  A definition's header is the newest
-\ in the dictionary only once the definition is ended, and until
-\ then it is not: so what is said in brackets in a definition
-\ is not where one may begin.
-: begins? ( -- f )
+: begins? ( -- f ) \ is nothing being defined?
     state @ if false exit then
     lastword @ dup 0= swap forth @ = or
 ;
@@ -221,10 +155,10 @@ nearby
     depth began c# 3 + !  base @ began c# 4 + !
 ;
 
-: reading ( -- ) \ interpret the block that blk says
+: reading ( -- ) \ the block that blk says
     blk @ >r
     begin
-        blk @ block drop
+        blk @ block drop  \ the last word may have read another
         begins? if begins then
         parse-name dup
     while
@@ -234,12 +168,11 @@ nearby
 ;
 
 header load
-: load ( blk# -- ) \ interpret a block of source
+: load ( blk# -- ) \ a throw is printed, and thrown on as -1
     blk @ >r  >in @ >r  source >r >r  source-id >r  cpr @ >r
     dup >r  dup blk !  d# -1 sourceid !  h# ff0 cpr !
     block BLOCK-CHARS source!
     ['] reading catch
-    \ anything but nothing or -1
     dup 1+ d# 1 u> if r@ said-where d# -1 then  rdrop
     r> cpr !
     r> sourceid !  r> r> source!  r> >in !  r> blk !
@@ -248,7 +181,6 @@ header load
 
 header thru
 : thru ( first last -- )
-    \ the blocks from first to last, loaded in turn
     1+ swap                                 ( end blk )
     begin
         2dup xor
@@ -258,19 +190,6 @@ header thru
     2drop
 ;
 
-\ What a block says as it is read: the text up to the
-\ next bracket.
 header-imm .(
 :noname ( "text<paren>" -- ) [char] ) parse type ;
 nearby-end
-
-\ A source of the disk's by its label (include), and the names
-\ that are a file's own (header), are a file of their own:
-\ files.fs, which is built on load.
-
-\ Whoever reads more of the disk than a block at a time reads
-\ whole blocks, by their numbers, to where they are wanted
-\ (blk-read) or through the buffer (cblock): the picture, the
-\ tables of names and HexaPaint's canvas do.  There was a word
-\ here that copied any run of bytes of the device to the address
-\ of a byte; nothing called it once they did, and it is gone.

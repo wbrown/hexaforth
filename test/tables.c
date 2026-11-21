@@ -128,6 +128,10 @@ int table(const char* file, const char* name, int64_t** numbers, int count) {
     int n = 0;
     while (sscanf(at, "%s%n", word, &used) == 1) {
         at += used;
+        if (!strcmp(word, "\\")) {                  // a comment, to the end of its line
+            at += strcspn(at, "\n");
+            continue;
+        }
         if (!strcmp(word, "font[")) continue;       // what a font's numbers are between
         if (!strcmp(word, "picture[")) {            // a strike that is drawn, and not said as numbers
             n += picture(path, &at, out + n);

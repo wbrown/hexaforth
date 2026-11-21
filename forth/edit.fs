@@ -1,14 +1,4 @@
-\ edit.fs - a block editor: one 1024-byte block as 16 lines of
-\ 64, which is what \ takes a line of a block to be (LINE-CHARS
-\ and BLOCK-LINES: vm_constants.h says how long a line is)
-
-\ Typing overwrites.  The cursor keys move, PgUp and PgDn change
-\ block, ^S writes the block to disk, and ^L writes it and then
-\ loads it as Forth.
-
-\ A key that types or moves changes only the character the
-\ cursor was on and the one it comes to, so only those are put
-\ out of date.
+\ edit.fs - a block editor: a block as BLOCK-LINES lines
 
 create ei 0 ,           \ a loop counter
 
@@ -18,7 +8,7 @@ create ecy 0 ,
 create ewin 0 ,         \ the window
 create t-keys ," ^S save  ^L load  PgUp PgDn"
 
-: ecell ( -- ) \ the character the cursor is on is out of date
+: ecell ( -- ) \ the cursor's character is out of date
     ecx @ ecy @ char-xy  d# 8 d# 16  ewin @ win-inval ;
 
 : eaddr ( -- a )
@@ -52,14 +42,10 @@ header edit-draw : edit-draw ( win -- )
     ebar
 ;
 
-: ecol ( n -- ) \ the cursor n columns on, within the line
-    ecx @ + d# 0 max LAST-COLUMN min ecx ! ;
+: ecol ( n -- ) ecx @ + d# 0 max LAST-COLUMN min ecx ! ;
+: eline ( n -- ) ecy @ + d# 0 max LAST-LINE min ecy ! ;
 
-: eline ( n -- ) \ the cursor n lines on, within the block
-    ecy @ + d# 0 max LAST-LINE min ecy ! ;
-
-: ekey ( c -- )
-    \ a key that changes no more than where the cursor is
+: ekey ( c -- ) \ the cursor keys, ^S, and a character typed
     dup d# 128 = if drop d# -1 eline exit then
     dup d# 129 = if drop d# 1 eline exit then
     dup d# 130 = if drop d# -1 ecol exit then
@@ -75,6 +61,7 @@ header edit-draw : edit-draw ( win -- )
     eaddr c! update  d# 1 ecol
 ;
 
+\ PgUp and PgDn change block; ^L writes it and loads it
 header edit-key : edit-key ( c win -- )
     ewin !
     dup d# 132 = if

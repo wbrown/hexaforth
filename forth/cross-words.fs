@@ -1,37 +1,27 @@
 \ cross-words.fs - the words of cross.fs that the system's
 \ source says, for the nucleus to compile that source too
 
-\ Each is a word of the nucleus named as cross.fs's own is.
-\ cross.fs does not let a word of the program take the name of
-\ one of its own, so the header is given that name and the word
-\ itself another: a header names the definition after it,
-\ whatever that is called here.
+\ A header has cross.fs's name, and its word another.  A word
+\ is run by its name (by-name) where a header is all it has
+\ (immediate), or a newer header takes it over (literal).
 
 \ ---- numbers and text
 
-\ The kernel's evaluate has a header and no name here (it is
-\ :noname), so it is found by its header, as main finds boot.
-create t-evaluate ," evaluate"
-
 : base-number ( base "n" -- ) \ compiled, or left if not
     base @ >r  base !
-    parse-name t-evaluate >c count by-name
+    parse-name tevaluate
     r> base !
 ;
 
-\ and under the name the system's source has for it, since
-\ evaluate is cross.fs's own there (term.fs)
 header tevaluate : cw-tevaluate ( c-addr u -- ) tevaluate ;
 
 header-imm d# : (d#) ( "n" -- ) d# 10 base-number ;
 header-imm h# : (h#) ( "n" -- ) d# 16 base-number ;
-\ the distance from a cell's address to the nth cell after it
 header-imm c# : (c#) ( "n" -- ) d# 10 base-number ;
 
 header ," : (,") ( "ccc<quote>" -- ) \ a counted string, here
     d# 34 parse s, ;
 
-\ The kernel's literal, found as evaluate is.
 create t-literal ," literal"
 
 header char : cw-char ( "c" -- c ) parse-name drop c@ ;
@@ -40,16 +30,7 @@ header-imm [char] : cw-[char] ( "c" -- ) \ compiled
 
 \ ---- how a file is laid down
 
-\ (header is in blocks.fs, with include: it names the definition
-\ after it, and is what stays of a file's names.)
-
-\ What is not variables is laid in a place of its own, where the
-\ machine has one, as cross.fs lays it (bulk): the data pointer
-\ and its limit change places with the bulk's (bdp and bdl,
-\ nuc.fs).  What cross.fs lays above the display (high) is
-\ bulk here: the data pointer counts bytes.  What was laid in
-\ the place that is left is to have stopped where that place
-\ does: past it are the block buffer, or the oldest headers.
+\ dp and dpl change places with the bulk's, if it has a place
 : bulk-swap ( -- )
     bdp @ 0= if exit then
     dp @ dpl @ u> d# 8 -throw
@@ -60,8 +41,7 @@ header unbulk : cw-unbulk ( -- ) bulk-swap ;
 header high : cw-high ( -- ) bulk-swap ;
 header unhigh : cw-unhigh ( -- ) bulk-swap ;
 
-\ u characters at two places, the address of a byte each
-: chars= ( a a' u -- f )
+: chars= ( a a' u -- f ) \ at two addresses of bytes
     negate
     begin dup while
         >r  over c@ over c@ <> if 2drop rdrop false exit then
@@ -70,7 +50,7 @@ header unhigh : cw-unhigh ( -- ) bulk-swap ;
     drop 2drop true
 ;
 
-: is? ( a u cstr -- f ) \ the text the text of a counted string?
+: is? ( a u cstr -- f ) \ is the text a counted string's?
     >c count  rot over <> if 2drop drop false exit then  chars=
 ;
 
@@ -78,9 +58,7 @@ create t-if   ," [if]"
 create t-else ," [else]"
 create t-then ," [then]"
 
-\ The words skipped by a conditional, up to its [else] or its
-\ [then], as many deep as conditionals are in it.  A conditional
-\ is in one block, so the end of what is read is its end too.
+\ to its [else] or [then], or the end of what is being read
 : skip-cond ( -- )
     d# 1
     begin
@@ -101,12 +79,8 @@ header-imm [then] : cond-then ( -- ) ;
 
 \ ---- what cross.fs runs as it compiles
 
-\ What is between meta and target cross.fs runs as it reads it,
-\ and here it is run as it is read too: the two do nothing.
 header meta : cw-meta ( -- ) ;
 header target : cw-target ( -- ) ;
-\ and the pages of code it lays what follows on: the nucleus
-\ has its own (cp)
 header code-page : cw-code-page ( n -- ) drop ;
 header sys-page : cw-sys-page ( n -- ) drop ;
 header big-page : cw-big-page ( n -- ) drop ;
@@ -115,15 +89,7 @@ header small-first : cw-small-first ( -- ) ;
 header low-page : cw-low-page ( -- ) ;
 header low-page-end : cw-low-page-end ( -- ) ;
 
-\ A :: word runs where it is compiled, and what it compiles is
-\ what it says with s" ... " evaluate and literal.  So in the
-\ body of one literal is compiled as a call to the kernel's, and
-\ anywhere else it is that.  Which word is a :: word is told by
-\ where its code starts, which no other word's does.  (It was
-\ told by its header: a file's own names are in memory that the
-\ next file's are in after it, so a word of a later file could
-\ have its header where a macro's had been, and `[char] b` in it
-\ compiled a call of literal.)
+\ A :: word is immediate; in its body, literal is compiled.
 create macro-xt 0 ,     \ where the :: word being made starts
 create t-immediate ," immediate"
 
@@ -138,18 +104,13 @@ header-imm literal : cw-literal ( x -- )
     tliteral
 ;
 
-\ The text of a :: word is wanted only while the word is: so it
-\ is not laid in the data, but copied to under where the data
-\ must stop, which is brought down to it.  A file that is read
-\ puts that back when it is done (files.fs), and the text of its
-\ macros is gone with their names.
+\ a :: word's text, kept under dpl, which comes down to it
 : text-kept ( c-addr u -- c-addr' u )
     dpl @ over -  CELLB negate and          ( c-addr u to )
     dup dp @ u< d# 8 -throw  dup dpl !
     swap >r  tuck r@ cmove  r>
 ;
 
-\ text in a definition, or as it is in what is being read
 header-imm s" : cw-s" ( "ccc<quote>" -- c-addr u )
     d# 34 parse  state @ 0= if exit then
     thisxt @ macro-xt @ = if
@@ -158,30 +119,23 @@ header-imm s" : cw-s" ( "ccc<quote>" -- c-addr u )
     here over >r >r  s, align  r> >c 1+ tliteral  r> tliteral
 ;
 
-header / : cw-/ ( n1 n2 -- n3 ) \ the quotient, towards nothing
+header / : cw-/ ( n1 n2 -- n3 ) \ the quotient, towards zero
     2dup xor >r  abs swap abs swap  u/mod nip
     r> 0< if negate then
 ;
-header mod : cw-mod ( n1 n2 -- n3 ) \ and what is left over
+header mod : cw-mod ( n1 n2 -- n3 )
     2dup cw-/ * -
 ;
 
-\ The kernel's create, found as evaluate is: create here is
-\ cross.fs's own, which lays a header as it compiles.
 create t-create ," create"
 header 2variable : cw-2variable ( "name" -- )
     t-create >c count by-name  d# 0 t,  d# 0 t,
 ;
 
-\ What cross.fs lays data down with as it runs, which here is
-\ laid down as it is read.
 header tcalign : cw-tcalign ( -- ) align ;
 header tcell, : cw-tcell, ( x -- ) t, ;
 header tc, : cw-tc, ( c -- ) tc, ;
 
-\ What cross.fs works out from the machine's sizes, under its
-\ names (the sizes themselves are words of the nucleus already:
-\ baseword-words, from basewords.fs).
 header cell-bytes : cw-cell-bytes HOST cell-bytes ;
 header byte-shift : cw-byte-shift HOST byte-shift ;
 header cell-mask : cw-cell-mask HOST cell-mask ;
@@ -189,18 +143,8 @@ header data-base : cw-data-base HOST data-base ;
 
 \ ---- pictures
 
-\ As cross.fs lays them (picture[ ... ]picture): a row of a
-\ picture is the rest of a line after row|, # a pixel of ink and
-\ . one of none; a picture wider than a line is pieces side by
-\ side, with beside between.  Here the rows are kept as the
-\ cells the display would hold them in, a row of up to 1,024
-\ pixels after a cell each that says how many it has, in memory
-\ that is given back at ]picture.  It is memory above the
-\ display, which is reached a cell at a time and on a small
-\ machine no other way: a pixel is a bit of a cell, and no byte
-\ of a row is given an address.
-
-create pc-buf  0 ,     \ the cells that say, then the rows
+\ a cell a row that says how many pixels it has, then the rows
+create pc-buf  0 ,
 create pc-rows 0 ,     \ how many the first piece had, or -1
 create pc-row  0 ,     \ the row of this piece that is next
 
@@ -209,9 +153,7 @@ create pc-row  0 ,     \ the row of this piece that is next
 : pc-cell ( x row -- a ) \ the cell with pixel x of a row
     d# 7 lshift BYTESHIFT rshift
     swap BYTESHIFT d# 3 + rshift +  pc-buf @ d# 64 + + ;
-\ pixel x in its cell: the leftmost is the lowest bit or the
-\ highest, as the display has them
-: pc-bit ( x -- mask )
+: pc-bit ( x -- mask ) \ pixel x in its cell
     CELLB d# 3 lshift 1- and
     LEFT-LOW? [if] d# 1 swap lshift
     [else] d# 1 TOPBIT lshift swap rshift [then] ;
@@ -234,9 +176,7 @@ header beside : cw-beside ( -- ) pc-piece  d# 0 pc-row ! ;
     >in @ - swap >in @ + swap  dup >in +!
 ;
 
-\ the next pixel of the row, if c is one: a row has room for
-\ 1,024
-: pc-pixel ( c -- )
+: pc-pixel ( c -- ) \ the next pixel of the row, if c is one
     dup bl = if drop exit then
     pc-row @ pc-n @  dup d# 1023 u> d# -24 and throw
     swap [char] # = if
@@ -245,23 +185,20 @@ header beside : cw-beside ( -- ) pc-piece  d# 0 pc-row ! ;
     d# 1 pc-row @ pc-n +!
 ;
 
-header row| : cw-row| ( "pixels" -- ) \ and there is room for 64
+header row| : cw-row| ( "pixels" -- )
     pc-row @ d# 63 u> d# -24 and throw
     pc-line bounds
     begin 2dup xor while  dup c@ pc-pixel  1+  repeat
     2drop  d# 1 pc-row +!
 ;
 
-\ the cells of a row that are laid: whole 64s of pixels, as
-\ cross.fs lays them (px-lay)
-: pc-laid ( -- n )
+: pc-laid ( -- n ) \ the cells of a row: whole 64s of pixels
     d# 0 pc-n @ d# 63 + d# 6 rshift
     d# 3 lshift BYTESHIFT rshift
 ;
 
 : pc-done ( -- ) pc-buf @ pc-cells hgive  d# 0 pc-buf ! ;
 
-\ It is laid only if there is room for all of it.
 header ]picture : cw-]picture ( -- )
     pc-piece  align
     pc-rows @ pc-laid * >c  dpl @ dp @ - u> if
@@ -276,7 +213,7 @@ header ]picture : cw-]picture ( -- )
     drop  pc-done
 ;
 
-\ ---- rows of pixels, laid as cross.fs lays them
+\ ---- rows of pixels
 
 : pc-flip ( b -- b' ) \ the bits of a byte the other way round
     d# 0 swap d# -8
@@ -286,25 +223,18 @@ header ]picture : cw-]picture ( -- )
     2drop
 ;
 
-\ eight pixels written with the leftmost highest, as the display
-\ has them in a byte
 : pc-pixels ( byte -- byte' ) LEFT-LOW? [if] pc-flip [then] ;
 
 header p, : cw-p, ( byte -- ) pc-pixels tc, ;
-\ the same eight as a cell of their own
 header pcell, : cw-pcell, ( byte -- ) align pc-pixels t, ;
-\ a row of a pattern: eight pixels across a cell
 header prow, : cw-prow, ( byte -- )
     align pc-pixels  CELLB negate
     begin dup while  over tc,  1+  repeat
     2drop
 ;
-\ how many cells n runs of 64 pixels are, as a cell
 header px-cells, : cw-px-cells, ( n -- )
     d# 8 BYTESHIFT rshift *  align t, ;
 
-\ a cell for each number of pixels from none to a whole cell:
-\ that many pixels at the left of a cell
 header lefts, : cw-lefts, ( -- )
     align  d# 0
     begin dup CELLBITS 1+ < while
@@ -317,35 +247,16 @@ header lefts, : cw-lefts, ( -- )
     drop
 ;
 
-\ The basewords are words of the nucleus too, each with a
-\ header, which the machine's file has from vm_opcodes.h
-\ (basewords.fs); fused.fs names them by those headers.
-baseword-words
-
-\ And the names of an instruction's fields, from the same file,
-\ which the decompiler shows an instruction by (see.fs): f-in,
-\ f-op and f-out, each with a header.
+baseword-words  \ basewords.fs
 field-names
 
-\ What else the image says of itself to the decompiler, which
-\ may be compiled after the image is made: the newest word at
-\ the build and the stamp the tables of names must have
-\ (name-tables, cross.fs), and where the table of instructions
-\ as words is.  That table is made from an image and laid after
-\ all the image's other data (system.fs), so that how long it is
-\ moves nothing; it has no header, so that the newest word of
-\ the dictionary is the system's, and the tools that read an
-\ image find it by this cell too.
+\ for the decompiler: the newest word at the build, the stamp of
+\ its tables of names, and where fused.fs's table is
 header forth0 create forth0 0 ,
 header tstamp create tstamp 0 ,
 header fused-at create fused-at 0 ,
 
 \ ---- the machine, as cross.fs says it
-
-\ Each is the macro of cross.fs it is named for, so that what it
-\ is is said there and only there: a number, an instruction or
-\ two, or a flag.  The nucleus compiles a word this small in
-\ place, as cross.fs does the macro.
 
 header CELL : cw-cell CELL ;
 header CELL2 : cw-cell2 CELL2 ;
@@ -366,11 +277,7 @@ header LANES : cw-lanes LANES ;
 
 header LANESHIFT : cw-laneshift LANESHIFT ;
 header PXMASK : cw-pxmask PXMASK ;
-
 header PXSHIFT : cw-pxshift PXSHIFT ;
-
-\ (DISP-BASE, DISP-STRIDE, DISP-BANKS and DISP-BANK-STEP are the
-\ sizes disp-base and the rest: a name has one case.)
 header VARS : cw-vars VARS ;
 header HDR-BASE : cw-hdr-base HDR-BASE ;
 header HDR-LIMIT : cw-hdr-limit HDR-LIMIT ;
@@ -414,7 +321,6 @@ header MASK-CELLS : cw-mask-cells MASK-CELLS ;
 header MASK-ROW : cw-mask-row MASK-ROW ;
 header MASK-ROWS-SHIFT : cw-mask-rows-shift MASK-ROWS-SHIFT ;
 
-\ the instructions that differ with the machine
 header (i@) : cw-i@ (i@) ;
 header (i!) : cw-i! (i!) ;
 header (>c) : cw->c (>c) ;
@@ -427,8 +333,7 @@ header LEFT8 : cw-left8 LEFT8 ;
 header LEFT1 : cw-left1 LEFT1 ;
 header M8 : cw-m8 M8 ;
 
-\ and the flags a conditional is said with, which are run where
-\ they are read, in a definition too, as cross.fs runs them
+\ the flags a conditional is written with: immediate
 header-imm BANKED? : cw-banked?
     BANKED? [if] true [else] false [then] ;
 header-imm INK-BLACK? : cw-ink-black?

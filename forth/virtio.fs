@@ -1,10 +1,8 @@
 \ virtio.fs - what the virtio-mmio drivers share
 
-\ QEMU `virt` has 32 virtio-mmio slots from 0x0a000000, 0x200
-\ apart.  These drivers use the modern (version 2) register
-\ layout, one queue each, and poll instead of taking interrupts.
+\ Version 2's registers, a queue a device, polled.
 
-$0a000000 constant VIRTIO0
+$0a000000 constant VIRTIO0  \ the first of 32 slots, $200 apart
 
 header vdev \ machine address of the registers being worked on
     create vdev  0 ,
@@ -13,8 +11,8 @@ create vkind 0 ,
 header vreg@ : vreg@ ( off -- x ) vdev @ + reg32@ ;
 header vreg! : vreg! ( x off -- ) vdev @ + reg32! ;
 
+\ the next device of this kind, from slot
 header vprobe : vprobe ( id slot -- slot true | false )
-    \ next device of this kind, from slot
     swap vkind !
     begin
         dup d# 32 <
@@ -31,30 +29,20 @@ header vprobe : vprobe ( id slot -- slot true | false )
 
 : vstatus+ ( bit -- ) h# 70 vreg@ or h# 70 vreg! ;
 
-header vhello : vhello ( -- )
-    \ reset, then negotiate VERSION_1 and nothing else
+header vhello : vhello ( -- ) \ reset; VERSION_1 and no more
     d# 0 h# 70 vreg!
     d# 1 vstatus+  d# 2 vstatus+        \ acknowledge, driver
-    d# 1 h# 24 vreg!  d# 1 h# 20 vreg!  \ features 32-63:
-                                        \ VERSION_1
+    d# 1 h# 24 vreg!  d# 1 h# 20 vreg!  \ features 32-63
     d# 0 h# 24 vreg!  d# 0 h# 20 vreg!  \ features 0-31: none
     d# 8 vstatus+                       \ features ok
     h# 70 vreg@ d# 8 and 0= d# 37 -throw
 ;
 
-\ What a queue is made of is memory with nothing in it: the
-\ device counts from nothing, and writes how far it has got only
-\ when it has got somewhere.  What halloc gives may have been
-\ had before and given back.  (It was taken as it came, which
-\ was as nothing on a machine that had done little; on one that
-\ had just compiled its system the count of what the keyboard
-\ had done was whatever was there, and an event that was not
-\ was taken.)
-: vroom ( u -- a ) \ u bytes with nothing in them
+: vroom ( u -- a ) \ u bytes, all 0
     dup halloc tuck swap CELLB 1- + c>  d# 0 -rot cells-fill ;
 
+\ queue 0, with n descriptors
 header vqueue : vqueue ( n -- desc avail used )
-    \ set up queue 0 with n descriptors
     d# 0 h# 30 vreg!
     dup h# 38 vreg!
     dup d# 4 lshift vroom

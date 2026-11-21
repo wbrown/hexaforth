@@ -1,10 +1,6 @@
 \ icons.fs - the pictures of HexaPaint's tools
 
-\ They are drawn here, 16 pixels by 16 each, in the order the
-\ tools have in paint.fs.  In memory they are side by side: one
-\ bitmap of 128 pixels by 16, as the display is.  That is wider
-\ than a line of source, so it is drawn as three pieces, which
-\ `beside` puts side by side (picture[ and row| in cross.fs).
+\ 16 pixels by 16 each, side by side in one bitmap of 128 by 16.
 
 bulk
 header icon-bits create icon-bits

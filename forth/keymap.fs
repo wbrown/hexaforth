@@ -1,13 +1,8 @@
 \ keymap.fs - what each key is
 
-\ A keyboard says which key by a number, the Linux key code, and
-\ this is what each of the 128 is as a character, and what each
-\ is with shift held: 256 characters packed into cells, the keys
-\ and then the keys shifted, a key found with char@ (wm.fs).  A
-\ row of keys is the code of its first, what the keys are, and
-\ what they are shifted (cross.fs).  What is 128 and up is not a
-\ character: the cursor keys and the like, which whoever has the
-\ keys knows by those numbers.
+\ By Linux's key code: the 128 keys and then the keys shifted,
+\ a character each.  A row is the code of its first key, the
+\ keys, and the keys shifted.  128 and up is not a character.
 
 bulk
 header keymap create keymap

@@ -1,58 +1,19 @@
 \ see.fs - a decompiler, and a window that browses the
 \ dictionary with it
 
-\ The decompiler turns compiled code back into words, one token
-\ at a time, and hands each token to the routine in 'tok along
-\ with the execution token it stands for, or -1 for none.  SEE
-\ types the tokens.  The Words window draws them, and makes each
-\ one that names code a link.
-
-\ A definition is read twice.  The first reading finds where it
-\ ends and where its loops begin; the second produces
-\ the tokens.
-
-\   literal, then imm+ ...       one number
-\   literal, then call execute   a call to code on another page
-\   0branch forwards             if (then, where it lands)
-\   jump forwards, over an if's end
-\                                else
-\   0branch or jump backwards    until, again (begin, where
-\                                it lands)
-\   0branch forwards to just past a
-\     jump backwards             while, and that jump is repeat
-\   jump anywhere else           a call that does not come back
-\   an instruction with RET      its word, then exit
-
-\ An ALU instruction is shown as words from the table in
-\ fused.fs, which is made from the image and has every
-\ instruction that is in it: the plain words a programmer would
-\ write for it, up to four, each by the address of its header.
-\ Where it is more than one word, sbold is set, so that an
-\ instruction that is several words can be told from words
-\ compiled one by one.  An instruction that is not in the table
-\ is shown as its number in brackets.
-
-\ The tokens are laid out as source is written.  The name has
-\ the first line and the semicolon the last.  What is inside an
-\ if or a begin is indented, and an if, an else, a then or a
-\ store ends its line.  The routine in 'nl starts a new line;
-\ the indent to give the next token is in sind, and sfresh is
-\ true while nothing is on the line yet.
-
-\ (The names of an instruction's fields, f-in, f-op and f-out,
-\ are the machine's file's, from vm_opcodes.h: cross-words.fs
-\ lays them, with the basewords.)
+\ A definition is read twice: for where it ends and its loops
+\ begin, and then for its tokens.
 
 create wi 0 ,           \ a loop counter
 
-create 'tok 0 ,
-create 'nl 0 ,
-create sind 0 ,
-create sfresh 0 ,
+create 'tok 0 ,        \ ( addr u xt|-1 -- )  what a token
+                       \ goes to
+create 'nl 0 ,         \ and a new line
+create sind 0 ,        \ how far lines are indented
+create sfresh 0 ,      \ true while the line has no token
 create sbold 0 ,       \ true for the words of a
                        \ fused instruction
-create sital 0 ,       \ true for a name that is a label, not in
-                       \ the dictionary
+create sital 0 ,       \ true for a name that is a label
 create slab 0 ,        \ true if the last xt>hdr found a label
 create squiet 0 ,      \ true on the first reading
 create sxt 0 ,         \ the definition
@@ -69,7 +30,7 @@ create sbg #128 allot  \ where backward branches land
 create nbg 0 ,
 create swh #64 allot   \ where a while leaves its loop
 create nwh 0 ,
-create stmp 0 ,
+create stmp 0 ,        \ the xt or number being looked up
 
 create k-colon  ," :"
 create k-noname ," :noname"
@@ -105,30 +66,8 @@ create k-store  ," !"
 : ins@ ( a -- w ) i@ ;
 : hxt  ( hdr -- xt ) cell+ @ d# 1 lshift d# 1 rshift ;
 
-\ The names of the definitions that have no header, the labels,
-\ are not in the image but in a file on the disk from NAMES-BLK.
-\ It has every word of the build by its execution token, and by
-\ the number it pushes if it only pushes one, as a label for
-\ data does.  Its first block is a stamp that must be the
-\ image's, how many blocks each of the two runs is, and the
-\ first key of each of those blocks.  A run is records in the
-\ order of their keys: a word's header, or a label's place with
-\ the top bit set; the key; and for a label its name.  So a
-\ label is laid out as a header is, and is shown from where it
-\ was read.  No record is across two blocks, and a key is looked
-\ for in the one block the first keys say
-\ (cross.fs, name-tables).
-
-\ The file is read a block at a time into a buffer, which is
-\ taken while there is decompiling to do (names-load) and given
-\ back after (names-unload).  While the names are in, the
-\ dictionary is searched a word at a time only back to forth0,
-\ the newest word at the build; while they are not, all of it
-\ is, and a word with no header is a number.  forth0 and the
-\ stamp, tstamp, are cells of the image, which is stamped when
-\ it is built: they are with what else the image says of itself
-\ (cross-words.fs), since this file may be compiled later, from
-\ a disk.
+\ ---- the names on the disk, from NAMES-BLK (cross.fs,
+\ name-tables), a block at a time
 create nm-buf 0 ,   \ the buffer, or 0 while it is not taken
 create nm-blk 0 ,   \ the block of the file it holds
 create nm-ix 0 ,    \ the first block's counts and keys, kept
@@ -147,11 +86,7 @@ header names? : names? ( -- f ) \ are they in?
 
 : names-gone ( -- ) nm-mark @ himem !  d# 0 nm-buf ! ;
 
-\ A file that is not this image's has its buffer given back.
-\ What is read here is read from the disk, and not through the
-\ block's buffer: so that is written first, if it was changed
-\ (the names of words the boot compiled go through it, below).
-: (names-load) ( -- )
+: (names-load) ( -- ) \ if the file is this image's
     flush
     BLKCELLS >c halloc nm-buf !  d# -1 nm-blk !
     d# 0 nm-block
@@ -175,13 +110,12 @@ header names-unload
     names-gone
 ;
 
-\ A run is the blocks from b0 up to b1.
+\ a table is the blocks from b0 up to b1: by xt, and by number
 : xrun ( -- b1 b0 ) nm-ix @ @ 1+  d# 1 ;
 : nrun ( -- b1 b0 ) nm-ix @ dup @ 1+  swap 1+ @ over +  swap ;
 : bkey ( b -- key ) nm-ix @ + 1+ @ ;  \ the first key of block b
 
-: nm-blk-of ( key b1 b0 -- b|0 )
-    \ the block of a run a key is in
+: nm-blk-of ( key b1 b0 -- b|0 ) \ the block a key is in
     dup >r  rot >r                      ( b1 b ) ( R: b0 key )
     begin
         2dup xor if dup bkey r@ u> 0= else false then
@@ -193,12 +127,10 @@ header names-unload
 
 : rec-next ( rec -- rec' ) \ past a record
     dup @ 0< 0= if CELL2 + exit then    \ a word's
-    \ the address is stepped on top, and the cell fetched
-    \ through its old value on R: six a turn for seven
     CELL2 +  begin dup >r 1+ r> @  0< until
 ;
 
-: rec-find ( key a -- rec|0 ) \ the record of a key, in a block
+: rec-find ( key a -- rec|0 ) \ in a block
     dup @ negate >r 1+                  ( key rec ) ( R: -n )
     begin
         r@
@@ -209,20 +141,13 @@ header names-unload
     2drop rdrop d# 0
 ;
 
-: nm-find ( key b1 b0 -- rec|0 ) \ the record of a key, in a run
+: nm-find ( key b1 b0 -- rec|0 ) \ in a table
     rot dup >r -rot nm-blk-of  r> swap
     ?dup if nm-block rec-find exit then
     drop d# 0
 ;
 
-\ The names of the words a boot compiled.  A file that is
-\ compiled from the disk has its own names taken out of the
-\ dictionary when it is done, and files.fs keeps them on the
-\ disk where the disk has room for them: blocks of records, each
-\ as a label's is here, by the word's place, with the least
-\ place and the most of each block in own-ix.  They are read
-\ through the same buffer as the tables, while the tables are
-\ in.
+\ the names of the words a boot compiled (files.fs, own-kept)
 : own-block ( b -- a ) own-kept @ + NAMES-BLK - nm-block ;
 
 : own-has? ( xt b -- f ) \ may block b have the word at xt?
@@ -242,23 +167,19 @@ header names-unload
     rdrop
 ;
 
-: tstop ( -- hdr|0 )
-    \ how far back the dictionary is searched a word at a time
+: tstop ( -- hdr|0 ) \ how far back the dictionary is walked
     names? if forth0 @ else d# 0 then
 ;
 
-\ What the file has for an execution token: a word, whose header
-\ is shown, or a label, which is shown from its record.
-: xt>file ( xt -- hdr|0 )
+: xt>file ( xt -- hdr|0 ) \ a word's header, or a label's record
     names? 0= if drop d# 0 exit then
     xrun nm-find dup if
         dup @ dup 0< dup slab !  if drop else nip then
     then
 ;
 
+\ the word at xt: a header, a label, or one the boot kept
 : xt>hdr ( xt -- hdr|0 )
-    \ the word that starts at xt: in the dictionary, or a label,
-    \ or a name the boot kept, which is shown as a label is
     stmp !  d# 0 slab !
     tstop >r forth @
     begin
@@ -276,23 +197,15 @@ header names-unload
     nrun nm-find dup if dup @ 0< 0= if drop d# 0 then then
 ;
 
-\ A number on its own is not an address of code unless it is in
-\ the kernel or page 1, or in the pages after the data and
-\ the headers.
-: code? ( x -- f )
+: code? ( x -- f ) \ is it where code is?
     dup h# 2000 u< swap CODE-BASE - CODE-SIZE u< or ;
 
 : h4 ( n -- )
     dup d# 12 rshift hex1  dup d# 8 rshift hex1
     dup d# 4 rshift hex1  hex1 ;
 
-\ While the word or words of an instruction are shown, or its
-\ number if it has none, smach holds the instruction: the Words
-\ window keeps it with where they went, to show the machine's
-\ form of it.  sgap is the line the word before was on, of the
-\ same instruction, or less than nothing.
-create smach 0 ,
-create sgap 0 ,
+create smach 0 ,  \ the instruction whose words are being shown
+create sgap 0 ,   \ the line the word before of it was on, or -1
 
 : sraw ( w -- )
     dup smach !  d# -1 sgap !
@@ -300,32 +213,23 @@ create sgap 0 ,
     sb sbn @ d# -1 tok
     d# 0 smach !
 ;
-\ A name is packed in its header, or in its label, and is text
-\ for as long as it is being shown (name>): the text of one name
-\ at a time.  A label's is in the buffer until another block is
-\ read.
 : hname ( hdr -- addr u ) CELL2 + name> ;
 
-: sname ( hdr -- )
-    \ a word, and a new line after one that stores
+: sname ( hdr -- ) \ and a new line after one that stores
     dup hname rot hxt
     >r 2dup + 1- c@ r> swap >r
     tok
     r> [char] ! = if snl then
 ;
 
-\ A number in data space that some word does nothing but push is
-\ that word: a variable, or anything else made with create.  The
-\ word being shown is left as its number, since that is its
-\ whole definition.
-create hp 0 ,
-create hv 0 ,
+create hp 0 ,          \ hval: the instruction it is reading,
+create hv 0 ,          \ and the number so far
 
 : lv ( w -- n )
     dup h# fff and swap d# 12 rshift d# 3 and d# 12 * lshift ;
 
+\ the number, if the code there only pushes one
 : hval ( xt -- n true | false )
-    \ the number, if the code there only pushes one
     hp !
     hp @ ins@ dup h# c000 and h# 8000 <>
     over h# 3000 and h# 3000 = or
@@ -341,9 +245,7 @@ create hv 0 ,
     h# 7403 = if hv @ true else false then
 ;
 
-\ A word the boot compiled that only pushes n is the name of
-\ the data there: its record, of those the boot kept.  Every
-\ block of them is read.
+\ the record of a word the boot compiled that only pushes n
 : data-in ( n a -- rec|0 ) \ of the records of a block
     dup @ negate >r 1+                      ( n rec ) ( R: -k )
     begin r@ while
@@ -366,8 +268,7 @@ create hv 0 ,
     nip
 ;
 
-\ the newest word, back to stop, that only pushes the number
-\ in stmp
+\ the newest word, back to stop, that only pushes stmp's number
 : lit-walk ( stop -- hdr|0 )
     >r forth @
     begin
@@ -383,9 +284,7 @@ create hv 0 ,
     rdrop drop d# 0
 ;
 
-\ The word being shown is not one of them: that is its whole
-\ definition.  If the table has it for the number, an older word
-\ may push it too.
+\ a word other than the one shown that only pushes n
 : lit>hdr ( n -- hdr|0 )
     stmp !
     tstop lit-walk
@@ -396,13 +295,9 @@ create hv 0 ,
     dup hxt sxt @ = if drop d# 0 lit-walk then
 ;
 
-\ A name found by xt>hdr, leaning if it is a label.
 : sxname ( hdr -- ) slab @ sital !  sname  d# 0 sital ! ;
 
-\ An execution token as a number is most often one given to
-\ catch or stored in a vector.  Code is in page 1 and in the
-\ pages after the data and the headers.
-: xt? ( n -- f )
+: xt? ( n -- f ) \ may the number be an execution token?
     dup CODE-BASE - CODE-SIZE u< swap h# 1001 - h# fff u< or ;
 
 meta
@@ -425,36 +320,28 @@ target
     sb-begin . sb-end  sb sbn @ 1- d# -1 tok
 ;
 
-: slink ( xt -- )
-    \ a word by name, or by address if it has no name
+: slink ( xt -- ) \ a word by name, or by address
     dup xt>hdr ?dup if nip sxname exit then
     sb-begin [char] $ emit dup h4 sb-end
     >r sb sbn @ r> tok
 ;
 
-\ Where the table is, the cell fused-at says: it is the image's,
-\ and told where when the table is laid (cross-words.fs).
-
-\ the words of a fused instruction: how many, then the header
-\ of each
+\ an instruction's words in fused.fs's table: how many, then the
+\ header of each
 : fused? ( w -- a|0 )
     fused-at @
     begin
         dup @
     while
         2dup @ = if nip cell+ exit then
-        cell+ dup @ + 1+  \ past the count and the headers
+        cell+ dup @ + 1+
     repeat
     2drop d# 0
 ;
 
-\ show an instruction as its word or words, if it is in
-\ the table
-
-: sfused ( w -- f )
+: sfused ( w -- f ) \ as its words, if it is in the table
     dup fused? ?dup 0= if drop false exit then      ( w a )
     swap smach !  d# -1 sgap !
-    \ more than one word: they are one instruction
     dup @ d# 1 > sbold !
     dup @ swap 1+ swap bounds                       ( end a )
     begin
@@ -490,8 +377,7 @@ target
     then
 ;
 
-: fw-else ( a -- f )
-    \ if an if ends just after spc, make it end at a instead
+: fw-else ( a -- f ) \ an if that ends after spc ends at a
     d# 0
     begin
         dup nfw @ <
@@ -518,7 +404,6 @@ target
         dup nfw @ <
     while
         dup cells sfw + @ spc @ = if
-            \ a number before it comes first
             sflush snl s- k-then wt snl
             d# -1 over cells sfw + !
         then
@@ -541,8 +426,7 @@ target
 ;
 
 : s-lit ( w -- )
-    dup h# 3000 and h# 3000 = if  \ a variable, fetched
-                                  \ or stored
+    dup h# 3000 and h# 3000 = if  \ a variable's
         sflush
         dup h# fff and VARS + sacc !  true slit !  sflush
         h# 4000 and if k-store wt snl else k-fetch wt then
@@ -566,8 +450,7 @@ target
     sflush slink
 ;
 
-: while? ( a -- f )
-    \ is the instruction before a a jump back into this word?
+: while? ( a -- f ) \ is a jump back into this word before a?
     1- dup ins@
     dup h# e000 and 0= over 0<> and 0= if 2drop false exit then
     swap btarget
@@ -620,10 +503,6 @@ target
     bg-add  snl s- k-until wt snl
 ;
 
-\ An instruction is shown as the plain words for it, from the
-\ table, which has every instruction the image was built with
-\ and every one that has a name: never as some other word of the
-\ dictionary that happens to be that one instruction.
 : sop ( w -- ) \ an instruction with no return in it
     dup sfused if drop exit then
     sraw
@@ -631,7 +510,6 @@ target
 
 : s-ret ( w -- ) \ an instruction with a return in it
     dup h# 7403 = if drop exit then
-    \ a return folded in: the instruction
     dup d# 3 and d# 3 = if h# 1003 invert and sop exit then
     sraw
 ;
@@ -642,8 +520,7 @@ target
     sop
 ;
 
-: sterm? ( -- f )
-    \ does the instruction at spc end the definition?
+: sterm? ( -- f ) \ does the instruction at spc end the word?
     spc @ ins@
     dup h# e000 and 0= if
         drop true
@@ -707,15 +584,9 @@ target
     type space
 ;
 
-\ SEE takes a name from the dictionary or, failing that, a
-\ label.  For a label on data it only says where the data is.
-\ It has the names in for as long as it runs, if they were not
-\ already.
 : names-done ( were-in -- ) 0= if names-unload then ;
 
-\ The newest label of a name (>key), as sfind would find it: its
-\ place, the larger the newer, and its value.  Every block of
-\ the file is read.
+\ the newest label of skey's name: its place and its value
 : newer ( p v rec -- p' v' ) \ the record, if it is one of those
     dup @ 0< 0= if drop exit then       \ a word's
     dup samename? 0= if drop exit then
@@ -732,7 +603,7 @@ target
     drop rdrop
 ;
 
-: newest ( p v b1 b0 -- p' v' ) \ of the blocks of a run
+: newest ( p v b1 b0 -- p' v' ) \ of the blocks of a table
     begin
         2dup xor
     while
@@ -741,9 +612,7 @@ target
     2drop
 ;
 
-\ The newest of a name among those the boot kept: where its word
-\ is, since the record is in the buffer only until another block
-\ is read.  What the boot compiled is newer than the image.
+\ the newest word of the name among those the boot kept
 : named-in ( xt a -- xt' ) \ of the records of a block
     dup @ negate >r 1+                      ( xt rec ) ( R: -k )
     begin r@ while
@@ -779,7 +648,7 @@ target
 ;
 
 header see
-: see ( "name" -- )
+: see ( "name" -- ) \ a word, a label, or a label's data
     names? >r  names-load
     parse-name sfind 0= if
         lfind dup 0= if r@ names-done then
@@ -793,70 +662,47 @@ header see
 \ ---- the Words window: the dictionary on the left, a
 \ definition on the right
 
-\ Up and Down move through the dictionary, Left and Right by a
-\ page.  A click on a name shows it.  A click on an underlined
-\ word follows it, and Backspace comes back.  PgUp and PgDn
-\ scroll a long definition, which says where there is more.
-\ The list and the definition are as many lines as the window is
-\ tall.
-
 $2d constant SCOLS      \ characters across the definition
 
-create winit 0 ,
+create winit 0 ,        \ true once the window has shown a word
 create wxt 0 ,          \ the definition shown
 create wsel 0 ,         \ its place in the dictionary, or -1
 create wtop 0 ,         \ the first name listed
 create wsrc 0 ,         \ the first line of the definition shown
-create whist #64 allot
-create nhist 0 ,
-create scol 0 ,
-create srow 0 ,
+create whist #64 allot  \ the definitions shown before: up to 8,
+create nhist 0 ,        \ and how many
+create scol 0 ,         \ the column the next token goes at,
+create srow 0 ,         \ and the line
 
-\ A definition is decompiled once, into a text (text.fs) that
-\ has all of it, and the window draws the lines of it that are
-\ in view.  A link is underlined, the words of an instruction
-\ that is more than one are bold, and a label leans: each is a
-\ face in the text.
 meta
 :: WCELLS #2048 cell-bytes / literal ;  \ 2,048 characters
 target
-create wtext 0 , 0 , 0 , 0 , 0 , 0 ,    \ the text,
+create wtext 0 , 0 , 0 , 0 , 0 , 0 ,    \ the text (text.fs),
 create wdone 0 ,                         \ the definition in it,
 create sface 0 ,                         \ and the face it is in
 
-\ What is in the text is noted, so that the pointer can be told
-\ what it is on.  A link is three cells: its line, its place in
-\ the line (the column, and how many characters from bit 6),
-\ and the execution token it goes to.  An instruction is its
-\ line, its place and the instruction.
+\ A note is three cells: a line, a place in it (the column, and
+\ how many characters from bit 6), and an xt or an instruction.
 #256 constant WLINKS    \ the most links noted,
 #256 constant WINSTRS   \ and instructions
 create lk 0 ,    \ links noted
-create nlk 0 ,
-create lku 0 ,
-create crow 0 ,
-create ccol 0 ,
-create wtmp 0 ,
+create nlk 0 ,   \ and how many
+create lku 0 ,   \ the characters of the token being placed
+create crow 0 ,  \ the line the pointer is on,
+create ccol 0 ,  \ and the column
+create wtmp 0 ,  \ the xt sought in the dictionary
 
 create wwin 0 ,  \ the window
 
 create mt 0 ,    \ instructions noted
 create nmt 0 ,
-create hov 0 ,   \ the instruction the pointer is over,
-                 \ or nothing,
+create hov 0 ,   \ the instruction the pointer is over, or 0,
 create hovp 0 ,  \ where it is noted in mt,
-create hovx 0 ,  \ and the box that says what it is: left, top
-                 \ and width
+create hovx 0 ,  \ and its box: left, top and width
 create hovy 0 ,
 create hovw 0 ,
 header t-words create t-words ," Words"
 
-\ The names, and memory for the text and what is noted of it,
-\ are had while the window is in front or being drawn.  They go
-\ once it has been drawn behind another, so that it is drawn
-\ there as it was in front, and the memory is had only while
-\ the window is in use.  The text's is given back if nothing has
-\ been given out since, as the names' is.
 create wfrom 0 ,  \ where memory was before the text's,
 create wto 0 ,    \ and after
 
@@ -879,15 +725,9 @@ create wto 0 ,    \ and after
     names-unload
 ;
 
-: words-front ( win -- )
-    \ when the Words window comes to the front
-    drop words-in ;
+: words-front ( win -- ) drop words-in ;
 
 : nwords ( -- n )
-    \ the header goes to R while the count, on top, is stepped,
-    \ and r> @ is one instruction: a turn is six, where swap 1+
-    \ swap @ with the test at the top was seven
-    \ (doc/superoptimizations.md)
     d# 0 forth @
     dup if begin >r 1+ r> @  dup 0= until then
     drop
@@ -935,8 +775,7 @@ create wto 0 ,    \ and after
     then
 ;
 
-: wgo ( xt -- )
-    \ follow a link, remembering where it was followed from
+: wgo ( xt -- ) \ follow a link, noting where from
     nhist @ d# 8 < if
         wxt @ nhist @ cells whist + !  d# 1 nhist +!
     then
@@ -962,25 +801,19 @@ create wto 0 ,    \ and after
     drop
 ;
 
-\ A token too long for what is left of its line goes on a new
-\ line, an indent further in, on which nothing is yet.
-: gwrap ( u -- u )
+: gwrap ( u -- u ) \ a token too long for its line goes on a new
     sfresh @ if sind @ gindent then
     dup scol @ + SCOLS >  scol @ sind @ INDENT-COLS * >  and if
         gnl  sind @ 1+ gindent  true sfresh !
     then
 ;
 
-\ Words that are one instruction between them are underlined as
-\ one: the space before each but the first is in their face.
 : gsame? ( -- f ) \ is the token more of the instruction before?
     sbold @  sgap @ srow @ =  and ;
-: gsep ( -- ) \ the space before a token
+: gsep ( -- ) \ the space before a token, in the face if so
     gsame? 0= if d# 0 gface then  bl wtext text-code ;
 
-\ Where the token is, for the pointer: its column, and how many
-\ characters it is from bit 6.  It starts n characters before
-\ the token, and is as many longer.
+\ where the token is, from n characters before it
 : gplace ( n -- place )
     >r  scol @ r@ -  lku @ r> + d# 6 lshift or ;
 
@@ -1009,19 +842,9 @@ create wto 0 ,    \ and after
     lku @ 1+ scol +!
 ;
 
-\ ---- what an instruction is to the machine
+\ ---- the box that says an instruction's number and fields
 
-\ Words in bold are one instruction between them, and are
-\ underlined as one, the space between them too; a number in
-\ brackets is an instruction that has no words; and many a plain
-\ word is an instruction by itself.  With the pointer on any of
-\ them, a small box under it says what the instruction is: its
-\ number, and its fields as vm_opcodes.h names them, which is
-\ how it can be written in source.  The names are in fused.fs,
-\ laid end to end: f-in, f-op and f-out.
-
-: nth-name ( n table -- addr u )
-    \ the nth of some counted strings laid end to end
+: nth-name ( n table -- addr u ) \ of counted strings end to end
     >c swap negate
     begin
         dup
@@ -1031,9 +854,7 @@ create wto 0 ,    \ and after
     drop count
 ;
 
-\ how a stack moves, after the stack's letter; nothing if it
-\ does not
-: .delta ( n c -- )
+: .delta ( n c -- ) \ how a stack moves, after its letter
     over 0= if 2drop exit then
     space emit
     dup d# 1 = if drop [char] + emit [char] 1 emit exit then
@@ -1050,9 +871,7 @@ create wto 0 ,    \ and after
     d# 3 and [char] r .delta
 ;
 
-\ where the box goes: under the words, or over them on the
-\ last lines
-: hov-box ( -- )
+: hov-box ( -- ) \ under the words, or over the last lines
     hov @ sb-begin .mach sb-end
     sbn @ d# 3 lshift d# 6 + hovw !
     hovp @ 1+ @ h# 3f and d# 3 lshift d# 110 +
@@ -1074,19 +893,13 @@ create wto 0 ,    \ and after
     hovx @ d# 3 + hovy @ 1+ sb-draw
 ;
 
-\ The box is not part of what the window draws.  It is drawn
-\ over it straight onto the screen, as the pointer is, while the
-\ window is in front: what is under it is kept, whole cells a
-\ row at a time, and put back when it goes (wm.fs, 'overlay).
-\ If the window has moved since, where it was is painted again,
-\ and nothing is put back.
+\ the box is the window's overlay (wm.fs, 'overlay)
 create hovk 0 , 0 ,  \ what is under it: a bitmap of its cells
 create hovon 0 ,     \ true while it is on the screen,
 create hovox 0 ,     \ and where the window's content was then
 create hovoy 0 ,
 
-: hrect ( -- x y w h )
-    \ the box, as much of it as is in the window
+: hrect ( -- x y w h ) \ as much of the box as is in the window
     hovx @ hovy @
     wwin @ CELL2 + @ d# 2 - hovx @ -  hovw @ min  d# 18 ;
 
@@ -1115,9 +928,7 @@ create hovoy 0 ,
     ccol @ over h# 3f and -  swap d# 6 rshift u<  and
 ;
 
-\ what the pointer is on, of the instructions in view: where it
-\ is noted, and the instruction; or nothing twice.  The pointer
-\ is where the window manager says, in the front window.
+\ the instruction the pointer is on, and its note; or 0 0
 : hover ( x y win -- a ins )
     wwin @ <> if 2drop d# 0 d# 0 exit then
     d# 4 rshift
@@ -1132,9 +943,7 @@ create hovoy 0 ,
     drop d# 0 d# 0
 ;
 
-\ The window manager runs this when the pointer has moved: the
-\ box is taken off where it was, and put on where it is to be.
-: words-moved ( x y win -- )
+: words-moved ( x y win -- ) \ what 'moved runs
     hover
     over hovp @ =  over hov @ =  and if 2drop exit then
     overlays-off  hov !  hovp !  hov @ if hov-box then
@@ -1177,9 +986,7 @@ create hovoy 0 ,
     wxt @ sdecomp
 ;
 
-\ [PGUP] and [PGDN] where more of the definition is above and
-\ below, at the right of its columns
-: wmarks ( -- )
+: wmarks ( -- ) \ where more is above and below
     SCOLS d# 3 lshift d# 112 +
     wsrc @ if dup d# 0 mark-up then
     wsrc @ wlines + wrows < if
@@ -1188,7 +995,7 @@ create hovoy 0 ,
     drop
 ;
 
-: wdef ( -- ) \ the definition, on the right, if there is room
+: wdef ( -- ) \ the definition, on the right
     false d# 108 d# 0 d# 1 wlines d# 4 lshift fill-rect
     wtext @ 0= if exit then
     wxt @ wdone @ <> if wdecomp then
@@ -1201,13 +1008,8 @@ header words-draw : words-draw ( win -- )
     words-in  wlist wdef  top wwin @ <> if words-out then
 ;
 
-\ What a key or a click changes is put out of date, and no more:
-\ the definition, and the two lines of the list the choice moved
-\ between.  If the list itself moved, or the choice was made by
-\ following a link, it is everything inside the frame.
-
 create wsel0 0 ,  \ the choice and the top of the list before
-create wtop0 0 ,
+create wtop0 0 ,  \ a key or a click
 
 : wall ( -- )
     d# 0 d# 0  wwin @ CELL2 + @ d# 2 -  wwin @ c# 3 + @ d# 20 -
@@ -1227,20 +1029,16 @@ create wtop0 0 ,
     then
 ;
 
-: wbefore ( win -- )
-    \ before a key or a click, which takes the box away
+: wbefore ( win -- ) \ a key or a click takes the box away
     wwin !  wsel @ wsel0 !  wtop @ wtop0 !
     overlays-off  d# 0 hov !  d# 0 hovp !  overlays-on
 ;
 
-: wpicked ( -- ) \ after wpick
+: wpicked ( -- ) \ what wpick put out of date
     wtop @ wtop0 @ <> if wall exit then
     wsel0 @ wline  wsel @ wline  wpane
 ;
 
-\ A page of the definition is a window less a line, so that the
-\ line at its edge is still to be seen.  Its last page is a full
-\ window, if it has that many lines.
 : wpage ( -- n ) wlines 1- ;
 
 : wscroll ( n -- ) \ the definition from its nth line

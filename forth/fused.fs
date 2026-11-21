@@ -1,16 +1,7 @@
 \ fused.fs - the image's instructions as words, for see.fs
-\ GENERATED from the image by util/fused.c whenever the image is
-\ built (CMakeLists.txt).  Do not edit.
-\
-\ Each entry is cells: the instruction, how many words it is,
-\ and the address of each word's header.  The words are the
-\ plain ones a programmer would write: one standard word, or
-\ two, before the machine's own name for the instruction.  Those
-\ the image has most of are first, since the table is searched
-\ from the start.  A zero ends the table.  It is a table of
-\ cells, reached a cell at a time: high.  It is laid after all
-\ the image's other data, and see.fs is told where it is
-\ (fused-at): it has no header of its own.
+\ GENERATED from the image by util/fused.c.
+\ An entry is the instruction, how many words it is, and each
+\ word's header.  A zero ends the table.
 
 high
 create fused

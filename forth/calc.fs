@@ -1,10 +1,7 @@
 \ calc.fs - an RPN calculator
 
-\ Digits build a number.  Enter pushes it, or duplicates the top
-\ if no number is being entered.  + - * / work on the top two, n
-\ negates, x swaps and d drops.  The buttons send the same keys.
-\ A key changes the numbers and not the buttons, so only the
-\ numbers are put out of date.
+\ Enter pushes the number, or the top again; n negates, x swaps
+\ and d drops.
 
 create ci 0 ,           \ a loop counter
 
@@ -12,11 +9,9 @@ create cst #128 allot
 create cn 0 ,
 create cacc 0 ,
 create centry 0 ,
-create cbtn ," 789/456*123-0nE+dx< "  \ what each button is,
-                                      \ four to a row: text,
-                                      \ with its count first
+create cbtn ," 789/456*123-0nE+dx< "  \ the buttons' keys
 
-: button ( i -- c ) \ the character past the count and i more
+: button ( i -- c )
     1+ d# 3 lshift cbtn swap char@ ;
 
 : cpush ( x -- )
@@ -31,31 +26,28 @@ create cbtn ," 789/456*123-0nE+dx< "  \ what each button is,
     cn @ if d# -1 cn +!  cn @ cells cst + @ else d# 0 then
 ;
 
-: centered ( -- )
-    \ push the number being entered, if there is one
+: centered ( -- ) \ the number being entered is pushed
     centry @ if cacc @ cpush  d# 0 cacc !  d# 0 centry ! then
 ;
 
-: sdiv ( a b -- q )
-    \ signed, towards zero; anything over zero is zero
+: sdiv ( a b -- q ) \ towards zero; anything over zero is zero
     dup 0= if 2drop d# 0 exit then
     2dup xor >r
     abs swap abs swap u/mod nip
     r> 0< if negate then
 ;
 
-: cdigit ( n -- ) \ a digit of the number being entered
+: cdigit ( n -- )
     cacc @ d# 10 * + cacc !  true centry ! ;
 
-: center ( -- ) \ push the number entered, or the top again
+: center ( -- )
     centry @ if centered exit then
     cn @ if cpop dup cpush cpush then
 ;
 
-: ctwo ( -- a b ) \ the top two, after the number being entered
-    centered cpop cpop swap ;
+: ctwo ( -- a b ) centered cpop cpop swap ;
 
-: cdrop ( -- ) \ the number being entered, or else the top, goes
+: cdrop ( -- ) \ the number being entered, or else the top
     centry @ if d# 0 cacc !  d# 0 centry ! exit then
     cpop drop
 ;

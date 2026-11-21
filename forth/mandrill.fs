@@ -1,16 +1,14 @@
-\ mandrill.fs - bring up the display and show the image on
-\ the disk, which the kernel's ROM found (nuc.fs)
+\ mandrill.fs - the picture on the disk, shown by itself
 
 header devices
-: devices ( -- ) \ the display
+: devices ( -- )
     display-init
 ;
 
 create showbm 0 , 0 ,
 
 header show
-: show ( blk# -- )
-    \ dither the TIFF starting at a block, centred
+: show ( blk# -- ) \ the TIFF at a block, dithered and centred
     tiff-open
     showbm swap atkinson
     copy-mode

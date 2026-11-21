@@ -1,22 +1,11 @@
-\ compose.fs - what two instructions are together, worked out
+\ compose.fs - the one instruction that two or three are
 
-\ An instruction is its fields: where the ALU's input is from,
-\ the operation, where the result goes, and how each stack
-\ moves.  Two are one instruction when one of them only moves
-\ cells about, so that what the other makes is still made of
-\ what one instruction can reach, and what is left is as one
-\ instruction leaves it.  That is not looked up here: it is
-\ worked out.  The two are run on a machine whose cells hold
-\ not numbers but where each came from; the instruction that
-\ would leave the same is made from what is left, and run on
-\ that machine too; and if the two machines are left the same,
-\ that instruction is the two.
-
-\ The machine is vm.c's, as vm_step.h says it, and no more of
-\ it than an instruction of the ALU, which may return if it is
-\ the last.  The target `pairs` puts every pair of instructions
-\ the nucleus can meet to this and to the step itself
-\ (util/pairs.c).
+\ The instructions are stepped on a model of the machine whose
+\ cells hold symbols: where each value came from.  The one
+\ instruction that would leave the same is built from what is
+\ left (jleft) and stepped too: it is the answer only if it
+\ leaves the same (jcand).  The target `pairs` checks every
+\ answer against vm_step.h.
 
 meta
 : low-bit ( mask -- n )
@@ -24,7 +13,7 @@ meta
     drop ;
 target
 
-\ where each field is, and the operations that are looked at
+\ where each field starts, and the operations the model knows
 meta R->IN low-bit target constant IN-AT
 meta 0 io[IN] low-bit target constant OP-AT
 meta 0 ->[T] low-bit target constant OUT-AT
@@ -43,22 +32,18 @@ meta 0 ->[T] 0 ->[T] low-bit rshift target constant OUT-MEM
 : w-in ( w -- n ) IN-AT rshift d# 3 and ;
 : w-op ( w -- n ) OP-AT rshift d# 15 and ;
 : w-out ( w -- n ) OUT-AT rshift d# 3 and ;
-\ how far a stack moves: of the field's four, 2 and 3 are two
-\ and one down
 : w-moves ( field -- n ) d# 3 and  dup d# 2 and 2* - ;
 : w-d ( w -- n ) D-AT rshift w-moves ;
 
-\ The machine: the two depths, T and R, where it stored and
-\ what, where it fetched from, whether it did what cannot be
-\ said, and eight cells of each stack.  A cell of the data
-\ stack holds its own number as it starts and a cell of the
-\ return stack 16 more; the depths start at 5.  So T is 4 as it
-\ was, the cell under it 3, and R 20.  What an instruction can
-\ make of those in one operation is 64 and more: 16 for each
-\ input and the operation's number.  What T points to, as it
-\ is, is M-WAS.
-\ It is not among the variables: there is too little room
-\ there, and what is set aside at here needs it (display.fs).
+\ The model, jm, in order: the two depths, T, R, the address
+\ stored to and the value, a bit for each input fetched
+\ through, whether it is lost, and eight cells of each stack.
+\ A cell of the data stack starts as its index and one of the
+\ return stack as 16 more; the depths start at 5.  So T
+\ starts as 4, the cell under it 3 and R 20; 96 is the cell T
+\ points to.  The result of one operation on an input is
+\ 64 + 16 * the input + the operation.  What the model cannot
+\ follow is lost (jbad).
 
 #24 constant JM-CELLS
 high
@@ -72,7 +57,7 @@ unhigh
 #3 constant N-WAS
 #4 constant T-WAS
 #20 constant R-WAS
-#96 constant M-WAS
+#96 constant M-WAS      \ what T pointed to
 #255 constant NO-CELL
 
 : JRSP ( -- a ) jm 1+ ;
@@ -90,9 +75,7 @@ unhigh
 : jreset ( -- ) jm0 jm JM-CELLS cells-move ;
 : jbad ( -- sym ) true JLOST !  NO-CELL ;
 
-\ which input of an instruction a cell is, as the machine
-\ started: the cell under T, T, what T points to, or R; or
-\ less than nothing
+\ which input a symbol is: the cell under T, T, [T] or R (0-3)
 : jsrc ( sym -- in | -1 )
     dup N-WAS = if drop d# 0 exit then
     dup T-WAS = if drop d# 1 exit then
@@ -104,8 +87,7 @@ unhigh
     over 0< if 2drop jbad exit then
     swap d# 4 lshift + d# 64 + ;
 
-\ What is at the address a cell holds.  After a store nothing
-\ is said of memory.  It is noted where it fetched from.
+\ what is at the address a cell holds; lost after a store
 : jfetched ( sym -- sym' )
     JSA @ NO-CELL <> if drop jbad exit then
     dup jsrc dup 0< if 2drop jbad exit then     ( sym in )
@@ -117,13 +99,11 @@ unhigh
     JSA @ NO-CELL <> if 2drop jbad drop exit then
     JSA ! JSV ! ;
 
-\ + and or xor * and = are the same either way round
+\ is op one of + and or xor * = , whose two inputs can swap?
 : jeither? ( op -- f )
     dup OP-SAME = swap d# 3 - d# 5 u< or ;
 
-\ an operation of IN and the cell under T: that cell is to be
-\ the one that was under T, or IN is, and the operation is the
-\ same either way round
+\ an operation of IN and the cell under T, either way round
 : jof-two ( a n op -- sym )
     >r  dup N-WAS = if drop jsrc r> jmade exit then
     over N-WAS = r@ jeither? and if nip jsrc r> jmade exit then
@@ -140,9 +120,7 @@ unhigh
     d# 2 = if JT @ jfetched exit then
     JR @ ;
 
-\ the operation, as vm_step.h has it: what it makes, and what
-\ two of them do to T and the cell under it
-: jout ( in-sym w -- out-sym )
+: jout ( in-sym w -- out-sym ) \ the operation (vm_step.h)
     w-op
     ?dup 0= if exit then
     dup OP-UNDER = if drop  JT @ jnos !  exit then
@@ -153,8 +131,7 @@ unhigh
     dup OP-SHIFT - d# 2 u< if >r JT @ r> jof-shift exit then
     >r jnos @ r> jof-two ;
 
-\ a depth that the eight cells do not have is not gone on with
-: jdeep ( n a -- ) \ a depth moves
+: jdeep ( n a -- ) \ a depth moves; lost past the eight cells
     tuck +!
     dup @ d# 2 - d# 7 u< if drop exit then
     d# 5 swap !  jbad drop ;
@@ -163,8 +140,7 @@ unhigh
 : jr-shown ( w -- )
     w-moves 0< if JRSP @ 1- jrs @ JR ! then ;
 
-\ the stacks move, and the result goes where it goes
-: jgoes ( out-sym w -- )
+: jgoes ( out-sym w -- ) \ the stacks move; the result goes
     dup w-d jm jdeep  dup w-moves JRSP jdeep
     dup w-d 0> if JT @ jnos ! then
     dup w-moves 0> if JR @ jrnos ! then
@@ -174,10 +150,9 @@ unhigh
     OUT-MEM <> if 2drop jbad drop exit then     \ a port
     swap JT @ jstored  dup jd-shown jr-shown ;
 
-\ An instruction that returns goes to what R has as it starts,
-\ which is to be what R had.  That it returned is the bit after
-\ those of where it fetched from, and nothing is run after it.
-#16 constant J-RETURNED
+\ A return goes to what R holds as the instruction starts: that
+\ must be R's first value.  No instruction is stepped after it.
+#16 constant J-RETURNED \ the bit of JF a return sets
 : jreturns ( w -- )
     h# 1000 and 0= if exit then
     JR @ R-WAS <> if jbad drop then
@@ -190,9 +165,7 @@ unhigh
     dup jreturns
     dup >r jin r@ jout r> jgoes ;
 
-\ a place that was stored to is not among those fetched from:
-\ where the store does not stop the machine, the fetch does
-\ not
+\ a cell that was stored to does not count as fetched from
 : jsettled ( -- )
     JSA @ jsrc dup 0< if drop exit then
     d# 1 swap lshift invert JF and! ;
@@ -205,17 +178,14 @@ unhigh
     repeat
     2drop rdrop true ;
 
-\ is the machine as it was kept?  The depths and the rest, and
-\ the cells of each stack that are under its top
-: jsame? ( -- f )
+: jsame? ( -- f ) \ is the machine as it was kept in jwas?
     jm jwas d# 8 jsame-run? 0= if false exit then
     d# 0 jds  jwas d# 8 +  jm @ 1- jsame-run? 0= if
         false exit
     then
     d# 0 jrs  jwas d# 16 +  JRSP @ 1- jsame-run? ;
 
-\ the instruction of these fields that moves the stacks as far
-\ as the two did, and returns if they did
+\ of these fields, moving the stacks and returning as jwas did
 : jfielded ( in op out -- w )
     OUT-AT lshift >r  OP-AT lshift >r  IN-AT lshift r> or r> or
     jwas @ d# 5 - d# 3 and D-AT lshift or
@@ -223,18 +193,16 @@ unhigh
     jwas d# 6 + @ J-RETURNED and if h# 1000 or then
     h# 6000 or ;
 
-: jcand ( in op out -- w | 0 ) \ is that instruction the two?
+\ that instruction, if it leaves the model as jwas has it
+: jcand ( in op out -- w | 0 )
     jfielded  dup jreset jstep jsettled  jsame? and ;
 
-\ OUT is one of the inputs as it is: there are three such
-\ instructions, by what else the operation does
-: jpasses ( in out -- w | 0 )
+: jpasses ( in out -- w | 0 ) \ `in` goes to `out` unchanged
     2dup d# 0 swap jcand ?dup if nip nip exit then
     2dup OP-SWAP swap jcand ?dup if nip nip exit then
     OP-UNDER swap jcand ;
 
-\ the instruction whose result is that cell, sent to `out`
-: jout-as ( sym out -- w | 0 )
+: jout-as ( sym out -- w | 0 ) \ whose result is that symbol
     >r
     dup d# 64 u< if
         jsrc dup 0< if rdrop drop d# 0 exit then
@@ -244,10 +212,11 @@ unhigh
     ?dup 0= if r> jpasses exit then
     r> jcand ;
 
+\ has a stack moved by -2 to 1, as one instruction can move it?
 : jfits? ( depth -- f ) d# 5 - d# 2 + d# 4 u< ;
 
-\ what was run is one instruction, or nothing: its result is
-\ what was stored, if anything was, or what T or R has
+\ the one instruction that leaves what was stepped: its result
+\ is what was stored, or T, or R
 : jleft ( -- w | 0 )
     jsettled
     JLOST @ if d# 0 exit then
@@ -259,7 +228,7 @@ unhigh
     jwas d# 2 + @ d# 0 jout-as ?dup if exit then
     jwas d# 3 + @ d# 1 jout-as ;
 
-: jtwo ( a b -- w | 0 ) \ the instruction that two are
+: jtwo ( a b -- w | 0 ) \ the one instruction that a then b are
     jreset swap jstep jstep jleft ;
 
 : jthree ( a b c -- w | 0 )

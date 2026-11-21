@@ -6,20 +6,18 @@
 \          1  1  1
 \             1
 
-\ A pixel is a lane of a cell, sixteen bits.  Its gray and what
-\ its neighbours gave it are added into its lane before it is
-\ looked at.  What a pixel gives is its error over eight and
-\ 128, so it is never negative, with whether it is black above
-\ it at bit 12: when a row is done its lanes are both the errors
-\ for the rows below and the pixels.
+\ A pixel is a lane of a cell, sixteen bits: its gray and what
+\ its neighbours gave it, and then its error over eight and 128,
+\ with whether it is black at bit 12.  Six neighbours each give
+\ 128 too much, so a lane is 768 over its gray: black is under
+\ 896.
 
 meta
-\ (lanes, the lanes to a cell, is cross.fs's.)
 : each-lane ( -- x ) 0 lanes 0 do #16 lshift 1 or loop ;
 each-lane constant lane1        \ 1 in each lane
 
-\ the multiplier that brings bit 0 of each lane to the top of
-\ the cell, in the order the display has pixels in a cell
+\ times this, bit 0 of each lane is at the top of the cell, in
+\ the display's order
 : to-top ( -- x )
     0 lanes 0 do
         1
@@ -34,9 +32,8 @@ to-top constant gather
 :: NIBSHIFT \ the top of a cell, less its pixels
     cell-bits lanes - literal ;
 
-\ a cell's lowest lane to its highest, and its highest to its
-\ lowest; and each lane added to those either side.  With one
-\ lane to a cell nothing is compiled.
+\ a cell's lowest lane to its highest, its highest to its
+\ lowest, and each lane added to those either side
 :: LOW>TOP    lanes 1 > if
     cell-bits #16 - literal s" lshift" evaluate
 then ;
@@ -48,8 +45,7 @@ then ;
     s" dup h# 10001 * swap d# 16 rshift +" evaluate
 then ;
 
-\ whether the pixel of each lane of a cell is black, a bit each,
-\ where acell-bits gathers them
+\ whether each lane's pixel is black, a bit each
 :: BLACK-BITS ( e -- n )
     lanes 1 = if
         disp-left-low if
@@ -65,8 +61,7 @@ then ;
     then
 ;
 
-\ four grays added in a lane, quartered to the nearest: the
-\ half of four is in the lane before the grays are (AROUND)
+\ four grays added in a lane that had AROUND, quartered
 :: AROUND     lane1 2 * literal ;
 :: QUARTERED ( x -- y )
     lanes 1 = if
@@ -76,8 +71,7 @@ then ;
     then
 ;
 
-\ a lane without whether its pixel is black: its number
-:: CLEAN ( x -- y )
+:: CLEAN ( x -- y ) \ each lane without whether it is black
     lanes 1 = if
         $fff literal s" and" evaluate
     else
@@ -85,20 +79,16 @@ then ;
     then
 ;
 
-\ The pixels of a cell: x is the cell, with what the cell before
-\ left for its first two added; e is what its pixels give, and
-\ x' what they leave for the first two of the next.
-
+\ a cell's pixels: e is what they give, and x' what they leave
+\ for the first two of the next cell.  A black lane gets 256
+\ more and bit 15: over eight, its gray / 8 + 128 with bit 12
+\ set.  A white one: its gray less 255, / 8 + 128.
 :: CELL-DONE ( x -- e x' )
     lanes 0 do
-        \ the rest of the cell, and the pixel
         s" dup d# 16 rshift swap h# fff and" evaluate
-        \ black, if it is under the threshold:
-        s" dup d# 896 <  h# 80ff and + 1+" evaluate
-        \ what it gives, with whether it is black above it
+        s" dup d# 896 <  h# 80ff and + 1+" evaluate \ black?
         s" d# 3 rshift" evaluate
-        \ to the next two
-        s" tuck h# 10001 * +" evaluate
+        s" tuck h# 10001 * +" evaluate  \ to the next two
     loop
     s" >r" evaluate
     lanes 1- 0 ?do s" d# 16 lshift +" evaluate loop
@@ -106,61 +96,38 @@ then ;
 ;
 target
 
-\ These are for more lanes than one (BLACK-BITS, CLEAN).
 W32+? [if]
-\ 1 in each lane
-create aone    meta lane1 target ,
-\ the number in each lane, without whether it is black
-create aclean  meta lane1 $fff * target ,
+create aone    meta lane1 target ,          \ 1 in each lane
+create aclean  meta lane1 $fff * target ,   \ each lane's number
 create agather meta gather target ,
 [then]
 
-\ A dither is a record: `dth` is the one in hand, and these are
-\ its cells.
 create dth 0 ,          \ the dither in hand: its record
 
-: abm   ( -- a ) dth @ ;          \ the bitmap: its descriptor
-: an    ( -- a ) dth @ 1+ ;       \ cells of lanes that
-                                  \ have pixels
+: abm   ( -- a ) dth @ ;          \ the bitmap
+: an    ( -- a ) dth @ 1+ ;       \ cells of lanes with pixels
 : acur  ( -- a ) dth @ CELL2 + ;  \ the row being done,
 : anxt  ( -- a ) dth @ c# 3 + ;   \ the next,
-: anx2  ( -- a ) dth @ c# 4 + ;   \ and the one after: each a
-                                  \ row of lanes
+: anx2  ( -- a ) dth @ c# 4 + ;   \ and the one after, as lanes
 : ay    ( -- a ) dth @ c# 5 + ;   \ how many rows are done
 : aimg  ( -- a ) dth @ c# 6 + ;   \ the image it is of
-\ The bitmap need not be of the whole image: the rows from ay0,
-\ akh of them, and of each the cells from aoff lanes along.
-: afull ( -- a ) dth @ c# 7 + ;   \ cells in a row of a bitmap
-                                  \ of the whole image
-
-: aoff  ( -- a ) dth @ c# 8 + ;   \ where in a row of lanes the
-                                  \ first cell kept starts
+: afull ( -- a ) dth @ c# 7 + ;   \ a whole row's cells
+: aoff  ( -- a ) dth @ c# 8 + ;   \ the first lane kept,
 : ay0   ( -- a ) dth @ c# 9 + ;   \ the first row kept,
 : akh   ( -- a ) dth @ c# 10 + ;  \ and how many are
+: arow  ( -- a ) dth @ c# 11 + ;  \ ( lanes -- ) a row's grays
+: aw    ( -- a ) dth @ c# 12 + ;  \ pixels across
 
-\ Nor need it be at the image's size: at half of it a pixel is
-\ four of the image's, and at twice it a 2 by 2.
-: arow  ( -- a ) dth @ c# 11 + ;  \ ( lanes -- ) adds the next
-                                  \ row's grays, reading the
-                                  \ image as needed
-: aw    ( -- a ) dth @ c# 12 + ;  \ pixels across what is
-                                  \ dithered: the image's width,
-                                  \ half it, or twice it
+: agr   ( -- a ) dth @ c# 13 + ;  \ lanes grays are gathered in
 
-: agr   ( -- a ) dth @ c# 13 + ;  \ the row of lanes grays are
-                                  \ gathered in, at half size
-                                  \ or twice
-
-: alanes ( x a -- )
-    \ set a row of lanes, and the cell at each end of it
+: alanes ( x a -- ) \ a row of lanes, and a cell at each end
     1-  afull @ d# 4 lshift d# 2 +  cells-fill
 ;
 
 : anew ( x -- a )
     afull @ d# 4 lshift d# 2 + >c halloc 1+  tuck alanes ;
 
-\ what the pixel that is not there, beside each end of the row,
-\ would give the row
+\ what the pixel beside each end of the row would give it
 : apreset ( a -- )
     d# 128 over +!
     aw @ 1-  dup LANES 1- and d# 4 lshift d# 128 swap lshift
@@ -168,15 +135,13 @@ create dth 0 ,          \ the dither in hand: its record
     swap LANESHIFT rshift rot + +!
 ;
 
-\ a gray into the lane at that shift of the cell at a, and on to
-\ the next lane
+\ a gray into the lane at that shift of the cell at a
 : lane+ ( shift a g -- shift' a' )
     >r over r> swap lshift  over +!
     swap d# 16 +  dup CELLBITS = if drop 1+ d# 0 then  swap
 ;
 
-: agrays ( lanes -- )
-    \ the next row's grays, each added to its pixel's lane
+: agrays ( lanes -- ) \ the next row's grays, each to its lane
     'grays @ ?dup if execute exit then
     d# 0 swap  tw @ negate  ( shift a -n )
     begin
@@ -187,14 +152,11 @@ create dth 0 ,          \ the dither in hand: its record
     drop 2drop
 ;
 
-\ read the next image row and add its grays, at the image's
-\ own size
-: aown ( lanes -- )
+: aown ( lanes -- ) \ at the image's own size
     aimg @ tiff-row  agrays
 ;
 
-: apairs ( lanes -- )
-    \ the next row's grays, each two pixels' added into a lane
+: apairs ( lanes -- ) \ the next row's grays, two to a lane
     'pairs @ ?dup if execute exit then
     d# 0 swap  tw @ d# 1 rshift negate  ( shift a -n )
     begin
@@ -206,9 +168,7 @@ create dth 0 ,          \ the dither in hand: its record
     tw @ d# 1 and if 'pixel @ execute drop then
 ;
 
-\ a quarter of what each lane of sums holds, to the nearest,
-\ added to its lane
-: aquarters ( lanes -- )
+: aquarters ( lanes -- ) \ a quarter of each sum, to its lane
     agr @ - >r  ( R: from the sums to the lanes )
     agr @ an @ bounds
     begin
@@ -220,19 +180,15 @@ create dth 0 ,          \ the dither in hand: its record
     2drop rdrop
 ;
 
-\ the next two rows of the image, as the grays of one row at
-\ half the size
-: ahalf-row ( lanes -- )
+: ahalf-row ( lanes -- ) \ two rows of the image, as one
     AROUND agr @ an @ cells-fill
     aimg @ tiff-row  agr @ apairs  aimg @ tiff-row
     agr @ apairs
     aquarters
 ;
 
-\ a cell of lanes as two cells with each lane doubled: the lower
-\ half of the cell makes the first
+\ a cell of lanes as two cells, each lane twice
 meta
-
 :: TWICE ( y -- lo hi )
     lanes 4 = if
         s" dup HALFMASK and  dup d# 16 lshift or" evaluate
@@ -248,8 +204,7 @@ meta
 ;
 target
 
-: atwice ( lanes -- )
-    \ add each lane of the grays at agr to two lanes of the row
+: atwice ( lanes -- ) \ each lane at agr to two of the row
     >r  agr @  an @ 1+ u2/  bounds
     ( end p ) ( R: the two cells it adds to )
     begin
@@ -261,9 +216,7 @@ target
     2drop rdrop
 ;
 
-\ add a row's grays at twice the size, reading an image row
-\ every other row
-: atwice-row ( lanes -- )
+: atwice-row ( lanes -- ) \ a row of the image, as two
     ay @ d# 1 and 0= if
         d# 0 agr @ an @ 1+ u2/ cells-fill
         aimg @ tiff-row  agr @ agrays
@@ -271,12 +224,12 @@ target
     atwice
 ;
 
-\ every pixel of the row: each lane is left as what its
-\ pixel gives
+\ every pixel of the row: its lane is left as what it gives.
+\ Pixels before the first give no error, so 128 each: twice to
+\ the first lane and once to the second (h# 800100).
 W32+? [if]
 : apixels ( lanes -- )
-    h# 800100 >r  \ what the two before the first would have
-                  \ left: 256, and 128
+    h# 800100 >r  \ what the two before the first would leave
     an @ bounds
     begin
         2dup xor
@@ -288,15 +241,10 @@ W32+? [if]
 ;
 [then]
 
-\ With one lane to a cell, what the next pixel is owed is added
-\ into its lane as soon as it is known.  Only what the last
-\ pixel gave is carried, on the return stack, and what this one
-\ gives is written over it there (doc/superoptimizations.md).
-
 W32+? [if] [else]
 : apixels ( lanes -- ) \ the same, a cell being one pixel
     d# 128 >r  ( lanes ) ( R: what the last pixel gave )
-    d# 256 over +!  \ what the two before the first would leave
+    d# 256 over +!
     an @ bounds
     begin 2dup xor while
         dup @  dup d# 896 <  h# 80ff and + 1+  d# 3 rshift
@@ -309,9 +257,7 @@ W32+? [if] [else]
 ;
 [then]
 
-\ the lanes of the last cell that are past the last pixel
-\ give nothing
-: atrim ( lanes -- )
+: atrim ( lanes -- ) \ lanes past the last pixel are 0
     aw @ LANES 1- and ?dup if
         d# 4 lshift d# 1 swap lshift 1-  ( lanes mask )
         swap an @ + 1- and!
@@ -321,15 +267,13 @@ W32+? [if] [else]
 ;
 
 W32+? [if]
-\ whether each pixel of a cell is black: a bit each, as the
-\ display has them
-: anib ( e -- n )
+: anib ( e -- n ) \ whether each pixel of a cell is black
     d# 12 rshift aone @ and  agather @ *  NIBSHIFT rshift
 ;
 [then]
 
+\ the pixels whose lanes start at p, as a cell of the bitmap
 : acell-bits ( p -- p' bits )
-    \ the pixels whose lanes start at p, as a cell of the bitmap
     d# 0 >r  ( p ) ( R: the cell being made )
     dup d# 16 + swap
     begin 2dup xor while
@@ -345,8 +289,7 @@ LEFT-LOW? [if]
 INK-BLACK? [if] [else] invert [then]
 ;
 
-: abits ( lanes dst -- )
-    \ the row's pixels, into the row of the bitmap at dst
+: abits ( lanes dst -- ) \ the row's pixels, to the bitmap
     dup abm @ CELL + @ + swap  ( lanes end dst )
     rot >r                     ( end dst ) ( R: the lanes )
     begin
@@ -358,8 +301,7 @@ INK-BLACK? [if] [else] invert [then]
     2drop rdrop
 ;
 
-: adown2 ( from to -- )
-    \ the row's errors, each to the pixel two rows below
+: adown2 ( from to -- ) \ each error to the pixel two rows below
     over - >r  ( from ) ( R: how far on the other row is )
     an @ bounds
     begin
@@ -376,9 +318,6 @@ INK-BLACK? [if] [else] invert [then]
     an @ bounds
     begin 2dup xor while
         dup @ CLEAN  over r@ +         ( end p e t )
-        \ its lowest lane to the highest of the cell before, its
-        \ highest to the lowest of the cell after, and itself
-        \ and a lane each way
         over LOW>TOP over +!  CELL2 +  over TOP>LOW swap +!
         EACH-WAY  over r@ + 1+ +!  1+
     repeat
@@ -392,16 +331,15 @@ INK-BLACK? [if] [else] invert [then]
     aw @ LANES 1- + LANESHIFT rshift an !
 ;
 
-\ the three rows of lanes: the rows that are not there gave the
-\ first row four times nothing, and the second once
-: alane-rows ( -- )
+\ rows above the first give 128 a neighbour: the first row has
+\ four such neighbours, the second one
+: alane-rows ( -- ) \ as the rows that are not there leave them
     d# 512 LANE1 * anew acur !
     d# 128 LANE1 * anew dup apreset anxt !
     d# 0 anew dup apreset anx2 !
 ;
 
-\ start a dither into a bitmap laid out as the display is; xt
-\ adds each row's grays (arow)
+\ into a bitmap laid as the display is; xt is its arow
 : (dither) ( bitmap img x y w h xt -- dither )
     d# 14 >c halloc dth !  arow !
     akh !  >r  ay0 !  LANESHIFT rshift aoff !  r>
@@ -411,44 +349,37 @@ INK-BLACK? [if] [else] invert [then]
     arow @ ['] atwice-row = if 2* then  aw !  awidths
     arow @ ['] aown <> if an @ >c halloc agr ! then
     alane-rows
-    \ a bitmap that has none is given one, last, to be kept;
-    \ one that has is dithered into again
+    \ a bitmap that has no memory is given it, last, to be kept
     abm @ @ 0= if abm @ CELL + @ akh @ * >c halloc abm @ ! then
     pixels  d# 0 ay !  dth @
 ;
 
-\ The bitmap is of the w by h of the picture from x, y, and x is
+\ The w by h of the picture as it is dithered, from x, y: x is
 \ where a cell of the bitmap starts.
-header dither-part
+header dither-part \ at the image's size
 : dither-part ( bitmap img x y w h -- dither )
-    \ of the image at its own size
     ['] aown (dither)
 ;
 
-header dither-half
+header dither-half \ at half of it
 : dither-half ( bitmap img x y w h -- dither )
-    \ of the image at half its size: x, y, w and h are of that
     ['] ahalf-row (dither)
 ;
 
-\ of the image at twice its size; x, y, w and h are at that size
-header dither-twice
+header dither-twice \ at twice it
 : dither-twice ( bitmap img x y w h -- dither )
     ['] atwice-row (dither)
 ;
 
-header dither-start
+header dither-start \ the whole image
 : dither-start ( bitmap img -- dither )
-    \ for the whole of the image
     dup image!  d# 0 d# 0 tw @ th @ dither-part
 ;
 
-header dither-row : dither-row ( dither -- )
-    \ the next row of its image, which is read if it has to be
+header dither-row : dither-row ( dither -- ) \ the next row
     dth !
     acur @  dup arow @ execute
     dup apixels  dup atrim           ( lanes )
-    \ a row that is kept: its pixels, from the first cell kept
     ay @ ay0 @ -  dup akh @ u< if
         abm @ CELL + @ *  abm @ @ +  ( lanes dst )
         swap aoff @ + swap abits
@@ -461,8 +392,7 @@ header dither-row : dither-row ( dither -- )
 ;
 
 header atkinson
-: atkinson ( bitmap img -- )
-    \ dither the whole image into a new bitmap
+: atkinson ( bitmap img -- ) \ the whole image
     dither-start
     begin
         ay @ th @ <
@@ -474,29 +404,20 @@ header atkinson
 
 \ ---- to sixteen levels
 
-\ A picture kept as gray (gray.fs) is dithered the same way, but
-\ a lane is a sample, the average of a square of the image's
-\ pixels, and is rounded to the nearest of sixteen levels.  One
-\ fetch from a table, by the lane's value, gives the sample's
-\ level, at bit 12, and the error it passes on, below.  The
-\ table covers the 272 values from 760, which is all a lane can
-\ come to.
+\ A lane is a sample, the average of a square of pixels.  A
+\ table gives its level at bit 12 and its error below.  Levels
+\ are 17 grays apart.  The table is by the lane's value from
+\ 760, which is gray -8 under its bias of 768, for 272 values.
 
 meta
-\ a number in each lane of a cell; and the bits of a lane that
-\ hold a gray once a sum is shifted down
 :: LANES*     lanes 1 > if s" aone @ *" evaluate then ;
 :: GRAY-BITS  lanes 1 > if s" gray-mask @ and" evaluate then ;
 
-\ the samples of a cell, as CELL-DONE does a cell's pixels: the
-\ table is on top of the return stack
+\ a cell's samples, as CELL-DONE; the table is on R
 :: CELL-LEVELS ( x -- e x' )
     lanes 0 do
-        \ the rest of the cell, and this sample's value
         s" dup d# 16 rshift swap h# fff and" evaluate
-        \ its error, with its level above it
         s" r@ + @" evaluate
-        \ the error, added to the next two
         s" tuck h# fff and h# 10001 * +" evaluate
     loop
     s" >r" evaluate
@@ -504,10 +425,8 @@ meta
     s" r>" evaluate
 ;
 
-\ plane pb of the levels of a cell's lanes, one bit each, where
-\ acell-bits gathers them
+\ plane pb of the levels of a cell's lanes, a bit each
 variable pb
-
 :: PLANE-BITS ( e -- n )
     lanes 1 = if
         disp-left-low if
@@ -523,8 +442,7 @@ variable pb
     then
 ;
 
-\ plane pb of the samples whose lanes start at p, in one cell: a
-\ word a plane, so that the bit's place is a number in the code
+\ plane pb of the samples whose lanes start at p, as a cell
 :: GATHER ( p -- p' bits )
     s" d# 0 >r  dup d# 16 + swap" evaluate
     s" begin 2dup xor while  dup @" evaluate
@@ -537,25 +455,17 @@ variable pb
     s" 1+ repeat  nip r>" evaluate
 ;
 :: GATHER0  0 pb !  s" GATHER" evaluate ;
-
 :: GATHER1  1 pb !  s" GATHER" evaluate ;
-
 :: GATHER2  2 pb !  s" GATHER" evaluate ;
 :: GATHER3  3 pb !  s" GATHER" evaluate ;
+
 target
 
-: agw   ( -- a ) dth @ c# 14 + ;  \ the row of lanes pixel pairs
-                                  \ are summed in, for 2 by 2
-                                  \ samples or more
-: ash   ( -- a ) dth @ c# 15 + ;  \ pixels per side of a sample,
-                                  \ as a shift
-: alt   ( -- a ) dth @ c# 16 + ;  \ the table of level and error
-                                  \ for each lane value, offset
-                                  \ by 760
+: agw   ( -- a ) dth @ c# 14 + ;  \ lanes pairs are summed in
+: ash   ( -- a ) dth @ c# 15 + ;  \ a sample's side, as a shift
+: alt   ( -- a ) dth @ c# 16 + ;  \ the table, less 760
 
-\ the nearest of the sixteen levels to a lane value's gray; 0 if
-\ below black
-: v-level ( v -- level )
+: v-level ( v -- level ) \ the nearest of the sixteen
     d# 760 -  d# 0 swap  ( level n ) \ n is the gray plus 8
     begin  over d# 15 <  over d# 16 >  and  while
         d# 17 -  swap 1+ swap
@@ -563,8 +473,6 @@ target
     drop
 ;
 
-\ fill the table at a: for each lane value from 760, its level
-\ at bit 12 and its error below
 : levels-table ( a -- )
     d# 760 >r  ( R: the lane value )
     d# 272 bounds
@@ -580,9 +488,8 @@ target
     2drop rdrop
 ;
 
+\ the lanes of two cells added in pairs, x's in the lower half
 W32+? [if]
-\ add adjacent lane pairs of two cells into one cell, x's in its
-\ lower half
 : fold2 ( x y -- z )
     fold-pairs HALFBITS lshift  swap fold-pairs or
 ;
@@ -590,31 +497,24 @@ W32+? [if]
 : fold2 ( x y -- z ) + ;
 [then]
 
-\ add adjacent lane pairs of the n cells at a, into the first
-\ half of them
+\ the lanes of the n cells at a, in pairs, into the first half
 : afold ( a n -- )
     over >r  u2/ over + swap  ( end to ) ( R: a )
     begin
         2dup xor
     while
-        \ from the two cells twice as far from a
         dup 2* r@ -  dup @ swap 1+ @ fold2  over !
         1+
     repeat
     2drop rdrop
 ;
 
-\ cells in the row of pair sums: enough for the row's pairs and
-\ for the folding
-: awide ( -- n )
+: awide ( -- n ) \ cells in the row of pair sums
     tw @ d# 1 rshift LANES 1- + LANESHIFT rshift
     an @ ash @ 1- lshift  max
 ;
 
-\ the pair sums of the rows of a sample, each row read but the
-\ first, which the caller has read.  Each lane starts with its
-\ share of half the divisor, so the sum is rounded when it is
-\ shifted down.
+\ the pair sums of a sample's rows; the first has been read
 : asum-rows ( -- )
     d# 1 ash @ lshift LANES* agw @ awide cells-fill
     agw @ apairs
@@ -623,11 +523,9 @@ W32+? [if]
     drop
 ;
 
-\ add the grays of the next row of samples, each into its lane
-: asums ( lanes -- )
+: asums ( lanes -- ) \ the next row of samples, each to its lane
     ash @ 0= if agrays exit then
     asum-rows
-    \ fold lane pairs until a lane is a sample
     agw @  an @ ash @ 1- lshift  ( lanes a n )
     begin dup an @ <> while 2dup afold u2/ repeat
     drop                         ( lanes a )
@@ -639,8 +537,6 @@ W32+? [if]
     2drop rdrop
 ;
 
-\ What a cell owes the first two lanes of the next is added
-\ straight into the next cell.
 W32+? [if]
 : lpixels ( lanes table -- ) \ each lane: its error and level
     >r  h# 800100 over +!  an @ bounds
@@ -653,15 +549,12 @@ W32+? [if]
 ;
 [then]
 
-\ The lane before the first holds what a missing pixel would
-\ pass on.
 W32+? [if] [else]
 : lpixels ( lanes table -- ) \ the same, one sample per cell
     >r  d# 128 over 1- !  d# 256 over +!
     an @ bounds                      ( end p ) ( R: the table )
     begin 2dup xor while
         dup @ r@ + @                 ( end p error )
-        \ what the next sample is owed
         2dup swap 1- @ + h# fff and  ( end p error owed )
         >r over !  1+  r> over +!    ( end p' )
     repeat
@@ -669,15 +562,12 @@ W32+? [if] [else]
 ;
 [then]
 
-: lplane0 ( p -- p' bits ) GATHER0 ;  \ gather a cell of the
-                                      \ lowest plane from the
-                                      \ lanes at p,
-: lplane1 ( p -- p' bits ) GATHER1 ;  \ and of the others
+: lplane0 ( p -- p' bits ) GATHER0 ;  \ a cell of a plane
+: lplane1 ( p -- p' bits ) GATHER1 ;
 : lplane2 ( p -- p' bits ) GATHER2 ;
 : lplane3 ( p -- p' bits ) GATHER3 ;
 
-\ store one plane of the row's levels at dst; xt gathers a cell
-\ of it
+\ a plane of the row's levels, to dst; xt gathers a cell of it
 : lbits ( lanes dst xt -- )
     >r  dup abm @ CELL + @ + swap  ( lanes end dst ) ( R: xt )
     begin
@@ -689,9 +579,7 @@ W32+? [if] [else]
     2drop drop rdrop
 ;
 
-\ store the row's four level planes in its four plane rows,
-\ lowest first
-: lplanes ( lanes -- )
+: lplanes ( lanes -- ) \ the row's four planes, the lowest first
     ay @ d# 2 lshift abm @ CELL + @ *  abm @ @ +  ( lanes dst )
     2dup ['] lplane0 lbits  abm @ CELL + @ +
     2dup ['] lplane1 lbits  abm @ CELL + @ +
@@ -699,10 +587,9 @@ W32+? [if] [else]
     ['] lplane3 lbits
 ;
 
-\ start dithering the whole image to sixteen levels, a sample
-\ per 1 << shift pixels a side.  planes is the planes' address
-\ and cells per plane row; a row of samples is four plane rows,
-\ lowest plane first.
+\ The whole image, a sample 1 << shift pixels a side.  planes is
+\ their address and the cells of a plane row; a row of samples
+\ is four plane rows.
 header dither-levels
 : dither-levels ( planes img shift -- dither )
     d# 17 >c halloc dth !
@@ -716,10 +603,8 @@ header dither-levels
     d# 0 ay !  dth @
 ;
 
-\ read and dither the next row of samples, and store its
-\ level planes
 header level-row
-: level-row ( dither -- )
+: level-row ( dither -- ) \ the next row of samples
     dth !
     aimg @ tiff-row
     acur @  dup asums  dup alt @ lpixels  dup atrim

@@ -1,8 +1,6 @@
 \ sans.fs - the font sans, for the characters from space to ~
 
-\ A font is a strike: mono.fs says what one is.  This one was
-\ drawn from DejaVu Sans Bold at 11 pixels, each character as
-\ wide as it is.  To change a glyph, change its pixels here.
+\ A strike (mono.fs), drawn from DejaVu Sans Bold at 11 pixels.
 
 bulk
 header sans create sans

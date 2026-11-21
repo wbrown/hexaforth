@@ -8,28 +8,10 @@ create t-calc ," Calculator"
 create t-paint ," HexaPaint"
 create t-up   ," desktop"
 
-\ The windows are opened by one word and the machine's devices
-\ brought up by another, so that a machine with other devices,
-\ or with none, opens the same windows.  The picture and the
-\ editor are there if there is a disk, which is to say if a
-\ driver has said how a block is read.
+\ left, top, width and height: of the picture, the editor, the
+\ Words window, the calculator, the Forth window and HexaPaint
 
-\ Where each window goes: its left, top, width and height, for
-\ the picture, the editor, the Words window, the calculator and
-\ the Forth window, which are opened in that order, the last in
-\ front, and for HexaPaint, which is opened before them all and
-\ so is at the back.  There are two arrangements.  One is for a
-\ screen of 768 by 576, where the Words window shows 23 lines of
-\ a definition's 45 characters: a little more than the 1,024
-\ characters of a block.  The other is for a smaller one, down
-\ to 512 by 342, where a window is as big as it was but for the
-\ picture's, which shows 256 by 256 of it, and the Words
-\ window's, which is 18 lines, as many as fit under the bar:
-\ they lie over each other more, each with some of its title to
-\ be seen, and the editor, whose 64 characters are as wide as
-\ the screen, has its frame off both sides of it.
-
-create big-desk
+create big-desk     \ for a screen of 576 rows or more
     #250 , #40 , #514 , #532 ,
     #250 , #150 , #518 , #300 ,
     #140 , #184 , #482 , #388 ,
@@ -51,15 +33,12 @@ create small-desk
     dup @ swap  dup 1+ @ swap  dup CELL2 + @ swap  c# 3 + @
 ;
 
-\ HexaPaint, at the back: it is as big as its canvas, and has no
-\ canvas until it is drawn in.
-: back-window ( -- )
+: back-window ( -- ) \ HexaPaint
     d# 5 place t-paint
     ['] paint-draw ['] ignore-key ['] paint-click window drop
 ;
 
-\ the picture's window and the editor's, if there is a disk; and
-\ the picture's window, or 0 if there is none
+\ the picture's window, and the editor's, if there is a disk
 : disk-windows ( -- win|0 )
     'blk-read @ 0= if d# 0 exit then
     d# 0 place t-view
@@ -79,15 +58,10 @@ create small-desk
     ['] term-draw ['] repl-key d# 0 window drop
 ;
 
-\ The picture is started last, after all the windows and the
-\ event loop's regions (wm-regions) are allocated.  Then the
-\ memory reading it takes is the most recent allocation, and is
-\ fully returned when the last row is made (view.fs).
 : picture-start ( win|0 -- ) \ the picture, in its window
     ?dup 0= if exit then
-    >r  picture-blk  d# 0 place 2swap 2drop  \ and the size its
-    swap d# 2 - swap d# 20 -                 \ window shows
-    \ the viewer, or 0 if there is no picture
+    >r  picture-blk  d# 0 place 2swap 2drop
+    swap d# 2 - swap d# 20 -
     ['] view-load catch if 2drop drop d# 0 then
     r> win-data !
 ;
@@ -95,21 +69,14 @@ create small-desk
 header windows
 : windows ( -- ) \ open them, and run until ^Q
     d# 0 nwin !
-    find-disks  \ the picture is on one of them, by its label
+    find-disks
     back-window  disk-windows  tool-windows
-    wm-regions  picture-start
+    wm-regions  picture-start   \ last: its memory is given back
     t-up >c count type cr
     event-loop
 ;
 
-\ The QEMU virt machine: keyboards and pointers are virtio input
-\ devices, and the disk a virtio block device.  The console's
-\ keys are taken too.  A machine with other devices brings them
-\ up itself and runs `windows`.
-
-\ (Each conditional here is lines with none of nothing between
-\ them, so that it is laid in one block: what skips one stops
-\ at the end of its block.)
+\ QEMU's virt: virtio input devices, and the console's keys
 
 W64? [if]
 : virt-poll ( -- ) input-poll uart-poll ;
@@ -118,15 +85,11 @@ header desktop
     display-init
     ['] on-event 'event !
     input-init
-    nidev @ 0= d# 37 -throw  \ nothing to work it with
+    nidev @ 0= d# 37 -throw
     ['] virt-poll 'poll !
     windows
 ;
 [then]
-
-\ The kernel runs a word called cold, if there is one, before
-\ its own prompt.  With no keyboard or pointer this fails at
-\ once and the serial prompt follows.
 
 W64? [if]
 header cold

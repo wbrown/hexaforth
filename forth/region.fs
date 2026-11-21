@@ -1,53 +1,17 @@
 \ region.fs - regions: shapes on the screen that need not
 \ be rectangles
 
-\ A region says, for each band of rows across which its shape is
-\ the same, where along a row it goes from outside to inside and
-\ back.  It is a count of the cells that follow, and then bands:
-
+\ A region is a count of the cells that follow, and then bands:
 \     n  x0 x1 ... x(n-1)  end
-
-\ The pixels from x0 up to x1, from x2 up to x3 and so on are
-\ inside, in every row from where the band above ended down to
-\ this one's end.  The end is the row, plus AS-END: further
-\ along than any crossing, so it is also what ends them, and
-\ nothing has to count them to know where they stop.  The first
-\ band has no crossings and ends at the region's top; the last
-\ has none and ends at NEVER.  So every row is in a band, and
-\ nothing is special about the top of a region or the bottom.  A
-\ region with nothing in it is that one last band.  A rectangle
-\ is eight cells: 0 top, 2 x0 x1 bottom, 0 never; and nothing
-\ else is eight.
-
-\ A band is an even number of cells and a region starts on an
-\ even cell, so a crossing in is at an even address and a
-\ crossing out at an odd one: a place among the crossings is
-\ inside the region if its address is odd.  Nothing has to keep
-\ whether it is inside.
-
-\ Two regions are combined a band at a time.  The crossings of a
-\ band of each are merged: the nearer of the two is written
-\ where the answer's next would go, and stays there if the
-\ answer is not what it was, which the three places say between
-\ them.  The nearer of the two ends is the end of the band they
-\ make.  A band the same as the one above it is not written: the
-\ one above is made to end where it would have.
-
-\ Nothing here is kept in a variable, so any number of these can
-\ be in hand at once.  Coordinates are those of the screen, and
-\ less than END-MIN from nothing either way, which display.fs
-\ makes from the width of a cell.  A region is RGN-CELLS cells
-\ from halloc, and nothing checks that it fits: the regions of a
-\ few windows are a few dozen cells.
+\ The pixels from x0 up to x1, x2 up to x3 and so on are inside,
+\ in the rows from where the band above ended down to end, which
+\ is the row plus AS-END.  The first band has no crossings and
+\ ends at the region's top; the last has none and ends at NEVER.
+\ A rectangle is 0 top, 2 x0 x1 bottom, 0 never.
+\ A region starts on an even cell: a crossing at an odd address
+\ goes inside.  Nothing checks that a region fits RGN-CELLS.
 
 $100 constant RGN-CELLS
-
-\ What is between `nearby` and `nearby-end` is laid in the
-\ kernel's page, where a call from any page is one instruction:
-\ the window manager, on another page, asks these of every
-\ region it has (cross.fs, nearby).  The merges, which are the
-\ loops, are on this page, and are reached by execute as they
-\ always were.
 
 nearby
 header rgn-none : rgn-none ( rgn -- ) \ nothing is in it
@@ -55,8 +19,7 @@ header rgn-none : rgn-none ( rgn -- ) \ nothing is in it
 ;
 nearby-end
 
-header new-rgn : new-rgn ( -- rgn )
-    \ with nothing in it, and on an even cell
+header new-rgn : new-rgn ( -- rgn ) \ with nothing in it
     RGN-CELLS 1+ >c halloc  dup d# 1 and +  dup rgn-none
 ;
 
@@ -66,14 +29,12 @@ header rgn-empty? : rgn-empty? ( rgn -- f ) @ d# 2 = ;
 header rgn-copy : rgn-copy ( from to -- )
     over @ 1+ cells-move ;
 
-: band-next ( band -- band' ) \ the band after it
+: band-next ( band -- band' )
     dup @ + CELL2 + ;
 
 \ ---- rectangles
 
-\ The four cells that say where it is are in place: its left and
-\ right, and its top and bottom as the ends of bands.  The rest;
-\ or nothing, if there is nothing between them.
+\ its sides are in place: the rest, or nothing if it is empty
 : rect-seal ( rgn -- )
     >r
     r@ c# 5 + @ r@ c# 4 + @ >  r@ c# 6 + @ r@ CELL2 + @ >
@@ -83,7 +44,6 @@ header rgn-copy : rgn-copy ( from to -- )
 ;
 
 header rect-rgn : rect-rgn ( x y w h rgn -- )
-    \ make it this rectangle
     >r
     rot AS-END +  dup r@ CELL2 + !  ( x w h top )
     + r@ c# 6 + !                   ( x w )
@@ -106,29 +66,17 @@ nearby-end
 
 \ ---- two regions, combined
 
-\ A merge has two places to read, among the crossings of a band
-\ of each region, and one to write, which is on the return
-\ stack.  A turn: the nearer of the two crossings is written
-\ where the answer's next would go; each place that was at it
-\ moves on; and it stays written, the place to write moving on
-\ too, if the answer is not what it was.  Whether the answer is
-\ inside is what one instruction makes of the two places to
-\ read, and whether it was is the place to write.
-
-\ The end of a band is a crossing like any other, but that it is
-\ the last: the place that was at the nearer end moves on past
-\ it, to its region's next band, and the other is left at its
-\ own end, with more of its band to come.
-
-\ The three merges differ only in that one instruction, so the
-\ rest is written once, as what comes before it and what
-\ comes after.
+\ A merge reads the crossings of a band of each region and
+\ writes at R.  A place's low bit is whether it is inside there.
+\ A pass writes the nearer crossing and goes past it; one
+\ instruction makes the answer of the two places read, and the
+\ crossing is kept if that is not the place written's low bit.
 meta
-:: ADVANCE ( qa qb xa xb -- qa' qb' )
-    \ each place that was at the nearer crossing moves on
+:: ADVANCE ( qa qb xa xb -- qa' qb' ) \ past the nearer crossing
     s" 2dup = if 2drop 1+ swap 1+ swap" evaluate
     s" else < if swap 1+ swap else 1+ then then" evaluate
 ;
+
 :: MERGE[ ( qa qb qo -- qa' qb' qa' qb' ) ( R: -- qo )
     s" >r begin over @ over @  2dup min dup r@ !" evaluate
     s" END-MIN < while ADVANCE 2dup" evaluate
@@ -139,17 +87,13 @@ meta
 
 target
 
-\ Each leaves the two places where they got to, and where it
-\ wrote the end.
 : merge-and  ( qa qb qo -- qa' qb' qo' ) MERGE[ and ]MERGE ;
 : merge-or   ( qa qb qo -- qa' qb' qo' ) MERGE[ or ]MERGE ;
 : merge-diff ( qa qb qo -- qa' qb' qo' )
     MERGE[ invert and ]MERGE ;
 
-\ are the count and the crossings of the band those of the last?
 nearby
-: same? ( last band -- f )
-    \ not as many
+: same? ( last band -- f ) \ the same count and crossings?
     over @ over @ xor if 2drop false exit then
     over - >r  ( last ) ( R: how far on the band is )
     dup 1+ swap @ bounds
@@ -162,30 +106,22 @@ nearby
     2drop rdrop true
 ;
 
-\ A place that went past its band's end is at the next band,
-\ whose count is no end; one that did not is still at the end.
-
-\ the band to look at next: the one q got to, or the same again
-: on? ( band q -- band' )
+: on? ( band q -- band' ) \ q's band, if q went past its end
     dup @ END-MIN < if nip else drop then
 ;
 
-\ A band of each region, merged into the band after the last
-\ one written: the bands of each to look at next, and the band
-\ made and its end.
+\ a band of each, merged into the band after the last written
 : rgn-band ( a b merge last -- a' b' end band )
     band-next  dup >r  1+       ( a b merge qo ) ( R: band )
     >r >r  over 1+ over 1+  r> r>    ( a b qa qb merge qo )
     swap execute                ( a b qa' qb' qo' )
-    \ how many crossings the band has
     dup r@ - 1- r@ !
     @ >r                        ( a b qa' qb' ) ( R: band end )
     rot swap on? >r on? r>      ( a' b' )
     r> r>
 ;
 
-\ The band made, if it is not the same as the last, is the last
-\ now; if it is, the last goes on down to where it would end.
+\ a band the same as the last is the last, ending further down
 : rgn-kept ( end band last -- end last' )
     2dup swap same? if
         >r 1- over swap ! r>
@@ -193,12 +129,6 @@ nearby
         drop
     then
 ;
-
-\ The band of each region that is being looked at is on the data
-\ stack.  On the return stack are the region being made, the
-\ merge, and the last band written.  It starts with a band of
-\ nothing, for the first to be the same as: the first band of
-\ every region has no crossings.
 
 : rgn-op ( a b to merge -- )
     swap dup >r  ( a b merge to ) ( R: to )
@@ -214,10 +144,7 @@ nearby
     tuck - 1- swap !
 ;
 
-\ Most regions are rectangles or nothing, and most of what is
-\ asked of two regions needs no band of either looked at:
-\ nothing and anything, and two rectangles.  `to` must not be
-\ either of the regions combined.
+\ `to` must not be either of the regions combined.
 header rgn-and : rgn-and ( a b to -- ) \ what is in both
     >r
     over rgn-empty? over rgn-empty? or if
@@ -235,13 +162,11 @@ header rgn-or : rgn-or ( a b to -- ) \ what is in either
 ;
 nearby-end
 
-header rgn-diff : rgn-diff ( a b to -- )
-    \ what is in a and not in b
+header rgn-diff : rgn-diff ( a b to -- ) \ in a and not in b
     >r
     over rgn-empty? if 2drop r> rgn-none exit then
     dup rgn-empty? if drop r> rgn-copy exit then
-    over rect? over rect? and if  \ two rectangles that
-                                  \ share nothing
+    over rect? over rect? and if
         2dup r@ rect-and
         r@ rgn-empty? if drop r> rgn-copy exit then
     then
@@ -255,22 +180,17 @@ nearby
     dup 1+ swap @ bounds ;
 nearby-end
 
-: rgn-down ( dy rgn -- )
-    \ every band ends that much further down, but the last
+: rgn-down ( dy rgn -- ) \ every band but the last ends lower
     swap >r bands          ( end band ) ( R: dy )
     begin
-        band-next 2dup xor  \ is there a band after it?
+        band-next 2dup xor
     while
         r@ over 1- +!
     repeat
     2drop rdrop
 ;
 
-\ A band is a count and the cells that follow, as a region is.
-: band-along ( dx band -- )
-    \ its crossings that much further along
-    \ dx is under the address and the end on R, as col-and! has
-    \ them (display.fs): a turn is five instructions for six
+: band-along ( dx band -- ) \ its crossings further along
     bands swap >r                       ( dx a ) ( R: end )
     dup r@ xor if
         begin  2dup +!  1+  r@ over =  until
@@ -279,7 +199,6 @@ nearby-end
 ;
 
 : rgn-along ( dx rgn -- )
-    \ every crossing is that much further along
     swap >r bands  ( end band ) ( R: dx )
     begin
         2dup xor
@@ -294,9 +213,8 @@ header rgn-offset : rgn-offset ( dx dy rgn -- ) \ move it
 ;
 
 nearby
-: rgn-left ( rgn -- x )
-    \ the least that the crossings of any band start at
-    END-MIN >r bands  \ further along than any crossing
+: rgn-left ( rgn -- x ) \ the least any band starts at
+    END-MIN >r bands
     begin
         2dup xor
     while
@@ -306,7 +224,7 @@ nearby
     2drop r>
 ;
 
-: rgn-right ( rgn -- x ) \ and the most that they end at
+: rgn-right ( rgn -- x ) \ and the most any ends at
     END-MIN negate >r bands
     begin
         2dup xor
@@ -317,10 +235,8 @@ nearby
     2drop r>
 ;
 
-\ Its top is where its first band ends, and its bottom where the
-\ band before the last does.  It must have something in it.
+\ the rectangle around it, which must have something in it
 header rgn-box : rgn-box ( rgn -- x y w h )
-    \ the rectangle around it
     dup >r rgn-left                           ( x ) ( R: rgn )
     r@ CELL2 + @ AS-END -                     ( x y )
     over r@ rgn-right swap -                  ( x y w )
@@ -330,58 +246,33 @@ nearby-end
 
 \ ---- scrolling
 
-\ scroll-rect moves what is in a rectangle of the port.  Only
-\ what can be seen can be moved: a pixel is moved to a place if
-\ both the place and where it comes from are in the rectangle,
-\ in the clip rectangle and in the clip region.  The places that
-\ are in all three but have nothing to come from are made white
-\ and left as a region in scroll-update, for whoever called to
-\ draw again: the strip that was uncovered, and whatever would
-\ have come from under something else.
+\ A pixel goes to a place if the place and where it comes from
+\ are both in the rectangle and the clip.  The places nothing
+\ comes to are made white, and are scroll-update.
 
 header scroll-update \ a region, on the screen
     create scroll-update 0 ,
 
-
-\ It works in three regions of its own, which are next to each
-\ other, so that one place on the return stack is all three:
-\ taken for as long as it runs and given back, from memory that
-\ has been given back if there is enough of that (hreuse,
-\ hgive), and if not from what has not been given out.  (Not at
-\ here: three regions are more cells than the data space has
-\ left.)  How far to move is on the data stack throughout.  Once
-\ the regions are made the rectangle itself is not wanted again:
-\ what is moved is clipped to the region of what may move, and
-\ what is made white to scroll-update, so the rectangle round
-\ each will do for it.
-
-$102 constant RGN-STEP  \ from one region to the next, of
-                        \ several taken together
+$102 constant RGN-STEP  \ from one region to the next of three
 
 : on-screen ( x y w h -- x' y' w h )
-    \ from the port's coordinates
     2swap  oy @ + swap ox @ + swap  2swap ;
-: in-port   ( x y w h -- x' y' w h ) \ and back to them
+: in-port   ( x y w h -- x' y' w h )
     2swap  oy @ - swap ox @ - swap  2swap ;
 
 : from ( dx dy x y -- x-dx y-dy x y )
-    \ where what goes to x y comes from
     2swap >r >r  over r> -  over r> -  2swap
 ;
 
-\ The three regions are made in turn.  The first is where pixels
-\ may be: the rectangle, in the clip rectangle and in the clip
-\ region.  The second is that, moved; the third the places that
-\ have a pixel to come to them; and those that have none are
-\ scroll-update.
+\ The first region is where pixels may be; the second that,
+\ moved; the third the places a pixel comes to.
 
 : scroll-may ( x y w h rgns -- )
-    >r  on-screen r@ rect-rgn  \ the rectangle,
+    >r  on-screen r@ rect-rgn
     clip @  clip CELL + @  clip CELL2 + @ clip @ -
     clip c# 3 + @ clip CELL + @ -
-    r@ RGN-STEP + rect-rgn     \ the clip rectangle,
-    r@  r@ RGN-STEP +  r@ RGN-STEP 2* +  rgn-and    \ both,
-    \ the first: and in the clip region too
+    r@ RGN-STEP + rect-rgn
+    r@  r@ RGN-STEP +  r@ RGN-STEP 2* +  rgn-and
     clip-rgn @ ?dup if
         r@ RGN-STEP 2* +  swap  r> rgn-and
     else
@@ -391,17 +282,12 @@ $102 constant RGN-STEP  \ from one region to the next, of
 
 : scroll-to ( dx dy rgns -- dx dy )
     >r  r@  r@ RGN-STEP +  rgn-copy
-    \ the second: that, moved
     2dup r@ RGN-STEP + rgn-offset
-    \ the third: the places that have a pixel to come to them
     r@  r@ RGN-STEP +  r@ RGN-STEP 2* +  rgn-and
-    \ and those that have none
     r@  r@ RGN-STEP 2* +  scroll-update @  rgn-diff
     rdrop
 ;
 
-\ The pixels that have somewhere to come from are moved, clipped
-\ to the third region; and what has nothing is made white.
 : scroll-move ( dx dy third -- )
     copy-mode  dup rgn-clip!
     dup rgn-empty? if drop 2drop exit then

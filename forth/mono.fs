@@ -1,19 +1,11 @@
 \ mono.fs - the font mono, for the characters from space to ~
 
-\ A font is a strike: every glyph side by side in one bitmap 16
-\ rows high, and a table of where each starts.  Here it is five
-\ cells (how high, the first character, how many, the cells in a
-\ row of the strike as runs of 64 pixels, and a cell the system
-\ uses), then where each glyph starts and where the last ends,
-\ then the strike a row at a time, 64 pixels to a number with
-\ the leftmost highest (px, in cross.fs).  Each font is in the
-\ file named for it (sans.fs is the other), so that a system has
-\ only the fonts it uses, and test/tables.c finds one by
-\ its name.
-
-\ This is the bitmap, and this file is where it is: it was drawn
-\ from GNU Unifont, which is 8 by 16.  To change a glyph, change
-\ its pixels here.
+\ A font is a strike: five cells (how high, the first
+\ character, how many glyphs, the cells in a row of the strike,
+\ and 0); where each glyph starts and where the last ends; and
+\ the strike a row at a time, 64 pixels to a number, the
+\ leftmost highest.  ]font (cross.fs) lays it in another form
+\ and replaces the last two cells.  Drawn from GNU Unifont.
 
 bulk
 header mono create mono

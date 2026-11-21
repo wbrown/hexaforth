@@ -1,19 +1,8 @@
 \ spin.fs - the font spin: the disk light in the menu
 \ bar (wm.fs)
 
-\ Six glyphs, from character 0, in the font format mono.fs
-\ describes.  Glyphs 0-3 are a black 5 1/4 inch floppy with the
-\ spindle in its hub hole at four positions, a quarter turn
-\ apart; the head slot is below the hub and the write-protect
-\ notch is on the right edge.  Glyph 4 is an up arrow, for a
-\ read, and 5 a down arrow, for a write.
-
-\ The pixels are drawn below as the tools' icons are (picture[
-\ in cross.fs), in pieces side by side that fit a block's line:
-\ the floppies two at a time, the arrows, and nothing to the end
-\ of the strike's 128 pixels.  Each glyph costs memory for as
-\ long as the machine runs, so there are four positions, not
-\ eight, to save room on the 16-bit machine.
+\ Glyphs 0-3 are a floppy with its spindle a quarter turn on
+\ each time; 4 is an arrow up, for a read, and 5 one down.
 
 bulk
 header spin create spin

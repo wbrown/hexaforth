@@ -1,28 +1,22 @@
 \ virtio-input.fs - keyboards and pointers as virtio
 \ input devices
 
-\ Every device delivers the same 8-byte events: type, code,
-\ value (16, 16 and 32 bits), using Linux input codes.  This
-\ driver hands each one to the 'event vector and does not care
-\ which device it came from.
+\ An event is 8 bytes: type and code of 16 bits and a value of
+\ 32, in Linux's input codes.
 
 header 'event create 'event 0 ,       \ ( type code value -- )
 create idevs  0 , 0 , 0 , 0 ,
 header nidev create nidev  0 ,     \ how many devices there are
 
-\ A device record: registers, descriptors, available ring, used
-\ ring, used index consumed so far, and 64 8-byte event buffers.
-\ A key press is four events, and nothing is polled during a
-\ repaint, so a small queue drops input.
+\ A device's record: its registers, descriptors, available ring,
+\ used ring, how far the used ring is read, and 64 buffers.
 
 : idev-buffer ( i rec -- i ) \ buffer i: described, and offered
     >r
     dup cells r@ c# 5 + @ + >phys           ( i buffer )
     over 2* cells r@ CELL + @ +             ( i buffer desc )
     tuck !
-    \ 8 bytes, device writes
-    d# 2 d# 32 lshift d# 8 or swap CELL + !
-    \ offered
+    d# 2 d# 32 lshift d# 8 or swap CELL + ! \ 8 bytes, written
     dup dup 2* r@ CELL2 + @ >c + d# 4 + w!
     rdrop
 ;
@@ -44,8 +38,7 @@ header nidev create nidev  0 ,     \ how many devices there are
 ;
 
 header input-init
-: input-init ( -- )
-    \ take every input device there is, up to four
+: input-init ( -- ) \ every input device there is, up to four
     d# 0 nidev !
     d# 0
     begin

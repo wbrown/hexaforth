@@ -1,24 +1,15 @@
 \ files.fs - what the disks have, by its label: a source that is
 \ read, and the names that are a file's own
 
-\ A machine may have several disks, and each has an index in its
-\ first block (doc/disk.md).  When the machine starts each disk
-\ is asked for that block (find-disks, which boot runs), and
-\ indexed keeps which of them had an index there: bit d for disk
-\ d.  A disk that is not there reads as nothing (MODEL.md), and
-\ one whose driver throws is taken not to be there.  Only a
-\ disk's first block is looked in yet, not the index blocks it
-\ may go on to.
-create indexed 0 ,
+create indexed 0 ,  \ bit d: disk d's first block is an index
 
-: index? ( d -- f ) \ is disk d's first block an index?
+: index? ( d -- f )
     DISK-SHIFT lshift ['] block catch if drop false exit then
     ENTRY-TYPE + uw@ TYPE-INDEX =
 ;
 
-\ A machine whose disks after the first are reached another way
-\ than its ROM's driver has says so in a word called disks,
-\ which is run first if there is one (virt-disk.fs).
+\ the word a machine has if its other disks are reached another
+\ way than its ROM's driver's: it is run first
 create "disks"
     'd' c, 'i' c, 's' c, 'k' c, 's' c,
 
@@ -35,15 +26,11 @@ header find-disks
         1+
     repeat
     drop
-    indexed @ disks-there !     \ which the bar has a light for
+    indexed @ disks-there !
 ;
 
-\ An entry is said by a number that counts through the disks,
-\ ENTRIES to a disk, disk 0's first.  So going through the
-\ numbers in order is looking on disk 0 before disk 1, and that
-\ before disk 2: a label that an earlier disk has is found
-\ there, whatever a later disk has under it.
-: entry@ ( n -- e ) \ entry n, as a byte's address
+\ An entry's number counts through the disks, ENTRIES to a disk.
+: entry@ ( n -- e ) \ as a byte's address
     ENTRIES u/mod DISK-SHIFT lshift block
     swap ENTRY-BYTES * + ;
 
@@ -51,7 +38,6 @@ header find-disks
     ENTRIES u/mod nip  indexed @ swap rshift d# 1 and ;
 
 : same-chars? ( a1 a2 u -- f )
-    \ are the u characters from each the same?
     >r over - r> swap >r bounds  ( end a1 ) ( R: a2 less a1 )
     begin
         2dup xor
@@ -67,9 +53,7 @@ header find-disks
     drop 2drop false
 ;
 
-\ the entry that has that label, from entry n on, or nothing: a
-\ disk's first entry is the disk's own, and a disk with no index
-\ is passed over
+\ from entry n on; a disk's first entry is the disk's own
 : find-label ( c-addr u n -- n'|0 )
     dup ENTRIES DRIVES * = if drop 2drop d# 0 exit then
     dup ENTRIES 1- and 0= if
@@ -80,18 +64,14 @@ header find-disks
     r> 1+ find-label
 ;
 
-\ of entry n: its first block, whose number says its disk too,
-\ and how many blocks it is
-: its-blocks ( n -- first blocks )
+: its-blocks ( n -- first blocks ) \ of entry n
     dup entry@ >r
     ENTRIES u/mod nip DISK-SHIFT lshift  r@ ENTRY-FIRST + uw@ +
     r> ENTRY-BLOCKS + uw@
 ;
 
-\ The blocks a label has, on the first disk that has it: its
-\ first block and how many, or no blocks if no disk has it.  The
-\ label is not to be in the block's buffer, which an index is
-\ read into.
+\ On the first disk that has the label; no blocks if none has.
+\ The label is not to be in the block's buffer.
 header labelled
 : labelled ( c-addr u -- first blocks )
     d# 0 find-label dup if its-blocks exit then d# 0
@@ -99,36 +79,21 @@ header labelled
 
 \ ---- a file's own names
 
-\ A word of a file is found by its name until the file has been
-\ read, and after that only if a header came before it (header
-\ name): what has none is the file's own.  A file's own names
-\ are not the dictionary's.  While a file is read the kernel
-\ lays headers in memory had for them from above the image, a
-\ piece at a time (hdp and hdl, nuc.fs), and one that `header`
-\ makes is laid in the dictionary, and stays.  When the file is
-\ done its own are taken out of the chain and the memory is
-\ given back.  With no file being read, at the prompt or in a
-\ block that is loaded, every header is the dictionary's.
+\ While a file is read, headers are laid in pieces of memory
+\ above the image; when it is done they are out of
+\ the dictionary.
 
 $400 constant OWN-CELLS  \ a piece of memory for names,
 $100 constant OWN-LEAST  \ and the least a block is begun with
 
-\ while a file is read: the newest piece, and the dictionary's
-\ own hdp and hdl
+\ the newest piece, and the dictionary's own hdp and hdl
 create own 0 , 0 , 0 ,
 
-\ The headers that stay are not found while their file is read:
-\ a name is then what it is in the file, as it is to cross.fs,
-\ where a header is a name for the prompt and no word.  (One was
-\ found as soon as it was laid, and `header FACE : code-face
-\ FACE ;` compiled a jump to itself where FACE is a macro of
-\ the file.)  They are a chain of their own, the newest here,
-\ and are put into the dictionary when the file is done.
+\ the newest of the headers that stay: a chain of their own
+\ until the file is done
 create stays 0 ,
 
-\ another piece: its first cell is the piece before it, and its
-\ second, once it is left for another, where its names end; the
-\ names go after them
+\ A piece: the piece before it, where its names end, the names.
 : own-piece ( -- )
     own @ ?dup if hdp @ swap 1+ ! then
     OWN-CELLS >c halloc
@@ -141,11 +106,8 @@ create stays 0 ,
     hdl @ hdp @ - OWN-LEAST u< if own-piece then
 ;
 
-\ A file is begun: where the data must stop, which the text of
-\ the file's macros brings down (cross-words.fs); the newest
-\ header there is; the headers that stay of the file this one
-\ is read from; whether it is the first being read; and the
-\ cell its own names start at.
+\ a file is begun: dpl, the newest header, the stays of the file
+\ this is read from, and where its own names start
 : own-names ( -- limit newest stays first? base )
     dpl @  forth @  stays @  d# 0 stays !
     own @ 0=  dup if
@@ -154,9 +116,7 @@ create stays 0 ,
     hdp @
 ;
 
-\ the file's headers that stay, put before the newest header
-\ there is, the oldest of them the nearest to it
-: stays-in ( -- )
+: stays-in ( -- ) \ the headers that stay, into the dictionary
     stays @ ?dup 0= if exit then            ( newest )
     dup begin dup @ ?dup while nip repeat   ( newest oldest )
     forth @ swap !  forth !
@@ -164,25 +124,16 @@ create stays 0 ,
 
 \ ---- a file's own names, kept for the decompiler
 
-\ They are gone from the dictionary when the file is done, and
-\ the decompiler shows a word by its name.  So where a disk has
-\ blocks kept for them, which an entry of its index says
-\ (own-names: a disk a machine boots from that is its desktop's
-\ too, mkdisk), each is written there when its file is done, as
-\ a label is in the tables of names (see.fs): a cell with its
-\ top bit set, which is 1 more if the word is immediate, the
-\ word's place, and its name.  A block of them
-\ is how many it has and then those, and none is across two
-\ blocks.  For each block the least place and the most are kept
-\ (own-ix), so that one block is read to find most.  They are
-\ written through the block's buffer: what was being loaded is
-\ asked for again when a word of it is next read (blocks.fs).
+\ In the blocks the disk's entry own-names has.  A record is a
+\ cell with its top bit set, 1 more if the word is immediate;
+\ the word's place; and its name.  A block is how many records
+\ it has and then those.
 
-\ the first block kept for them, or nothing; how many have
-\ records; and how many there are
+\ the first block, or 0; how many have records; how many in all
 header own-kept create own-kept 0 , 0 , 0 ,
 create own-fill 0 ,     \ the cells that are used of the last
 high
+\ the least place and the most of each block
 header own-ix create own-ix
     meta disk-own-blocks 2* cell-bytes * target allot
 unhigh
@@ -216,8 +167,7 @@ create "own-names"
     nip
 ;
 
-\ a header, kept as a record if there is room for it
-: own-rec ( hdr -- )
+: own-rec ( hdr -- ) \ kept as a record, if there is room
     dup name-cells CELL2 +                  ( hdr n )
     dup own-fill @ + BLKCELLS u> if
         own-more 0= if 2drop exit then
@@ -239,15 +189,13 @@ create "own-names"
     2drop
 ;
 
-: pieces ( -- n ) \ how many there are
+: pieces ( -- n )
     d# 0 own @ begin dup while @ swap 1+ swap repeat drop ;
 : piece# ( n -- piece ) \ the piece n before the newest
     own @ swap negate begin dup while swap @ swap 1+ repeat
     drop ;
 
-\ the headers of every piece, the oldest piece's first, so that
-\ of two of a name the newer is the later
-: own-keep ( -- )
+: own-keep ( -- ) \ every piece's headers, the oldest first
     hdp @ own @ 1+ !
     pieces negate
     begin dup while
@@ -257,10 +205,7 @@ create "own-names"
     drop
 ;
 
-\ The names of the file that is done, and of the files it read,
-\ are kept; then the dictionary's hdp and hdl again, and the
-\ pieces given back, the newest first.
-: own-free ( -- )
+: own-free ( -- ) \ the names kept, and the pieces given back
     own-where if own-keep then
     own 1+ @ hdp !  own CELL2 + @ hdl !
     begin own @ ?dup while
@@ -268,10 +213,8 @@ create "own-names"
     repeat
 ;
 
-\ The file is done: each header newer than `newest` that is its
-\ own, which is one laid at base or after, is taken out; those
-\ of its headers that stay are put in; and the data may go as
-\ far as it might before.
+\ the file is done: its own headers, those laid at base or
+\ after, are out of the dictionary
 : own-done ( limit newest stays first? base -- )
     >r rot forth  ( limit stays first? newest a ) ( R: base )
     begin 2dup @ xor while
@@ -283,10 +226,8 @@ create "own-names"
     stays !  dpl !
 ;
 
-\ The definition after this is found by this name once the file
-\ is done, and the header stays.  It names the code that is
-\ compiled next, as cross.fs has it, whatever the definition is
-\ called.
+\ The code compiled next is found by this name once the file is
+\ done.
 header header
 : name-stays ( "name" -- )
     own @ 0= if parse-name 2drop exit then
@@ -298,21 +239,11 @@ header header
 
 \ ---- a file, read
 
-\ A machine that compiles its system from its disk says what it
-\ is at, and the screen shows it (console.fs).  A file has a
-\ line: its label, how many blocks it is, and a dot as each of
-\ them starts.  A file read from within another starts its line
-\ where that one's had got to: so that one's line is ended
-\ first, and the dots of its later blocks are on lines of their
-\ own.  A line is ended only if there is anything on it, which
-\ line-said says: so a file that ends where another starts
-\ leaves no line of nothing between them.
-create line-said 0 ,
+create line-said 0 ,    \ true while anything is on the line
 
 : line-ends ( -- ) line-said @ if cr then  d# 0 line-said ! ;
 
-\ a file's blocks, loaded in turn, a dot as each starts
-: file-blocks ( first last -- )
+: file-blocks ( first last -- ) \ loaded, a dot as each starts
     1+ swap                                 ( end blk )
     begin
         2dup xor
@@ -323,22 +254,13 @@ create line-said 0 ,
     2drop
 ;
 
-\ The label is read from the block's buffer, which block 0 is
-\ then read into: so it is copied first, to here, where nothing
-\ goes while it is looked for.  The data is brought to a whole
-\ cell first: here is the cell the data has got to, and if text
-\ was the last thing laid that cell is part of it.  (The
-\ viewer's label for its picture lost its end to the name of the
-\ file included next.)  Whatever the file throws, its own names
-\ are taken out before it is thrown on.
-
 header include
 : include-label ( "label" -- )
     line-ends  align
     parse-name  2dup type space  true line-said !
-    here >c swap  dup >r  cmove
+    here >c swap  dup >r  cmove   \ out of the block's buffer
     here >c r>  d# 0 find-label
-    dup 0= d# 38 -throw  \ as a file that is not there
+    dup 0= d# 38 -throw
     dup entry@ ENTRY-TYPE + uw@ TYPE-SOURCE <> d# 38 -throw
     its-blocks  dup .  over + 1-
     own-names >r >r >r >r >r

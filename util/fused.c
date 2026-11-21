@@ -333,17 +333,9 @@ int main(int argc, char *argv[]) {
     FILE* out = open_memstream(&made, &made_len);
     if (!out) { perror(table); return(1); }
     fprintf(out, "\\ fused.fs - the image's instructions as words, for see.fs\n"
-                 "\\ GENERATED from the image by util/fused.c whenever the image is\n"
-                 "\\ built (CMakeLists.txt).  Do not edit.\n\\\n"
-                 "\\ Each entry is cells: the instruction, how many words it is,\n"
-                 "\\ and the address of each word's header.  The words are the\n"
-                 "\\ plain ones a programmer would write: one standard word, or\n"
-                 "\\ two, before the machine's own name for the instruction.  Those\n"
-                 "\\ the image has most of are first, since the table is searched\n"
-                 "\\ from the start.  A zero ends the table.  It is a table of\n"
-                 "\\ cells, reached a cell at a time: high.  It is laid after all\n"
-                 "\\ the image's other data, and see.fs is told where it is\n"
-                 "\\ (fused-at): it has no header of its own.\n\n"
+                 "\\ GENERATED from the image by util/fused.c.\n"
+                 "\\ An entry is the instruction, how many words it is, and each\n"
+                 "\\ word's header.  A zero ends the table.\n\n"
                  "high\n"
                  "create fused\n");
     // The table is source that goes on a disk: cut with a line of nothing,

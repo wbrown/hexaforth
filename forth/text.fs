@@ -1,20 +1,9 @@
 \ text.fs - text in cells, a line at a time: put in, found and
 \ drawn
 
-\ Text is kept as it is drawn: characters packed into cells, the
-\ lowest eight bits of a cell first (char@, display.fs).  A text
-\ is lines, and each starts where a cell does and ends with EOL.
-\ What is after that in its cell is not text, and nothing is
-\ kept for the columns a line does not reach.  Two other codes
-\ below a space are in a line: INDENT, which is three columns of
-\ nothing, and a face, FACE and three bits, which is how what
-\ comes after it on the line looks.  A line starts plain.
-
-\ Text is put in a cell at a time: each cell of what goes in is
-\ shifted to where it goes, and only the first is merged with
-\ what is there.  A code is found a cell at a time too: a cell
-\ that has one is told by its bits all at once (ctl?), and only
-\ then is it looked into.
+\ A line starts where a cell does and ends with EOL.  INDENT is
+\ three columns; FACE and three bits is how what comes after it
+\ on the line looks.
 meta
 :: EOL         #10 literal ;
 :: INDENT      #9 literal ;
@@ -30,10 +19,6 @@ $2020202020202020 cell-mask and constant spaces-cell
 :: HIGHS  $8080808080808080 cell-mask and literal ;
 target
 
-\ The codes that whoever makes a text puts in it are this file's
-\ to give out.  A macro has no header, so each is a word that
-\ says it too, as cross-words.fs has cross.fs's own: the nucleus
-\ compiles one in place.
 header INDENT      : code-indent      INDENT ;
 header INDENT-COLS : code-indent-cols INDENT-COLS ;
 header FACE        : code-face        FACE ;
@@ -44,15 +29,12 @@ header F-UNDER     : code-under       F-UNDER ;
 : ctl? ( x -- f ) \ is a character of the cell below a space?
     dup BLANKS - swap invert and HIGHS and ;
 
-: >cb ( a i -- a' s ) \ character i of the cells from a: its
-    \ cell, and how many bits into it
+: >cb ( a i -- a' s ) \ character i's cell, and bits into it
     dup BYTESHIFT rshift rot +
     swap OFFSET-MASK and d# 3 lshift
 ;
 
-\ a cell of what starts s bits into the cell at a, s less than a
-\ cell
-: bits@ ( a s -- x )
+: bits@ ( a s -- x ) \ a cell of what starts s bits into a's
     ?dup if
         >r  dup @ r@ rshift  swap 1+ @  CELLBITS r> - lshift
         or
@@ -61,8 +43,7 @@ header F-UNDER     : code-under       F-UNDER ;
     @
 ;
 
-\ x put at character i of the cells from a: what is before it
-\ is kept, and the rest of its cell is x's
+\ x at character i of the cells from a, to the end of its cell
 : put-cell ( x a i -- )
     >cb  rot over lshift  swap d# 1 swap lshift 1-
     rot dup >r @ and or  r> !
@@ -76,9 +57,7 @@ header F-UNDER     : code-under       F-UNDER ;
     2drop 2drop
 ;
 
-\ u characters from character i of the cells from a, put at
-\ character j of the cells from b: the first cell they go in,
-\ and the rest
+\ u characters from character i of a's cells, to j of b's
 : text-first ( a i b j -- ) >r >r >cb bits@ r> r> put-cell ;
 : dst-cells ( b j u -- b1 e ) \ the cells after the first
     over + 1- BYTESHIFT rshift  swap BYTESHIFT rshift
@@ -92,17 +71,10 @@ header F-UNDER     : code-under       F-UNDER ;
     >r >r >cb r> r> bits-move
 ;
 
-\ A line's end is found from the codes in it: the first below a
-\ space after character i, and the first of those that is EOL.
-\ What is before i is made spaces, so that it is not found.
-
-: code-at ( a i -- k )
+: code-at ( a i -- k ) \ the first code after character i
     over >r  >cb  d# 1 swap lshift 1- BLANKS and  over @ or
     begin dup ctl? 0= while drop 1+ dup @ repeat
     swap r> - BYTESHIFT lshift swap
-    \ the test is at the bottom, and made once before; the cell
-    \ goes to R while the count is stepped, and the shift takes
-    \ it from there (doc/superoptimizations.md)
     dup h# ff and d# 32 u< 0= if
         begin
             >r 1+ r> d# 8 rshift  dup h# ff and d# 32 u<
@@ -124,9 +96,7 @@ header F-UNDER     : code-under       F-UNDER ;
 
 \ ---- a text
 
-\ A text is a record of six cells, and the cells it has from the
-\ first of them.  When it is full, a text that rolls loses its
-\ first lines to make room, and one that does not takes no more.
+\ a text's record: its first cell,
 : tb.lim  ( tb -- a ) 1+ ;       \ the cell after its last,
 : tb.last ( tb -- a ) CELL2 + ;  \ where its last line starts,
 header tb.len
@@ -159,15 +129,13 @@ header text-line
 
 : text-free ( tb -- n ) dup tb.lim @ swap text-after - ;
 
-: text-drop ( tb -- )
-    \ its first line out, and the rest moved up
+: text-drop ( tb -- ) \ its first line out
     >r  r@ @ line-next r@ @ -                       ( d )
     r@ text-after  over r@ @ +  tuck -  r@ @ swap cells-move
     negate r@ tb.last +!  d# -1 r> tb.lines +!
 ;
 
-\ n cells free after its last line's, if they are or can be made
-: text-room? ( n tb -- f )
+: text-room? ( n tb -- f ) \ n cells free after its last line
     begin 2dup text-free > while
         dup tb.roll @  over tb.lines @ d# 1 >  and 0= if
             2drop false exit
@@ -179,10 +147,8 @@ header text-line
 : more ( k tb -- n ) \ the cells k more characters take
     tb.len @ tuck + BYTESHIFT rshift swap BYTESHIFT rshift - ;
 
-\ u characters from character i of the cells from a, onto the
-\ end of its last line
 header text-add
-: text-add ( a i u tb -- )
+: text-add ( a i u tb -- ) \ onto the end of its last line
     >r
     dup r@ more r@ text-room? 0= if drop 2drop rdrop exit then
     r@ tb.len @  over r@ tb.len +!  r@ tb.last @ swap text-put
@@ -190,15 +156,14 @@ header text-add
 ;
 
 header text-code
-: text-code ( c tb -- ) \ a code onto the end of its last line
+: text-code ( c tb -- ) \ a code, the same
     >r  d# 1 r@ more r@ text-room? 0= if drop rdrop exit then
     r@ tb.last @ r@ tb.len @ put-cell  d# 1 r@ tb.len +!
     r> text-eol
 ;
 
 header text-nl
-: text-nl ( tb -- )
-    \ its last line ended, and an empty one after
+: text-nl ( tb -- ) \ an empty line after its last
     >r  d# 1 r@ text-room? 0= if rdrop exit then
     r@ text-after r@ tb.last !  d# 0 r@ tb.len !
     d# 1 r@ tb.lines +!  r> text-eol
@@ -212,15 +177,9 @@ header text-back
 
 \ ---- drawn
 
-\ A line is drawn a run at a time: the characters up to the next
-\ code, and then what that code does.  Where the next run goes
-\ is the port's origin, which is moved along the line as it is
-\ drawn and put back after.
-create blank meta spaces-cell target ,  \ a space, three of
-                                        \ which are an indent
+create blank meta spaces-cell target ,
 
-: text-run ( a i k f -- )
-    \ the characters from i to k, in face f
+: text-run ( a i k f -- ) \ from i to k, in face f
     >r  over -  ?dup 0= if 2drop rdrop exit then
     3dup d# 0 d# 0 draw-chars  chars-width
     r> F-UNDER and if
@@ -240,8 +199,7 @@ create blank meta spaces-cell target ,  \ a space, three of
     true
 ;
 
-: text-step ( a i f -- a i' f' more? )
-    \ a run, and the code after
+: text-step ( a i f -- a i' f' more? ) \ a run, and its code
     >r  2dup code-at  3dup r@ text-run  nip
     2dup d# 3 lshift char@  swap 1+ swap  r> swap text-do
 ;
@@ -253,10 +211,7 @@ header draw-line
     d# 0 bold !  d# 0 italic !  r> oy !  r> ox !
 ;
 
-\ A window that shows part of a text says so: [PGUP] at the
-\ right of its first line when more is above, and [PGDN] at the
-\ right of its last when more is below, white on black, each
-\ ending at x.
+\ [PGUP] and [PGDN], white on black, each ending at x
 create k-pgup ," [PGUP]"
 create k-pgdn ," [PGDN]"
 
@@ -269,10 +224,8 @@ create k-pgdn ," [PGDN]"
 header mark-up   : mark-up   ( x y -- ) k-pgup mark ;
 header mark-down : mark-down ( x y -- ) k-pgdn mark ;
 
-\ n lines from the one at a, each a line of the font under the
-\ one before
 header draw-lines
-: draw-lines ( a n x y -- )
+: draw-lines ( a n x y -- ) \ n lines from the one at a
     ox @ >r  oy @ >r  oy +!  ox +!
     d# 0 max negate
     begin dup while
