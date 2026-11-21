@@ -7,7 +7,7 @@ meta 3 small-page target  include edit.fs
 meta 1 small-page target  include see.fs
 meta 2 sys-page target  include gray.fs
 meta 3 big-page target  include view.fs
-meta 0 small-page target  include calc.fs
+meta 3 small-page target  include calc.fs
 meta 1 small-page target  include paint.fs
 W64? [if]
 include virtio.fs  include virtio-input.fs  include mandrill.fs

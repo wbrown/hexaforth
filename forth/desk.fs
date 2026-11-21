@@ -67,8 +67,8 @@ create small-desk
 ;
 
 header windows
-: windows ( -- ) \ open them, and run until ^Q
-    d# 0 nwin !
+: windows ( -- ) \ open them; ^Q with none open ends it
+    no-windows
     find-disks
     back-window  disk-windows  tool-windows
     wm-regions  picture-start   \ last: its memory is given back
@@ -81,7 +81,7 @@ header windows
 W64? [if]
 : virt-poll ( -- ) input-poll uart-poll ;
 header desktop
-: desktop ( -- ) \ runs until ^Q
+: desktop ( -- ) \ runs until ^Q with no window open
     display-init
     ['] on-event 'event !
     input-init

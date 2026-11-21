@@ -951,6 +951,7 @@ function(machine_tests NAME)
     # second, which has the Mandrill.  The test keeps its screens, and its
     # copy of the first disk, in a directory of its own.
     machine_tool(desktop_test ${NAME} test/desktop_test.c ${DESK_SOURCES} ${TYPED_SOURCES})
+    target_compile_definitions(desktop_test-${NAME} PRIVATE ROM_BYTES=KROM_BYTES)
     file(MAKE_DIRECTORY ${AT}/desktop)
     desk_disk(${AT}/disk.img ${AT}/nuc.tables)
     machine_test(desktop-${NAME} ${NAME} desktop_test ${NUC} ${AT}/disk.img ${PICTURES} ${PICTURE} forth

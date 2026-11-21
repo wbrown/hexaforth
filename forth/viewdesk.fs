@@ -14,8 +14,8 @@ create t-view ," Mandrill"
 ;
 
 header windows
-: windows ( -- ) \ open the window, and run until ^Q
-    d# 0 nwin !
+: windows ( -- ) \ open it; ^Q with none open ends it
+    no-windows
     find-disks
     'blk-read @ if picture-window then
     event-loop

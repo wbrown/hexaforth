@@ -68,10 +68,12 @@ static bool fused_told(char* why), a_number(char* why), word_told(char* why), bo
 static bool scrolled_down(char* why), words_marked(char* why), more_above(char* why), more_both(char* why);
 static bool one_cursor(char* why), prints_behind(char* why), keep(char* why), others_same(char* why);
 static bool remember(char* why), lights_right(char* why);
+static bool last_dragged(char* why);
 static bool sees_all(char* why), memory(char* why), menu_down(char* why), line_shown(char* why);
 static bool sees_label(char* why), data_place(char* why), see_blocks(char* why);
 static bool calc_picked(char* why), words_held(char* why), menu_whole(char* why), menu_away(char* why);
-static bool menu_gone(char* why), paint_front(char* why), canvas_right(char* why), shape_shown(char* why);
+static bool menu_gone(char* why), forth_closed(char* why), words_reopened(char* why);
+static bool paint_front(char* why), canvas_right(char* why), shape_shown(char* why);
 static bool on_disk(char* why), from_disk(char* why), listed_both(char* why);
 static bool as_picked(char* why), picture_marked(char* why), view_on_disk(char* why), outlined(char* why);
 static int picture_title(void), picture_line(const char* name);
@@ -253,11 +255,13 @@ static check CHECKS[] = {
      "':noname up @ 0 begin 1+ swap @ swap over up @ = until nip ;\r' 'execute .\r'", "14-tasks",
      {{"forth", 14, '=', "2  ok"}}},
 
-    // The title in the bar is a menu of the windows, the one in front
-    // first, a line of 16 pixels each from just under the bar.  A click on
-    // the title brings it down and it stays; a click on a line brings that
-    // window to the front and takes the menu away.
-    {"the title is a menu of the windows, the one in front first", "menu away", "15-menu", .also = menu_down},
+    // The title in the bar is a menu of the windows, in the order they
+    // were made, the last first, a line of 16 pixels each from just under
+    // the bar: in bold if the window is open, and plain if it is closed.
+    // A click on the title brings it down and it stays; a click on a line
+    // brings that window to the front, opening it if it was closed, and
+    // takes the menu away.
+    {"the title is a menu of the windows, in bold while they are open", "menu away", "15-menu", .also = menu_down},
     {"the line the pointer is on is shown so", "over:words", "15-menu-line", .also = line_shown},
     {"a click on a line brings its window to the front", "pick:calc away", "15-picked", .also = calc_picked},
     // Held down and dragged: the button goes down on the title and up on a line.
@@ -274,6 +278,18 @@ static check CHECKS[] = {
     {"a press off the menu takes it away, and what was under it is painted", "click:forth-40-40 away", "15-away",
      {{"forth", 0, '^', "6"}, {"forth", 1, '=', "7"}, {"forth", 2, '=', "8"}}, menu_away},
     {"and so does a key", "menu backspace away", "15-key", .also = menu_gone},
+    // The x at the right of a window's title bar closes it when the button
+    // goes up over it, and so does ^Q for the window in front.  In the menu
+    // a closed window is plain and an open one is in bold, and picking a
+    // closed one opens it again.
+    {"pressing on the x and sliding off does not close the window", "slide:forth away", "15-slide",
+     .also = menu_away},
+    {"the x in a window's title bar closes it, leaving the one behind in front", "close:forth away", "15-closed",
+     .also = forth_closed},
+    {"^Q closes the window in front, and closed windows are plain in the menu", "^q menu away", "15-closed-menu",
+     .also = menu_down},
+    {"picking a closed window from the menu opens it again", "pick:words menu pick:forth away", "15-reopened",
+     {{"forth", 14, '=', " ok"}}, words_reopened},
 
     // HexaPaint.  It is at the back, and is brought to the front from the
     // menu.  What is drawn in it with the pointer is drawn here too, a
@@ -308,6 +324,29 @@ static check CHECKS[] = {
     // to the front, has its names.
     {"there is room for the canvas and the tables of names", "menu pick:words away", "17-names",
      {{"source", 1, '$', " img !"}}, .when = NAMES},
+
+    // A window that goes behind or is closed while the button is down in it
+    // is not to be followed after that.  HexaPaint gives its canvas back
+    // when another window comes in front, so its pencil, held down when ^W
+    // or ^Q takes it from the front and then moved, would draw where the
+    // canvas was: from address 0.  The last window, dragged by its title
+    // when ^Q closes it, would be moved at address 0 when the button is let
+    // go.  The test's machine stops at a store into the kernel (ROM_BYTES,
+    // CMakeLists.txt).
+    {"the pencil held down when ^W brings another window in front, and moved",
+     "menu pick:paint away tool:0 press:10,10,60,40 ^w point:300,300 release away", "18-held-w"},
+    {"the pencil held down when ^Q closes HexaPaint, and moved",
+     "menu pick:paint away tool:0 press:10,10,60,40 ^q point:300,300 release away", "18-held-q"},
+    {"the last window dragged by its title when ^Q closes it, and let go", "", "18-dragged-q",
+     .also = last_dragged},
+    // With every window closed, the Forth window is opened again from the
+    // menu and three windows are made from it, out of its way: nine windows
+    // made, of which four are open, and memory given back when HexaPaint
+    // was closed taken again.  The Forth window, in front again, answers.
+    {"three windows made from the Forth window opened again",
+     "menu pick:forth away ':noname drop ; constant dr  :noname 2drop ; constant ky\r' "
+     "': mk 420 290 80 40 t-words dr ky 0 window drop ; mk mk mk\r' front:forth '1 2 + .\r'", "18-windows",
+     {{"forth", 14, '=', "3  ok"}}},
     {NULL}};
 
 // ---- the machine, and its screen
@@ -315,7 +354,10 @@ static check CHECKS[] = {
 static const desk* machine;     // what is so of the machine the checks are run on
 static const char* boot;        // what its console said as the desktop came up
 static const uint8_t* shot;     // its screen, as it was last looked at,
+static char* shot_path;         // the file it was kept in, if look() was given a name,
 static uint8_t* kept;           // and a screen that was kept, to compare a later one with
+const char* desk_checking;      // the check being run,
+const char* desk_doing;         // and the step of does() in hand
 
 static bool on_screen(int x, int y) { return(x >= 0 && x < W && y >= 0 && y < H); }
 static bool black(int x, int y) { return(on_screen(x, y) && shot[(size_t)y * W + x]); }
@@ -327,17 +369,19 @@ static int high(int a, int b) { return(a > b ? a : b); }
 static void look(const char* name) {
     desk_turns(12);
     shot = desk_screen();
+    free(shot_path);
+    shot_path = NULL;
     if (!name) return;
     static const char form[] = "%s/%s.pbm";
-    char* path = malloc(strlen(machine->out) + strlen(name) + sizeof(form));
-    if (path == NULL) {
+    shot_path = malloc(strlen(machine->out) + strlen(name) + sizeof(form));
+    if (shot_path == NULL) {
         fprintf(stderr, "there is no room for the name of a screen's file\n");
         exit(EXIT_FAILURE);
     }
-    sprintf(path, form, machine->out, name);
-    FILE* out = fopen(path, "wb");
+    sprintf(shot_path, form, machine->out, name);
+    FILE* out = fopen(shot_path, "wb");
     if (out == NULL) {
-        perror(path);
+        perror(shot_path);
         exit(EXIT_FAILURE);
     }
     fprintf(out, "P4\n%d %d\n", W, H);
@@ -349,7 +393,6 @@ static void look(const char* name) {
         }
     }
     fclose(out);
-    free(path);
 }
 
 static void click(int x, int y) {
@@ -428,20 +471,25 @@ static void read_row(int x, int y, int cols, char* text) {
 }
 
 // Is this text on the screen at a place, in a font?  For text that is not
-// on a grid: every pixel of every glyph is to be as the glyph has it, or
-// with `inverse` the other.
-static bool shows(const char* text, int x, int y, const font* f, bool inverse) {
+// on a grid: every pixel of every glyph is to be as the glyph has it, in
+// bold if `is_bold`, or with `inverse` the other.
+static bool shows_text(const char* text, int x, int y, const font* f, bool is_bold, bool inverse) {
     for(; *text; text++) {
         int width, start = glyph_of(f, (unsigned char)*text, &width);
         for(int row=0; row < f->rows; row++) {
             for(int k=0; k < width; k++) {
                 if (!on_screen(x + k, y + row)) return(false);
-                if (black(x + k, y + row) != (strike_pixel(f, start + k, row) != inverse)) return(false);
+                bool ink = strike_pixel(f, start + k, row) || (is_bold && k > 0 && strike_pixel(f, start + k - 1, row));
+                if (black(x + k, y + row) != (ink != inverse)) return(false);
             }
         }
         x += width;
     }
     return(true);
+}
+
+static bool shows(const char* text, int x, int y, const font* f, bool inverse) {
+    return(shows_text(text, x, y, f, false, inverse));
 }
 
 // The disk lights (wm.fs): a floppy at the right of the bar for each disk
@@ -486,13 +534,15 @@ static bool lights_right(char* why) {
 // ---- where the windows are
 
 // The windows, in the order desk.fs says where each goes; their titles;
-// and where each is expected to be, and which are in front of which, as
-// the checks move them.
+// and where each is expected to be, and which are open and in front of
+// which, as the checks move, close and open them.
 enum { VIEWER, EDITOR, WORDS, CALC, FORTH, PAINT, WINDOWS };
 static const char* NAMED[] = { "viewer", "editor", "words", "calc", "forth", "paint" };
 static const char* TITLES[] = { "Mandrill", "Editor", "Words", "Calculator", "Forth", "HexaPaint" };
+static const int BACK_TO_FRONT[] = { PAINT, VIEWER, EDITOR, WORDS, CALC, FORTH };
 static struct { int x, y, w, h; } rect[WINDOWS];
-static int order[WINDOWS];      // from the back to the front
+static int order[WINDOWS];      // the open windows, from the back to the front
+static int open_wins;
 
 static int window(const char* name, size_t len) {
     for(int n=0; n < WINDOWS; n++) {
@@ -506,19 +556,38 @@ static int window(const char* name, size_t len) {
 static int content_x(int n) { return(rect[n].x + 1); }
 static int content_y(int n) { return(rect[n].y + 19); }
 
-static int in_front(void) { return(order[WINDOWS - 1]); }
+static int in_front(void) { return(order[open_wins - 1]); }
+
+static bool is_open(int n) {
+    for(int at=0; at < open_wins; at++) {
+        if (order[at] == n) return(true);
+    }
+    return(false);
+}
 
 static void to_front(int n) {
     int at = 0;
-    while (order[at] != n) at++;
-    for(; at < WINDOWS - 1; at++) order[at] = order[at + 1];
-    order[WINDOWS - 1] = n;
+    while (at < open_wins && order[at] != n) at++;
+    if (at == open_wins) {
+        order[open_wins++] = n;
+        return;
+    }
+    for(; at < open_wins - 1; at++) order[at] = order[at + 1];
+    order[open_wins - 1] = n;
 }
 
-// A window's line of the menu: the one in front is the first.
+static void close_win(int n) {
+    int at = 0;
+    while (at < open_wins && order[at] != n) at++;
+    if (at == open_wins) return;
+    open_wins--;
+    for(; at < open_wins; at++) order[at] = order[at + 1];
+}
+
+// A window's line of the menu: in the order they were made, the last first.
 static int menu_line(int n) {
     int at = 0;
-    while (order[WINDOWS - 1 - at] != n) at++;
+    while (BACK_TO_FRONT[WINDOWS - 1 - at] != n) at++;
     return(at);
 }
 
@@ -527,20 +596,20 @@ static bool under(int x, int y, int n) {
     return(x >= rect[n].x - 2 && x < rect[n].x + rect[n].w + 4 && y >= rect[n].y - 2 && y < rect[n].y + rect[n].h + 4);
 }
 
-// A point of a window's title bar that no window in front covers, from
-// which the pointer can go dx and dy further and still be on the screen.
-// The bar is 18 rows under the frame's top, and a press on any of them is
-// on the title: its middle row is tried first, then the others.
+// A point of a window's title bar, left of its x, that no window in front
+// covers, from which the pointer can go dx and dy further and still be on
+// the screen.  The bar is 18 rows under the frame's top, and a press on any
+// of them is on the title: its middle row is tried first, then the others.
 static void title_of(int n, int dx, int dy, int* tx, int* ty) {
     static const int ROWS_OF_TITLE[] = { 8, 4, 12, 2, 16 };
     int at = 0;
     while (order[at] != n) at++;
     for(int r=0; r < (int)(sizeof(ROWS_OF_TITLE) / sizeof(ROWS_OF_TITLE[0])); r++) {
         *ty = rect[n].y + ROWS_OF_TITLE[r];
-        for(*tx = rect[n].x + rect[n].w - 12; *tx > rect[n].x + 4; *tx -= 4) {
+        for(*tx = rect[n].x + rect[n].w - 16; *tx > rect[n].x + 4; *tx -= 4) {
             if (!(*tx >= 0 && *tx < W - 8 - dx && *ty >= 20 && *ty < H - 12 - dy)) continue;
             bool covered = false;
-            for(int ahead=at + 1; ahead < WINDOWS; ahead++) {
+            for(int ahead=at + 1; ahead < open_wins; ahead++) {
                 int a = order[ahead];
                 if (*tx >= rect[a].x && *tx < rect[a].x + rect[a].w && *ty >= rect[a].y && *ty < rect[a].y + rect[a].h) {
                     covered = true;
@@ -553,9 +622,15 @@ static void title_of(int n, int dx, int dy, int* tx, int* ty) {
     exit(EXIT_FAILURE);
 }
 
-// Is a window's title shown as that of the window in front is?
-static bool shown_in_front(int n) {
+// Is a window's title, with its x, shown as that of the window in front is?
+static bool title_shown(int n) {
     return(shows(TITLES[n], rect[n].x + 8, rect[n].y + 2, &sans, true));
+}
+static bool x_shown(int n) {
+    return(rect[n].x + rect[n].w > W || shows("x", rect[n].x + rect[n].w - 12, rect[n].y + 2, &sans, true));
+}
+static bool shown_in_front(int n) {
+    return(title_shown(n) && x_shown(n));
 }
 
 // Where the windows start: desk.fs has two arrangements, for a big screen
@@ -565,7 +640,6 @@ static bool shown_in_front(int n) {
 // from the back in the table's order.
 static bool windows_start(void) {
     static const char* ARRANGED[] = { "big-desk", "small-desk" };
-    static const int BACK_TO_FRONT[] = { PAINT, VIEWER, EDITOR, WORDS, CALC, FORTH };
     for(int which=0; which < (int)(sizeof(ARRANGED) / sizeof(ARRANGED[0])); which++) {
         int64_t* at;
         table("desk.fs", ARRANGED[which], &at, 4 * WINDOWS);    // each window's corner, and its width and height
@@ -574,6 +648,7 @@ static bool windows_start(void) {
             rect[n].w = (int)at[4 * n + 2], rect[n].h = (int)at[4 * n + 3];
             order[n] = BACK_TO_FRONT[n];
         }
+        open_wins = WINDOWS;
         free(at);
         if (shown_in_front(FORTH)) return(true);
     }
@@ -823,11 +898,15 @@ static struct { int w, x, y, dx, dy; uint8_t before[SCREEN]; } grabbed;
 static void does(const char* said) {
     for(const char* at = said; ; ) {
         while (*at == ' ') at++;
-        if (!*at) return;
+        if (!*at) {
+            desk_doing = NULL;
+            return;
+        }
         // a word of it, with room for all that is said and for each %W or
         // %H as a number, which is no more digits than three a byte
         static char* word;
         const size_t room = strlen(said) * (1 + 3 * sizeof(int)) + 1;
+        desk_doing = NULL;
         free(word);
         word = malloc(room);
         if (word == NULL) {
@@ -848,6 +927,7 @@ static void does(const char* said) {
                 }
             }
             word[out] = '\0';
+            desk_doing = word;
             desk_type(word);
             desk_turns(4);
             at += len + 2;
@@ -856,6 +936,7 @@ static void does(const char* said) {
         len = strcspn(at, " ");
         memcpy(word, at, len);
         word[len] = '\0';
+        desk_doing = word;
         at += len;
 
         const char* of = strchr(word, ':');     // what the word is done to: a name, or numbers, or both
@@ -873,6 +954,15 @@ static void does(const char* said) {
             pulled(tool, in_hand, from_x, from_y, to_x, to_y);
         } else if (word[0] == '^' && word[1] && !word[2]) {
             desk_key(word + 1, "ctrl");
+            if (word[1] == 'q' && open_wins > 0) close_win(in_front());
+            if (word[1] == 'w' && open_wins > 1) to_front(order[0]);
+        } else if (!strncmp(word, "slide:", 6)) {
+            int w = window(of, name);
+            drag(rect[w].x + rect[w].w - 8, rect[w].y + 8, rect[w].x + rect[w].w - 24, rect[w].y + 8);
+        } else if (!strncmp(word, "close:", 6)) {
+            int w = window(of, name);
+            click(rect[w].x + rect[w].w - 8, rect[w].y + 8);
+            close_win(w);
         } else if (!strncmp(word, "front:", 6)) {
             int w = window(of, name);
             title_of(w, 0, 0, &x, &y);
@@ -880,7 +970,7 @@ static void does(const char* said) {
             to_front(w);
         } else if (!strncmp(word, "cycle:", 6)) {
             int w = window(of, name);
-            for(int turn=0; turn < WINDOWS && in_front() != w; turn++) {
+            for(int turn=0; turn < open_wins && in_front() != w; turn++) {
                 desk_key("w", "ctrl");
                 to_front(order[0]);
             }
@@ -1228,8 +1318,11 @@ static bool outlined(char* why) {
 }
 
 static bool moved(char* why) {
-    snprintf(why, WHY, "its title is not at %d, %d", rect[VIEWER].x + 8, rect[VIEWER].y + 2);
-    return(shown_in_front(VIEWER));
+    bool titled = title_shown(VIEWER), has_x = x_shown(VIEWER);
+    snprintf(why, WHY, "its title at %d, %d is%s shown, and its x at %d, %d is%s shown",
+             rect[VIEWER].x + 8, rect[VIEWER].y + 2, titled ? "" : " not",
+             rect[VIEWER].x + rect[VIEWER].w - 12, rect[VIEWER].y + 2, has_x ? "" : " not");
+    return(titled && has_x);
 }
 
 static bool listed_both(char* why) {
@@ -1514,35 +1607,62 @@ static bool memory(char* why) {
 }
 
 // The menu's lines that are on the screen, each where its window's is to
-// be: how many of them, and whether they are all of them.
+// be, in bold if the window is open and plain if it is closed: how many of
+// them, and whether they are all of them.
 static int menu_lines(void) {
     int lines = 0;
-    for(int at=0; at < WINDOWS; at++) lines += shows(TITLES[order[WINDOWS - 1 - at]], 12, 20 + 16 * at, &sans, false);
+    for(int at=0; at < WINDOWS; at++) {
+        int w = BACK_TO_FRONT[WINDOWS - 1 - at];
+        lines += shows_text(TITLES[w], 12, 20 + 16 * at, &sans, is_open(w), false);
+    }
     return(lines);
 }
 
 static bool bar_plain(void) { return(shows("hexaforth", 8, 2, &sans, false)); }
 
 static bool menu_down(char* why) {
-    snprintf(why, WHY, "%d of its %d lines are where they should be", menu_lines(), WINDOWS);
-    return(menu_lines() == WINDOWS && shows("hexaforth", 8, 2, &sans, true));
+    int lines = menu_lines();
+    bool bar_open = shows("hexaforth", 8, 2, &sans, true);
+    snprintf(why, WHY, "%d of its %d lines are where they should be (%s), and the bar title \"hexaforth\" is%s inverted",
+             lines, WINDOWS, "bold if open, plain if closed", bar_open ? "" : " not");
+    return(lines == WINDOWS && bar_open);
 }
 
 static bool line_shown(char* why) {
-    int at = menu_line(WORDS);
-    snprintf(why, WHY, "%d lines are plain, and line %d is to be the other", menu_lines(), at);
-    return(shows(TITLES[WORDS], 12, 20 + 16 * at, &sans, true) && menu_lines() == WINDOWS - 1);
+    int at = menu_line(WORDS), lines = menu_lines();
+    bool hot = shows_text(TITLES[WORDS], 12, 20 + 16 * at, &sans, is_open(WORDS), true);
+    snprintf(why, WHY, "%d of the other lines are where they should be (expected %d), and line %d (%s) is%s highlighted",
+             lines, WINDOWS - 1, at, TITLES[WORDS], hot ? "" : " not");
+    return(hot && lines == WINDOWS - 1);
 }
 
 static bool picked(int n, char* why) {
-    snprintf(why, WHY, "%d lines of the menu are still there, and %s is%s in front", menu_lines(), NAMED[n],
-             shown_in_front(n) ? "" : " not");
-    return(shown_in_front(n) && !menu_lines());
+    int lines = menu_lines();
+    bool front = shown_in_front(n);
+    snprintf(why, WHY, "%d lines of the menu are still there, and %s is%s in front at %d, %d",
+             lines, NAMED[n], front ? "" : " not", rect[n].x, rect[n].y);
+    return(front && !lines);
 }
 
-static bool calc_picked(char* why) { return(picked(CALC, why) && bar_plain()); }
+static bool calc_picked(char* why) {
+    if (!picked(CALC, why)) return(false);
+    bool plain = bar_plain();
+    snprintf(why, WHY, "the bar title \"hexaforth\" is%s plain", plain ? "" : " not");
+    return(plain);
+}
 static bool words_held(char* why) { return(picked(WORDS, why)); }
 static bool menu_away(char* why) { return(picked(FORTH, why)); }
+static bool forth_closed(char* why) {
+    if (!picked(WORDS, why)) return(false);
+    bool gone = !shown_in_front(FORTH);
+    snprintf(why, WHY, "the closed Forth window is%s still shown in front", gone ? " not" : "");
+    return(gone);
+}
+static bool words_reopened(char* why) {
+    if (!picked(FORTH, why)) return(false);
+    snprintf(why, WHY, "%d of %d windows are open", open_wins, WINDOWS);
+    return(open_wins == WINDOWS);
+}
 
 static bool menu_whole(char* why) {
     snprintf(why, WHY, "%d of its %d lines are where they should be", menu_lines(), WINDOWS);
@@ -1550,8 +1670,11 @@ static bool menu_whole(char* why) {
 }
 
 static bool menu_gone(char* why) {
-    snprintf(why, WHY, "%d lines of the menu are still there", menu_lines());
-    return(!menu_lines() && bar_plain());
+    int lines = menu_lines();
+    bool plain = bar_plain();
+    snprintf(why, WHY, "%d lines of the menu are still there, and the bar title \"hexaforth\" is%s plain",
+             lines, plain ? "" : " not");
+    return(!lines && plain);
 }
 
 static bool canvas_right(char* why) {
@@ -1707,9 +1830,11 @@ bool desk_sees(const desk* on, const uint8_t* on_screen, const char* text_of, in
 
 bool desk_begins(const desk* on) {
     begin(on);
+    desk_checking = "the desktop comes up";
     boot = desk_boot();
     look(NULL);
     block1_read();
+    desk_checking = NULL;
     if (!windows_start()) return(false);
     // The canvas is HexaPaint's content, less its tools down the left and
     // its patterns along the bottom.
@@ -1717,6 +1842,20 @@ bool desk_begins(const desk* on) {
     canvas = calloc((size_t)cw * ch, 1);
     shaped = calloc((size_t)cw * ch, 1);
     return(true);
+}
+
+// Every window closed but one, which is then held by its title as it is to
+// be dragged, closed with ^Q, and let go.  Which one is left is what the
+// checks before left in front.  The machine is to go on: no window is
+// moved, and nothing is stored where none is.
+static bool last_dragged(char* why) {
+    while (open_wins > 1) does("^q");
+    char said[64];
+    snprintf(said, sizeof said, "grab:%s+40+30 ^q drop away", NAMED[in_front()]);
+    does(said);
+    look("18-dragged-q");
+    snprintf(why, WHY, "%d windows are open", open_wins);
+    return(open_wins == 0);
 }
 
 void desk_does(const char* said) {
@@ -1732,6 +1871,7 @@ int desk_checks(const desk* on) {
 
     for(const check* c = CHECKS; c->label; c++) {
         if (c->when == (machine->names ? NO_NAMES : NAMES)) continue;
+        desk_checking = c->label;
         char why[WHY] = "";
         does(c->does);
         if (c->does[0] || c->shot) look(c->shot);
@@ -1740,8 +1880,11 @@ int desk_checks(const desk* on) {
         if (right && c->also) right = c->also(why);
         checks++;
         if (!right) failed++;
-        printf("%s %s%s%s\n", right ? "ok  " : "FAIL", c->label, right ? "" : ": ", right ? "" : why);
+        printf("%s %s%s%s", right ? "ok  " : "FAIL", c->label, right ? "" : ": ", right ? "" : why);
+        if (!right && shot_path) printf(" (screen: %s)", shot_path);
+        printf("\n");
     }
+    desk_checking = NULL;
     if (!checks) failed++;      // nothing was checked
     return(failed);
 }

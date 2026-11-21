@@ -338,7 +338,7 @@ create pic-lines 0 , 0 , 0 , 0 , 0 , 0 , 0 ,
 : pic-vw ( -- viewer|0 ) \ the front window's, in use
     top win-data @ dup vw ! ;
 : pic-n ( -- n ) d# 7 ;
-: pic-line ( i -- title ) pic-lines + @ ;
+: pic-line ( i -- title bold? ) pic-lines + @ false ;
 : pic-mark ( i -- f ) \ marks the way it is drawn now
     pic-vw if vmode @ = else drop false then ;
 

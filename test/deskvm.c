@@ -23,8 +23,10 @@ long deskvm_turns;
 
 static int key_of[UCHAR_MAX + 1];       // the key that gives each character there can be,
 static bool shifted[UCHAR_MAX + 1];     // and whether Shift is held for it
+static const char* image_path;  // the image the machine is running
 static const char* disk_path;   // the copy of the disk
 static const char* picture;
+static const char* out_dir;     // where the screens are kept
 static bool started;            // the machine has left its prompt for the desktop
 static uint8_t* screen;         // its screen, when it was last asked for
 static long sent;               // the things sent that it has not taken yet
@@ -37,7 +39,19 @@ static void taken(void) {
     deskvm_turns += sent + 1;
     sent = 0;
     if (machine.EIP != stopping()) {
-        printf("FAIL the machine stopped where it was not sent.  It said:\n%s\n", said);
+        printf("FAIL the machine stopped at 0x%04x (expected 0x%04x)%s%s%s%s%s\n"
+               "  inspect with: build/cmake/disasm_hex-%d %s 0x%04x 0x%04x\n"
+               "  screens in:   %s/\n"
+               "  console said: %s\n",
+               (unsigned)machine.EIP, (unsigned)stopping(),
+               desk_checking ? " during check \"" : "",
+               desk_checking ? desk_checking : "",
+               desk_checking ? "\"" : "",
+               desk_doing && desk_doing[0] ? " while doing: " : "",
+               desk_doing && desk_doing[0] ? desk_doing : "",
+               CELL_BITS, image_path ? image_path : "IMAGE.hex",
+               (unsigned)machine.EIP, (unsigned)machine.EIP,
+               out_dir ? out_dir : ".", said);
         exit(EXIT_FAILURE);
     }
 }
@@ -193,6 +207,8 @@ desk deskvm_start(const char* image, const char* disk, const char* pictures, con
         exit(EXIT_FAILURE);
     }
     sprintf(copy, "%s%s", out, file);
+    image_path = image;
+    out_dir = out;
     picture = is_picture;
     screen = malloc((size_t)W * H);
 

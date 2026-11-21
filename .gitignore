@@ -1,5 +1,6 @@
 build/
 forth/test_cases.fs
+.pi/
 
 # clangd's index of the tree, which it keeps where it is run
 /.cache/

@@ -12,7 +12,7 @@ variable presses
    swap 'q' = if drop  presses @ .  nwin @ .  8000 execute then
    >r  1 presses +!  0 0 136 56 r> win-inval ;
 
-display-init  0 nwin !
+display-init  no-windows
 40 60 200 120 t-hello ' hello-draw ' hello-key 0 window drop
 event-loop
 abcq

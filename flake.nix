@@ -35,6 +35,7 @@
               gcc
               git
               curl
+              jq
               libtool
               libtool.lib
               unicorn

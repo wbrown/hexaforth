@@ -61,6 +61,8 @@
 #define BOOTED 42               // what the words test/boot.fs and test/boot-more.fs make leave
 #define MORE   8
 #define WINDOWS 6               // the windows the desktop opens where there is a disk (desk.fs, windows)
+#define CLOSE_ALL    "\x11\x11\x11\x11\x11\x11"                 // ^Q for each of them: the window in front is closed
+#define CLOSE_OTHERS "\x17\x11\x17\x11\x17\x11\x17\x11\x17\x11" // ^W ^Q for each but the Forth window, which is in front
 #define READ    4               // the glyphs of the disk lights' font (spin.fs) that are the arrow for a read,
 #define WRITTEN 5               // and for a write: the floppy's four turns are before them
 #define NO_DISK_SAID "no disk, ready to receive"
@@ -125,28 +127,33 @@ static check CHECKS[] = {
      "before", true, 1, ERROR_SAID, 0, "error -13 in block 1 line 2 at nonesuch"},
     {"the ROM alone, and a block 1 with an error in it, what is after the error", true, ERROR_DISK, NOTHING,
      "after", false, 0, ERROR_SAID, 0, NULL},
-    // The desktop that the boot compiled is run: it opens its windows,
-    // paints them, and is left with ^Q, which the event loop takes from
-    // the console.  What is typed after that is how many windows there
-    // are.  A word of desk.fs's own is not found: the file has been read.
-    // The bar then has a light for the one disk, at its right, and none
-    // where a second disk's would be.
+    // The desktop that the boot compiled is run: it opens its windows and
+    // paints them.  The event loop takes ^Q from the console: each closes
+    // the window in front, and one more with none open leaves the desktop.
+    // What is typed after that is how many windows were made.  A word of
+    // desk.fs's own is not found: the file has been read.  The bar then has
+    // a light for the one disk, at its right, and none where a second
+    // disk's would be.
     {"the ROM alone, and the disk of the boot image, whose block 1 compiles the desktop", true, APPS_DISK,
-     NOTHING, "windows\n\x11nwin @", true, WINDOWS, "desktop", 0, NULL, false, 1},
+     NOTHING, "windows\n" CLOSE_ALL "\x11" "nawin @", true, WINDOWS, "desktop", 0, NULL, false, 1},
     // With a second disk it has a light for each, the second disk's two
     // glyphs to the left of the first's.
     {"the ROM alone, the disk of the boot image and a second disk: the desktop's lights", true, APPS_DISK,
-     NOTHING, "windows\n\x11nwin @", true, WINDOWS, "desktop", 0, NULL, true, 2},
+     NOTHING, "windows\n" CLOSE_ALL "\x11" "nawin @", true, WINDOWS, "desktop", 0, NULL, true, 2},
     // The arrow is beside the light of the disk the last block moved was
-    // of, and is up for a read and down for a write.  The Forth window is
-    // in front, and takes what is typed: a block of the second disk is
-    // read there, or a block of the first is written, and the desktop is
-    // left a few turns of its loop after, while the arrow is still shown.
+    // of, and is up for a read and down for a write.  Every window but the
+    // Forth window is closed first, each brought to the front with ^W and
+    // closed with ^Q, since a window may move blocks as it comes to the
+    // front or leaves it.  The Forth window then takes what is typed: a
+    // block of the second disk is read there, or a block of the first is
+    // written, and the desktop is left a few turns of its loop after, while
+    // the arrow is still shown.
     {"the desktop with two disks: a read of the second has its arrow at the second's light", true, APPS_DISK,
-     NOTHING, "windows\n4097 block drop\r  \x11nwin @", true, WINDOWS, "desktop", 0, NULL, true, 2, READ, 1},
+     NOTHING, "windows\n" CLOSE_OTHERS "4097 block drop\r  \x11\x11" "nawin @", true, WINDOWS, "desktop", 0, NULL,
+     true, 2, READ, 1},
     {"the desktop with two disks: a write of the first has its arrow at the first's light", true, APPS_DISK,
-     NOTHING, "windows\n1 block drop update flush\r  \x11nwin @", true, WINDOWS, "desktop", 0, NULL, true, 2,
-     WRITTEN, 0},
+     NOTHING, "windows\n" CLOSE_OTHERS "1 block drop update flush\r  \x11\x11" "nawin @", true, WINDOWS, "desktop",
+     0, NULL, true, 2, WRITTEN, 0},
     {"the ROM alone, and the disk of the boot image: a word of desk.fs with no header", true, APPS_DISK,
      NOTHING, "4 place", false, 0, NULL, 0, NULL},
     // A machine with two disks.  A block's number says its disk: 4097 is
