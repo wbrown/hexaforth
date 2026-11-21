@@ -1100,10 +1100,21 @@ header-imm 2literal
     swap DOUBLE
 header-imm literal
 : tliteral
+\ A number below nothing is laid as what it is not, and an invert: in a
+\ cell of 64 bits always, in one of 32 from -4096 up, and in one of 16
+\ never, where a number is two segments at most as it is.
+W64? [if]
     dup 0< if
         invert tliteral
         inline; invert                  \ and that is all: inline; does not come back
     then
+[then]
+W32? [if]
+    dup invert d# 12 rshift 0= if
+        invert tliteral
+        inline; invert
+    then
+[then]
 W64? [if]                               \ a cell of 32 bits or of 16 holds nothing wider: a shift
                                         \ by 36 leaves nothing there, and this would never be run
     dup d# 36 rshift ?dup if \ wider than 36 bits: high part, shift, add the rest
@@ -1242,13 +1253,10 @@ create 'compile 0 ,
 \ code (util/words.h).
 header folds-at create folds-at 0 ,
 
-\ A call to a word, and nothing else.  Whatever can be compiled in place (a
-\ word that is one instruction, or a number, or a few instructions that
-\ leave the return stack alone) pcompile, compiles in place itself, and
-\ never brings here.  What it brings is the word that is still being made,
-\ and a word it has found is not small: so there is no case here for an
-\ instruction or for a number, since none would ever be handed one.  A
-\ word that is nothing but its exit is not small either, and is called.
+\ A call to a word, and nothing else.  pcompile, (join.fs) compiles in
+\ place itself what is to be in place, and brings here the word that is
+\ still being made, a word that is not small, and a small one that is
+\ longer in place than a call of it.
 : (compile,) ( xt -- )
     dup d# 12 rshift if
         dup cp @ xor d# 12 rshift if    \ another page: its xt, and a call of execute
@@ -1969,13 +1977,16 @@ meta
     \ and headers after the headers, as far as the code: each a cell's address
     thp @ cell-bytes 1- + byte-shift rshift  t' hdp tvar!
     code-base 2* byte-shift rshift  t' hdl tvar!
-    \ run-time definitions go on from the page after the last that has code
-    \ (code-top: a page may have been gone back to), and there is to be one;
-    \ and they start in what page 1 has left, unless the peephole's table is
-    \ the last thing on it
-    code-top 2/ code-base max $fff + $fff invert and
-    dup code-base code-size + < 0= [if]
-        cr .( no page of code is left for what is defined at run time) abort
+    \ run-time definitions go on from where the last page that has code
+    \ leaves off (code-top: a page may have been gone back to), or from the
+    \ page after if a table is the last thing on that one, and there is to
+    \ be room there, but in a build with the peephole off, which is never
+    \ run; and they start in what page 1 has left, unless the peephole's
+    \ table is the last thing on it
+    code-top 2/ code-base max
+    dup $1000 / tabled @ = [if] $fff + $fff invert and [then]
+    dup code-base code-size + < 0=  plain @ 0= and [if]
+        cr .( no code room is left for what is defined at run time) abort
     [then]
     dup t' cpn tvar!
     tabled @ 1 = [if] [else] drop  page-at cell+ @ 2/ [then]

@@ -60,10 +60,6 @@ header unbulk : cw-unbulk ( -- ) bulk-swap ;
 header high : cw-high ( -- ) bulk-swap ;
 header unhigh : cw-unhigh ( -- ) bulk-swap ;
 
-\ and the calls it keeps in place: the nucleus compiles small
-\ words in place itself
-header in-place : cw-in-place ( -- ) ;
-
 \ u characters at two places, the address of a byte each
 : chars= ( a a' u -- f )
     negate

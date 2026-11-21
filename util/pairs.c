@@ -64,7 +64,7 @@ static uint16_t one_of(const uint16_t* run, int len) {
     if (found < 0) return(0);
     uint16_t one = ALU[found].stands;
     names(&one, 1, &b);
-    return(same_named(&a, &b) && !returns(one) ? one : 0);
+    return(same_named(&a, &b) && returns(one) == returns(run[len - 1]) ? one : 0);
 }
 
 static uint16_t two(uint16_t a, uint16_t b) {
@@ -74,7 +74,7 @@ static uint16_t two(uint16_t a, uint16_t b) {
 
 // Does an instruction do what a run does?
 static int does(uint16_t y, const uint16_t* run, int len) {
-    if (alu_at[y] < 0 || returns(y)) return(0);
+    if (alu_at[y] < 0 || returns(y) != returns(run[len - 1])) return(0);
     named a, b;
     forget();
     uint64_t left = names(run, len, &a);
@@ -82,12 +82,14 @@ static int does(uint16_t y, const uint16_t* run, int len) {
 }
 
 // Those that have a name, and whatever any two that are met are together,
-// until no more are.
+// until no more are.  Of those that return only the exit is typed: it is
+// offered to what is before it, and so is what the two are together.
 static void meet_all(void) {
+    uint16_t the_exit = ins_named("exit");
     for(word_node* w = FORTH_WORDS; w->repr && strlen(w->repr); w++) {
         if (w->num_ins != 1) continue;
         uint16_t ins = *(uint16_t*)&w->ins[0];
-        if (alu_at[ins] >= 0 && !returns(ins)) meet(ins);
+        if (alu_at[ins] >= 0 && (!returns(ins) || ins == the_exit)) meet(ins);
     }
     named_ones = met;
     for(int done=0; done < met; done++) {
@@ -156,13 +158,14 @@ static int seen(const char* typed) {
                 char* end;
                 uint16_t ins = (uint16_t)strtol(at, &end, 16);
                 if (end == at) { asked = 0; break; }
-                if (alu_at[ins] < 0 || returns(ins)) asked = 0;         // a number, or what the step does not say of
+                if (alu_at[ins] < 0) asked = 0;                         // a number
                 if (after) { said = ins; out++; }
                 else if (n < 3) run[n++] = ins;
                 else asked = 0;
                 at = end;
             }
             rest += len;
+            for(int idx=0; idx + 1 < n; idx++) if (returns(run[idx])) asked = 0;    // the rest of it is not run
             if (!asked || n < 2 || out > 1) { not_asked++; continue; }
             uint16_t is = one_of(run, n);
             uint64_t key = (uint64_t)run[0] | (uint64_t)run[1] << 16 | (uint64_t)(n > 2 ? run[2] : 0) << 32 | (uint64_t)said << 48;

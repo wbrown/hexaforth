@@ -93,7 +93,22 @@ static check CHECKS[] = {
     // What can be compiled in place is: a constant is its number and a
     // word of one instruction is the instruction, each with the exit.
     {"a constant is compiled in place", "7 constant seven  cp @ : t seven ; cp @ swap -  t", 2, {2, 7}},
-    {"and a word of one instruction", ": w1 dup ;  cp @ : t w1 ; cp @ swap -  5 t", 3, {2, 5, 5}},
+    // An exit after an instruction that can return is that instruction,
+    // returning: a word that is `dup` is one instruction, and so is a word
+    // that is that word.  A number cannot, and has its exit after it.
+    {"and a word of one instruction", ": w1 dup ;  cp @ : t w1 ; cp @ swap -  5 t", 3, {1, 5, 5}},
+    {"an exit is in the instruction before it, where that can return",
+     "cp @ : a + ; cp @ swap -  cp @ : b 2 ; cp @ swap -  cp @ : c >r r> ; cp @ swap -  1 2 a b 7 c",
+     6, {1, 2, 1, 3, 2, 7}},
+    // A small word is in place only where that is no longer than the call
+    // of it: a word of two instructions that nothing is joined to is
+    // called, and one that the instruction after it is joined to is in
+    // place.  A word that only pushes a number is in place wherever it is
+    // said.
+    {"a small word is called where in place it is longer",
+     "variable v  : f v @ 2 + ;  cp @ : g f f ; cp @ swap -  cp @ : h 2dup xor ; cp @ swap -\n"
+     "cp @ : k 2dup ; cp @ swap -  70000 constant big  cp @ : m big big ; cp @ swap -  5 v !  g + 6 6 h nip nip",
+     6, {2, 1, 1, 5, 14, 0}},
 
     // What the compiler's own words make: loops that are left, loops in
     // loops, words that make words, postpone, an exit in the middle, and a
@@ -161,12 +176,12 @@ static check CHECKS[] = {
      "variable x  variable y\n: u 5 x ! x y ! y begin @ dup 100 u< until ; u", 1, {5}},
 
     // The nucleus joins instructions as it compiles them (join.fs): plain
-    // words are typed, and each of these is one instruction and the exit.
+    // words are typed, and each of these is one instruction, which returns.
     // 2dup is compiled in place, so that its two instructions can be joined.
-    {"over + is one instruction", "cp @ : j1 over + ; cp @ swap -  3 4 j1", 3, {2, 3, 7}},
-    {"2dup xor is one instruction", "cp @ : j2 2dup xor ; cp @ swap -  5 5 j2", 4, {2, 5, 5, 0}},
+    {"over + is one instruction", "cp @ : j1 over + ; cp @ swap -  3 4 j1", 3, {1, 3, 7}},
+    {"2dup xor is one instruction", "cp @ : j2 2dup xor ; cp @ swap -  5 5 j2", 4, {1, 5, 5, 0}},
     {"and is the xor of the two", ": j2 2dup xor ; 6 7 j2", 3, {6, 7, 1}},
-    {"dup @ is one instruction", "variable x  9 x !  cp @ : j3 dup @ ; cp @ swap -  x j3 nip", 2, {2, 9}},
+    {"dup @ is one instruction", "variable x  9 x !  cp @ : j3 dup @ ; cp @ swap -  x j3 nip", 2, {1, 9}},
     {"a number and + is one instruction", "cp @ : j4 2 + ; cp @ swap -  40 j4", 2, {2, 42}},
     // Nothing is joined across the start of a loop: the + after begin does
     // not take the over before it.  (It is counted, not run.)
@@ -183,17 +198,17 @@ static check CHECKS[] = {
     // What the two before it are together may be nothing, and then nothing
     // is compiled: >r r> is only the exit, as cross.fs makes it.
     {">r r> is nothing", "cp @ : j7 >r r> ; cp @ swap -  5 j7", 2, {1, 5}},
-    // After an instruction that leaves a flag, 0= is invert: a comparison,
-    // invert and the exit.  After what leaves no flag 0= is its push and
-    // its =.
-    {"0= after < is invert", "cp @ : j8 < 0= ; cp @ swap -  3 5 j8  5 3 j8", 3, {3, 0, -1}},
+    // After an instruction that leaves a flag, 0= is invert: a comparison
+    // and an invert that returns.  After what leaves no flag 0= is called,
+    // being longer in place, and at the end of a word that is a jump.
+    {"0= after < is invert", "cp @ : j8 < 0= ; cp @ swap -  3 5 j8  5 3 j8", 3, {2, 0, -1}},
     {"and after = and u<", ": j8 = 0= ; : j9 u< 0= ;  cp @ : ja over = 0= ; cp @ swap -  4 4 j8  4 5 j8  1 -1 j9  -1 1 j9  7 7 ja",
-     7, {3, 0, -1, 0, -1, 7, 0}},
-    {"0= after what leaves no flag is not invert", "cp @ : jc + 0= ; cp @ swap -  1 2 jc  1 -1 jc", 3, {4, 0, -1}},
+     7, {2, 0, -1, 0, -1, 7, 0}},
+    {"0= after what leaves no flag is not invert", "cp @ : jc + 0= ; cp @ swap -  1 2 jc  1 -1 jc", 3, {2, 0, -1}},
     // A dup is taken across a number that is two instructions, as it is
-    // across one of one: the push, the add, `over and` and the exit.
+    // across one of one: the push, the add, and an `over and` that returns.
     {"a dup is taken across a number of two instructions",
-     "cp @ : jd dup 5000 and ; cp @ swap -  -1 jd  cp @ : je dup 5 and ; cp @ swap -  -1 je", 6, {4, -1, 5000, 3, -1, 5}},
+     "cp @ : jd dup 5000 and ; cp @ swap -  -1 jd  cp @ : je dup 5 and ; cp @ swap -  -1 je", 6, {3, -1, 5000, 2, -1, 5}},
 
     // Bits of a cell set, cleared and turned over, typed and compiled.
     {"or! typed", "create w 5 ,  10 w or!  w @", 1, {15}},

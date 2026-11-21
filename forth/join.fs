@@ -15,10 +15,10 @@
 \ hold what it works out to the machine's own step.
 
 \ Nothing is joined across a place a branch lands on (syncpt),
-\ or to an instruction with a return in it.  A word of up to
-\ three instructions that has no call or branch and leaves the
-\ return stack alone is compiled in place, so that its
-\ instructions can be joined: 2dup is two.
+\ or to an instruction with a return in it.  A small word, which
+\ has no call or branch and leaves the return stack as it was,
+\ is compiled in place where that is no longer than a call of
+\ it, so that its instructions can be joined: 2dup is two.
 
 \ This is the first thing on code page 1, straight after the
 \ kernel, whose ROM is nearly full: the kernel's compile, goes
@@ -299,7 +299,7 @@ include compose.fs
 ;
 
 \ One instruction of a word that is being compiled in place.
-: emit1 ( w -- )
+: emit0 ( w -- )
     dup h# 8000 and if emit-lit exit then
     dup h# 1000 and if h# effc and then     \ without the return
     jn !
@@ -314,16 +314,8 @@ include compose.fs
     jn @ join,
 ;
 
-\ A word that moves the return stack cannot be called: it is
-\ immediate, and where it is written it offers its one
-\ instruction to the one before, as emit1 offers any other.
-: offered ( -- ) \ the instruction after the call of this
-    r> i@ emit1 ;
-inline-operand
-header-imm >r      :noname  offered >r ;fallthru
-header-imm r>      :noname  offered r> ;fallthru
-header-imm r@      :noname  offered r@ ;fallthru
-header-imm rdrop   :noname  offered rdrop ;fallthru
+: lays ( xt n -- ) \ n instructions of a word, in place
+    bounds begin 2dup xor while dup i@ emit0 1+ repeat 2drop ;
 
 \ Does an instruction leave the return stack alone but for how
 \ it moves?
@@ -361,19 +353,115 @@ header-imm rdrop   :noname  offered rdrop ;fallthru
     again
 ;
 
+\ A small word is in place only where that is no longer than the
+\ call of it: it is tried, and if what is left is longer the
+\ code is put back as it was and the word is called.  The eight
+\ instructions before it are kept past the code while it is
+\ tried, and nothing is joined further back than those (syncpt).
+: imove ( from to n -- ) \ instructions, going up
+    >r over - r> swap >r  ( from n ) ( R: far )
+    bounds begin 2dup xor while
+        dup i@ over r@ + i!  1+
+    repeat
+    2drop rdrop ;
+
+: roomy? ( -- f ) \ past the code, for what is kept
+    cp @ h# fff and h# fe0 u< ;
+
+: keep ( -- syncpt cp ) \ before a word is tried
+    syncpt @ cp @
+    dup d# 8 -  dup syncpt @ max syncpt !
+    over d# 16 + d# 8 imove ;
+
+\ True if no more than `more` instructions are there than were;
+\ if not, the code is as it was.
+: fits ( syncpt cp more -- f )
+    over + cp @ u< if
+        dup cp !  dup d# 16 + swap d# 8 - d# 8 imove
+        syncpt !  false exit
+    then
+    drop syncpt !  true ;
+
+\ The word that was called waits for the instruction that comes
+\ next: with that joined to it, it may be no longer in place
+\ than its call and the instruction are.  It waits only while
+\ its call is the last thing compiled and no branch lands after.
+create waits 0 ,        \ the word, or nothing
+
+: again? ( w -- w false | true ) \ w is what comes next
+    waits @ ?dup 0= if false exit then      ( w xt )
+    d# 0 waits !
+    prev i@ over near h# 4000 or <>
+    syncpt @ cp @ = or  roomy? 0= or if drop false exit then
+    d# -1 cp +!                             \ the call is off
+    2dup >r >r  keep 2swap                  ( syncpt cp w xt )
+    dup small lays  emit0
+    d# 2 fits if rdrop rdrop true exit then
+    r> r> (compile,)  false ;
+
+: emit1 ( w -- )
+    dup h# 8000 and 0= if
+        dup h# 1000 and if h# effc and then
+        again? if exit then
+    then
+    emit0 ;
+
+\ A word that moves the return stack cannot be called: it is
+\ immediate, and where it is written it offers its one
+\ instruction to the one before, as emit1 offers any other.
+: offered ( -- ) \ the instruction after the call of this
+    r> i@ emit1 ;
+inline-operand
+header-imm >r      :noname  offered >r ;fallthru
+header-imm r>      :noname  offered r> ;fallthru
+header-imm r@      :noname  offered r@ ;fallthru
+header-imm rdrop   :noname  offered rdrop ;fallthru
+
+\ An exit is an instruction, and is offered to those before it
+\ as any other is: `@ ;` is one, which returns.  A call before
+\ it the kernel's exit makes a jump, and lays no exit.
+: returns ( -- ) \ the word being made returns here
+    cp @  texit  cp @ = if exit then
+    d# -1 cp +!  h# 7403 join, ;
+header-imm exit    :noname  returns ;
+header-imm ;       :noname  returns attach t[ ;
+
+\ In place whatever comes of it: the first instruction may be
+\ what a word that waits was waiting for.
+: placed ( xt n -- )
+    dup 0= if 2drop exit then
+    over i@ emit1  1- swap 1+ swap lays ;
+
+\ A word that only pushes a number, which is in place wherever
+\ it is said: a push, and what is added.
+: number? ( xt n -- f )
+    over i@ h# 8000 lit? >r  + 1- i@ h# 8000 and  r> and ;
+
+: near? ( xt -- f ) \ does one instruction call it from here
+    dup d# 12 rshift 0=  swap cp @ xor d# 12 rshift 0=  or ;
+
+\ in-place before a word: it is in place whatever is joined
+create placing 0 ,
+header-imm in-place  :noname  true placing ! ;
+
+\ Is the word tried?  One of two instructions or more that one
+\ instruction calls, and that is not a number or said to be in
+\ place.
+: tried? ( xt n -- f )
+    placing @  d# 0 placing !  if 2drop false exit then
+    dup d# 2 < if 2drop false exit then
+    over near? 0= if 2drop false exit then
+    number? 0=  roomy? and ;
+
 : pcompile, ( xt -- )
     \ the word being made is not all there
     dup thisxt @ = if (compile,) exit then
     dup small dup 0< if drop (compile,) exit then   ( xt n )
-    bounds
-    begin
-        2dup xor
-    while
-        dup i@ emit1
-        1+
-    repeat
-    2drop
-;
+    2dup tried? 0= if placed exit then
+    d# 0 waits !
+    over >r  keep 2swap lays
+    d# 1 fits if rdrop exit then
+    r> dup (compile,) waits ! ;
 
 \ What is told of numbers (folds.fs) is a table, and whoever
 \ includes this includes that after all the code of its page:

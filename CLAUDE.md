@@ -475,7 +475,8 @@ is, what is on each page, and each file's words, code and tables; and
   those stays is not the count's to say
 - A word that is reached only through another is handed only what that
   one lets through: `pcompile,` stands before the kernel's `(compile,)`,
-  and compiles in place itself whatever is small. Put the first one's
+  and compiles in place itself what is small and no longer so than a
+  call of it. Put the first one's
   rule to every word of the image and see which cases of the second are
   ever handed anything. A case that is handed nothing is dead, however
   much of the word it is
@@ -926,10 +927,11 @@ The toolchain and the nucleus, in Forth (`forth/`):
   out by running the instruction (`folds.fs`); a `dup` taken across what
   is pushed, and `0=` after what leaves a flag, by rules the machine was
   asked for (`folds.fs` too); and the one instruction that fetches or
-  stores a variable (`var,`). Whatever can be compiled in
-  place it compiles in place, and the kernel's `(compile,)` is left with
-  a call. The words that move the return stack are here, each an
-  immediate that offers its instruction to the one before
+  stores a variable (`var,`). A small word it compiles in place where
+  that is no longer than a call of it, and the kernel's `(compile,)` is
+  left with a call. The words that move the return stack are here, each
+  an immediate that offers its instruction to the one before, and so is
+  the exit
 - `cross-words.fs`: the words of `cross.fs` that the system's source
   says (`d#`, `,"`, `[if]`, `::`, the machine's sizes), for the
   nucleus to compile that source too: each a header named as `cross.fs`'s

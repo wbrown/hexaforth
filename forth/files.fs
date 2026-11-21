@@ -170,7 +170,8 @@ create stays 0 ,
 \ (own-names: a disk a machine boots from that is its desktop's
 \ too, mkdisk), each is written there when its file is done, as
 \ a label is in the tables of names (see.fs): a cell with its
-\ top bit set, the word's place, and its name.  A block of them
+\ top bit set, which is 1 more if the word is immediate, the
+\ word's place, and its name.  A block of them
 \ is how many it has and then those, and none is across two
 \ blocks.  For each block the least place and the most are kept
 \ (own-ix), so that one block is read to find most.  They are
@@ -223,7 +224,7 @@ create "own-names"
     then
     >r  dup own-buf own-fill @ +            ( hdr hdr to )
     tuck r@ cells-move                      ( hdr to )
-    d# 1 TOPBIT lshift over !
+    over 1+ @ TOPBIT rshift  d# 1 TOPBIT lshift or  over !
     swap 1+ @ d# 1 lshift d# 1 rshift       ( to xt )
     tuck swap 1+ !                          ( xt )
     dup own-ix-at @ min own-ix-at !

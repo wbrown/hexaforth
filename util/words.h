@@ -91,8 +91,10 @@ static long labels_of(const char* tables, int of_data, word** list, long n, long
 
 // The words of an image, in order of where they are: how many there are,
 // and the list, which is made here and has room for them all.  A second
-// name for the same code has no instructions of its own.
-static int words_of(const uint8_t* image, size_t len, const char* tables, word** list) {
+// name for the same code has no instructions of its own.  `more` is words
+// that are said besides, each a name and where its code starts: those a
+// machine kept of what its boot compiled (kept_of, below).
+static int words_and(const uint8_t* image, size_t len, const char* tables, const word* more, long nmore, word** list) {
     word* out = NULL;
     long n = 0, room = 0;
     for(uint32_t head = newest_header(image, len); head; ) {
@@ -100,6 +102,11 @@ static int words_of(const uint8_t* image, size_t len, const char* tables, word**
         ONE_MORE(out, n, room);
         head = read_header(image, len, head, &xt, out[n].name);
         out[n++].at = xt;
+    }
+    for(long idx=0; idx < nmore; idx++) {
+        ONE_MORE(out, n, room);
+        out[n] = more[idx];
+        out[n++].size = 0;
     }
     n = labels_of(tables, 0, &out, n, &room);
     ONE_MORE(out, n, room);                             // so that there is a list, if there are none
@@ -122,6 +129,10 @@ static int words_of(const uint8_t* image, size_t len, const char* tables, word**
         out[idx].size = end - at;
     }
     return(n);
+}
+
+static int words_of(const uint8_t* image, size_t len, const char* tables, word** list) {
+    return(words_and(image, len, tables, NULL, 0, list));
 }
 
 // The labels for data that the file of names has: a variable or a table
@@ -167,6 +178,49 @@ static void without_tables(uint8_t* image, size_t len, const word* words, int n)
     }
     uint64_t at = cell_of(image, cell);
     for(uint64_t idx=at; at && idx < (at / PAGE + 1) * PAGE && idx < len / 2; idx++) code[idx] = 0;
+}
+
+// The number the code at a place pushes: its literals, added up.
+static uint64_t pushed_at(const uint8_t* image, long at) {
+    uint64_t is = 0;
+    for(const instruction* ins = (const instruction*)image + at; ins->lit.lit_f; ins++) {
+        is += (uint64_t)ins->lit.lit_v << (ins->lit.lit_shifts * LIT_BITS);
+    }
+    return(is);
+}
+
+// The names a machine kept of the words its boot compiled, which are each
+// file's own and not in its dictionary (forth/files.fs): put after what a
+// list has, and how many the list then has.  `memory` is the machine's
+// memory when it stopped, of which `words` are the words of its image, and
+// `disk` the disk it booted from as it left it.  The machine's cells
+// own-kept say the first block they are in and how many blocks have any,
+// and files.fs what a block of them is.  Whether a word is immediate is
+// left where its size goes, for whoever asks before the list is put in
+// order.
+static long kept_of(const uint8_t* memory, size_t len, const word* words, int n,
+                    const uint8_t* disk, size_t disk_len, word** list, long have, long* room) {
+    long told = place_of(words, n, "own-kept");
+    if (told < 0) return(have);
+    uint64_t cell = pushed_at(memory, told);
+    if ((cell + 2) * CELL_BYTES > len) return(have);
+    uint64_t first = cell_of(memory, cell) & ((1u << DISK_BLOCK_BITS) - 1), used = cell_of(memory, cell + 1);
+    const size_t block = DISK_BLOCK / CELL_BYTES;
+    const uint64_t top = 1ull << (CELL_BITS - 1);
+    for(uint64_t b=first; b < first + used && (b + 1) * DISK_BLOCK <= disk_len; b++) {
+        const uint8_t* cells = disk + b * DISK_BLOCK;
+        size_t at = 1;
+        for(uint64_t r = cell_of(cells, 0); r && at + 2 < block; r--) {
+            ONE_MORE(*list, have, *room);
+            (*list)[have].size = (long)(cell_of(cells, at) & 1);
+            (*list)[have].at = (long)cell_of(cells, at + 1);
+            at += 2;
+            decode_name(cells + at * CELL_BYTES, (block - at) * CELL_BYTES, (*list)[have++].name);
+            while (at < block && !(cell_of(cells, at) & top)) at++;
+            at++;                                               // past the name's last cell
+        }
+    }
+    return(have);
 }
 
 // The word that the instruction at a place is in.

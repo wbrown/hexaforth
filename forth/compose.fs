@@ -13,9 +13,10 @@
 \ that instruction is the two.
 
 \ The machine is vm.c's, as vm_step.h says it, and no more of
-\ it than an instruction of the ALU that does not return.  The
-\ target `pairs` puts every pair of instructions the nucleus
-\ can meet to this and to the step itself (util/pairs.c).
+\ it than an instruction of the ALU, which may return if it is
+\ the last.  The target `pairs` puts every pair of instructions
+\ the nucleus can meet to this and to the step itself
+\ (util/pairs.c).
 
 meta
 : low-bit ( mask -- n )
@@ -173,8 +174,20 @@ unhigh
     OUT-MEM <> if 2drop jbad drop exit then     \ a port
     swap JT @ jstored  dup jd-shown jr-shown ;
 
+\ An instruction that returns goes to what R has as it starts,
+\ which is to be what R had.  That it returned is the bit after
+\ those of where it fetched from, and nothing is run after it.
+#16 constant J-RETURNED
+: jreturns ( w -- )
+    h# 1000 and 0= if exit then
+    JR @ R-WAS <> if jbad drop then
+    J-RETURNED JF or! ;
+
 : jstep ( w -- ) \ one instruction
-    dup h# f000 and h# 6000 <> if drop jbad drop exit then
+    dup h# e000 and h# 6000 <>  JF @ J-RETURNED and  or if
+        drop jbad drop exit
+    then
+    dup jreturns
     dup >r jin r@ jout r> jgoes ;
 
 \ a place that was stored to is not among those fetched from:
@@ -202,11 +215,12 @@ unhigh
     d# 0 jrs  jwas d# 16 +  JRSP @ 1- jsame-run? ;
 
 \ the instruction of these fields that moves the stacks as far
-\ as the two did
+\ as the two did, and returns if they did
 : jfielded ( in op out -- w )
     OUT-AT lshift >r  OP-AT lshift >r  IN-AT lshift r> or r> or
     jwas @ d# 5 - d# 3 and D-AT lshift or
     jwas 1+ @ d# 5 - d# 3 and or
+    jwas d# 6 + @ J-RETURNED and if h# 1000 or then
     h# 6000 or ;
 
 : jcand ( in op out -- w | 0 ) \ is that instruction the two?

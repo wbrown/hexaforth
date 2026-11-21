@@ -966,6 +966,20 @@ function(machine_tests NAME)
     machine_test(desktop-booted-${NAME} ${NAME} desktop_test ${AT}/boot/nuc.hex ${AT}/boot/desk.img ${PICTURES}
                  ${PICTURE} forth ${AT}/booted names rom)
     needs(desktop-booted-${NAME} boot-system-${NAME} picture pictures)
+
+    # What the machine compiled at that boot, beside the same words as
+    # cross.fs lays them (bench/booted.c): the target booted-NAME.
+    machine_tool(booted_sizes ${NAME} bench/booted.c vm_opcodes.c vm_debug.c util/image.c)
+    add_custom_target(booted-${NAME}
+            COMMAND           ${CMAKE_COMMAND} -E env MEMORY=${AT}/booted/memory
+                                $<TARGET_FILE:desktop_test-${NAME}> ${AT}/boot/nuc.hex ${AT}/boot/desk.img ${PICTURES}
+                                ${PICTURE} forth ${AT}/booted names rom > ${AT}/booted/checks.txt
+            COMMAND           booted_sizes-${NAME} ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables ${AT}/booted/memory
+                                ${AT}/booted/disk.img ${AT}/nuc.hex ${AT}/nuc.tables > ${AT}/booted/sizes.txt
+            COMMAND           ${CMAKE_COMMAND} -E echo "what the machine ${NAME} compiled at its boot: ${AT}/booted/sizes.txt"
+            COMMAND           ${KEEP} booted ${AT}/boot/nuc.hex ${AT}/booted/sizes.txt
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    add_dependencies(booted-${NAME} desktop_test-${NAME} machine-${NAME} boot-system-${NAME} picture pictures)
 endfunction()
 
 # After any change to a compiler or a peephole: the image against the image

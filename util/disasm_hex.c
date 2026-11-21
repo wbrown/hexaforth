@@ -1,6 +1,6 @@
 //
 // disasm_hex IMAGE.hex [NAME... | FROM TO] [LABELS.lst] [--typed FILE.fs] [--counts WORK]
-//                      [--layout [--near NAME]...] [--memory FILE] [--headers]
+//                      [--layout [--near NAME]...] [--memory FILE [--own DISK.img]] [--headers]
 //                      [--color | --no-color]
 //
 // An image's code, word by word, as the decompiler shows it (forth/see.fs),
@@ -28,6 +28,10 @@
 // reference VM wrote it when it stopped: what the machine compiled is in
 // it, under the names its dictionary still has, and with --layout the calls
 // that code makes to other pages are counted with the image's.
+//
+// With --own DISK.img as well, the disk that machine booted from as it left
+// it, the words its boot compiled that are each file's own have their names
+// too, which it keeps there (forth/files.fs).
 //
 // --headers is the dictionary and nothing else, from the newest header to
 // the one its chain stops at (show_headers).
@@ -958,6 +962,7 @@ int main(int argc, char *argv[]) {
     const char* near[argc];
     const char* typed = NULL;
     const char* memory = NULL;
+    const char* own = NULL;
     int nwanted = 0, nnear = 0, laid_out = 0, headers = 0;
     long range[2];
     int nrange = 0;
@@ -971,6 +976,7 @@ int main(int argc, char *argv[]) {
         else if (!strcmp(argv[a], "--near") && a + 1 < argc) near[nnear++] = argv[++a];
         else if (!strcmp(argv[a], "--typed") && a + 1 < argc) typed = argv[++a];
         else if (!strcmp(argv[a], "--memory") && a + 1 < argc) memory = argv[++a];
+        else if (!strcmp(argv[a], "--own") && a + 1 < argc) own = argv[++a];
         else if (!strcmp(argv[a], "--counts") && a + 1 < argc) RAN_PLACES = work_read(argv[++a], &RAN, NULL);
         else if (len > 4 && !strcmp(argv[a] + len - 4, ".lst")) read_listing(argv[a]);
         else if (numeric(argv[a], &value) && nrange < 2) range[nrange++] = value;
@@ -1001,8 +1007,16 @@ int main(int argc, char *argv[]) {
     word* with_tables;
     int had = words_of(BYTES, LEN, tables, &with_tables);
     without_tables(PLAIN, LEN, with_tables, had);
+    word* kept = NULL;                                  // with --own: the names the machine kept of what it compiled
+    long nkept = 0, kept_room = 0;
+    if (own) {
+        uint8_t* disk;
+        size_t disk_len = file_bytes(own, &disk);
+        nkept = kept_of(BYTES, LEN, with_tables, had, disk, disk_len, &kept, 0, &kept_room);
+        free(disk);
+    }
     free(with_tables);
-    NWORDS = words_of(PLAIN, LEN, tables, &WORDS);
+    NWORDS = words_and(PLAIN, LEN, tables, kept, nkept, &WORDS);
     INSN = (const uint16_t*)PLAIN;
     long data_room;
     NDATA = data_of(tables, &DATA, &data_room);
