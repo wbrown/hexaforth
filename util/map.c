@@ -134,7 +134,8 @@ int main(int argc, char *argv[]) {
     uint64_t dp = variable(tables, "dp"), hdp = variable(tables, "hdp"), cp = variable(tables, "cp");
     uint64_t himem = variable(tables, "himem"), hole = variable(tables, "hole");
     uint64_t data_then = cell_of(IMAGE.bytes, dp), data_now = in_memory(dp);
-    uint64_t headers_then = cell_of(IMAGE.bytes, hdp), headers_now = in_memory(hdp);
+    // (the header pointer is the address of a cell: here it is the byte)
+    uint64_t headers_then = cell_of(IMAGE.bytes, hdp) * CELL_BYTES, headers_now = in_memory(hdp) * CELL_BYTES;
     uint64_t code_then = cell_of(IMAGE.bytes, cp), code_now = in_memory(cp);
     uint64_t heap_then = cell_of(IMAGE.bytes, himem), heap_now = in_memory(himem);
     if (!dp || !hdp || !cp || !himem) {
@@ -164,6 +165,21 @@ int main(int argc, char *argv[]) {
         part_is(page * PAGE * two, (page + 1) * PAGE * two, 0,
                 "page %ld: %ld words, %ld bytes of code and %ld of tables, %ld left",
                 page, has->words, has->code * two, has->tables * two, (PAGE - has->end) * two);
+    }
+    // Code compiled at run time starts in what page 1 has left, and goes on
+    // from the first page the image left empty (cpn, nuc.fs): so it is in
+    // two places, if it has gone on.  What it has of page 1 is as far as
+    // that page's last instruction that is not nothing.
+    uint64_t cpn = variable(tables, "cpn"), go_on = cpn ? cell_of(IMAGE.bytes, cpn) : code_then;
+    if (code_now != code_then && code_now / PAGE != code_then / PAGE && go_on != code_then) {
+        const uint16_t* code = (const uint16_t*)memory;
+        uint64_t end = (code_then / PAGE + 1) * PAGE;
+        while (end > code_then && !code[end - 1]) end--;
+        if (end > code_then) {
+            part_is(code_then * two, end * two, 1, "compiled at run time, in what the page had left: %llu bytes",
+                    (unsigned long long)((end - code_then) * two));
+        }
+        code_then = go_on;
     }
     if (code_now > code_then) {
         long first = (long)(code_then / PAGE), last = (long)((code_now - 1) / PAGE);

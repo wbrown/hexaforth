@@ -52,7 +52,7 @@
 // disk holds it to that (util/mkdisk.c).
 #define DISK_FLOPPY         1024    // the blocks a disk is, at the most
 #define DISK_SOURCE_BLOCK   1       // Forth source, which the editor opens at,
-#define DISK_SOURCE_BLOCKS  255     // and how many blocks are kept for it
+#define DISK_SOURCE_BLOCKS  511     // and how many blocks are kept for it: the system's own source is most of them
 #define DISK_NAMES_BLOCK    (DISK_SOURCE_BLOCK + DISK_SOURCE_BLOCKS)    // the names that go with the image,
 #define DISK_NAMES_BLOCKS   128     // and how many blocks are kept for them
 #define DISK_CANVAS_BLOCK   (DISK_NAMES_BLOCK + DISK_NAMES_BLOCKS)      // HexaPaint's canvas,
@@ -71,6 +71,11 @@
 #define DISK_GRAY_BLOCK     (DISK_VIEW_BLOCK + DISK_VIEW_BLOCKS)
                                     // the viewer's picture kept as gray, in its four planes, made here too,
 #define DISK_GRAY_BLOCKS    128     // and how many blocks are kept for it: 512 by 512 samples
+// A disk that a machine boots from and has its desktop on keeps blocks for
+// the names of the words its boot compiles, which are a file's own and are
+// gone from the dictionary when the file is read (forth/files.fs): this
+// many, where the disk's index says (its entry own-names, util/mkdisk.c).
+#define DISK_OWN_BLOCKS     32
 
 // A machine may have several disks, and a block's number says which as
 // well (doc/disk.md, Several disks): the number is 16 bits, of which the

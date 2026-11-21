@@ -220,9 +220,15 @@ create "error:"
 
 \ forth, the newest word of the dictionary, is the first cell of the data in
 \ every image, and cross.fs says so: it is not laid down here.
-create cp       0 ,         \ Code pointer, grows up
-create dp       0 ,         \ Data pointer, grows up
-create hdp      0 ,         \ where the next dictionary header goes
+create cp       0 ,         \ Code pointer, grows up,
+create cpn      0 ,         \ and where it goes on from after page 1
+create cpr      $e00 ,      \ and how far into a page a definition may begin
+create dp       0 ,         \ Data pointer, grows up,
+create dpl      0 ,         \ and where the data must stop
+create bdp      0 ,         \ the same of what is not variables (bulk,
+create bdl      0 ,         \ cross.fs), where the machine has a place for it
+create hdp      0 ,         \ the cell the next header goes in,
+create hdl      0 ,         \ and the cell that headers stop before
 create lastword 0 ,
 create thisxt   0 ,
 create syncpt   0 ,
@@ -930,11 +936,23 @@ header i!
     d# -8 throw                     \ ran off the end of the page
 ;
 
-: newpage? ( -- ) \ before a definition: move on if under 1KB is left here
-    cp @ h# fff and h# e00 u> if
-        cp @ h# fff or 1+ cp !
+\ Code compiled on the machine starts in what page 1 has left, so that
+\ none of a page is lost, and the pages after page 1 are data's and the
+\ image's: from there it goes on where cpn says, the first page the image
+\ left empty.
+\
+\ A definition is not begun past where cpr says in its page: a kilobyte
+\ from the end, for what is typed, which has to fit and has no source to
+\ be compiled again from.  A block that is read holds back far less, and
+\ compiles a definition again on the next page if it runs off this one
+\ (blocks.fs, reading).
+: newpage? ( -- ) \ before a definition: move on if too little is left here
+    cp @ h# fff and cpr @ u> if
+        cp @ h# fff or 1+
+        dup CODE-BASE u< if drop cpn @ then
+        cp !
     then
-    cp @ CODE-BASE - CODE-SIZE u< 0= d# 8 -throw
+    cp @ CODE-BASE CODE-SIZE + u< 0= d# 8 -throw
 ;
 
 \ What a branch or a call says to reach an instruction: one in the kernel
@@ -974,25 +992,25 @@ header s,
     2drop
 ;
 
-\ Headers are kept apart from data, above it, so that variables stay
-\ within reach of the instructions that fetch and store one.  A header is
-\ laid down with the ordinary words, with the two pointers changed over.
-: hswap ( -- ) dp @ hdp @ dp ! hdp ! ;
-
+\ Headers are kept apart from data, so that variables stay within reach of
+\ the instructions that fetch and store one.  A header is cells and nothing
+\ else, and is laid a cell at a time where hdp says, which is the address
+\ of a cell: so it may be anywhere in memory.  It is not to reach hdl.
+\ The two say where headers go: the dictionary's own room, or wherever a
+\ file that is being read has for the names it does not keep (files.fs).
+\ (hdp counted bytes, and a header was laid with the data's words and the
+\ two pointers changed over.  A byte's address reaches only the lower half
+\ of a memory of 64K cells of 16 bits, so headers could be nowhere else.)
 : mkheader
     newpage?
-    dp @ DATA-LIMIT u> d# 8 -throw          \ the data has run into what is after it
-    \ and the headers, with room for the longest header there can be
-    \ (the pointers are bytes)
-    hdp @ d# 256 + HDR-LIMIT u> d# 8 -throw
-    hswap
-    align
-    here lastword !
-    forth @ t,                              \ link
-    cp @ dup thisxt ! t,                    \ xt, on any page
-    parse-name >key >r                      \ name: the cells of the key
-    skey here r@ cells-move  r> (>c) tallot
-    hswap
+    dp @ dpl @ u> d# 8 -throw               \ the data has run into what is after it
+    parse-name >key                         ( n ) \ name: the cells of the key
+    hdp @ over + CELL2 +  hdl @ u> d# 8 -throw  \ no room for it
+    hdp @  dup lastword !
+    forth @ over !                          \ link
+    cp @ dup thisxt !  over 1+ !            \ xt, on any page
+    CELL2 +  2dup + hdp !                   ( n name )
+    skey swap rot cells-move
     sync
 ;
 
@@ -1141,17 +1159,25 @@ header-imm exit
     cp @ thisxt @ <> if                     \ a call just before it is made a jump,
         prev dup i@ dup jumpable if
             h# 4000 xor swap i!
+            \ and that is all, unless a branch lands after it (landing):
+            \ an exit there that nothing comes to was laid for every word
+            \ that ends in a call
+            syncpt @ cp @ <> if exit then
         else
             2drop
         then
     then
-    exit,                                   \ and there is an exit all the same: a branch may land on it
+    exit,
 ;
 
+\ The word is found only once its exit is laid: a definition that runs
+\ off its page there is compiled again (blocks.fs), and is not to be in
+\ the dictionary before it is.  (It was put in first, and compiled again
+\ its header was linked to itself.)
 header-imm ;
 :noname
-    attach
     texit
+    attach
     t[
 ;
 
@@ -1911,17 +1937,21 @@ target
 \ be run and then looked at ends with it.
 header bye : bye halt ;
 
-\ The nucleus's peephole (join.fs) is in every size of machine.  A machine
-\ with a display, whatever its cell, has a system: system.fs, the desktop,
-\ or another list that SYSTEM names (picture.fs), with the peephole after
-\ everything else.  One with no display has the peephole alone.
+\ The nucleus's peephole (join.fs) is in every size of machine, and is the
+\ first thing laid after the kernel: every definition made on the machine
+\ is compiled by it, and it uses nothing but the kernel.  A machine with a
+\ display, whatever its cell, has a system after it: system.fs, the
+\ desktop, or another list that SYSTEM names (picture.fs), which says
+\ where the rest of this page's room goes.  What the peephole is told of
+\ numbers (folds.fs) is a table, and the last thing laid on its page: the
+\ system's list lays it, or with no display it follows here.
+include join.fs
 DISPLAY? [if]
 include-system
 \ What the image has above its display is all laid down: what is given out
 \ at run time starts after it, at an even cell.
 meta lofty [if]  thi @ byte-shift rshift 1+ -2 and  t' himem tvar!  [then] target
 [else]
-include join.fs
 include folds.fs
 [then]
 
@@ -1932,7 +1962,22 @@ meta
     t' uart-emit t' main-task 6 + tvar! \ its output goes to the console,
     t' uart-emit t' 'console tvar!      \ and so after an error
     there  t' dp tvar!                  \ data carries on after the data,
-    thp @  t' hdp tvar!                 \ and headers after the headers
-    tcp @ 2/ code-base max $fff + $fff invert and
-    t' cp tvar!             \ run-time definitions start on the next free code page
+    data-limit  t' dpl tvar!            \ as far as the bulk, or the headers;
+    bulky [if]                          \ and the bulk after the bulk
+        tbp @ t' bdp tvar!  hdr-base t' bdl tvar!
+    [then]
+    \ and headers after the headers, as far as the code: each a cell's address
+    thp @ cell-bytes 1- + byte-shift rshift  t' hdp tvar!
+    code-base 2* byte-shift rshift  t' hdl tvar!
+    \ run-time definitions go on from the page after the last that has code
+    \ (code-top: a page may have been gone back to), and there is to be one;
+    \ and they start in what page 1 has left, unless the peephole's table is
+    \ the last thing on it
+    code-top 2/ code-base max $fff + $fff invert and
+    dup code-base code-size + < 0= [if]
+        cr .( no page of code is left for what is defined at run time) abort
+    [then]
+    dup t' cpn tvar!
+    tabled @ 1 = [if] [else] drop  page-at cell+ @ 2/ [then]
+    t' cp tvar!
 target

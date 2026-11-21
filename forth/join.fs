@@ -20,9 +20,10 @@
 \ return stack alone is compiled in place, so that its
 \ instructions can be joined: 2dup is two.
 
-\ This is compiled into code page 1, not the kernel, whose ROM
-\ is nearly full: the kernel's compile, goes through a vector,
-\ which the build sets to pcompile, here.
+\ This is the first thing on code page 1, straight after the
+\ kernel, whose ROM is nearly full: the kernel's compile, goes
+\ through a vector, which the build sets to pcompile, here.  It
+\ uses nothing but the kernel.
 
 create jn 0 ,          \ the instruction being compiled
 
@@ -121,13 +122,13 @@ include compose.fs
 \ how many numbers an instruction makes one of: one, two, or
 \ none if it is not such
 : makes ( w -- n )
-    folds d# 3 +  folds i@ folds 1+ i@ +  bounds    ( w end a )
+    folds d# 4 +  folds i@ folds 1+ i@ +  bounds    ( w end a )
     begin
         2dup xor
     while
         >r  over r@ i@ = if
             \ those of one are first
-            2drop  r> folds d# 3 + -  folds i@ u<  d# 2 +  exit
+            2drop  r> folds d# 4 + -  folds i@ u<  d# 2 +  exit
         then
         r> 1+
     repeat
@@ -200,7 +201,7 @@ include compose.fs
 \ taken across (dup, r@, r>): the instruction, how many rules,
 \ and the rules.
 : set-of ( x -- set | 0 ) \ the set for that instruction
-    folds dup i@ over 1+ i@ + + d# 3 +              ( x set )
+    folds dup i@ over 1+ i@ + + d# 4 +              ( x set )
     folds d# 2 + i@ negate                          ( x set -n )
     begin
         dup
@@ -225,17 +226,54 @@ include compose.fs
     2drop drop d# 0
 ;
 
-\ a dup, an instruction that pushes and jn are that instruction
-\ and another: make them so.  So are an r@ or an r> in the dup's
+\ How many instructions what was just pushed is: a number or a
+\ variable fetched is one, and a number that is a push and an
+\ add is two.
+: pushed ( -- n )
+    prev i@ dup h# c000 and h# 8000 = if drop d# 1 exit then
+    h# c000 lit?  prev 1- i@ h# 8000 lit?  and  d# 2 and
+;
+
+\ What is pushed, the n instructions after the one at `at`, goes
+\ down over that instruction, and jn is y.
+: push-down ( n at y -- end end )
+    jn !  swap bounds                               ( end at )
+    begin 2dup xor while
+        dup 1+ i@ over i!  1+
+    repeat
+    d# -1 cp +!
+;
+
+\ a dup, what is pushed and jn are what is pushed and another
+\ instruction: make them so.  So are an r@ or an r> in the dup's
 \ place: r> 8 rshift is the 8 pushed, and a shift that has the
 \ return stack for its input.
 : across ( -- )
-    prev 1- syncpt @ u< if exit then
-    \ what pushes: a number, or a variable fetched
-    prev i@ h# c000 and h# 8000 <> if exit then
-    prev 1- i@ set-of ?dup 0= if exit then
-    jn @ swap crossed ?dup 0= if exit then  jn !
-    prev i@ prev 1- i!  d# -1 cp +!
+    pushed ?dup 0= if exit then                     ( n )
+    prev over -                                     ( n at )
+    dup syncpt @ u< 0= if
+        dup i@ set-of ?dup if                       ( n at set )
+            jn @ swap crossed ?dup if push-down then
+        then
+    then
+    2drop
+;
+
+\ `0 =` after an instruction that leaves a flag is invert.
+\ Which leave one is the last set of what is told (folds.fs): it
+\ is the set of `=`, and what its rules change is `invert`.
+\ True if jn, an `=` after a push of nothing, was compiled so.
+: flag-set ( -- set ) folds dup d# 3 + i@ + ;
+: flag-not ( -- f )
+    prev i@ h# 8000 =  flag-set i@ jn @ =  and if
+        prev 1- plain? if
+            prev 1- i@ dup flag-set crossed ?dup if ( w y )
+                xor  d# -1 cp +!  join,  true exit
+            then
+            drop
+        then
+    then
+    false
 ;
 
 \ A literal, which an add may make one number with those before.
@@ -252,11 +290,12 @@ include compose.fs
     swap cp !  h# c000 segs,  true
 ;
 
-\ After a literal: @ or ! may be a variable's; a dup before it
-\ may be taken up; and nothing else is joined to it.
+\ After a literal: @ or ! may be a variable's; `0 =` may follow
+\ a flag; a dup before it may be taken up; and nothing else is
+\ joined to it.
 : after-lit ( -- )
     jn @  dup h# 6800 = over h# 6308 = or if var, exit then
-    drop  across  jn @ code,
+    drop  flag-not if exit then  across  jn @ code,
 ;
 
 \ One instruction of a word that is being compiled in place.
@@ -306,16 +345,17 @@ header-imm rdrop   :noname  offered rdrop ;fallthru
     d# -1
 ;
 
-\ how many instructions, if the word can be compiled in place;
-\ or nothing
+\ how many instructions, if the word can be compiled in place,
+\ which for a word that is only its exit is none (cells); or
+\ less than nothing
 : small ( xt -- n )
     d# 0 swap                                       ( n ia )
     begin
-        over d# 3 > if 2drop d# 0 exit then
+        over d# 3 > if 2drop d# -1 exit then
         dup i@                                      ( n ia w )
         dup h# 7403 = if 2drop exit then            \ its exit
         inline-kind ?dup if
-            nip 0< if drop d# 0 exit then  1+ exit
+            nip 0< if drop d# -1 exit then  1+ exit
         then
         1+ swap 1+ swap
     again
@@ -324,7 +364,7 @@ header-imm rdrop   :noname  offered rdrop ;fallthru
 : pcompile, ( xt -- )
     \ the word being made is not all there
     dup thisxt @ = if (compile,) exit then
-    dup small ?dup 0= if (compile,) exit then       ( xt n )
+    dup small dup 0< if drop (compile,) exit then   ( xt n )
     bounds
     begin
         2dup xor

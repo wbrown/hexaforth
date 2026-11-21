@@ -75,8 +75,18 @@ $9 at: gstate bold      $a at: gstate italic
 $c at: gstate clip-rgn  $d at: gstate clip0
     $11 at: gstate text-or
 
+nearby
 header origin! : origin! ( x y -- ) oy ! ox ! ;
+nearby-end
 
+\ Some words here are between `nearby` and `nearby-end`: they
+\ are laid in the kernel's page, where a call from any page is
+\ one instruction, since the pages after this one call them
+\ often (cross.fs, nearby, says what is asked before a word
+\ is).  Each has with it the words it calls, so that it calls
+\ nothing on this page but what loops for it.
+
+nearby
 header row : row ( y -- a ) \ the first cell of row y
 BANKED? [if]
     DISP-BANKS u/mod DISP-STRIDE *
@@ -85,6 +95,7 @@ BANKED? [if]
     DISP-STRIDE * DISP-BASE +
 [then]
 ;
+nearby-end
 
 \ Each is one instruction or two: memory, through the ALU, back
 \ to memory.
@@ -116,18 +127,22 @@ header ink   : ink   ( mask a -- ) swap invert swap and! ;
 \ back by putting dp where it was: a word's locals.
 
 \ that many cells, for as long as the word that asks is running
+nearby
 : borrow ( cells -- a )
     align here swap >c dp +!
-    dp @ DATA-LIMIT u> d# 8 -throw
+    dp @ dpl @ u> d# 8 -throw
 ;
+nearby-end
 
 : x!   ( bits a -- ) xor! ;  \ invert
 : seg! ( bits mask a -- ) \ replace
     dup >r @ swap invert and or r> ! ;
 
 \ Where a pixel is: its cell, and how far into the cell it is.
+nearby
 : prow ( x y -- n a )
     row over PXSHIFT rshift + swap PXMASK and swap ;
+nearby-end
 
 : dplot ( on? x y -- )
     prow >r LEFT1 swap PIXR
@@ -163,9 +178,13 @@ INK-BLACK? [if]
 : m-xor  ( src mask a -- ) >r and r> x! ;
 : m-bic  ( src mask a -- ) >r and r> paper ;
 
+nearby
 header copy-mode : copy-mode ( -- ) ['] m-copy 'mode ! ;
+nearby-end
 header or-mode   : or-mode   ( -- ) ['] m-or   'mode ! ;
+nearby
 header xor-mode  : xor-mode  ( -- ) ['] m-xor  'mode ! ;
+nearby-end
 header bic-mode  : bic-mode  ( -- ) ['] m-bic  'mode ! ;
 
 \ A pattern is eight rows of eight pixels, which repeat across
@@ -326,6 +345,7 @@ meta 2* target constant NEVER
 \ a mask is needed for it, or 0.  A region with nothing in it
 \ leaves a rectangle with nothing in it.
 
+nearby
 : clip-rect-rgn ( rgn -- )
     \ a rectangle: 0 top, 2 x0 x1 bottom, 0 never
     >r
@@ -356,6 +376,7 @@ meta 2* target constant NEVER
 ;
 
 header rgn-clip! : rgn-clip! ( rgn|0 -- ) clip-rgn !  reclip ;
+nearby-end
 
 \ Where the pattern takes the place of what is there and nothing
 \ is masked, which is most fills, only the cells at the two ends
@@ -426,8 +447,10 @@ header slab
 ;
 
 \ Plain white or black, for the words that take a flag.
+nearby
 header solid : solid ( on? -- )
     if p-white else p-black then pattern !  copy-mode ;
+nearby-end
 
 \ ---- clipping
 
@@ -435,6 +458,7 @@ header solid : solid ( on? -- )
 \ draws only inside the clip rectangle, which is never bigger
 \ than the screen.
 
+nearby
 : >screen ( x y -- x' y' ) oy @ + swap ox @ + swap ;
 
 header clip! : clip! ( x y w h -- )
@@ -476,6 +500,7 @@ header clip-rows : clip-rows ( -- top bottom )
     over clip @ < if + clip @ tuck - then
     over + clip CELL2 + @ min over -
 ;
+nearby-end
 
 \ on the screen, in a row the clip rectangle has: what the
 \ region leaves of it
@@ -486,6 +511,7 @@ header clip-rows : clip-rows ( -- top bottom )
     dup 0> if slab else drop 2drop then
 ;
 
+nearby
 header pat-hline : pat-hline ( x y n -- )
     >r >screen r>
     over dup clip CELL + @ < swap clip c# 3 + @ < 0= or if
@@ -496,6 +522,7 @@ header pat-hline : pat-hline ( x y n -- )
     swap >r clip-span r> swap
     dup 0> if slab else drop 2drop then
 ;
+nearby-end
 
 \ A rectangle of plain white or plain black, which most are, is
 \ the same in every row: the same pixels of the same cells, made
@@ -677,6 +704,7 @@ BANKED? [if]
 \ clip rectangle has, and the pixels of a row that it has, which
 \ are the same in every row.
 
+nearby
 header pat-rect : pat-rect ( x y w h -- )
     \ on the screen from here
     >r >r >screen r> r>
@@ -691,6 +719,7 @@ header pat-rect : pat-rect ( x y w h -- )
     then
     r> masked-rect
 ;
+nearby-end
 
 \ ---- copying
 
@@ -995,6 +1024,7 @@ header put-bits : put-bits ( bitmap x y w h -- )
 \ Eight pixels at x: the part of them in the cell x is in, and
 \ the part that runs over into the next, which is nothing unless
 \ x is in the last seven pixels of the cell.
+nearby
 : over8 ( bits b -- here next )
     \ b is how far into the cell x is
     >r dup r@ PIXR swap r>  ( here bits b )
@@ -1012,6 +1042,7 @@ header xor8
     ?dup if r@ 1+ x! then
     r> x!
 ;
+nearby-end
 
 \ A column one pixel wide, inverted where the port's pattern has
 \ ink: the sides of a window's outline while it is dragged
@@ -1130,6 +1161,7 @@ header xor-column : xor-column ( x y n -- )
 
 \ which of the font's glyphs a character is: its first, if the
 \ font has not the character
+nearby
 : glyph# ( c -- i )
     font @ CELL + @ in-place -
     dup font @ CELL2 + @ u< 0= if drop d# 0 then
@@ -1145,6 +1177,7 @@ W32+? [if]
     font @ c# 4 + @ + 1+ @  \ a lane is a cell
 [then]
 ;
+nearby-end
 
 \ Text is characters packed into cells, a cell's lowest eight
 \ bits first.  It is said by a cell and which character of the
@@ -1157,6 +1190,7 @@ W32+? [if]
 \ in a cell, and the character is shifted down by the rest.
 
 \ the character that starts that many bits into the cells from a
+nearby
 header char@ : char@ ( a bit -- c )
     dup PXSHIFT rshift rot + @
     swap PXMASK and rshift
@@ -1187,6 +1221,7 @@ header chars-width : chars-width ( a i u -- n ) \ in pixels
     2drop
     r> drop
 ;
+nearby-end
 
 header text-width : text-width ( addr u -- n )
     \ of text at the address of a byte
@@ -1850,6 +1885,8 @@ INK-BLACK? [if] BANKED? [if] [else]
     mforce @ if d# 0 mforce !  band-stale then
 ;
 
+nearby
+
 header draw-chars : draw-chars ( a i u x y -- )
     \ u characters from character i of the cells from a,
     \ in the port's font, clipped to the pixel
@@ -1879,6 +1916,7 @@ header draw-char : draw-char ( c x y -- )
     -rot >r >r  d# 0 d# 1  r> r> draw-chars
     r> dp !
 ;
+nearby-end
 
 \ ---- ports that are not in use
 
@@ -1886,6 +1924,7 @@ header port \ the record of the port in use, or 0
     create port 0 ,
 header screen-port create screen-port 0 ,
 
+nearby
 header port! : port! ( port -- )
     \ put the port in use away, and take up another
     port @ ?dup if gstate swap PORT-CELLS cells-move then
@@ -1894,10 +1933,17 @@ header port! : port! ( port -- )
     reclip
 ;
 
+\ The font a port writes in until it is told otherwise: the list
+\ this file is included by says which (SYSTEM-FONT, system.fs).
+: plain-font ( -- font ) SYSTEM-FONT ;
+nearby-end
+
 \ the whole screen, black, copying, plain text in the system's
-\ plain font
+\ plain font.  Every cell of it is set: the memory may have been
+\ had before and given back, and is as that left it.
 header new-port : new-port ( -- port )
     PORT-CELLS cells >c halloc >r
+    d# 0 r@ PORT-CELLS cells-fill
     plain-font r@ c# 11 + !
     fb-w @ r@ c# 4 + !  fb-h @ r@ c# 5 + !
     fb-w @ r@ c# 15 + !  fb-h @ r@ c# 16 + !

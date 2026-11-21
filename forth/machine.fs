@@ -50,6 +50,7 @@ header himem \ the next cell to give out
 
 \ room for u bytes, in whole cells from an even cell; a is the
 \ address of a cell
+nearby
 header halloc
 : halloc ( u -- a )
     CELLB 1- + c>                       ( cells )
@@ -58,6 +59,7 @@ header halloc
                                         \ many left
     tuck + 1+ d# -2 and himem !
 ;
+nearby-end
 
 \ Memory that has been given back: one run of it, the biggest
 \ there has been.  Whoever is done for good with memory that
@@ -75,6 +77,7 @@ create hole 0 , 0 ,  \ where it starts, and how many cells of it
                      \ are left
 
 \ that many cells from a, which is an even cell, are nobody's
+nearby
 header hfree
 : hfree ( a cells -- )
     \ they end where the run starts: it is one run
@@ -103,6 +106,7 @@ header hreuse
     nip  hole @ swap                                ( a cells )
     dup hole +!  negate hole CELL + +!
 ;
+nearby-end
 
 \ Temporary memory for one word: allocated before it runs and
 \ freed after, even if it throws.  Used to read a block

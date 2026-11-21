@@ -31,11 +31,12 @@ The first of it, on the reference VM, on every size of machine:
   `'blk-read` and `'blk-write`, which are the kernel's, and the system
   builds on them. There is no driver to bring up after: `vmdisk.fs` and
   `virtio-blk.fs` are gone.
-- A driver's memory, where it has any, is in the kernel's page: the
-  virtio driver's queue is its last 1,024 bytes. The image has nothing
-  there (`kept-nothing`, which `cross.fs` checks when the image is
-  made), so no block of the image is read over the queue while the
-  queue is what reads it.
+- A driver's memory, where it has any, is the last cells of memory,
+  which are kept from what is given out at run time (`top-kept`,
+  `cross.fs`): the virtio driver's queue is there. (It was the last
+  kilobyte of the kernel's page, which that page's upper half has
+  better use for.) No image has anything there, so no block of one is
+  read over the queue while the queue is what reads it.
 - Words of the nucleus that nothing in it calls, and that nothing needs
   before the image is in memory, are in the upper half of the kernel's
   page and not in the ROM (`nuc.fs`, at its end; `upper-half` in
@@ -71,15 +72,19 @@ The first of it, on the reference VM, on every size of machine:
   serial line before it loads block 1 (The screen console, below), and
   after an error the prompt goes on there (`'console`).
 
-- The system's files compiled from source at boot, the first of them:
+- The system's files compiled from source at boot: every file past the
+  window manager and the console, on a machine of any size.
   `forth/apps.fs` is the end of the system's list (`system.fs`), and
   `cross.fs` told `BOOT=on` makes the image without it (the target
-  `boot-system-64` and the others, in `build/64/boot/`). Its disk has
-  apps.fs as block 1 and each file it includes after it (`mkdisk --boot`
-  follows the includes), so the boot compiles them: `desk.fs` on every
-  machine, and on 64 and 32 bits the applications before it as well
-  (`forth/apps-wide.fs`: the gray picture, the viewer with its menu,
-  the calculator, HexaPaint and QEMU's drivers).
+  `boot-system-64` and the others, in `build/64/boot/`): the kernel's
+  page, the page of what compiles and the page of what draws. Its disk
+  has apps.fs as block 1 and each file it includes after it (`mkdisk
+  --boot` follows the includes), so the boot compiles them: the TIFF
+  reader and the dither, text, the Forth window, the editor, the
+  decompiler, the gray picture, the viewer with its menu, the
+  calculator, HexaPaint, on 64 bits QEMU's drivers, and `desk.fs`.
+  What the image says of itself to the decompiler, which is compiled
+  after it is made, is the image's (`cross-words.fs`).
   `forth/cross-words.fs` gives the nucleus the words of `cross.fs` that
   such a file says, each under a header named as `cross.fs`'s word is:
   `d#`, `,"`, `header`, `[if]`, `meta`, `::` (in whose body `literal`
@@ -91,17 +96,29 @@ The first of it, on the reference VM, on every size of machine:
   it is to have opened its windows.
 - A file's own names (Decided, 8): a word of a file that is included is
   found by its name until the file has been read, and after that only if
-  a header came before it. While a file is read the kernel's `mkheader`
-  lays headers in the upper half of the room that is left for them, and
-  `header` lays one below, which stays; when the file is done its own
-  are taken out of the dictionary and the room is free again
-  (`blocks.fs`, with `include`). The kernel is as it was. `cross.fs`
-  gives a header only to a name the source gives one, on every machine,
-  so the image is 128KB again, with the headers below the code and what
-  is given out starting after the display; `mkheader` checks the header
-  pointer. `boot_test` holds the machine to it: a word with no header is
-  not found after its file, and a header's name is, whatever the
-  definition was called.
+  a header came before it. A header is cells, laid where `hdp` says and
+  not past `hdl` (`nuc.fs`), which are cells' addresses: so while a file
+  is read its own names are laid in memory had from above the display,
+  a piece at a time, and `header` lays one in the dictionary, which
+  stays. A name that stays is found only when its file is done, as it
+  is to `cross.fs`, which has a header as a name for the prompt and no
+  word: in the file a name is what it was. When the file is done its
+  own are taken out of the chain and the memory given back (`files.fs`).
+  `cross.fs` gives a header only to a name the source gives one, on
+  every machine, so the image is 128KB again, with the headers below
+  the code and what is given out starting after the display; `mkheader`
+  checks the header pointer. `boot_test` holds the machine to it: a
+  word with no header is not found after its file, and a header's name
+  is, whatever the definition was called.
+- The names that go are kept for the decompiler, where the disk has
+  blocks for them (its index's entry `own-names`, which `mkdisk
+  --boot-desk` makes): each file's are written there as it ends, as
+  labels are in the tables of names, and `see` and the Words window show
+  a word the boot compiled by them (`files.fs`, `see.fs`).
+- A definition that runs off its page of code while a block is read is
+  compiled again on the next page, from where it began (`reading`,
+  `blocks.fs`), so a block is read with next to nothing of a page held
+  back; what is typed still has a kilobyte (`cpr`, `nuc.fs`).
 - The desktop on a machine started so. `mkdisk --boot-desk` makes a disk
   a machine starts from that is the desktop's as well. The source is
   first, all of it, from block 1, which is the list the boot loads: who
@@ -128,10 +145,17 @@ The first of it, on the reference VM, on every size of machine:
   `qemu-hexaforth-fast-rom-display`), and the target `demo-boot` shows
   it.
 
-Nothing else here is built: a disk for the Verilog, several disks, the
-headers on the disk for 16 bits, and compiling the rest of the system
-from source (the display, regions, the window manager and the files
-before them, which need the font builder, `keys[` and `px,` as well).
+Nothing else here is built: a disk for the Verilog, and compiling the
+rest of the system from source (the display, regions, the window
+manager and the files before them, which need the font builder, `keys[`
+and `px,` as well).
+
+What the machine compiles for itself that `cross.fs` does not lay is
+still in its pages of code when the boot is done: the bodies of a
+file's `::` words and of what it defines between `meta` and `target`,
+which are run only while the file is read, and the word the kernel
+lays for each of a file's own `create`s. `memory-map-16` and the like
+say what the boot's code comes to beside the image's.
 
 Not run: the virtio driver on a cell of 32 or 16 bits. It is written for
 any cell, and the only machine that has the device has cells of 64 bits.
@@ -389,18 +413,19 @@ take; the room is what `cross.fs` gives them, `hdr-base`).
 - Of those, the headers of `cross-words.fs` and of the basewords and
   sizes `system.fs` lays are there only for the nucleus to compile the
   system's source with.
-- `mkheader` checks the header pointer against where the code starts
-  (`HDR-LIMIT`), and `header`, while a file is read, the headers that
-  stay against where the file's own start.
+- `mkheader` checks the header pointer against the cell headers must
+  stop before (`hdp` and `hdl`, `nuc.fs`): where the code starts, for
+  the dictionary's own, and the end of the piece of memory a file's own
+  names are in while it is read.
 - Looking a name up goes through every header, so fewer headers is a
   shorter boot: how many instructions a machine runs from its start to
   its prompt is in `build/64/map/boot.out`, which `memory-map-64` makes.
   With a header for every word the machine of 64 bits ran nearly twice
   as many.
-- A file's own names are in no table for the decompiler: it shows a word
-  the boot compiled that has no header as a number, where the same word
-  compiled by `cross.fs` has a label on the disk. (When every word had a
-  header it showed them all by name.)
+- A file's own names are not in the tables of names `cross.fs` makes:
+  the machine keeps them itself, on a disk that has blocks for them
+  (What is built), and the decompiler shows a word the boot compiled by
+  them. On a disk that has none it shows such a word as a number.
 - Nothing needs a header to be in any one place: a link and an execution
   token are cells, and `sfind` follows them with `@`. Two things in the
   tree take the headers to be where they are now: the decompiler takes a
@@ -529,7 +554,7 @@ Next, now that QEMU starts from its disk:
 
 - The virtio driver of the keyboard and the pointer, `virtio.fs` and
   `virtio-input.fs`, is still written for cells of 64 bits and included
-  only where they are (`apps-wide.fs`), which is cell width standing for
+  only where they are (`apps.fs`), which is cell width standing for
   which machine it is: the same faults the disk's driver had. It also
   has what `virtio-blk.fs` had and the disk's driver now has not: one
   phrase said three times for a queue's three addresses, the status read
@@ -572,8 +597,8 @@ Next, now that QEMU starts from its disk:
     clip asks for (`view.fs`). That is what brought the heap's reach
     down to where it is;
   - the boot's own heap, at its prompt with the applications compiled,
-    is a font opened out, the blocks' buffer, and what `picture[`
-    keeps;
+    is a font opened out and the blocks' buffer: what `picture[` keeps
+    the rows of a picture in is given back when the picture is laid;
   - below the display the slots are fixed, each by a constant in
     `cross.fs` for the size of machine, and part empty: after the ROM,
     after the data, where the headers are again, and in the code pages

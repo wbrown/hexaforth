@@ -1,5 +1,7 @@
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "vm.h"
 #include "vm_debug.h"
 
@@ -106,13 +108,41 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     fflush(stdout);
 }
 
+// A machine that does not stop is stopped, if STOP_AFTER in the environment
+// says after how many seconds, and its memory is written where it was to
+// be written when it stopped: so what it was at can be looked at
+// (disasm_hex --memory, memory-map).
+static context* stopped;
+static const char* stopped_to;
+static void stop_it(int signal) {
+    (void)signal;
+    if (stopped_to) {
+        FILE* memory = fopen(stopped_to, "wb");
+        if (memory) {
+            fwrite(stopped->memory, 1, sizeof(stopped->memory), memory);
+            fclose(memory);
+        }
+    }
+    fprintf(stderr, "\nstopped after the %s seconds STOP_AFTER says\n", getenv("STOP_AFTER"));
+    _exit(4);
+}
+
 int main(int argc, char *argv[]) {
     context *ctx = calloc(sizeof(context), 1);
+    if (getenv("STOP_AFTER")) {
+        stopped = ctx;
+        stopped_to = argc > 3 ? argv[3] : NULL;
+        signal(SIGALRM, stop_it);
+        alarm((unsigned)atoi(getenv("STOP_AFTER")));
+    }
     ctx->words = FORTH_WORDS;
 #ifdef DEBUG
     init_opcodes(ctx->words);
 #endif
     load_hex(argv[1], NULL, ctx);
+    // What the machine says is written a line at a time, so that a machine
+    // that is stopped from outside has said what it said until then.
+    setvbuf(stdout, NULL, _IOLBF, 0);
     ctx->OUT=stdout;
     ctx->IN=stdin;
     // A second argument is a file to be the disk (vm.c), or several with

@@ -42,15 +42,25 @@
 
 $100 constant RGN-CELLS
 
+\ What is between `nearby` and `nearby-end` is laid in the
+\ kernel's page, where a call from any page is one instruction:
+\ the window manager, on another page, asks these of every
+\ region it has (cross.fs, nearby).  The merges, which are the
+\ loops, are on this page, and are reached by execute as they
+\ always were.
+
+nearby
 header rgn-none : rgn-none ( rgn -- ) \ nothing is in it
     d# 2 over !  d# 0 over 1+ !  NEVER swap CELL2 + !
 ;
+nearby-end
 
 header new-rgn : new-rgn ( -- rgn )
     \ with nothing in it, and on an even cell
     RGN-CELLS 1+ >c halloc  dup d# 1 and +  dup rgn-none
 ;
 
+nearby
 header rgn-empty? : rgn-empty? ( rgn -- f ) @ d# 2 = ;
 
 header rgn-copy : rgn-copy ( from to -- )
@@ -92,6 +102,7 @@ header rect-rgn : rect-rgn ( x y w h rgn -- )
     c# 6 + @  swap c# 6 + @  min  r@ c# 6 + !
     r> rect-seal
 ;
+nearby-end
 
 \ ---- two regions, combined
 
@@ -136,6 +147,7 @@ target
     MERGE[ invert and ]MERGE ;
 
 \ are the count and the crossings of the band those of the last?
+nearby
 : same? ( last band -- f )
     \ not as many
     over @ over @ xor if 2drop false exit then
@@ -221,6 +233,7 @@ header rgn-or : rgn-or ( a b to -- ) \ what is in either
     dup rgn-empty? if drop r> rgn-copy exit then
     r> ['] merge-or rgn-op
 ;
+nearby-end
 
 header rgn-diff : rgn-diff ( a b to -- )
     \ what is in a and not in b
@@ -237,8 +250,10 @@ header rgn-diff : rgn-diff ( a b to -- )
 
 \ ---- moving, and the rectangle around
 
+nearby
 : bands ( rgn -- end band ) \ to go through its bands
     dup 1+ swap @ bounds ;
+nearby-end
 
 : rgn-down ( dy rgn -- )
     \ every band ends that much further down, but the last
@@ -278,6 +293,7 @@ header rgn-offset : rgn-offset ( dx dy rgn -- ) \ move it
     tuck rgn-down rgn-along
 ;
 
+nearby
 : rgn-left ( rgn -- x )
     \ the least that the crossings of any band start at
     END-MIN >r bands  \ further along than any crossing
@@ -310,6 +326,7 @@ header rgn-box : rgn-box ( rgn -- x y w h )
     over r@ rgn-right swap -                  ( x y w )
     over r> dup @ + d# 2 - @ AS-END - swap -  ( x y w h )
 ;
+nearby-end
 
 \ ---- scrolling
 

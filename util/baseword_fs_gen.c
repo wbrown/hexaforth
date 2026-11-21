@@ -23,6 +23,7 @@ static const struct { const char* name; long value; } SIZES[] = {
     {"disk-mask-width", DISK_MASK_WIDTH}, {"disk-mask-planes", DISK_MASK_PLANES},
     {"disk-view-block", DISK_VIEW_BLOCK}, {"disk-view-blocks", DISK_VIEW_BLOCKS},
     {"disk-gray-block", DISK_GRAY_BLOCK}, {"disk-gray-blocks", DISK_GRAY_BLOCKS},
+    {"disk-own-blocks", DISK_OWN_BLOCKS},
     {"disk-entry", DISK_ENTRY}, {"disk-entry-type", DISK_ENTRY_TYPE}, {"disk-entry-first", DISK_ENTRY_FIRST},
     {"disk-entry-blocks", DISK_ENTRY_BLOCKS}, {"disk-entry-where", DISK_ENTRY_WHERE},
     {"disk-binary", DISK_BINARY}, {"disk-source", DISK_SOURCE}, {"disk-index", DISK_INDEX},
@@ -32,8 +33,11 @@ static const struct { const char* name; long value; } SIZES[] = {
 // the nucleus's (`create`, and a counted string each): they are the words
 // of vm_opcodes.h, under the field's heading there, that are that field
 // with a value and nothing else.  They go on over lines a block's line
-// long, each under the first.
+// long, each under the first.  Each table has a header, since the file
+// that reads them (see.fs) may be compiled on the machine, from a disk,
+// where a name with no header is not found.
 static void field_names(FILE* out, const char* table, const char* heading, int values, uint16_t (*with)(int)) {
+    fprintf(out, "    header %s\n", table);
     int len = fprintf(out, "    create %-5s ", table);  // and a space before each name
     const int indent = len;                             // where the space before each line's first name is
     for(int value=0; value < values; value++) {

@@ -201,6 +201,11 @@ const char* qemu_said(void) {
     return(said);
 }
 
+void qemu_memory(uint64_t address, uint64_t bytes, const char* to) {
+    command("{\"execute\": \"pmemsave\", \"arguments\": {\"val\": %llu, \"size\": %llu, \"filename\": \"%s\"}}",
+            (unsigned long long)address, (unsigned long long)bytes, to);
+}
+
 uint64_t qemu_cell(uint64_t address) {
     char* path = text("%s/cell", tmp);
     uint64_t cell = 0;

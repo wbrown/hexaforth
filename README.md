@@ -157,23 +157,23 @@ ECP5: 14,989 LUTs and 986 flip-flops, at 30.21 MHz.
 
 | | words | bytes of code |
 |---|---|---|
-| The kernel, in a 4,096-byte ROM | 277 | 3,766 |
-| All drawing: fills, copying, text | 155 | 5,258 |
-| Regions | 37 | 1,422 |
-| The window manager | 106 | 3,420 |
-| The TIFF reader and the dither | 120 | 3,934 |
-| Text kept as lines, which two windows scroll | 44 | 1,188 |
-| The Forth window | 22 | 736 |
-| The block editor | 9 | 468 |
-| The picture viewer, and its picture kept as gray | 158 | 4,448 |
-| The calculator | 17 | 676 |
-| The paint program | 51 | 2,274 |
-| The decompiler and the Words window | 126 | 4,628 |
-| What the disks have, by label, and the boot's console | 23 | 814 |
-| The compiler's peephole, for what is typed | 30 | 1,276 |
-| Everything | 1,303 | 35,814 |
+| The kernel, in a 4,096-byte ROM | 267 | 3,740 |
+| All drawing: fills, copying, text | 156 | 5,276 |
+| Regions | 37 | 1,418 |
+| The window manager | 106 | 3,144 |
+| The TIFF reader and the dither | 121 | 3,946 |
+| Text kept as lines, which two windows scroll | 44 | 1,158 |
+| The Forth window | 22 | 696 |
+| The block editor | 9 | 394 |
+| The picture viewer, and its picture kept as gray | 158 | 4,298 |
+| The calculator | 17 | 638 |
+| The paint program | 51 | 2,250 |
+| The decompiler and the Words window | 132 | 4,842 |
+| What the disks have, by label, and the boot's console | 39 | 1,292 |
+| The compiler's peephole, for what is typed | 36 | 1,326 |
+| Everything | 1,505 | 38,930 |
 
-The dictionary holds 631 names in 5,866 bytes, at five bits per character.
+The dictionary holds 624 names in 5,828 bytes, at five bits per character.
 
 **The machine on another processor** (`size`). `baremetal/hexaforth.S` is
 the whole machine in AArch64 assembler, with a console. It is 880 bytes:

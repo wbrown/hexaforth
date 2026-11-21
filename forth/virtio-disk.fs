@@ -34,13 +34,16 @@ include reg.fs
 \   120  the status: a byte, 0 if all is well
 \   128  where the device's registers are: a cell
 
-\ They are the last 1,024 bytes of the kernel's page, where no
-\ code is.  The image has nothing there, so no block of it is
-\ read over them while they are what reads it; cross.fs looks.
+\ They are the last bytes of memory, from a byte that is a whole
+\ sixteen, as the device wants its descriptors: kept from what
+\ memory is given out at run time (top-kept, cross.fs).  No
+\ image has anything there, so no block of one is read over
+\ them while they are what reads it.  (They were the last
+\ kilobyte of the kernel's page.)
 
 meta
-$2000 #1024 - constant vq-at
-vq-at dup #1024 + kept-nothing
+#144 cell-bytes / top-kept !
+1 addr-bits lshift top-kept @ - cell-bytes * constant vq-at
 : vq-cell ( bytes -- cell ) vq-at + cell-bytes / ;
 target
 meta vq-at target constant VQB          \ the byte they start at

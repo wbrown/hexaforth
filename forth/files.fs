@@ -101,58 +101,198 @@ header labelled
 
 \ A word of a file is found by its name until the file has been
 \ read, and after that only if a header came before it (header
-\ name): what has none is the file's own.  While a file is read
-\ the headers the kernel makes go in the upper half of the room
-\ there is left for headers, and one that `header` makes goes
-\ below them, and stays.  When the file is done its own are
-\ taken out of the dictionary, and the room they had is free
-\ again.  A file read from within another has its own after
-\ that one's, and they go when it is done.  With no file being
-\ read, at the prompt or in a block that is loaded, every
-\ header stays.
+\ name): what has none is the file's own.  A file's own names
+\ are not the dictionary's.  While a file is read the kernel
+\ lays headers in memory had for them from above the image, a
+\ piece at a time (hdp and hdl, nuc.fs), and one that `header`
+\ makes is laid in the dictionary, and stays.  When the file is
+\ done its own are taken out of the chain and the memory is
+\ given back.  With no file being read, at the prompt or in a
+\ block that is loaded, every header is the dictionary's.
 
-\ (The kernel is as it was: its mkheader lays a header where hdp
-\ says, and that is all that is changed here.  The names that
-\ go are in no table for the decompiler either: it shows a
-\ file's own words, compiled on the machine, as numbers.)
+$400 constant OWN-CELLS  \ a piece of memory for names,
+$100 constant OWN-LEAST  \ and the least a block is begun with
 
-create kept 0 , 0 ,  \ while a file is read: where the next
-                     \ header that stays goes, and where the
-                     \ file's own start; nothing if none is
+\ while a file is read: the newest piece, and the dictionary's
+\ own hdp and hdl
+create own 0 , 0 , 0 ,
 
-\ A file is begun: where its own names start, if it is read from
-\ within another, and the newest header there is.
-: own-names ( -- mark base )
-    kept @ if hdp @ else
-        hdp @ dup kept !
-        HDR-LIMIT over - u2/ +  dup kept CELL + !  hdp !
-        d# 0
-    then
-    forth @
+\ The headers that stay are not found while their file is read:
+\ a name is then what it is in the file, as it is to cross.fs,
+\ where a header is a name for the prompt and no word.  (One was
+\ found as soon as it was laid, and `header FACE : code-face
+\ FACE ;` compiled a jump to itself where FACE is a macro of
+\ the file.)  They are a chain of their own, the newest here,
+\ and are put into the dictionary when the file is done.
+create stays 0 ,
+
+\ another piece: its first cell is the piece before it, and its
+\ second, once it is left for another, where its names end; the
+\ names go after them
+: own-piece ( -- )
+    own @ ?dup if hdp @ swap 1+ ! then
+    OWN-CELLS >c halloc
+    own @ over !  dup own !
+    dup CELL2 + hdp !  OWN-CELLS + hdl !
 ;
 
-\ The file is done: each header newer than base that is not one
-\ that stays is taken out, and the room is as it was.
-: own-done ( mark base -- )
-    kept @ c> >r  forth                     ( mark base a )
+: own-room ( -- ) \ before a block: room for the names it makes
+    own @ 0= if exit then
+    hdl @ hdp @ - OWN-LEAST u< if own-piece then
+;
+
+\ A file is begun: where the data must stop, which the text of
+\ the file's macros brings down (cross-words.fs); the newest
+\ header there is; the headers that stay of the file this one
+\ is read from; whether it is the first being read; and the
+\ cell its own names start at.
+: own-names ( -- limit newest stays first? base )
+    dpl @  forth @  stays @  d# 0 stays !
+    own @ 0=  dup if
+        hdp @ own 1+ !  hdl @ own CELL2 + !  own-piece
+    then
+    hdp @
+;
+
+\ the file's headers that stay, put before the newest header
+\ there is, the oldest of them the nearest to it
+: stays-in ( -- )
+    stays @ ?dup 0= if exit then            ( newest )
+    dup begin dup @ ?dup while nip repeat   ( newest oldest )
+    forth @ swap !  forth !
+;
+
+\ ---- a file's own names, kept for the decompiler
+
+\ They are gone from the dictionary when the file is done, and
+\ the decompiler shows a word by its name.  So where a disk has
+\ blocks kept for them, which an entry of its index says
+\ (own-names: a disk a machine boots from that is its desktop's
+\ too, mkdisk), each is written there when its file is done, as
+\ a label is in the tables of names (see.fs): a cell with its
+\ top bit set, the word's place, and its name.  A block of them
+\ is how many it has and then those, and none is across two
+\ blocks.  For each block the least place and the most are kept
+\ (own-ix), so that one block is read to find most.  They are
+\ written through the block's buffer: what was being loaded is
+\ asked for again when a word of it is next read (blocks.fs).
+
+\ the first block kept for them, or nothing; how many have
+\ records; and how many there are
+header own-kept create own-kept 0 , 0 , 0 ,
+create own-fill 0 ,     \ the cells that are used of the last
+high
+header own-ix create own-ix
+    meta disk-own-blocks 2* cell-bytes * target allot
+unhigh
+create "own-names"
+    'o' c, 'w' c, 'n' c, '-' c, 'n' c, 'a' c, 'm' c, 'e' c,
+    's' c,
+
+: own-where ( -- f ) \ is there anywhere to keep them?
+    own-kept @ if true exit then
+    "own-names" >c d# 9 labelled  dup 0= if nip exit then
+    OWN-BLKS min own-kept CELL2 + !  own-kept !
+    BLKCELLS own-fill !  true
+;
+
+: own-buf ( -- a ) \ the block that records are going in
+    own-kept @ own-kept 1+ @ + 1- cblock ;
+: own-ix-at ( -- a ) own-kept 1+ @ 1- 2* own-ix + ;
+
+: own-more ( -- f ) \ another block, if there is one
+    own-kept 1+ @ own-kept CELL2 + @ u< 0= if false exit then
+    d# 1 own-kept 1+ +!
+    d# 0 own-buf BLKCELLS cells-fill  update
+    d# 1 own-fill !
+    d# -1 d# 1 rshift own-ix-at !  d# 0 own-ix-at 1+ !
+    true
+;
+
+: name-cells ( hdr -- n ) \ the cells of its name
+    CELL2 +  d# 0
+    begin 1+ swap dup @ 0< >r 1+ swap r> until
+    nip
+;
+
+\ a header, kept as a record if there is room for it
+: own-rec ( hdr -- )
+    dup name-cells CELL2 +                  ( hdr n )
+    dup own-fill @ + BLKCELLS u> if
+        own-more 0= if 2drop exit then
+    then
+    >r  dup own-buf own-fill @ +            ( hdr hdr to )
+    tuck r@ cells-move                      ( hdr to )
+    d# 1 TOPBIT lshift over !
+    swap 1+ @ d# 1 lshift d# 1 rshift       ( to xt )
+    tuck swap 1+ !                          ( xt )
+    dup own-ix-at @ min own-ix-at !
+    own-ix-at 1+ @ max own-ix-at 1+ !
+    r> own-fill +!  d# 1 own-buf +!  update
+;
+
+: keep-run ( a e -- ) \ the headers from a up to e
+    begin 2dup u< while
+        over own-rec  swap dup name-cells + CELL2 + swap
+    repeat
+    2drop
+;
+
+: pieces ( -- n ) \ how many there are
+    d# 0 own @ begin dup while @ swap 1+ swap repeat drop ;
+: piece# ( n -- piece ) \ the piece n before the newest
+    own @ swap negate begin dup while swap @ swap 1+ repeat
+    drop ;
+
+\ the headers of every piece, the oldest piece's first, so that
+\ of two of a name the newer is the later
+: own-keep ( -- )
+    hdp @ own @ 1+ !
+    pieces negate
+    begin dup while
+        dup invert piece#  dup CELL2 + swap 1+ @ keep-run
+        1+
+    repeat
+    drop
+;
+
+\ The names of the file that is done, and of the files it read,
+\ are kept; then the dictionary's hdp and hdl again, and the
+\ pieces given back, the newest first.
+: own-free ( -- )
+    own-where if own-keep then
+    own 1+ @ hdp !  own CELL2 + @ hdl !
+    begin own @ ?dup while
+        dup @ own !  OWN-CELLS hgive
+    repeat
+;
+
+\ The file is done: each header newer than `newest` that is its
+\ own, which is one laid at base or after, is taken out; those
+\ of its headers that stay are put in; and the data may go as
+\ far as it might before.
+: own-done ( limit newest stays first? base -- )
+    >r rot forth  ( limit stays first? newest a ) ( R: base )
     begin 2dup @ xor while
         dup @ r@ u< if @ else dup @ @ over ! then
     repeat
     2drop rdrop  d# 0 lastword !
-    ?dup if hdp ! exit then  \ read from within another
-    kept @ hdp !  d# 0 kept !
+    stays-in
+    if own-free then
+    stays !  dpl !
 ;
 
-\ The definition after this is found by this name, and the
-\ header stays.  It names the code that is compiled next, as
-\ cross.fs has it, whatever the definition is called.
+\ The definition after this is found by this name once the file
+\ is done, and the header stays.  It names the code that is
+\ compiled next, as cross.fs has it, whatever the definition is
+\ called.
 header header
 : name-stays ( "name" -- )
-    kept @ 0= if parse-name 2drop exit then
-    kept @ d# 256 + kept CELL + @ u> d# 8 -throw
-    hdp @ >r  kept @ hdp !
-    mkheader attach
-    hdp @ kept !  r> hdp !
+    own @ 0= if parse-name 2drop exit then
+    hdp @ hdl @  own 1+ @ hdp !  own CELL2 + @ hdl !
+    mkheader  lastword @ 1+ stay-xt !
+    stays @ lastword @ !  lastword @ stays !  d# 0 lastword !
+    hdp @ own 1+ !  hdl !  hdp !
 ;
 
 \ ---- a file, read
@@ -176,7 +316,7 @@ create line-said 0 ,
     begin
         2dup xor
     while
-        [char] . emit  true line-said !
+        [char] . emit  true line-said !  own-room
         dup >r swap >r  load  r> r> 1+
     repeat
     2drop
@@ -200,8 +340,8 @@ header include
     dup 0= d# 38 -throw  \ as a file that is not there
     dup entry@ ENTRY-TYPE + uw@ TYPE-SOURCE <> d# 38 -throw
     its-blocks  dup .  over + 1-
-    own-names >r >r
+    own-names >r >r >r >r >r
     ['] file-blocks catch  dup if nip nip then
-    r> r> own-done
+    r> r> r> r> r> own-done
     line-ends  throw
 ;

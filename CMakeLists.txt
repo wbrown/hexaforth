@@ -477,6 +477,9 @@ target_compile_options(examine-image PRIVATE -UDEBUG -w)
 target_link_libraries(examine-image m)
 add_custom_target(examine
         COMMAND           ${CMAKE_BINARY_DIR}/examine-image build/nuc.hex build/nuc.tables build/nuc.sizes
+                            > build/examine.txt
+        COMMAND           ${CMAKE_COMMAND} -E cat build/examine.txt
+        COMMAND           keep ${GIT} build/kept examine build/nuc.hex build/examine.txt
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         DEPENDS           examine-image
                           build/nuc.hex)
@@ -543,6 +546,19 @@ function(tool NAME)
     target_compile_options(${NAME} PRIVATE -UDEBUG -w)
     target_link_libraries(${NAME} m)
 endfunction()
+
+# What a target measures is kept (util/keep.c): a target that measures
+# writes what it found where it always does, and so over what it found the
+# time before, which is then not there to be compared with.  Each such
+# target ends by keeping what it wrote in build/kept/, under the image it
+# was measured of as that image is, a number of its bytes, and the target's
+# name: a change that makes another image is kept beside the one before
+# and not over it.  build/kept/log.txt has a line for each time, in order,
+# with the commit the tree was at, and is what is read to find the one
+# before.  KEEP is put before a label, the image and the files.
+set(KEPT ${BUILD}/kept)
+tool(keep util/keep.c)
+set(KEEP keep ${GIT} ${KEPT})
 
 # How long a test may run before it is stopped and fails, so that a hung
 # test (a machine running wild, a desktop that never comes up) does not
@@ -813,6 +829,10 @@ function(machine NAME)
     # (bench/shorter.c): shorter-NAME.
     stepping_tool(costs ${NAME} bench/costs.c util/image.c)
     stepping_tool(shorter ${NAME} bench/shorter.c util/image.c)
+    # Two measurements of the same work, by word (bench/compared.c):
+    # compared-NAME WAS WAS.work IS IS.work, of what is built and of what
+    # was kept (build/kept/, and build/kept/log.txt says what there is).
+    stepping_tool(compared ${NAME} bench/compared.c util/image.c)
     target_compile_definitions(shorter-${NAME} PRIVATE SEARCH_STATES=${SEARCH_STATES})
 endfunction()
 
@@ -966,9 +986,40 @@ function(examined NAME)
     set(AT ${BUILD}/${NAME})
     machine_tool(examine-image ${NAME} util/examine.c vm_opcodes.c vm_debug.c util/image.c)
     add_custom_target(examine-${NAME}
-            COMMAND           examine-image-${NAME} ${AT}/nuc.hex ${AT}/nuc.tables ${AT}/nuc.sizes
+            COMMAND           examine-image-${NAME} ${AT}/nuc.hex ${AT}/nuc.tables ${AT}/nuc.sizes > ${AT}/examine.txt
+            COMMAND           ${CMAKE_COMMAND} -E cat ${AT}/examine.txt
+            COMMAND           ${KEEP} examine ${AT}/nuc.hex ${AT}/examine.txt
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     add_dependencies(examine-${NAME} machine-${NAME})
+endfunction()
+
+# The whole of a machine's image as it is laid out, to be read for a better
+# way of laying it: listing-NAME writes build/NAME/listing.txt
+# (util/disasm_hex.c, --layout, which says what is in it).  The desktop is
+# worked first on the VM that counts (bench/profile.c, as the target
+# `profile` works it), so that each call to a word on another page says how
+# often it was run; what that left is in build/NAME/listing/.
+#
+# The reference VM that counts how often the instruction at each place is
+# run (bench/counting.c), in place of vm.c, is the VM the desktop is worked
+# on; by itself it is counting-NAME, which every machine has (machine).
+set(COUNTED_SOURCES test/nucleus.c bench/counting.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
+function(listed NAME)
+    set(AT ${BUILD}/${NAME})
+    set(L ${AT}/listing)
+    machine_tool(profile ${NAME} bench/profile.c ${DESK_SOURCES} ${COUNTED_SOURCES})
+    target_compile_definitions(profile-${NAME} PRIVATE COUNTING_A_TEST)
+    add_custom_target(listing-${NAME}
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${L}
+            COMMAND           profile-${NAME} ${AT}/nuc.hex ${AT}/nuc.tables ${AT}/nuc.sizes ${AT}/disk.img ${PICTURES} ${PICTURE}
+                                forth ${L} > ${L}/profile.txt 2> ${L}/profile.log
+            COMMAND           disasm_hex-${NAME} ${AT}/nuc.hex --no-color --layout --counts ${L}/desktop.counts
+                                > ${AT}/listing.txt 2> ${L}/listing.log
+            COMMAND           ${CMAKE_COMMAND} -E echo "the image of the machine ${NAME}, laid out: ${AT}/listing.txt"
+            COMMAND           ${KEEP} listing ${AT}/nuc.hex ${AT}/listing.txt ${L}/desktop.counts ${L}/profile.txt
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            COMMENT           "The machine ${NAME}'s image as it is laid out (what went wrong, if anything did, is in ${L})")
+    add_dependencies(listing-${NAME} machine-${NAME} picture pictures)
 endfunction()
 
 # Where a machine's memory goes: memory-map-NAME prints the map (util/map.c)
@@ -1008,6 +1059,9 @@ function(mapped NAME)
             COMMAND           map-${NAME} ${AT}/nuc.hex ${AT}/nuc.tables ${MP}/desktop.mem > ${MP}/desktop.txt
             COMMAND           ${CMAKE_COMMAND} -E cat ${MP}/image.txt ${MP}/prompt.txt ${MP}/prompt.heap
                                 ${MP}/boot.txt ${MP}/boot.heap ${MP}/desktop.txt ${MP}/desktop.heap
+            COMMAND           ${KEEP} memory-map ${AT}/nuc.hex ${MP}/image.txt ${MP}/prompt.txt ${MP}/prompt.heap
+                                ${MP}/desktop.txt ${MP}/desktop.heap
+            COMMAND           ${KEEP} memory-map ${AT}/boot/nuc.hex ${MP}/boot.txt ${MP}/boot.heap
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             VERBATIM)
     add_dependencies(memory-map-${NAME} map-${NAME} heap-${NAME} desktop_test_heap-${NAME} machine-${NAME}
@@ -1034,6 +1088,8 @@ function(compiled NAME)
             COMMAND           costs-${NAME} ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables ${AT}/boot/nuc.sizes ${CP}/work ${CP}
                                 > ${CP}/costs.txt 2> ${CP}/costs.log
             COMMAND           ${CMAKE_COMMAND} -E cat ${CP}/boot.out ${CP}/costs.txt
+            COMMAND           ${KEEP} compiling ${AT}/boot/nuc.hex ${CP}/work ${CP}/boot.out ${CP}/costs.txt
+                                ${CP}/paths.txt ${CP}/loops.txt ${CP}/vars.txt
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             VERBATIM)
     add_dependencies(compiling-${NAME} counting-${NAME} costs-${NAME} boot-system-${NAME} picture pictures)
@@ -1072,6 +1128,7 @@ foreach(LINE ${MACHINE_LINES})
     machine_made(${CELL})
     if(HOW_MUCH GREATER 2)
         examined(${CELL})                               # the names it reads are a machine's that has a display
+        listed(${CELL})
         mapped(${CELL})
         compiled(${CELL})
         shown(${CELL})
@@ -1091,14 +1148,11 @@ set(NUC ${OF}/nuc.hex)
 set(TABLES ${OF}/nuc.tables)
 set(SIZES ${OF}/nuc.sizes)
 
-# The reference VM that counts how often the instruction at each place is
-# run (bench/counting.c), in place of vm.c, as the VM the desktop is worked
-# on; by itself it is counting-NAME, which every machine has (machine).
-set(COUNTED_SOURCES test/nucleus.c bench/counting.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
+# The desktop's test on the VM that counts (COUNTED_SOURCES, with listed),
+# and what works the desktop on it, profile-NAME, which every machine with
+# a display has (listed).
 machine_tool(desktop_test_counted ${FIRST} test/desktop_test.c ${DESK_SOURCES} ${COUNTED_SOURCES})
 target_compile_definitions(desktop_test_counted-${FIRST} PRIVATE COUNTING_A_TEST)
-machine_tool(profile ${FIRST} bench/profile.c ${DESK_SOURCES} ${COUNTED_SOURCES})
-target_compile_definitions(profile-${FIRST} PRIVATE COUNTING_A_TEST)
 
 # `screenshot`: the desktop with every window open and HexaPaint in front,
 # as the README shows it (doc/desktop.png, which is checked in).  The
@@ -1158,6 +1212,8 @@ add_custom_target(profile
                             2> ${PROFILE}/survey.log
         COMMAND           shorter-${FIRST} ${NUC} ${TABLES} ${PROFILE}/desktop.counts ${PROFILE}/shorter.txt
                             2> ${PROFILE}/shorter.log
+        COMMAND           ${KEEP} profile ${NUC} ${PROFILE}/profile.txt ${PROFILE}/desktop.counts ${PROFILE}/paths.txt
+                            ${PROFILE}/loops.txt ${PROFILE}/vars.txt ${PROFILE}/survey.txt ${PROFILE}/shorter.txt
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The desktop's work, by place (${PROFILE}/profile.log says what went wrong, if anything did)")
 add_dependencies(profile machine-${FIRST} picture pictures)
@@ -1185,6 +1241,7 @@ add_custom_target(subtracts
         COMMAND           uses-${FIRST} ${OF}/plain/nuc.hex ${OF}/plain/nuc.tables ${NUC} ${TABLES} ${USES}/desktop.counts
                             - 1- negate > ${USES}/subtracts.txt
         COMMAND           ${CMAKE_COMMAND} -E cat ${USES}/subtracts.txt
+        COMMAND           ${KEEP} subtracts ${NUC} ${USES}/subtracts.txt ${USES}/desktop.counts
         DEPENDS           ${USES}/desktop.counts)
 add_dependencies(subtracts machine-${FIRST} plain-${FIRST})
 
@@ -1238,6 +1295,9 @@ add_custom_target(peephole
         COMMAND           typed-${FIRST} shown ${PEEPHOLE}/typed.txt forth/fused.fs
                             > ${PEEPHOLE}/shown.txt 2> ${PEEPHOLE}/shown.log
         COMMAND           ${CMAKE_COMMAND} -E cat ${PEEPHOLE}/peephole.txt ${PEEPHOLE}/seen.txt ${PEEPHOLE}/shown.txt
+        COMMAND           ${KEEP} peephole ${NUC} ${PEEPHOLE}/peephole.txt ${PEEPHOLE}/seen.txt ${PEEPHOLE}/shown.txt
+                            ${PEEPHOLE}/words.txt ${PEEPHOLE}/typed.txt ${PEEPHOLE}/idle.counts ${PEEPHOLE}/draw.counts
+                            ${PEEPHOLE}/draw.work ${PEEPHOLE}/desktop.counts
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The nucleus's compiler, weighed (each step's log is in ${PEEPHOLE})")
 add_dependencies(peephole machine-${FIRST} plain-${FIRST} picture pictures)
@@ -1618,7 +1678,9 @@ add_custom_target(run
         USES_TERMINAL)
 add_dependencies(run kernel-${PLAIN_KERNEL})
 add_custom_target(size
-        COMMAND           kernel_size ${KERNEL_FILE}.symbols ${KERNEL_FILE}.bin)
+        COMMAND           kernel_size ${KERNEL_FILE}.symbols ${KERNEL_FILE}.bin > ${KERNEL_FILE}.size.txt
+        COMMAND           ${CMAKE_COMMAND} -E cat ${KERNEL_FILE}.size.txt
+        COMMAND           ${KEEP} size ${KERNEL_FILE}.bin ${KERNEL_FILE}.size.txt)
 add_dependencies(size kernel-${PLAIN_KERNEL})
 
 # The desktop is given a disk of its own, which is made of the machine's
@@ -1998,6 +2060,7 @@ add_custom_target(synth
                             "W=${SYNTH_CELL} LAT=${SYNTH_LAT} KROM=${SYNTH_IS} memory 2^${SYNTH_AB} cells:"
                             > ${S}/result.txt
         COMMAND           ${CMAKE_COMMAND} -E cat ${S}/result.txt
+        COMMAND           ${KEEP} synth ${RTL}/hexaforth.v ${S}/result.txt ${S}/nextpnr.log
         WORKING_DIRECTORY ${RTL}
         VERBATIM)
 add_dependencies(synth machine-default-${SYNTH_CELL} ${NEXTPNR_BUILT})
@@ -2218,6 +2281,8 @@ function(bench_on NAME)
                 DEPENDS           ${WANTS} hexaforth-${NAME} bench/draw.fs
                 VERBATIM)
         set_property(GLOBAL APPEND PROPERTY DRAW_FIGURES ${J}.txt)
+        set_property(GLOBAL APPEND PROPERTY DRAW_KEPT
+                     COMMAND ${KEEP} draw-${NAME}-${LAT} ${NUC} ${J}.txt ${BENCH}/draw.fs)
 
         foreach(DITHER ${DITHERS})
             string(REPLACE ":" ";" DITHER ${DITHER})
@@ -2249,6 +2314,8 @@ function(bench_on NAME)
                                         picture ${PICTURE}
                     VERBATIM)
             set_property(GLOBAL APPEND PROPERTY DITHER_FIGURES ${J}.txt)
+            set_property(GLOBAL APPEND PROPERTY DITHER_KEPT
+                         COMMAND ${KEEP} dither-${PIC}-${SIZE}-${NAME}-${LAT} ${SYSTEM_IMAGE} ${J}.txt ${J}.fs)
         endforeach()
 
         set(J ${BB}/gray-${NAME}-${LAT})
@@ -2264,6 +2331,8 @@ function(bench_on NAME)
                 DEPENDS           ${WANTS} bench/pictures.fs bench/tb-disk.fs bench/gray.fs picture ${PICTURE}
                 VERBATIM)
         set_property(GLOBAL APPEND PROPERTY GRAY_FIGURES ${J}.txt)
+        set_property(GLOBAL APPEND PROPERTY GRAY_KEPT
+                     COMMAND ${KEEP} gray-${NAME}-${LAT} ${NUC} ${J}.txt ${J}.fs)
     endforeach()
 
     # Where the dither's clocks go (dither-costs-NAME): the same work, at
@@ -2291,10 +2360,12 @@ function(bench_on NAME)
         list(APPEND WORKS ${K}/work)
         list(APPEND COSTED COMMAND ${CMAKE_COMMAND} -E echo "dither ${PIC} half, cells of ${CELL} bits:"
                            COMMAND costs-${NAME} ${NUC} ${BUILD}/${NAME}/nuc.tables ${BUILD}/${NAME}/nuc.sizes ${K}/work ${K}
-                           COMMAND shorter-${NAME} ${NUC} ${BUILD}/${NAME}/nuc.tables ${K}/work ${K}/shorter.txt)
+                           COMMAND shorter-${NAME} ${NUC} ${BUILD}/${NAME}/nuc.tables ${K}/work ${K}/shorter.txt
+                           COMMAND ${KEEP} dither-costs-${PIC} ${NUC} ${K}/work ${K}/typed.fs ${K}/paths.txt
+                                     ${K}/loops.txt ${K}/vars.txt ${K}/shorter.txt)
     endforeach()
     add_custom_target(dither-costs-${NAME} ${COSTED} DEPENDS ${WORKS} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    add_dependencies(dither-costs-${NAME} costs-${NAME} shorter-${NAME})
+    add_dependencies(dither-costs-${NAME} costs-${NAME} shorter-${NAME} keep)
 
     # The same for the gray (gray-costs-NAME): bench/gray.fs's work typed at
     # the counting VM, then the cost of each word, loop and variable, in
@@ -2313,9 +2384,10 @@ function(bench_on NAME)
     add_custom_target(gray-costs-${NAME}
             COMMAND           ${CMAKE_COMMAND} -E echo "the gray, cells of ${CELL} bits:"
             COMMAND           costs-${NAME} ${NUC} ${BUILD}/${NAME}/nuc.tables ${BUILD}/${NAME}/nuc.sizes ${K}/work ${K}
+            COMMAND           ${KEEP} gray-costs ${NUC} ${K}/work ${K}/typed.fs ${K}/paths.txt ${K}/loops.txt ${K}/vars.txt
             DEPENDS           ${K}/work
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    add_dependencies(gray-costs-${NAME} costs-${NAME})
+    add_dependencies(gray-costs-${NAME} costs-${NAME} keep)
 endfunction()
 foreach(NAME ${MACHINES})
     bench_on(${NAME})
@@ -2389,10 +2461,17 @@ else()
 endif()
 
 # What was found, as figures: each kind is one target's to make, and the
-# targets that print are of those.
+# targets that print are of those.  A target that prints figures keeps
+# them, each under the image it is of (KEEP): every time, since a figure
+# that is already kept is not kept again.  The 68000's are of no image of
+# this machine's, and change only when its program does.
 get_property(DRAW_FIGURES GLOBAL PROPERTY DRAW_FIGURES)
 get_property(DITHER_FIGURES GLOBAL PROPERTY DITHER_FIGURES)
 get_property(GRAY_FIGURES GLOBAL PROPERTY GRAY_FIGURES)
+get_property(DRAW_KEPT GLOBAL PROPERTY DRAW_KEPT)
+get_property(DITHER_KEPT GLOBAL PROPERTY DITHER_KEPT)
+get_property(GRAY_KEPT GLOBAL PROPERTY GRAY_KEPT)
+set(M68K_KEPT)
 add_custom_target(draw-figures DEPENDS ${DRAW_FIGURES})
 add_custom_target(dither-figures DEPENDS ${DITHER_FIGURES})
 add_custom_target(gray-figures DEPENDS ${GRAY_FIGURES})
@@ -2402,10 +2481,12 @@ add_dependencies(dither-figures bench-parts)
 add_dependencies(gray-figures bench-parts)
 function(figures TARGET)                                # and the kinds it prints
     set(PRINTED)
+    set(KEPT_SO)
     foreach(KIND ${ARGN})
         list(APPEND PRINTED ${${KIND}_FIGURES})
+        list(APPEND KEPT_SO ${${KIND}_KEPT})
     endforeach()
-    add_custom_target(${TARGET} COMMAND check-${FIRST} table ${PRINTED})
+    add_custom_target(${TARGET} COMMAND check-${FIRST} table ${PRINTED} ${KEPT_SO})
     foreach(KIND ${ARGN})
         string(TOLOWER ${KIND} OF)
         add_dependencies(${TARGET} ${OF}-figures)
@@ -2524,7 +2605,7 @@ tee -o ${GB}/${LABEL}.stat stat
         list(APPEND COUNTED ${GB}/${LABEL}.stat)
         list(APPEND SAID COMMAND gates_said ${LABEL} ${GB}/${LABEL}.stat)
     endforeach()
-    add_custom_target(gates ${SAID} DEPENDS ${COUNTED})
+    add_custom_target(gates ${SAID} COMMAND ${KEEP} gates ${RTL}/hexaforth.v ${COUNTED} DEPENDS ${COUNTED})
     add_dependencies(gates tv80 fx68k)
 else()
     add_custom_target(gates COMMAND ${CMAKE_COMMAND} -E echo "gates: not run: there is no yosys")

@@ -1,16 +1,15 @@
-\ apps.fs - what the boot compiles from the disk
-
-\ The system is one list (system.fs), and this is its end:
-\ cross.fs lays it in the whole image, and the image a machine
-\ boots from a disk (BOOT=on) is the rest without it.  The disk
-\ has this as block 1, so it is to be no longer than a block;
-\ the boot compiles each file here from its source on the disk
-\ (doc/boot.md).  Where code pages are few the desktop is in the
-\ upper half of the kernel's page (system.fs, low-page).
-
-BOOTING? [if] W32+? [if]
-include apps-wide.fs
-[then] [then]
-meta low-page target
-include desk.fs         \ the desktop itself
-meta low-page-end target
+\ apps.fs - the applications and their pages; a disk's block 1
+meta 2 big-page  small-first target  include tiff.fs
+meta 2 small-page target  include atkinson.fs
+meta 1 big-page target  include text.fs
+meta 1 small-page target  include term.fs
+meta small-first target  include edit.fs
+meta 1 small-page target  include see.fs
+meta 2 sys-page target  include gray.fs
+meta 3 big-page target  include view.fs
+meta 0 small-page target  include calc.fs
+meta 1 small-page target  include paint.fs
+W64? [if]
+include virtio.fs  include virtio-input.fs  include mandrill.fs
+[then]
+meta 2 small-page target  include desk.fs

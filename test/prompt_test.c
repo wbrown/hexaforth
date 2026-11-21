@@ -54,6 +54,11 @@ static check CHECKS[] = {
     {"a number wider than 36 bits", ": big 81985529216486895 ; big", 1, {81985529216486895}, NULL, 64},
     {"and one less than nothing",
      ": big 81985529216486895 ; : neg -81985529216486895 ; neg big +", 1, {0}, NULL, 64},
+    // A number in hex that has the top bit of a cell, typed and in a
+    // definition: the top bit of each character of a cell (text.fs).
+    {"a number in hex with the top bit of a cell",
+     "$8080808080808080  : highs $8080808080808080 ; highs  $2020202020202020", 3,
+     {(int64_t)0x8080808080808080ull, (int64_t)0x8080808080808080ull, 0x2020202020202020ll}, NULL, 64},
 
     // The kernel's arithmetic of two cells is a step for every bit of a
     // cell (nuc.fs): two cells added, with the carry from the low one; a
@@ -77,9 +82,14 @@ static check CHECKS[] = {
     {"+loop up, down, and onto its end",
      ": lu 0 20 0 do i + 3 +loop ; : ld 0 0 20 do i + -3 +loop ; : le 0 10 0 do i + 5 +loop ; lu ld le",
      3, {63, 77, 5}},
-    // A word that is nothing but its exit is called, as any word that is
-    // not compiled in place is: a call, the number and the exit.
-    {"a word that is nothing", ": nil ;  cp @ : t nil 5 ; cp @ swap -  t", 2, {3, 5}},
+    // A word that is nothing but its exit is compiled in place as any small
+    // word is, and is nothing there: the number and the exit.  (It was a
+    // call: `cells`, which is such a word, was called wherever it was said.)
+    {"a word that is nothing", ": nil ;  cp @ : t nil 5 ; cp @ swap -  t", 2, {2, 5}},
+    // A word that ends in a call ends in a jump, with no exit after it that
+    // nothing comes to; where a branch lands after the call, the exit is there.
+    {"a call at the end is a jump, and no exit",
+     ": w2 dup dup dup dup ;  cp @ : t w2 ; cp @ swap -  cp @ : u if w2 then ; cp @ swap -", 2, {1, 3}},
     // What can be compiled in place is: a constant is its number and a
     // word of one instruction is the instruction, each with the exit.
     {"a constant is compiled in place", "7 constant seven  cp @ : t seven ; cp @ swap -  t", 2, {2, 7}},
@@ -173,6 +183,17 @@ static check CHECKS[] = {
     // What the two before it are together may be nothing, and then nothing
     // is compiled: >r r> is only the exit, as cross.fs makes it.
     {">r r> is nothing", "cp @ : j7 >r r> ; cp @ swap -  5 j7", 2, {1, 5}},
+    // After an instruction that leaves a flag, 0= is invert: a comparison,
+    // invert and the exit.  After what leaves no flag 0= is its push and
+    // its =.
+    {"0= after < is invert", "cp @ : j8 < 0= ; cp @ swap -  3 5 j8  5 3 j8", 3, {3, 0, -1}},
+    {"and after = and u<", ": j8 = 0= ; : j9 u< 0= ;  cp @ : ja over = 0= ; cp @ swap -  4 4 j8  4 5 j8  1 -1 j9  -1 1 j9  7 7 ja",
+     7, {3, 0, -1, 0, -1, 7, 0}},
+    {"0= after what leaves no flag is not invert", "cp @ : jc + 0= ; cp @ swap -  1 2 jc  1 -1 jc", 3, {4, 0, -1}},
+    // A dup is taken across a number that is two instructions, as it is
+    // across one of one: the push, the add, `over and` and the exit.
+    {"a dup is taken across a number of two instructions",
+     "cp @ : jd dup 5000 and ; cp @ swap -  -1 jd  cp @ : je dup 5 and ; cp @ swap -  -1 je", 6, {4, -1, 5000, 3, -1, 5}},
 
     // Bits of a cell set, cleared and turned over, typed and compiled.
     {"or! typed", "create w 5 ,  10 w or!  w @", 1, {15}},

@@ -48,6 +48,7 @@ int main(int argc, char *argv[]) {
         return(1);
     }
     alarm(1800);                // a machine that does not stop is stopped
+    setvbuf(stdout, NULL, _IOLBF, 0);   // and what was said of it until then has been written
     tables_are(argv[5]);
     desk on = deskvm_start(argv[1], argv[2], argv[3], argv[4], argv[6], argc > 7, argc > 8);
     int failed = desk_checks(&on);

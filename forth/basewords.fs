@@ -19,17 +19,18 @@
 #1 constant disk-source-block
 #12 constant disk-block-bits
 #16 constant disk-drives
-#256 constant disk-names-block
-#384 constant disk-canvas-block
-#400 constant disk-masks-block
-#402 constant disk-mask32-block
-#403 constant disk-bayer-block
+#512 constant disk-names-block
+#640 constant disk-canvas-block
+#656 constant disk-masks-block
+#658 constant disk-mask32-block
+#659 constant disk-bayer-block
 #64 constant disk-mask-width
 #4 constant disk-mask-planes
-#404 constant disk-view-block
+#660 constant disk-view-block
 #32 constant disk-view-blocks
-#436 constant disk-gray-block
+#692 constant disk-gray-block
 #128 constant disk-gray-blocks
+#32 constant disk-own-blocks
 #32 constant disk-entry
 #16 constant disk-entry-type
 #18 constant disk-entry-first
@@ -350,6 +351,7 @@ source: baseword-words
     bw-size disk-view-blocks
     bw-size disk-gray-block
     bw-size disk-gray-blocks
+    bw-size disk-own-blocks
     bw-size disk-entry
     bw-size disk-entry-type
     bw-size disk-entry-first
@@ -363,11 +365,14 @@ source: baseword-words
 \ the names of an instruction's fields, as the nucleus's tables
 source: field-names
     bulk
+    header f-in
     create f-in   ," N->IN" ," T->IN" ," [T]->IN" ," R->IN"
+    header f-op
     create f-op   ," IN->" ," T<>N,IN->" ," T->N,IN->" ," IN+N"
                   ," IN&N" ," IN|N" ," IN^N" ," IN*N" ," ~IN"
                   ," IN==N" ," N<IN" ," Nu<IN" ," IN>>T"
                   ," IN<<T" ," [IN]" ," io[IN]"
+    header f-out
     create f-out  ," ->T" ," ->R" ," ->io[T]" ," ->[T]"
     unbulk
 ;source

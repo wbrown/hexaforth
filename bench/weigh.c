@@ -243,11 +243,8 @@ int main(int argc, char *argv[]) {
         }
         long at = strtol(place, NULL, 16);
         runs++; typed_all += typed; nucleus_all += nucleus; cross_all += cross;
-        int f = files;                                      // the file it is in: the smallest that has the place;
-        for(int idx=0; idx < files; idx++) {                // or none of them, which is the file that includes the rest
-            const span* x = &FILES[idx];
-            if (at >= x->from && at < x->to && (f == files || x->to - x->from < FILES[f].to - FILES[f].from)) f = idx;
-        }
+        int f = file_holding(FILES, files, at);             // the file it is in (files.h);
+        if (f < 0) f = files;                               // or none of them, which is the file that includes the rest
         OF_FILE[f].runs++; OF_FILE[f].typed += typed; OF_FILE[f].nucleus += nucleus; OF_FILE[f].cross += cross;
         for(int p=0; p < pieces; p++) PIECE[p].more += (nucleus - cross) * ran_at(&PIECE[p], at);
         worded* w = word_called(line, (size_t)(place - 1 - line));

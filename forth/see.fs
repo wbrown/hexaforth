@@ -39,6 +39,10 @@
 \ the indent to give the next token is in sind, and sfresh is
 \ true while nothing is on the line yet.
 
+\ (The names of an instruction's fields, f-in, f-op and f-out,
+\ are the machine's file's, from vm_opcodes.h: cross-words.fs
+\ lays them, with the basewords.)
+
 create wi 0 ,           \ a loop counter
 
 create 'tok 0 ,
@@ -120,11 +124,11 @@ create k-store  ," !"
 \ back after (names-unload).  While the names are in, the
 \ dictionary is searched a word at a time only back to forth0,
 \ the newest word at the build; while they are not, all of it
-\ is, and a word with no header is a number.
-create forth0 0 ,
-
-\ in the dictionary, so that a tool can find it in an image
-header tstamp create tstamp 0 ,
+\ is, and a word with no header is a number.  forth0 and the
+\ stamp, tstamp, are cells of the image, which is stamped when
+\ it is built: they are with what else the image says of itself
+\ (cross-words.fs), since this file may be compiled later, from
+\ a disk.
 create nm-buf 0 ,   \ the buffer, or 0 while it is not taken
 create nm-blk 0 ,   \ the block of the file it holds
 create nm-ix 0 ,    \ the first block's counts and keys, kept
@@ -144,7 +148,11 @@ header names? : names? ( -- f ) \ are they in?
 : names-gone ( -- ) nm-mark @ himem !  d# 0 nm-buf ! ;
 
 \ A file that is not this image's has its buffer given back.
+\ What is read here is read from the disk, and not through the
+\ block's buffer: so that is written first, if it was changed
+\ (the names of words the boot compiled go through it, below).
 : (names-load) ( -- )
+    flush
     BLKCELLS >c halloc nm-buf !  d# -1 nm-blk !
     d# 0 nm-block
     dup @ tstamp @ <> if drop names-gone exit then
@@ -207,6 +215,33 @@ header names-unload
     drop d# 0
 ;
 
+\ The names of the words a boot compiled.  A file that is
+\ compiled from the disk has its own names taken out of the
+\ dictionary when it is done, and files.fs keeps them on the
+\ disk where the disk has room for them: blocks of records, each
+\ as a label's is here, by the word's place, with the least
+\ place and the most of each block in own-ix.  They are read
+\ through the same buffer as the tables, while the tables are
+\ in.
+: own-block ( b -- a ) own-kept @ + NAMES-BLK - nm-block ;
+
+: own-has? ( xt b -- f ) \ may block b have the word at xt?
+    2* own-ix +  2dup @ < if 2drop false exit then
+    1+ @ > 0= ;
+
+: own>rec ( xt -- rec|0 )
+    names? 0= if drop d# 0 exit then
+    >r  own-kept 1+ @ negate                ( -n ) ( R: xt )
+    begin dup while
+        r@ over own-kept 1+ @ + own-has? if
+            r@ over own-kept 1+ @ + own-block rec-find
+            ?dup if nip rdrop exit then
+        then
+        1+
+    repeat
+    rdrop
+;
+
 : tstop ( -- hdr|0 )
     \ how far back the dictionary is searched a word at a time
     names? if forth0 @ else d# 0 then
@@ -222,7 +257,8 @@ header names-unload
 ;
 
 : xt>hdr ( xt -- hdr|0 )
-    \ the word that starts at xt: in the dictionary, or a label
+    \ the word that starts at xt: in the dictionary, or a label,
+    \ or a name the boot kept, which is shown as a label is
     stmp !  d# 0 slab !
     tstop >r forth @
     begin
@@ -231,7 +267,8 @@ header names-unload
         dup hxt stmp @ = if rdrop exit then
         @
     repeat
-    rdrop drop  stmp @ xt>file
+    rdrop drop  stmp @ xt>file  ?dup if exit then
+    stmp @ own>rec  dup 0<> slab !
 ;
 
 : data>lbl ( a -- lbl|0 ) \ the label for the data at a
@@ -304,6 +341,31 @@ create hv 0 ,
     h# 7403 = if hv @ true else false then
 ;
 
+\ A word the boot compiled that only pushes n is the name of
+\ the data there: its record, of those the boot kept.  Every
+\ block of them is read.
+: data-in ( n a -- rec|0 ) \ of the records of a block
+    dup @ negate >r 1+                      ( n rec ) ( R: -k )
+    begin r@ while
+        dup cell+ @ hval if
+            3rd = if nip rdrop exit then
+        then
+        rec-next  r> 1+ >r
+    repeat
+    2drop rdrop d# 0
+;
+
+: own-data ( n -- rec|0 )
+    names? 0= if drop d# 0 exit then
+    own-kept 1+ @ negate                    ( n -b )
+    begin dup while
+        2dup own-kept 1+ @ + own-block data-in
+        ?dup if nip nip exit then
+        1+
+    repeat
+    nip
+;
+
 \ the newest word, back to stop, that only pushes the number
 \ in stmp
 : lit-walk ( stop -- hdr|0 )
@@ -351,7 +413,8 @@ target
 : snum ( n -- )
     dup VARS - DATA-CELLS u< if                 \ in data space
         dup lit>hdr ?dup if nip sname exit then
-        dup data>lbl ?dup if
+        dup data>lbl ?dup 0= if dup own-data then
+        ?dup if
             nip true sital !  hname d# -1 tok  d# 0 sital !
             exit
         then
@@ -369,13 +432,8 @@ target
     >r sb sbn @ r> tok
 ;
 
-\ Where the table is.  It is made from an image, and is laid
-\ after all the image's other data (system.fs), so that how long
-\ it is moves nothing: this cell is told where, when it is laid.
-\ The header is here and the table has none, so that the newest
-\ word of the dictionary is the system's and not a table; the
-\ tools that read an image find the table by it too.
-header fused-at create fused-at 0 ,
+\ Where the table is, the cell fused-at says: it is the image's,
+\ and told where when the table is laid (cross-words.fs).
 
 \ the words of a fused instruction: how many, then the header
 \ of each
@@ -683,9 +741,34 @@ header fused-at create fused-at 0 ,
     2drop
 ;
 
+\ The newest of a name among those the boot kept: where its word
+\ is, since the record is in the buffer only until another block
+\ is read.  What the boot compiled is newer than the image.
+: named-in ( xt a -- xt' ) \ of the records of a block
+    dup @ negate >r 1+                      ( xt rec ) ( R: -k )
+    begin r@ while
+        dup samename? if nip dup cell+ @ swap then
+        rec-next  r> 1+ >r
+    repeat
+    drop rdrop
+;
+
+: own-named ( -- xt|0 )
+    d# 0  own-kept 1+ @ negate              ( xt -b )
+    begin dup while
+        tuck own-kept 1+ @ + own-block named-in
+        swap 1+
+    repeat
+    drop
+;
+
 : lfind ( c-addr u -- x data? true | false )
     names? 0= if 2drop false exit then
     >key drop
+    own-named ?dup if
+        dup hval if nip true true exit then
+        false true exit
+    then
     d# 1 TOPBIT lshift d# 0  xrun newest      ( p1 v1 )
     over d# 0  nrun newest                     ( p1 v1 p2 v2 )
     >r rot over = if

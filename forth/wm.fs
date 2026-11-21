@@ -33,7 +33,9 @@ create wins #64 allot
 header nwin create nwin 0 ,
 create cw 0 ,           \ the window being drawn
 
+nearby
 header top : top ( -- win ) nwin @ 1- cells wins + @ ;
+nearby-end
 
 \ A window is fourteen cells: position and size, title, the
 \ words that draw it and take its keys and clicks, its port, its
@@ -59,10 +61,17 @@ header window
     r>
 ;
 
+\ What is between `nearby` and `nearby-end` is laid in the
+\ kernel's page, where a call from any page is one instruction:
+\ every window's code, on the pages after this, says what of it
+\ is out of date through these (cross.fs, nearby).
+
+nearby
 header content : content ( win -- x y )
     \ top left of the area inside the frame
     dup @ 1+ swap CELL + @ d# 19 +
 ;
+nearby-end
 
 : cw.x cw @ @ ;
 : cw.y cw @ CELL + @ ;
@@ -222,11 +231,13 @@ create menu-tw 0 ,    \ the width of the windows' title in
                       \ the bar,
 create menu-tw2 0 ,   \ and of the front window's title after it
 
+nearby
 : menu-n ( -- n ) \ lines in the open menu
     menu-open @ 1+ @ execute ;
 : menu-box ( -- x y w h )
     menu-x @ d# 4 +  d# 19  menu-w @
     menu-n d# 4 lshift d# 2 + ;
+nearby-end
 
 \ ---- what is out of date
 
@@ -256,6 +267,7 @@ header wm-regions
     new-rgn rcov !  new-rgn rtmp !  new-rgn rwin !
 ;
 
+nearby
 : dirty-rgn ( rgn -- )
     \ add it to the region that is out of date
     rd @ swap rtmp @ rgn-or
@@ -287,6 +299,7 @@ header inval-rgn : inval-rgn ( rgn -- ) \ on the screen
     dup dirty-rgn
     rgn-box dirty-box
 ;
+nearby-end
 
 header inval-window : inval-window ( win -- ) \ frame and all
     >r r@ @ r@ CELL + @ r@ CELL2 + @ r> c# 3 + @ inval-rect
@@ -494,6 +507,7 @@ target
 \ instructions a window to see that nothing has changed, whoever
 \ might have changed it.
 create vsum -1 ,
+nearby
 : v+ ( sum x -- sum' ) swap d# 31 * + ;
 
 : win-sum ( sum win -- sum' ) \ which it is, and where
@@ -539,6 +553,7 @@ create vsum -1 ,
     d# 0 d# 0 fb-w @ fb-h @ rwin @ rect-rgn
     rwin @ rcov @ rdesk @ rgn-diff
 ;
+nearby-end
 
 \ A window may draw over its content straight onto the screen,
 \ as the pointer and a dragged window's outline are drawn over
@@ -570,6 +585,7 @@ header win-port : win-port ( win -- )
 \ is nothing of this one to paint, and to put that out of date
 \ would have the one on top painted again for nothing.
 
+nearby
 header win-inval : win-inval ( x y w h win -- )
     \ in a window's content
     >r 2swap r@ content
@@ -583,6 +599,7 @@ header win-inval : win-inval ( x y w h win -- )
     rwin @  r> c# 9 + @  rcov @ rgn-and
     rcov @ inval-rgn
 ;
+nearby-end
 
 \ What is out of date, cut to the screen, is what is painted
 \ now, and nothing is out of date after it.

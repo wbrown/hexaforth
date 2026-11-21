@@ -20,10 +20,13 @@
 //
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include "../vm_constants.h"
 #include "../test/deskcheck.h"
 #include "../test/tables.h"
 #include "qemu.h"
+#include "symbols.h"
 
 int main(int argc, char *argv[]) {
     int boots = argc == 8 && !strcmp(argv[7], "boot");
@@ -37,6 +40,18 @@ int main(int argc, char *argv[]) {
     // The newest words of the kernel's dictionary are the system's own.
     desk on = { {"cold", "desktop"}, " catch drop", true, argv[4], argv[6] };
     int failed = desk_checks(&on);
+    // For whoever wants what the machine was left as: with MEMORY in the
+    // environment its memory is written to the file that names, which the
+    // tools that read the reference VM's read (disasm_hex --memory).  Where
+    // the machine's cell 0 is, the kernel's symbols say, which are beside
+    // the kernel.
+    if (getenv("MEMORY")) {
+        char symbols[strlen(argv[1]) + sizeof(".symbols")];
+        strcpy(symbols, argv[1]);
+        char* dot = strrchr(symbols, '.');
+        strcpy(dot ? dot : symbols + strlen(symbols), ".symbols");
+        qemu_memory(symbol_at(symbols, "image"), (uint64_t)CELL_BYTES << ADDR_BITS, getenv("MEMORY"));
+    }
     if (boots) {
         int shown = qemu_boot_said && qemu_boot_shown;
         printf("%s the boot said what it compiled (%s), and the screen showed it while it did (%s)\n",

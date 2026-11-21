@@ -42,6 +42,7 @@ typedef struct {
     unsigned char* lands;               // of each instruction: a branch lands here, or (2) a word starts here
     long pages;                         // the pages the image is,
     unsigned char* has_code;            // and of each, whether a word is in it
+    long* item_of;                      // of each instruction: the item that starts there, or less than nothing (part)
 } cut_image;
 
 static instruction ins_of(uint16_t w) { return(*(instruction*)&w); }
@@ -156,12 +157,99 @@ static void cut(cut_image* m, const char* hex, const char* tables) {
     free(in_word);
 }
 
-// Are two images the same runs and the same instructions that leave them,
-// in the same order?  Where they stop being, or less than nothing.
-static long part(const cut_image* a, const cut_image* b) {
-    long idx = 0;
-    while (idx < a->count && idx < b->count && a->items[idx].run == b->items[idx].run) idx++;
-    return(idx == a->count && idx == b->count ? -1 : idx);
+// The word an item is in: which of the image's words that have code, or
+// less than nothing if it is in none, as the two instructions an image
+// starts with are.
+static int owner_of(const cut_image* m, long at) {
+    int lo = 0, hi = m->n;
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        if (m->words[mid].at <= at) lo = mid + 1; else hi = mid;
+    }
+    for(int idx=lo - 1; idx >= 0 && m->words[idx].at + PAGE > at; idx--) {
+        if (m->words[idx].size) return(at < m->words[idx].at + m->words[idx].size ? idx : -1);
+    }
+    return(-1);
+}
+
+// Which of the words of its name a word is, of those that have code, in
+// order of place: a name may be given to more than one word.
+static int rank_of(const cut_image* m, int which) {
+    int rank = 0;
+    for(int idx=0; idx < which; idx++) rank += m->words[idx].size && !strcmp(m->words[idx].name, m->words[which].name);
+    return(rank);
+}
+
+// Every instruction's item, if an item starts there: m->item_of.
+static void index_items(cut_image* m) {
+    free(m->item_of);
+    m->item_of = room_for(m->instructions + 1, sizeof(long));
+    for(long at=0; at <= m->instructions; at++) m->item_of[at] = -1;
+    for(long idx=m->count - 1; idx >= 0; idx--) if (m->items[idx].at <= m->instructions) m->item_of[m->items[idx].at] = idx;
+}
+
+// The item of an image that starts at a place, or less than nothing.
+static long item_at(const cut_image* m, long at) {
+    return(at >= 0 && at <= m->instructions && m->item_of ? m->item_of[at] : -1);
+}
+
+// Are two images the same words, and in each word the same runs and the
+// same instructions that leave them, in the same order?  Where they stop
+// being, as an item of b, or less than nothing.
+//
+// Two builds of one source have their words in the order they are written
+// only if neither goes back to a page: the image that is run does, where
+// a list says so (cross.fs, code-page), and the one built with the
+// peephole off never does.  So the words are paired by name, the first of
+// a name by place with the first, and a's items are put in the order of
+// b's: after this the same item of each is the same thing, as whoever
+// asks takes it to be, and item_at finds an item of either by its place.
+static long part(cut_image* a, const cut_image* b_as_it_is) {
+    cut_image* b = (cut_image*)b_as_it_is;
+    index_items(a);
+    index_items(b);
+    // where each of a's words' items start, and how many: they are one
+    // after another, the items being in order of place; and the same of
+    // those that are in no word, which are at the end of the list
+    long* first = room_for(a->n + 2, sizeof(long));
+    long* many = room_for(a->n + 2, sizeof(long));
+    for(long idx=0; idx < a->count; idx++) {
+        int of = owner_of(a, a->items[idx].at);
+        if (of < 0) of = a->n;
+        if (!many[of]++) first[of] = idx;
+    }
+    // b's words by a's: the word of the same name, and the same one of them
+    int* same = room_for(b->n + 2, sizeof(int));
+    int* a_rank = room_for(a->n + 1, sizeof(int));
+    for(int idx=0; idx < a->n; idx++) a_rank[idx] = a->words[idx].size ? rank_of(a, idx) : -1;
+    for(int idx=0; idx < b->n; idx++) {
+        same[idx] = -1;
+        if (!b->words[idx].size) continue;
+        int rank = rank_of(b, idx);
+        for(int k=0; k < a->n && same[idx] < 0; k++) {
+            if (a_rank[k] == rank && !strcmp(a->words[k].name, b->words[idx].name)) same[idx] = k;
+        }
+    }
+    same[b->n] = a->n;
+    item* paired = room_for(b->count + 1, sizeof(item));
+    long* taken = room_for(b->n + 2, sizeof(long));     // how many of each of b's words' items have been paired
+    long parted = a->count == b->count ? -1 : (a->count < b->count ? a->count : b->count) - 1;
+    for(long idx=0; idx < b->count && parted < 0; idx++) {
+        int of = owner_of(b, b->items[idx].at);
+        if (of < 0) of = b->n;
+        int in_a = same[of];
+        long k = taken[of]++;
+        if (in_a < 0 || k >= many[in_a] || a->items[first[in_a] + k].run != b->items[idx].run) { parted = idx; break; }
+        paired[idx] = a->items[first[in_a] + k];
+    }
+    if (parted < 0) {
+        memcpy(a->items, paired, b->count * sizeof(item));
+        index_items(a);
+    } else if (parted >= a->count) {
+        parted = a->count ? a->count - 1 : 0;           // an item both have, for whoever says where
+    }
+    free(first); free(many); free(same); free(a_rank); free(paired); free(taken);
+    return(parted);
 }
 
 #endif // HEXAFORTH_CUT_H

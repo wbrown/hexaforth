@@ -42,7 +42,9 @@
 // sources are from block 1, one after another, the first being what the
 // machine loads; the names, the canvas, the masks and the viewer's bitmap
 // are at their own blocks after the source's, as on the first kind of
-// disk; and the image is after all of those, where the index says.
+// disk; after them are blocks kept for the names of the words the boot
+// compiles, which the index has an entry for (own-names); and the image is
+// after all of those, where the index says.
 //
 
 #include <stdio.h>
@@ -366,7 +368,7 @@ int boot_disk(int bits, const char* image_path, const char* out_path, const char
         all_lines += lines[f] + 1;
     }
     long kilobytes = (long)(image_len + DISK_BLOCK - 1) / DISK_BLOCK;
-    long room = DISK_SOURCE_BLOCK + (desk ? DESK_BLOCKS : 0) + all_lines + kilobytes;
+    long room = DISK_SOURCE_BLOCK + (desk ? DESK_BLOCKS + DISK_OWN_BLOCKS : 0) + all_lines + kilobytes;
     while (room % DISK_ROUND) room++;
     disk = calloc(room, DISK_BLOCK);
     uint8_t* whole = calloc(kilobytes, DISK_BLOCK);         // the image, to a whole number of kilobytes
@@ -394,6 +396,18 @@ int boot_disk(int bits, const char* image_path, const char* out_path, const char
     }
 
     if (desk && at < DESK_BLOCKS) at = DESK_BLOCKS;
+    // The machine that boots from it compiles the files of its block 1, and
+    // the names that are those files' own are gone from its dictionary when
+    // each is read: it keeps them in these blocks, which are nothing until
+    // it does, for the decompiler to show a word by (forth/files.fs).
+    if (desk) {
+        if (n == slots) {
+            fprintf(stderr, "mkdisk: block 0 has no slot left for the blocks kept for names\n");
+            return(1);
+        }
+        entry(n++, "own-names", DISK_DATA, at, DISK_OWN_BLOCKS, 0, 0);
+        at += DISK_OWN_BLOCKS;
+    }
     long runs_from = at;
     int runs = 0;
     FILE* ipl = fopen(ipl_path, "w");
@@ -511,9 +525,10 @@ static int files_disk(const char* out_path, int files, char* given[]) {
 }
 
 // The sources given, and after them each file that one of them includes,
-// once: a line that starts with `include NAME` has the file NAME from the
-// same directory.  So what the boot compiles is said once, in the list the
-// first source is (forth/apps.fs), and the disk has each file it names.
+// once: wherever a line says `include NAME`, before any comment it ends
+// with, the file NAME from the same directory.  So what the boot compiles
+// is said once, in the list the first source is (forth/apps.fs), and the
+// disk has each file it names.
 static char** with_included(int* sources, char* given[]) {
     int n = *sources, most = n + 8;
     char** paths = malloc(sizeof(char*) * most);
@@ -524,27 +539,34 @@ static char** with_included(int* sources, char* given[]) {
         text[len] = '\0';
         for(char* line = (char*)text; line; ) {
             char* next = strchr(line, '\n');
-            while (*line == ' ') line++;
-            if (!strncmp(line, "include ", 8)) {
-                char* name = line + 8;
-                while (*name == ' ') name++;
-                size_t name_len = strcspn(name, " \t\r\n");
+            size_t line_len = next ? (size_t)(next - line) : strlen(line);
+            int including = 0;                  // the word before was include
+            for(size_t at = strspn(line, " \t\r"); at < line_len; ) {
+                const char* word = line + at;
+                size_t word_len = strcspn(word, " \t\r\n");
+                at += word_len;
+                at += strspn(line + at, " \t\r");
+                if (!including) {
+                    if (word_len == 1 && *word == '\\') break;      // the rest of the line is a comment
+                    including = word_len == 7 && !strncmp(word, "include", 7);
+                    continue;
+                }
+                including = 0;
                 int seen = 0;                   // a file of that name is on the disk: its label is the name
                 for(int k=0; k < n; k++) {
                     const char* base = strrchr(paths[k], '/');
                     base = base ? base + 1 : paths[k];
-                    seen = seen || (strlen(base) == name_len && !strncmp(base, name, name_len));
+                    seen = seen || (strlen(base) == word_len && !strncmp(base, word, word_len));
                 }
-                if (!seen) {
-                    const char* slash = strrchr(paths[f], '/');
-                    size_t dir = slash ? (size_t)(slash - paths[f] + 1) : 0;
-                    char* path = malloc(dir + name_len + 1);
-                    memcpy(path, paths[f], dir);
-                    memcpy(path + dir, name, name_len);
-                    path[dir + name_len] = '\0';
-                    if (n == most) paths = realloc(paths, sizeof(char*) * (most *= 2));
-                    paths[n++] = path;
-                }
+                if (seen) continue;
+                const char* slash = strrchr(paths[f], '/');
+                size_t dir = slash ? (size_t)(slash - paths[f] + 1) : 0;
+                char* path = malloc(dir + word_len + 1);
+                memcpy(path, paths[f], dir);
+                memcpy(path + dir, word, word_len);
+                path[dir + word_len] = '\0';
+                if (n == most) paths = realloc(paths, sizeof(char*) * (most *= 2));
+                paths[n++] = path;
             }
             line = next ? next + 1 : NULL;
         }

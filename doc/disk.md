@@ -8,8 +8,10 @@ The numbers of the index are in `vm_constants.h`, from `DISK_ENTRY` on,
 where `mkdisk` and the Forth both have them; this file says what they are
 for. What is built of it so far: `mkdisk --boot` writes an index of one
 block, and the kernel's ROM reads it when the machine starts
-(`doc/boot.md`). Index blocks after block 0, data entries, and finding an
-entry by its label are not built yet.
+(`doc/boot.md`); a source, a picture and the blocks kept for the names
+of words a boot compiles are found by their labels (`files.fs`, Several
+disks). Index blocks after block 0 are not built yet, and the desktop's
+other things are still at blocks `vm_constants.h` says.
 
 ## Entries
 
@@ -165,6 +167,14 @@ disk has it; there is no block kept for a picture on the disk a machine
 starts from, which is its source, the names, the canvas, the masks, the
 viewer's bitmap and gray, and the image. Every machine the desktop is
 shown or checked on is given the two (`pictures`, `CMakeLists.txt`).
+
+A disk a machine boots from that is its desktop's too has blocks kept
+for the names of the words its boot compiles, which are each file's own
+and are gone from the dictionary when the file is read: a data entry,
+`own-names`, which `mkdisk --boot-desk` makes and `files.fs` finds by
+that label. The machine writes each file's names there as the file
+ends, and the decompiler looks there for a word the image's tables of
+names have not (`see.fs`). A disk with no such entry keeps none.
 
 On QEMU each disk is a device of its own, and the ROM's driver is of one
 device. A block of another disk is read by pointing that driver at the

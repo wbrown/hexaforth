@@ -132,26 +132,23 @@ static void lay_out(layout* m, const char* hex, const char* tables) {
 
 // What a source file has of an image's code: the words that start in it,
 // its instructions that are in a word and those that are in a table, and
-// the first and the last of the pages they are on, which are less than
-// nothing if it has none.  A file's code is one run, so those are all the
-// pages between.
+// the pages they are on, a bit a page.  A file's code is one run of one
+// page, and whatever of it is laid in the kernel's page besides (files.h).
 typedef struct {
     long words, code, tables;
-    long first_page, last_page;
+    unsigned long pages;
 } held;
 
 static void on_page(held* has, long page) {
-    if (has->first_page < 0 || page < has->first_page) has->first_page = page;
-    if (page > has->last_page) has->last_page = page;
+    if (page >= 0 && page < (long)(8 * sizeof(has->pages))) has->pages |= 1ul << page;
 }
 
 // What each file has: out[idx] for files[idx], and out[n] for the
-// nucleus's own, which is what no file of them has (files.h).
+// nucleus's own, which is what no file of them has (files.h).  A stretch
+// of a file that is laid in the kernel's page is the file's, and its own
+// line has nothing.
 static void held_by(const layout* m, const span* files, int n, held* out) {
-    for(int idx=0; idx <= n; idx++) {
-        memset(&out[idx], 0, sizeof(held));
-        out[idx].first_page = out[idx].last_page = -1;
-    }
+    for(int idx=0; idx <= n; idx++) memset(&out[idx], 0, sizeof(held));
     for(int idx=0; idx < m->n; idx++) {
         const word* w = &m->words[idx];
         if (!w->size) continue;
@@ -172,15 +169,10 @@ static void held_by(const layout* m, const span* files, int n, held* out) {
 }
 
 // Is a file inside another: one that includes it, whose figures have its
-// own in them?
+// own in them?  cross.fs says how deep each is included (files.h).
 static int is_included(const span* files, int n, int which) {
-    const span* file = &files[which];
-    for(int idx=0; idx < n; idx++) {
-        const span* in = &files[idx];
-        if (idx == which || is_all_of_it(in)) continue;
-        if (in->from <= file->from && file->to <= in->to && in->to - in->from > file->to - file->from) return(1);
-    }
-    return(0);
+    (void)n;
+    return(files[which].deep > 1);
 }
 
 #endif // HEXAFORTH_LAYOUT_H

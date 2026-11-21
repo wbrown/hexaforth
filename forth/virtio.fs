@@ -42,13 +42,24 @@ header vhello : vhello ( -- )
     h# 70 vreg@ d# 8 and 0= d# 37 -throw
 ;
 
+\ What a queue is made of is memory with nothing in it: the
+\ device counts from nothing, and writes how far it has got only
+\ when it has got somewhere.  What halloc gives may have been
+\ had before and given back.  (It was taken as it came, which
+\ was as nothing on a machine that had done little; on one that
+\ had just compiled its system the count of what the keyboard
+\ had done was whatever was there, and an event that was not
+\ was taken.)
+: vroom ( u -- a ) \ u bytes with nothing in them
+    dup halloc tuck swap CELLB 1- + c>  d# 0 -rot cells-fill ;
+
 header vqueue : vqueue ( n -- desc avail used )
     \ set up queue 0 with n descriptors
     d# 0 h# 30 vreg!
     dup h# 38 vreg!
-    dup d# 4 lshift halloc
-    over 2* d# 6 + halloc
-    rot d# 3 lshift d# 6 + halloc
+    dup d# 4 lshift vroom
+    over 2* d# 6 + vroom
+    rot d# 3 lshift d# 6 + vroom
     >r >r
     dup    >phys dup h# 80 vreg!  d# 32 rshift h# 84 vreg!
     r> dup >phys dup h# 90 vreg!  d# 32 rshift h# 94 vreg!

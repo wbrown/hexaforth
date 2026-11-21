@@ -241,6 +241,30 @@ the tool is extended. What there is to ask:
   that goes: the targets `compiling-64`, `compiling-32` and
   `compiling-16`
 - how many words, headers and bytes an image has: `examine`
+- what a machine compiled, and what its dictionary is, when it has
+  stopped: `disasm_hex-16 IMAGE.hex --memory MEMORY.out`, the memory the
+  reference VM wrote in the image's place; with `--headers`, the
+  dictionary alone, from the newest header to the one its chain stops at,
+  which says where a chain was broken. A machine that does not stop is
+  stopped, and writes its memory, after the seconds `STOP_AFTER` says in
+  the environment of `hexaforth-16` and the like; and one whose stack
+  goes out of range says what its return stack had. The desktop's test
+  on QEMU (`guitest`) writes that machine's memory to the file `MEMORY`
+  names, for the same tools: the strict kernel says `!` and where it
+  halted, and the memory says what word that is
+- how an image is laid out, to be read for a better way of laying it: the
+  targets `listing-64`, `listing-32` and `listing-16`, which write
+  `build/64/listing.txt` and the like (`disasm_hex --layout`): what each
+  page has and has left, the calls that go to a word on another page
+  with how often the desktop's work runs each and what they cost, the
+  data by cell, and then every word in order of place
+- what the calls between pages would be were some words in the kernel's
+  page: `disasm_hex-16 build/16/nuc.hex --layout --counts
+  build/16/listing/desktop.counts --near NAME`, with `--near` again for
+  each word: for each, the long calls to it that would go, and the calls
+  it would then make long, by the word called
+- what a measurement was before a change: `build/kept/log.txt`, and then
+  `compared-16 WAS WAS.work IS IS.work`, the work of two images by word
 
 ## Writing Forth here
 
@@ -255,7 +279,11 @@ the tool is extended. What there is to ask:
   is asked whether it does. Characters stay packed into cells and are said
   by a cell and how far along they are (`char@`, `draw-chars`,
   `chars-width`, `ctext`). What takes the address of a byte is what stores
-  a character (`c!`), `type`, `count`, and what the interpreter reads
+  a character (`c!`), `type`, `count`, and what the interpreter reads.
+  Memory that `halloc` gives is above the display, where on a machine of
+  64K cells no byte has an address: nothing is kept there as bytes
+  (`machine.fs`). A picture's rows were, and on that machine the stores
+  went to the dictionary
 - A word keeps what it is working on on the stacks: the top of the data
   stack, the cell under it and the top of the return stack are to hand,
   and a word that needs more is made of smaller words. A word that keeps
@@ -271,11 +299,13 @@ the tool is extended. What there is to ask:
   that it can be typed at the prompt. A word used only in its own file has
   none, and `cross.fs` keeps its name as a label. On the machine a file
   that is included has its own names only until it has been read
-  (`blocks.fs`): a use of another file's word that has no header is a
+  (`files.fs`): a use of another file's word that has no header is a
   word the nucleus does not find, and `.public` lists those `cross.fs`
   saw. A macro that another file says has a word with a header that says
   it (`header FACE : code-face FACE ;`, `text.fs`), as `cross-words.fs`
-  has for `cross.fs`'s own
+  has for `cross.fs`'s own. A header's name is found only once its file
+  has been read: in the file a name is what it was, as it is to
+  `cross.fs`
 - A small word is compiled in place of a call to it only where what is
   left is no longer than the call. Where a place is run so often that the
   call and its return cost, `in-place` before the call keeps the word
@@ -322,6 +352,56 @@ the tool is extended. What there is to ask:
   width of a cell of 16 or 32 bits gives zero, and a shift by 64 shifts
   by nothing
 
+## The order code is laid in
+
+The order a list includes files in (`system.fs`, `picture.fs`, the end of
+`nuc.fs`) is the order their code is laid in, and it matters. It is not
+the order things happened to be written in.
+
+- Code past the kernel is in pages, and the order says which page a file
+  is on, what it shares that page with, and which has room and which has
+  none. A call within a page, or from any page into the kernel's, is one
+  instruction. A call to a word on any other page is the word's place
+  pushed and a call of `execute`: longer where it is written, and longer
+  every time it is run
+- What everything goes through is laid first, straight after the kernel.
+  The nucleus's peephole (`join.fs`, `compose.fs`) is what every
+  definition made on the machine is compiled by, and it uses nothing but
+  the kernel: it is not laid after the applications, to share the last
+  page with them and take what that page has left
+- What is laid last gets what is left, so what is laid last is what least
+  is asked of
+- When a page has not room, the order is looked at first: what is on that
+  page, why it is there, and whether it should be. A file is not split,
+  a stretch of one set aside, or anything made smaller, so as to keep an
+  order that was wrong
+- The upper half of the kernel's page is one instruction from every page.
+  It is not where what did not fit elsewhere is put. It is for the words
+  that other pages call most: such a word is between `nearby` and
+  `nearby-end` in its own file, where it is written (`cross.fs`), and is
+  compiled as it would be on its own page, not short as the kernel is
+- A word laid there calls its old page the long way. So what it calls
+  comes with it, down to the words that call nothing, or the move loses
+  more than it saves.
+  A word that is the way into a loop of many words (`rgn-op` to the
+  merges, `draw-chars` to the text) is as far as its group goes.
+  `disasm_hex-16 IMAGE.hex --layout --counts WORK --near NAME...` says,
+  of words that are named, what the calls would be were they there: it
+  is asked before a word is moved, and `listing-16` after
+- A rule about where one thing goes is not read as a rule about another.
+  A table that is instructions (`folds.fs`) is the last thing laid on its
+  page, and the code that reads it is told where it is (`folds-at`): that
+  says where the table goes, and nothing of where the code goes
+- Where code is, what each page has left and which calls go from one
+  page to another is asked of `listing-16` and the like before an order
+  is changed, and after. The files of a list are included in the one
+  order, which is what each needs of those before it, and between them
+  the list says which page what follows goes on: a page that is gone
+  back to goes on from where its code had got to (`code-page`,
+  `cross.fs`), so a file can go on any page that has room for it
+- A list of files lays no code of its own: what it would say is a file's
+  to say, so that every word is some file's (`examine`)
+
 ## Measuring
 
 - Before saying what a change will save, and before choosing what to
@@ -350,8 +430,22 @@ the tool is extended. What there is to ask:
 - A thing the machine is compared with does the same work and is checked
   against the same model: the 68000 in `bench/m68k/` runs the machine's
   own dither, written for it, and makes the same bitmap
+- What a target measures is kept (`util/keep.c`): in `build/kept/`,
+  under the image it was measured of as that image is, the target's name
+  and which time it is, with the image and its names beside. Nothing
+  that is kept is written over, and `build/kept/log.txt` has a line for
+  each time, in order, with the commit the image's tree was at. So what
+  a change did is asked of what was kept before it and what is kept
+  after, and is not a figure remembered. A target that measures and does
+  not keep is not finished
 - Compare two profiles by word, not by their totals: how long the disk
-  driver waits is the host's doing
+  driver waits is the host's doing. `compared-16 WAS WAS.work IS IS.work`
+  and the like (`bench/compared.c`) puts two counts of work beside each
+  other by word, each with the directory its image and names are in:
+  what is built (`build/16`) or what was kept
+  (`build/kept/IMAGE/image`). It is read before a total is believed: the
+  same words run fewer times is other work, and not the work done in
+  less
 - Do not give an estimate as a fact, and do not leave a thing untested so
   as not to find out
 
@@ -714,7 +808,9 @@ The machine, in C:
   it printed of each file: the target `clangd`, which is to find nothing)
   and `said.c` (the files the tree's text says by name, each of which is
   to be there: the target `said`, which is run when a file is given
-  another name or taken away)
+  another name or taken away) and `keep.c` (what a target measured,
+  kept under the image it was measured of, where the next measurement
+  does not write over it)
 - `test/`: `tests.h` (the tests), `compiler.c` (the small Forth compiler),
   `vm_test.c`, `main.c`, `generate_test_cases.c`; `nucleus.c` (the
   nucleus on `vm.c`, typed at its prompt, once or again as it was left,
@@ -786,7 +882,8 @@ The machine, in C:
   files an image is made of, from its `.sizes`: the one place the C reads
   that file), `costs.c` (what the
   work costs: each word with all it calls, the loops, the variables),
-  `shorter.c` (the loops that ran, and fewer instructions that do a turn
+  `compared.c` (two counts of work, of two images, beside each other by
+  word), `shorter.c` (the loops that ran, and fewer instructions that do a turn
   of each), `uses.c` (where the work uses a small word, called or
   compiled in place, how often, and what it is given: the target
   `subtracts` asks it of `-`, `1-` and `negate`, and `uses.c` says at its
@@ -805,8 +902,9 @@ The toolchain and the nucleus, in Forth (`forth/`):
   differs with the machine's size; headers and labels; the peephole and
   the trying of small words in place of calls; the tables of names
 - `nuc.fs`: the nucleus: the kernel on page 0, the interpreter and
-  compiler, the dictionary, tasks (`spawn`, `pause`). It includes
-  `system.fs`, or with no display `join.fs` alone. Into its ROM it
+  compiler, the dictionary, tasks (`spawn`, `pause`). After the kernel
+  it includes `join.fs`, the first thing on page 1, and then
+  `system.fs` if the machine has a display. Into its ROM it
   includes the file `ROM` names, and at its end are its words that are
   in the upper half of the kernel's page and not in the ROM, with what
   is asked before one is put there
@@ -825,8 +923,10 @@ The toolchain and the nucleus, in Forth (`forth/`):
   and for source read from blocks: what two instructions or three are
   together, which `compose.fs` works out by stepping them on a machine
   whose cells hold where each thing came from; numbers, which it works
-  out by running the instruction (`folds.fs`); and the one instruction
-  that fetches or stores a variable (`var,`). Whatever can be compiled in
+  out by running the instruction (`folds.fs`); a `dup` taken across what
+  is pushed, and `0=` after what leaves a flag, by rules the machine was
+  asked for (`folds.fs` too); and the one instruction that fetches or
+  stores a variable (`var,`). Whatever can be compiled in
   place it compiles in place, and the kernel's `(compile,)` is left with
   a call. The words that move the return stack are here, each an
   immediate that offers its instruction to the one before
@@ -834,16 +934,22 @@ The toolchain and the nucleus, in Forth (`forth/`):
   says (`d#`, `,"`, `[if]`, `::`, the machine's sizes), for the
   nucleus to compile that source too: each a header named as `cross.fs`'s
   word is, on a word named otherwise, since `cross.fs` lets no word of
-  the program take the name of one of its own
-- `apps.fs`: the end of the system's list, which the image a machine
-  boots from a disk is without (`BOOT=on`) and which that disk has as
-  block 1, so that the boot compiles each file it includes from source
-  (`doc/boot.md`); `apps-wide.fs`, the applications before the desktop,
-  which are so on a machine of more than 64K cells
+  the program take the name of one of its own; and what the image says
+  of itself to the decompiler, which may be compiled after the image is
+  made (`forth0`, `tstamp`, `fused-at`)
+- `apps.fs`: the applications, which are the end of the system's list:
+  every file past the window manager and the console, and the page each
+  is laid on.  The image a machine boots from a disk is without them
+  (`BOOT=on`), and that disk has the list as block 1, so that the boot
+  compiles each file it includes from source (`doc/boot.md`), on a
+  machine of any size
 
 The system (`forth/system.fs` includes it, and says where each code page
 starts; `nuc.fs` includes the list `SYSTEM` names, or `system.fs` if none
-is named). `forth/picture.fs` is another list: a system with only the
+is named). It is two parts: the least that compiles source from a disk
+and draws, which is the kernel's page, the page of what compiles and the
+page of what draws on a machine of any size; and the applications
+(`apps.fs`). `forth/picture.fs` is another list: a system with only the
 picture viewer, which leaves the 16-bit machine enough memory to dither
 the picture at full size:
 
@@ -851,7 +957,11 @@ the picture at full size:
   image (`halloc`, `hfree`, `hreuse`, `hgive`), byte order
 - `blocks.fs`: the block interface built on the kernel's vectors
   `'blk-read` and `'blk-write` (`block`, `cblock`, `blk-read`, `load`,
-  which says where an error in a block happened), `thru` and `.(`.
+  which says where an error in a block happened), `thru` and `.(`. A
+  definition of a block that runs off its page of code is compiled
+  again on the next (`reading`), so a block is read with next to
+  nothing of a page held back, where what is typed has a kilobyte
+  (`cpr`, `nuc.fs`).
   `files.fs`: what the disks have by its label. A machine may have
   several disks, and a block's number says which (`doc/disk.md`):
   `find-disks` asks each for an index when the machine starts,
@@ -860,7 +970,11 @@ the picture at full size:
   its label, how many blocks it is and a dot as each starts; with
   `header`: the names
   of a file that is included are its own, and gone from the dictionary
-  when it has been read, but for those a header names. The kernel's ROM puts the words of the disk it finds in
+  when it has been read, but for those a header names, which are found
+  from then on and not before. Where the disk has blocks kept for them
+  (its index's entry `own-names`, which `mkdisk --boot-desk` makes) a
+  file's own names are written there as it ends, and the decompiler
+  shows a word the boot compiled by them (`see.fs`). The kernel's ROM puts the words of the disk it finds in
   the vectors, from the driver its machine's build gave it (`nuc.fs`,
   `main`): nothing in the nucleus or the system names a controller.
   `virtio.fs`, `virtio-input.fs`: QEMU's keyboard and pointer

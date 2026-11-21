@@ -28,6 +28,10 @@
 // rectangle and region, the pattern, the mode, the font and the style.
 // The display is compared after every step.
 //
+// A picture that the source draws (icons.fs) is typed at the machine too,
+// and what the machine lays of it compared with what the source draws
+// (picture_laid, below).
+//
 // It says how many checks and steps it made and how many pixels it
 // compared, and of the steps that draw how many changed what can be seen.
 // It fails if for any of the four drawing words that is none: then it
@@ -686,6 +690,66 @@ static const char* step(void) {
     return(typed);
 }
 
+// ---- a picture drawn in the source, as the machine lays it
+
+// A picture is rows of # and . in the source, and cross.fs lays it in the
+// image.  The nucleus lays one too, when it compiles such a file from a
+// disk (picture[, cross-words.fs): the lines of the picture a table of the
+// source is are typed at it here, and every pixel it laid is compared with
+// the pixel the source has, as tables.h reads it.  The memory it keeps the
+// rows in while they are typed is to be given back.  Returns whether all
+// of it was so.
+static bool picture_laid(const char* dir, const char* file, const char* name) {
+    int64_t* drawn;
+    int count = table(file, name, &drawn, 0);
+    char path[strlen(dir) + strlen(file) + 2];
+    sprintf(path, "%s/%s", dir, file);
+    FILE* in = fopen(path, "r");
+    if (in == NULL) {
+        perror(path);
+        exit(EXIT_FAILURE);
+    }
+    start();
+    line("himem @  create laid");
+    char text[256];
+    bool within = false, ended = false;
+    while (!ended && fgets(text, sizeof(text), in)) {
+        text[strcspn(text, "\n")] = '\0';
+        within |= !strncmp(text, "picture[", 8);
+        ended = !strncmp(text, "]picture", 8);
+        if (within) line("%s", text);
+    }
+    fclose(in);
+    line("himem @  laid  here");
+    type();
+    if (!count || !ended || machine.SP != 4) {
+        printf("FAIL the picture %s of %s: it is %d numbers in the source, and the machine left %d cells.  It said:\n%s\n",
+               name, file, count, machine.SP, said);
+        return(false);
+    }
+    uint64_t at = left(1), end = left(0);
+    bool right = left(3) == left(2) && end - at == (uint64_t)count * 64 / CELL_BITS;
+    if (!right) {
+        printf("FAIL the picture %s of %s: the machine laid %d cells of it, which is to be %d; "
+               "and what it gives out was at %d before and is at %d\n", name, file, (int)(end - at),
+               count * 64 / CELL_BITS, (int)left(3), (int)left(2));
+    }
+    int differ = 0;
+    for(int p=0; right && p < count * 64; p++) {
+        int bit = p % CELL_BITS;
+        int is = fetch(at + p / CELL_BITS) >> (DISP_LEFT_LOW ? bit : CELL_BITS - 1 - bit) & 1;
+        int should = (uint64_t)drawn[p / 64] >> (63 - p % 64) & 1;
+        if (is != should && differ++ < 5) {
+            if (differ == 1) printf("FAIL the picture %s of %s:\n", name, file);
+            printf("     pixel %d of those laid is %s and should be %s\n", p, is ? "ink" : "none", should ? "ink" : "none");
+        }
+        compared++;
+    }
+    if (differ) printf("     %d pixels differ\n", differ);
+    free(drawn);
+    return(right && !differ);
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 3) {
         fprintf(stderr, "Usage: %s IMAGE.hex FORTH [SEED]\n", argv[0]);
@@ -716,6 +780,17 @@ int main(int argc, char *argv[]) {
         checks++;
         if (!right) failed++;
         printf("%s %s: %d pixels are black\n", right ? "ok  " : "FAIL", test->label, black);
+    }
+
+    // A picture the source draws, laid by the machine: the tools', which is
+    // pieces side by side and wider than 64 pixels.
+    static const char* PICTURES[][2] = { { "icons.fs", "icon-bits" } };
+    for(size_t n=0; n < sizeof(PICTURES) / sizeof(PICTURES[0]); n++) {
+        bool right = picture_laid(argv[2], PICTURES[n][0], PICTURES[n][1]);
+        checks++;
+        if (!right) failed++;
+        printf("%s the picture %s of %s, typed at the machine, is laid as the source draws it\n",
+               right ? "ok  " : "FAIL", PICTURES[n][1], PICTURES[n][0]);
     }
 
     // The steps, and of those that draw how many drew what can be seen.

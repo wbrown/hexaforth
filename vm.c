@@ -346,6 +346,12 @@ static inline int64_t alu(int op, int64_t a, int64_t b) {
     if (SP < 0 || SP > STACK_CELLS || RSP < 0 || RSP > STACK_CELLS) { \
         fprintf(stderr, "\nstack out of range (data %d, return %d) at %llx\n", \
                 SP, RSP, (unsigned long long)EIP - 1); \
+        /* and what is on the return stack, the top first: where it was to go back to */ \
+        if (RSP > 0 && RSP <= STACK_CELLS) { \
+            fprintf(stderr, "the return stack: %llx", (unsigned long long)R); \
+            for(int at = RSP - 2; at >= 0; at--) fprintf(stderr, " %llx", (unsigned long long)ctx->RSTACK[at]); \
+            fprintf(stderr, "\n"); \
+        } \
         exit(3); \
     }
 #else

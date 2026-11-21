@@ -342,7 +342,12 @@ defer fuse-lit ( insn -- insn false | true )
 ; constant ptcode,                              \ an instruction, by way of the peephole
 ptcode, 'ptcode !
 
-: kernel? ( -- f ) tcp @ 2/ h# 1000 u< ;
+\ The kernel is compiled to be short: a small word is a call there, where
+\ on any other page it is compiled in place.  What is laid in the kernel's
+\ page to be near every page (nearby, below) is not the kernel: it is there
+\ because it is run often, and is compiled as it would be on its own page.
+variable laid-near  false laid-near !           \ true from nearby to nearby-end
+: kernel? ( -- f ) tcp @ 2/ h# 1000 u<  laid-near @ 0= and ;
 
 :noname ( insn -- )
     pend @ 0= if ptcode, execute exit then
@@ -395,9 +400,25 @@ variable lower                                  \ and where code was going
 \ order of the code is the same in both, which is all the comparison
 \ needs; a call that is across pages in one and not in the other is the
 \ same call.
+\
+\ Each page keeps where its code has got to, so that a page can be gone
+\ back to and what it has left be used: the first time a page is gone to,
+\ its code starts where the page does, and after that where it had got to.
+\ (Until this was so a page gone back to was begun again, over its code, so
+\ none was, and whatever a page had left when the list moved on was lost.)
+\ code-top is past the last code of every page: what is defined at run
+\ time, and a table that its page has not room for, start on the page
+\ after that.
 variable page-min   \ the first page past page 1, in bytes: code-base, once the machine's sizes are read
-: next-page ( -- ) tcp @ $1fff + $2000 negate and  page-min @ max  org ;
-: code-page ( n -- ) plain @ if drop else $2000 * org then ;
+16 constant code-pages                  \ as many as instructions can be told apart by a cell of 16 bits
+create page-at code-pages cells allot   page-at code-pages cells erase
+: page-kept ( -- ) tcp @  tcp @ $2000 / cells page-at +  ! ;    \ the page code is going to has got this far
+: code-top ( -- byte ) page-kept  0  code-pages 0 do page-at i cells + @ max loop ;
+: next-page ( -- ) code-top $1fff + $2000 negate and  page-min @ max  org ;
+: code-page ( n -- )
+    plain @ if drop exit then
+    page-kept  dup cells page-at + @ ?dup if nip else $2000 * then  org
+;
 : ?own-page ( -- ) \ before a definition
     plain @  tcp @ $2000 u< 0= and  tcp @ $1fff and $1800 u> and
     if next-page then
@@ -711,6 +732,12 @@ small [if] $4000 [else] $8000 [then] constant code-base
 small [if] $4000 [else] $8000 [then] constant code-size
 code-base 2* page-min !
 : sys-page ( n -- ) code-base $1000 / + code-page ;    \ the nth page after the data and the headers, for a system's list
+\ Where pages are few, code goes to the upper half of the kernel's page
+\ too, after what the nucleus has there (upper-half, above): low-page is
+\ said before such code and low-page-end after it, by a list of files or
+\ by a file, and on a machine with pages to spare they do nothing.
+: low-page ( -- ) small if upper-half then ;
+: low-page-end ( -- ) small if lower-half then ;
 
 \ One instruction fetches or stores a cell in the 4,096 from var-base, and
 \ the data is there so that a variable is such a cell.  Where a cell is
@@ -764,37 +791,92 @@ warnings off
 :: org          org ;
 \ Each file included is measured: the code it compiled and the data it laid
 \ down, with the bytes of that data that are dictionary headers and labels,
-\ and the instruction its code starts at.  The figures go to the .sizes
-\ file beside the image, one line a file, a file's line coming after those
-\ of the files it includes, whose code and data are part of its own.
+\ the instruction its code starts at, and how deep it is included: 1 if the
+\ program includes it, 2 if a file the program includes does.  The figures
+\ go to the .sizes file beside the image, one line a file, a file's line
+\ coming after those of the files it includes, whose data is part of its
+\ own.
+\
+\ A file's code is one run, on one page, and so is that of the files it
+\ includes if they are on its page.  A list of files that says which page
+\ each goes on (system.fs) is not such a file: it ends on another page
+\ than it started on, or before where it started, and its code is its
+\ files'.  It is said to have none.
 variable hdr-bytes  0 hdr-bytes !
 variable lbl-bytes  0 lbl-bytes !
 variable sizes      0 sizes !
+variable included-deep  0 included-deep !
+variable included#  0 included# !               \ how many files have been included so far
 
 : size-field ( n -- ) s>d <# bl hold #s #> sizes @ write-file throw ;
 
-: size-line ( a u code data headers labels start -- )
-    sizes @ 0= if drop 2drop 2drop 2drop exit then
+: size-line ( a u code data headers labels start deep -- )
+    sizes @ 0= if 2drop 2drop 2drop 2drop exit then
     base @ >r decimal
-    >r 2>r 2>r
+    >r >r 2>r 2>r
     sizes @ write-file throw  s"  " sizes @ write-file throw
     2r> swap size-field size-field
     2r> swap size-field size-field
-    r> size-field
+    r> size-field  r> size-field
     s" " sizes @ write-line throw
     r> base !
 ;
+
+: one-run ( from -- bytes ) \ the code from there to here, if it is one run of one page
+    tcp @ over $2000 / over $2000 / =  2 pick 2 pick u> 0=  and if swap - else 2drop 0 then ;
 
 : include-measured ( a u -- ) \ a file, saved where it stays, and what it laid down
     { a u }
     tcp @ tdp @ thp @ + tbp @ + hdr-bytes @ lbl-bytes @ { c d h l }
     file-now @ { was }
     a u file-id file-now !  1 file-now @ cells file-open + +!
+    1 included-deep +!  1 included# +!
     a u included-whole
     -1 file-now @ cells file-open + +!  was file-now !
-    a u  tcp @ c -  tdp @ thp @ + tbp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  c 2/  size-line
+    a u  c one-run  tdp @ thp @ + tbp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  c 2/  included-deep @  size-line
+    -1 included-deep +!
 ;
 :: include  parse-name save-mem include-measured ;
+
+\ A call to a word on another page is the word's place pushed and a call
+\ of execute; a call into the kernel's page is one instruction from any
+\ page.  So a word that other pages call often is laid in the upper half
+\ of the kernel's page (upper-half, above): `nearby` is said before it in
+\ its own file, where it is written, and `nearby-end` after.  A call that
+\ such a word makes to a word of the page it came from is then the long
+\ one: what it calls comes with it, as far as the words that call nothing,
+\ or the move loses more than it saves.  Which words are worth it, and
+\ what has to come with each, is asked of the image and the work before
+\ any is moved (disasm_hex --layout --near, which says both).  That half
+\ of the page is small, and is for these: not for what a page had no room
+\ for.
+\
+\ Each stretch is a line of the .sizes, with the file's name and a depth
+\ of nothing (bench/files.h), so that every word is still some file's.  A
+\ build with the peephole off takes no notice, as it takes none of where
+\ pages start.
+\
+\ A list of files says the two round a file it includes when the whole
+\ file is to be there: a file that is what the others call and is little
+\ else (blocks.fs).  The file's own line of the .sizes then says where it
+\ is, and no line is written for the stretch.  A `nearby` inside one is
+\ within it already and does nothing: so a file whose words are marked one
+\ by one can be laid there whole by a list that has the room, and in part
+\ by one that has not.
+variable near-from                              \ where the stretch being laid near starts
+variable near-deep  0 near-deep !               \ how many nearby are waiting for their nearby-end
+variable near-files                             \ how many files had been included when it started
+:: nearby ( -- )
+    1 near-deep +!  near-deep @ 1 > if exit then
+    upper-half  true laid-near !  tcp @ near-from !  included# @ near-files ! ;
+:: nearby-end ( -- )
+    near-deep @ 0= abort" nearby-end with no nearby"
+    -1 near-deep +!  near-deep @ if exit then
+    settle
+    plain @ 0=  included# @ near-files @ =  and if
+        file-now @ 2* cells file-names + 2@  tcp @ near-from @ -  0 0 0  near-from @ 2/  0  size-line
+    then
+    false laid-near !  lower-half ;
 
 \ The system a machine with a display has: the list of files that SYSTEM
 \ names, a file of forth/ (SYSTEM=picture.fs gforth ...), or system.fs, the
@@ -819,19 +901,15 @@ variable sizes      0 sizes !
 \ whichever of the two finds it is not there (reg.fs).
 :: lacks? ( "name" -- f ) parse-name target-wordlist search-wordlist if drop false else true then ;
 
-\ Bytes of the image that are to stay nothing: memory that what is in the
-\ ROM keeps for itself, and that no block of the image is to be read over
-\ while it is in use.  One who keeps some says so (from to kept-nothing),
-\ and when the image is made it is looked at.
-variable kept-from  0 kept-from !
-variable kept-to    0 kept-to !
-: kept-nothing ( from to -- )
-    kept-to @ abort" kept-nothing is said twice, and there is room for one"
-    kept-to !  kept-from ! ;
-: kept-is-nothing ( -- )
-    kept-to @ kept-from @ ?do
-        i tc@ if cr ." something is laid at byte " i . ." of the image, which the ROM keeps for itself" abort then
-    loop ;
+\ Memory that what is in a machine's ROM keeps for itself, and that no
+\ block of the image is to be read over while it is in use: the last
+\ cells of memory, as many as top-kept says, which the driver that keeps
+\ them sets before anything says MEM-END (virtio-disk.fs).  An image has
+\ nothing there, and what is given out at run time stops before them
+\ (halloc).  (A driver kept the last kilobyte of the kernel's page, a
+\ whole block since the image is read a block at a time: which is most
+\ of what that page's upper half has for the words other pages call.)
+variable top-kept  0 top-kept !
 
 :: bulk ( -- ) \ what is laid down from here is not variables
     in-bulk @ abort" bulk within bulk"  true in-bulk !
@@ -1960,9 +2038,11 @@ s" ;" target-wordlist search-wordlist 0= throw constant the-semicolon
 \ It has to be all on one page, since what reads it goes by how far along
 \ it is.  table-room is said before a table, with how many instructions it
 \ is: if this page has not room for them, the next is started.
+variable tabled  -1 tabled !            \ the page the last table is on
 : table-room ( n -- )
     settle
     2* tcp @ $1fff and + $1ffe u> if next-page then
+    tcp @ $2000 / tabled !
 ;
 : (i,) ( w -- )
     settle
@@ -2129,6 +2209,7 @@ warnings on
 :: VIEW-BLKS   disk-view-blocks literal ;       \ and how many blocks are kept for it
 :: GRAY-BLK    disk-gray-block literal ;        \ the viewer's picture kept as gray,
 :: GRAY-BLKS   disk-gray-blocks literal ;       \ and how many blocks are kept for that
+:: OWN-BLKS    disk-own-blocks literal ;        \ the blocks a disk keeps for the names of words a boot compiles, at the most
 :: SOURCE-BLK  disk-source-block literal ;      \ what a machine started from its ROM loads
 \ A block's number says which disk as well (doc/disk.md): the disk is the
 \ number DISK-SHIFT rshift, and there are DRIVES of them at most.
@@ -2157,9 +2238,11 @@ warnings on
     disk-block 8 * disk-mask-width / disk-mask-planes /
     0 begin 2dup 1 swap lshift > while 1+ repeat nip literal ;
 :: DATA-LIMIT data-limit literal ;              \ where data must stop: there, or where the bulk starts
-\ The cell after the last of memory.  Where memory is as many cells as a
-\ cell can count that is nothing, and is still right to take from.
-:: MEM-END    1 addr-bits lshift cell-mask and literal ;
+\ The cell after the last of memory that is anyone's to take.  Where
+\ memory is as many cells as a cell can count that is nothing, and is
+\ still right to take from.  A machine's ROM may keep the last cells of
+\ memory for itself (top-kept, above): they are past this.
+:: MEM-END    1 addr-bits lshift top-kept @ - cell-mask and literal ;
 :: CODE-BASE  code-base literal ;
 :: CODE-SIZE  code-size literal ;
 :: DISPLAY? disp-w 0<> ;                \ has the machine a display?
@@ -2426,14 +2509,14 @@ decimal
     file close-file
 ;
 
-s" (all)" tcp @  tdp @ data-base -  thp @ hdr-base - +  tbp @ bulk-base - +  hdr-bytes @ lbl-bytes @ 0 size-line
+s" (all)" code-top  tdp @ data-base -  thp @ hdr-base - +  tbp @ bulk-base - +  hdr-bytes @ lbl-bytes @ 0 0 size-line
 in-bulk @ [if] cr .( bulk with no unbulk) abort [then]
+near-deep @ [if] cr .( nearby with no nearby-end) abort [then]
 tdp @ data-limit > [if] cr .( the data has run into what is after it) abort [then]
 tbp @ hdr-base >  bulky and [if] cr .( the bulk has run into the dictionary headers) abort [then]
 thi @ 131072 >  lofty and [if] cr .( what is laid down above the display has run off the end of memory) abort [then]
 thp @ code-base 2* > [if] cr .( the dictionary headers have run into the code) abort [then]
-tcp @ code-base code-size + 2* > [if] cr .( the code has run past where code can be) abort [then]
-kept-is-nothing
+code-top code-base code-size + 2* > [if] cr .( the code has run past where code can be) abort [then]
 sizes @ close-file throw
 
 \ What is public (who uses what, above), written beside the image

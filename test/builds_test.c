@@ -8,8 +8,10 @@
 // peephole.
 //
 // Both images are cut into runs and the instructions that leave a run
-// (cut.h).  They are to be the same runs and the same calls in the same
-// order.  Whether two runs leave the same is asked of the machine: the
+// (cut.h).  They are to be the same words, and in each word the same runs
+// and the same calls in the same order: the words themselves need not be
+// in the same order of place, since the image that is run may go back to
+// a page and this one's other never does.  Whether two runs leave the same is asked of the machine: the
 // step on terms says what each leaves in every cell (fuse.h), and two that
 // leave the same terms leave the same from every state.
 //
@@ -42,16 +44,6 @@ static uint16_t EXIT;                   // the instruction that is an exit
 
 #define MAY_BE_PLACES 12                // numbers of a run that may be places: more are not tried every way,
                                         // since each way of taking them is tried.  Chosen, and not the machine's
-
-// The item of an image that starts at a place, or less than nothing.
-static long item_at(const cut_image* m, long at) {
-    long lo = 0, hi = m->count;
-    while (lo < hi) {
-        long mid = (lo + hi) / 2;
-        if (m->items[mid].at < at) lo = mid + 1; else hi = mid;
-    }
-    return(lo < m->count && m->items[lo].at == at ? lo : -1);
-}
 
 static int leave_the_same(const uint16_t* a, int alen, const uint16_t* b, int blen) {
     if (alen == blen && !memcmp(a, b, alen * sizeof(uint16_t))) return(1);

@@ -21,6 +21,12 @@ header disks-there                     \ the disks there are
                                        \ one says so here
                                        \ (files.fs)
 
+\ What reads and writes a block is in the kernel's page, where a
+\ call from any page is one instruction (nearby, cross.fs):
+\ everything that reads a disk comes here.  What says where an
+\ error was, and what compiles a definition again, are run
+\ seldom, and are on this file's own page.
+nearby
 : moved ( blk# write? -- ) \ a block was read or written
     blk-wrote !  DISK-SHIFT rshift blk-disk !
     d# 1 blk-moved +! ;
@@ -88,6 +94,7 @@ header block
 
 header update
 : update ( -- ) true blk-dirty ! ;
+nearby-end
 
 \ A block of source is read as one thing, all its characters, a
 \ word at a time, and blk says which block it is: so a comment
@@ -126,37 +133,115 @@ header update
     tuck +  swap r> swap -
 ;
 
-: said-where ( n -- )
-    \ what was thrown in the block being read, and where
-    base @ >r decimal
-    say" error " .  say" in block " blk @ .
-    blk @ block dup >in @ the-word          ( a c-addr u )
+: said-line ( blk# -- ) \ the line and the word, and that line
+    block dup >in @ the-word                ( a c-addr u )
     rot >r  over r@ - LINE-SHIFT rshift
-    ( c-addr u line ) ( R: base a )
+    ( c-addr u line ) ( R: a )
     say" line " dup .  >r
     say" at " type cr
     r> LINE-SHIFT lshift r> + LINE-CHARS type cr
+;
+
+\ What was thrown in the block being read, and where.  A word of
+\ the block may have been reading text of its own when it was
+\ thrown (evaluate, as a macro does): blk is then nothing, and
+\ what is said is the word of that text, and the text.  (It was
+\ said as block 0's, and a line of the disk's index shown.)
+: said-where ( n blk# -- )
+    base @ >r decimal
+    swap say" error " .  say" in block " dup .
+    blk @ if said-line else
+        drop  source >in @ min the-word  say" at " type
+        say"  of " source type cr
+    then
     r> base !
 ;
 
+\ A definition is all in one page of code, and the kernel begins
+\ none where less than a kilobyte of its page is left, since
+\ what is typed has no source to go back to (newpage?, nuc.fs):
+\ the end of most pages was left empty for that.  A block has
+\ its source to hand.  While one is read, a definition may begin
+\ nearly at a page's end (cpr), and one that runs off its page
+\ (code, throws) is compiled again on the next, from where it
+\ began: its header and the data it laid are taken back, the
+\ stack is as deep as it was, and a header that names it
+\ (files.fs) is told where it starts now.
+
+\ where a definition may begin: >in, the cell headers go in, the
+\ data pointer, how deep the stack is, and the base numbers are
+\ read in, which a word that compiles one changes while it does
+create began 0 , 0 , 0 , 0 , 0 ,
+\ the cell of a header that stays which says where the
+\ definition after it starts (files.fs), or nothing
+header stay-xt create stay-xt 0 ,
+
+\ Was it a definition running off its page?  One that began
+\ where its page does is longer than a page, and is not.
+: ran-off? ( n -- f )
+    d# -8 =  state @ 0<> and
+    cp @ 1+ h# fff and 0= and
+    thisxt @ h# fff and 0<> and
+;
+
+: begin-again ( blk# -- ) \ the definition, on the next page
+    dup blk !  d# -1 sourceid !  block BLOCK-CHARS source!
+    began @ >in !  began 1+ @ hdp !  began CELL2 + @ dp !
+    begin depth began c# 3 + @ > while drop repeat
+    began c# 4 + @ base !  d# 0 state !
+    thisxt @  newpage?
+    stay-xt @ ?dup if
+        2dup @ = if cp @ swap ! else drop then
+    then
+    drop
+;
+
+\ What was thrown while a word of the block was read: a
+\ definition that ran off its page is begun again, if what the
+\ stack had when it began is still there, and anything else is
+\ thrown on.
+: thrown ( x x n blk# -- )
+    >r >r 2drop r>
+    dup ran-off? 0= if throw then
+    depth 1- began c# 3 + @ < if throw then
+    drop  r> begin-again
+;
+
+nearby
+\ Is nothing being defined?  A definition's header is the newest
+\ in the dictionary only once the definition is ended, and until
+\ then it is not: so what is said in brackets in a definition
+\ is not where one may begin.
+: begins? ( -- f )
+    state @ if false exit then
+    lastword @ dup 0= swap forth @ = or
+;
+: begins ( -- ) \ a definition may begin here
+    >in @ began !  hdp @ began 1+ !  dp @ began CELL2 + !
+    depth began c# 3 + !  base @ began c# 4 + !
+;
+
 : reading ( -- ) \ interpret the block that blk says
+    blk @ >r
     begin
         blk @ block drop
+        begins? if begins then
         parse-name dup
     while
-        interpret1
+        ['] interpret1 catch ?dup if r@ thrown then
     repeat
-    2drop
+    2drop rdrop
 ;
 
 header load
 : load ( blk# -- ) \ interpret a block of source
-    blk @ >r  >in @ >r  source >r >r  source-id >r
-    dup blk !  d# -1 sourceid !
+    blk @ >r  >in @ >r  source >r >r  source-id >r  cpr @ >r
+    dup >r  dup blk !  d# -1 sourceid !  h# ff0 cpr !
     block BLOCK-CHARS source!
     ['] reading catch
     \ anything but nothing or -1
-    dup 1+ d# 1 u> if said-where d# -1 then
+    dup 1+ d# 1 u> if r@ said-where d# -1 then  rdrop
+    r> cpr !
     r> sourceid !  r> r> source!  r> >in !  r> blk !
     throw
 ;
@@ -177,6 +262,7 @@ header thru
 \ next bracket.
 header-imm .(
 :noname ( "text<paren>" -- ) [char] ) parse type ;
+nearby-end
 
 \ A source of the disk's by its label (include), and the names
 \ that are a file's own (header), are a file of their own:

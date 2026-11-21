@@ -37,6 +37,10 @@ const char* qemu_said(void);
 // Eight bytes of the machine's memory, at an address of the machine's.
 uint64_t qemu_cell(uint64_t address);
 
+// As many bytes of its memory as are said, from an address of the
+// machine's, written to a file.
+void qemu_memory(uint64_t address, uint64_t bytes, const char* to);
+
 // With SCALE: how many each pixel is across and down, the screens taken,
 // and those that were not in whole blocks.
 extern int qemu_scale, qemu_shots, qemu_inexact;

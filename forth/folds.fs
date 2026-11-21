@@ -8,13 +8,19 @@
 \ First how many there are of each of three things: the
 \ instructions that make one number of the top of the stack
 \ and touch nothing else, those that make one of the top two,
-\ and the sets of rules.  Then the instructions themselves;
-\ then each set: the instruction a push is taken across, how
-\ many rules it has, and the rules: a mask, what an
-\ instruction has under it, and the bits that are changed.
+\ and the sets of rules; and how far from here the last set
+\ is, which is of another kind.  Then the instructions
+\ themselves; then each set: the instruction a push is taken
+\ across, how many rules it has, and the rules: a mask, what
+\ an instruction has under it, and the bits that are changed.
+\ The last set is the instructions that leave a flag, after
+\ which a push of nothing and `=` are `invert`: its
+\ instruction is `=`, and where a rule of the others has the
+\ bits that are changed, its rules have `invert`.
 
-meta $62 table-room  tcp @ 2/ t' folds-at tvar! target
+meta $6b table-room  tcp @ 2/ t' folds-at tvar! target
 $0002 i, $000c i, $0003 i,   \ how many of each
+$0063 i,   \ and where what leaves a flag is
 $6400 i,   \ noop
 $6480 i,   \ invert
 $646c i,   \ xor
@@ -28,8 +34,8 @@ $64bc i,   \ u<
 $640c i,   \ nip
 $600c i,   \ drop
 $60cc i,   \ rshift
-$60dc i,   \ lshift
 
+$60dc i,   \ lshift
 $6404 i, $000b i,   \ across dup
 $03cc i, $004c i, $000c i,   \ xor and or * @ and @ or @ xor @ *
 $03bc i, $003c i, $000c i,   \ + * @ + @ *
@@ -45,8 +51,8 @@ $02fc i, $001c i, $001c i,   \ swap >r
 $6c04 i, $0007 i,   \ across r@
 $0ff4 i, $0010 i, $0c14 i,   \ swap
 $077c i, $040c i, $000c i,   \ nip
-$0f7c i, $000c i, $0c0c i,   \ drop
 
+$0f7c i, $000c i, $0c0c i,   \ drop
 $0fee i, $0d08 i, $0d04 i,   \ 2drop
 $0d7c i, $0108 i, $0c04 i,   \ !
 $0fec i, $00cc i, $0c0c i,   \ rshift lshift
@@ -59,3 +65,6 @@ $0fef i, $0d08 i, $0d07 i,   \ 2drop
 $0d7f i, $0108 i, $0c07 i,   \ !
 $0fef i, $00cc i, $0c0f i,   \ rshift lshift
 $0fff i, $011d i, $051d i,   \ swap >r
+$649c i, $0002 i,   \ what leaves a flag, before 0 =
+$03d0 i, $0090 i, $6480 i,   \ = u< @ = @ u< over =
+$03e0 i, $00a0 i, $6480 i,   \ < u< @ < @ u< 2dup <

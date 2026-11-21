@@ -353,6 +353,7 @@ int main(int argc, char *argv[]) {
         return(1);
     }
     alarm(600);                 // a machine that does not stop is stopped
+    setvbuf(stdout, NULL, _IOLBF, 0);   // and what was said of it until then has been written
     tables_are(argv[5]);
     mono = font_named("mono");
     spin = font_named("spin");

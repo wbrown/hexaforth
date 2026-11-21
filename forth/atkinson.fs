@@ -5,67 +5,21 @@
 \             *  1  1
 \          1  1  1
 \             1
-\ Only six eighths are passed on, which is what gives the look.
 
-\ A pixel is a lane of a cell, sixteen bits, as many to a cell
-\ as fit, and a row is cells of them, pixel 0 in the lowest lane
-\ of the first.  All that a pixel is thresholded on is added
-\ into its lane before it is looked at: its gray, what the four
-\ neighbours on the rows above gave it, and what the two before
-\ it on its own row gave it.  So a pixel is its lane, and
-\ nothing is kept beside it.
-
-\ The two before it are the cell's own business.  The cell is on
-\ the stack, and the pixel being done is its lowest lane.  When
-\ a pixel is done the cell is shifted down a lane, so that the
-\ next pixel is the lowest, and what the pixel gives is added to
-\ the lowest two: one multiplication.  After the last pixel of a
-\ cell, what is left on the stack is what the first two of the
-\ next cell are owed by this one, and the next cell is added
-\ to it.
-
-\ What a pixel gives is its error over eight, kept as that and
-\ 128 so that it is never negative and a lane never borrows from
-\ the next; six of them make the sum a pixel is thresholded on
-\ 768 too many, which the threshold and the error allow for, and
-\ nothing is subtracted anywhere.  With it, above it at bit 12,
-\ goes whether the pixel is black.  A lane's own number is its
-\ low twelve bits, and never reaches them: so what a pixel gives
-\ can be added to the next two as it is, and the lanes of a row,
-\ when the row is done, are both the errors for the rows below
-\ and the pixels.
-
-\ A row that is done is left in the cells it was owed in.  Its
-\ pixels are gathered out of it, a cell of the bitmap at a time:
-\ the bits at 12 of a cell's lanes are brought together by one
-\ multiplication.  Its errors go to the row two below as they
-\ are, and to the row below with themselves a lane to the left
-\ and a lane to the right, which are the three neighbours there;
-\ the lane that leaves a cell at either end goes to the cell
-\ beside it.  A pixel at the end of a row has a neighbour that
-\ is not there, and is given what that would have given (128)
-\ when its row is made ready.
-
-\ There are three rows of lanes, and a dither's record keeps
-\ where they are, the bitmap, the image and how far down it is,
-\ between one row and the next.  Nothing else is kept: a row is
-\ done on the stacks.
-
-\ A cell of 16 bits is one lane, and what a pixel gives to the
-\ two after it cannot ride in the cell.  Then it is two numbers:
-\ what the next pixel is owed by the two before it, and what the
-\ last pixel gave, which the one after the next is owed.
-\ Everything else is the same words.
+\ A pixel is a lane of a cell, sixteen bits.  Its gray and what
+\ its neighbours gave it are added into its lane before it is
+\ looked at.  What a pixel gives is its error over eight and
+\ 128, so it is never negative, with whether it is black above
+\ it at bit 12: when a row is done its lanes are both the errors
+\ for the rows below and the pixels.
 
 meta
-\ (lanes, the lanes to a cell, is cross.fs's, with LANES and
-\ LANESHIFT: a font's rows are lanes too.)
+\ (lanes, the lanes to a cell, is cross.fs's.)
 : each-lane ( -- x ) 0 lanes 0 do #16 lshift 1 or loop ;
 each-lane constant lane1        \ 1 in each lane
 
-\ The multiplier that brings bit 0 of each lane to the top of
-\ the cell, the pixels in the order the display has them in a
-\ cell: the leftmost lowest, or the leftmost highest.
+\ the multiplier that brings bit 0 of each lane to the top of
+\ the cell, in the order the display has pixels in a cell
 : to-top ( -- x )
     0 lanes 0 do
         1
@@ -80,11 +34,9 @@ to-top constant gather
 :: NIBSHIFT \ the top of a cell, less its pixels
     cell-bits lanes - literal ;
 
-\ A cell's lowest lane moved to its highest, and its highest to
-\ its lowest; and a cell's lanes each added to the lanes either
-\ side of it.  A cell of 16 bits is one lane, which is its
-\ lowest and its highest and has none beside it, so for it
-\ nothing is compiled.
+\ a cell's lowest lane to its highest, and its highest to its
+\ lowest; and each lane added to those either side.  With one
+\ lane to a cell nothing is compiled.
 :: LOW>TOP    lanes 1 > if
     cell-bits #16 - literal s" lshift" evaluate
 then ;
@@ -96,12 +48,8 @@ then ;
     s" dup h# 10001 * swap d# 16 rshift +" evaluate
 then ;
 
-\ Whether the pixel of each lane of a cell is black, a bit each,
-\ where acell-bits gathers them: at the top of a cell if the
-\ leftmost pixel is the lowest, else at the bottom (anib).  With
-\ one lane to a cell the bit, at 12, is moved there by itself:
-\ nothing is multiplied.
-
+\ whether the pixel of each lane of a cell is black, a bit each,
+\ where acell-bits gathers them
 :: BLACK-BITS ( e -- n )
     lanes 1 = if
         disp-left-low if
@@ -117,12 +65,8 @@ then ;
     then
 ;
 
-\ Four grays added in a lane, and half of four, quartered: to
-\ the nearest.  The half of four is in the lane before the grays
-\ are (AROUND, which the lanes the sums are made in are filled
-\ with), so it is added once a row and not once a pixel.  With
-\ one lane to a cell there is no lane beside it to keep the
-\ quarter from.
+\ four grays added in a lane, quartered to the nearest: the
+\ half of four is in the lane before the grays are (AROUND)
 :: AROUND     lane1 2 * literal ;
 :: QUARTERED ( x -- y )
     lanes 1 = if
@@ -132,9 +76,7 @@ then ;
     then
 ;
 
-\ A lane without whether its pixel is black: its number.  With
-\ one lane to a cell the mask is a number one instruction
-\ pushes, and is not fetched.
+\ a lane without whether its pixel is black: its number
 :: CLEAN ( x -- y )
     lanes 1 = if
         $fff literal s" and" evaluate
@@ -173,11 +115,8 @@ create aclean  meta lane1 $fff * target ,
 create agather meta gather target ,
 [then]
 
-\ A dither is a record, so that there may be more than one in
-\ hand at a time, each going down its own picture a row at a
-\ turn: `dth` is the one in hand, and these are its cells.  As
-\ with an image, it is in hand only for as long as the word that
-\ took it up runs.
+\ A dither is a record: `dth` is the one in hand, and these are
+\ its cells.
 create dth 0 ,          \ the dither in hand: its record
 
 : abm   ( -- a ) dth @ ;          \ the bitmap: its descriptor
@@ -189,11 +128,8 @@ create dth 0 ,          \ the dither in hand: its record
                                   \ row of lanes
 : ay    ( -- a ) dth @ c# 5 + ;   \ how many rows are done
 : aimg  ( -- a ) dth @ c# 6 + ;   \ the image it is of
-\ The bitmap need not be of the whole image.  Every pixel is
-\ dithered, since what a pixel is depends on those before it;
-\ but the bitmap is what is kept, and whoever shows less than
-\ the picture keeps less: the rows from ay0, akh of them, and of
-\ each row the cells from the one aoff lanes along.
+\ The bitmap need not be of the whole image: the rows from ay0,
+\ akh of them, and of each the cells from aoff lanes along.
 : afull ( -- a ) dth @ c# 7 + ;   \ cells in a row of a bitmap
                                   \ of the whole image
 
@@ -202,16 +138,8 @@ create dth 0 ,          \ the dither in hand: its record
 : ay0   ( -- a ) dth @ c# 9 + ;   \ the first row kept,
 : akh   ( -- a ) dth @ c# 10 + ;  \ and how many are
 
-\ Nor need it be at the image's size.  At half of it a pixel of
-\ the bitmap is four of the image, two of each of two rows, and
-\ its gray is theirs added and then quartered, to the nearest:
-\ so a row that is dithered is two rows read.  The four are
-\ added in a row of lanes of their own, since the lanes a row is
-\ dithered in already hold what the rows above gave, which is
-\ not to be quartered.  At twice its size each pixel of the
-\ image becomes a 2 by 2 of the bitmap: an image row is read
-\ every other bitmap row into its own row of lanes, and each
-\ lane of that is added to two lanes of both bitmap rows.
+\ Nor need it be at the image's size: at half of it a pixel is
+\ four of the image's, and at twice it a 2 by 2.
 : arow  ( -- a ) dth @ c# 11 + ;  \ ( lanes -- ) adds the next
                                   \ row's grays, reading the
                                   \ image as needed
@@ -223,10 +151,6 @@ create dth 0 ,          \ the dither in hand: its record
                                   \ gathered in, at half size
                                   \ or twice
 
-\ A row of lanes has as many cells as make whole cells of a
-\ bitmap of the whole image, so that the pixels can be gathered
-\ sixteen cells at a time, and a cell at each end for what
-\ leaves the row.
 : alanes ( x a -- )
     \ set a row of lanes, and the cell at each end of it
     1-  afull @ d# 4 lshift d# 2 +  cells-fill
@@ -243,10 +167,6 @@ create dth 0 ,          \ the dither in hand: its record
     ( a last x )
     swap LANESHIFT rshift rot + +!
 ;
-
-\ Where the image can give a row's grays in lanes ('grays), it
-\ adds them a cell at a time.  Any other is asked for a pixel at
-\ a time.
 
 \ a gray into the lane at that shift of the cell at a, and on to
 \ the next lane
@@ -273,9 +193,6 @@ create dth 0 ,          \ the dither in hand: its record
     aimg @ tiff-row  agrays
 ;
 
-\ The same for half as many lanes, two pixels to each ('pairs,
-\ where the image can).  A row of an odd number of pixels has
-\ one over, which is taken and belongs to no lane.
 : apairs ( lanes -- )
     \ the next row's grays, each two pixels' added into a lane
     'pairs @ ?dup if execute exit then
@@ -312,12 +229,8 @@ create dth 0 ,          \ the dither in hand: its record
     aquarters
 ;
 
-\ Split a cell of lanes into two cells with each lane doubled:
-\ the lower half of the cell makes the first.  With four lanes,
-\ each pair is moved a lane apart and multiplied by $10001,
-\ which copies each into the lane above it.  With two lanes,
-\ each is multiplied on its own.  With one, both cells are
-\ the lane.
+\ a cell of lanes as two cells with each lane doubled: the lower
+\ half of the cell makes the first
 meta
 
 :: TWICE ( y -- lo hi )
@@ -348,9 +261,6 @@ target
     2drop rdrop
 ;
 
-\ If the row is an odd number of cells, the last one also adds
-\ to the cell past the end of the row, which is never dithered.
-
 \ add a row's grays at twice the size, reading an image row
 \ every other row
 : atwice-row ( lanes -- )
@@ -361,10 +271,9 @@ target
     atwice
 ;
 
-W32+? [if]
-
 \ every pixel of the row: each lane is left as what its
 \ pixel gives
+W32+? [if]
 : apixels ( lanes -- )
     h# 800100 >r  \ what the two before the first would have
                   \ left: 256, and 128
@@ -377,40 +286,27 @@ W32+? [if]
     repeat
     2drop rdrop
 ;
+[then]
 
-[else]
+\ With one lane to a cell, what the next pixel is owed is added
+\ into its lane as soon as it is known.  Only what the last
+\ pixel gave is carried, on the return stack, and what this one
+\ gives is written over it there (doc/superoptimizations.md).
 
-\ What the next pixel is owed by the two before it is added into
-\ its lane as soon as it is known, and not carried to it on the
-\ stack: only what the last pixel gave is carried, on the return
-\ stack.  It goes in without whether they were black, so a lane
-\ holds only its number, and the lane after the last pixel,
-\ which is given it too, has no pixel made black.
-\
-\ What the last pixel gave is not taken off the return stack and
-\ put back: what this one gives is written over it where it is
-\ (swap rdrop >r is one instruction, its result to R with R not
-\ moved), and is stored from there while the address is brought
-\ up (swap r@ over !, one).  Each is an instruction where the
-\ plain way was two (doc/superoptimizations.md).
-
+W32+? [if] [else]
 : apixels ( lanes -- ) \ the same, a cell being one pixel
     d# 128 >r  ( lanes ) ( R: what the last pixel gave )
     d# 256 over +!  \ what the two before the first would leave
     an @ bounds
     begin 2dup xor while
         dup @  dup d# 896 <  h# 80ff and + 1+  d# 3 rshift
-        \ it gives; the next is owed this and the one before,
         h# fff over r@ + and  ( end p gives owed )
-        \ the one after this
         swap rdrop >r         ( end p owed ) ( R: gives )
-        \ and it is the pixel's lane
         swap r@ over !        ( end owed p )
         1+ tuck +!            ( end p' )
     repeat
     2drop rdrop
 ;
-
 [then]
 
 \ the lanes of the last cell that are past the last pixel
@@ -475,9 +371,6 @@ INK-BLACK? [if] [else] invert [then]
     2drop rdrop
 ;
 
-\ Where the three are is p and R added, which is one instruction
-\ while p is under the top: so it is made where it is wanted,
-\ and not kept in the way of the rest.
 : adown1 ( from to -- ) \ and to the three on the row below
     over - 1- >r  ( from ) ( R: from a cell to the one before )
     an @ bounds
@@ -492,9 +385,7 @@ INK-BLACK? [if] [else] invert [then]
     2drop rdrop
 ;
 
-\ A row is dithered at a time, so that whoever wants the picture
-\ can do something else between the rows, and can show the rows
-\ that are made.
+\ ---- a dither, a row at a time
 
 : awidths ( -- ) \ the cells of a row of the bitmap, and lanes
     aw @ PXMASK + PXSHIFT rshift afull !
@@ -583,46 +474,22 @@ header atkinson
 
 \ ---- to sixteen levels
 
-\ A picture kept as gray (gray.fs) is dithered the same way,
-\ except that a lane is a sample, not a pixel, and is rounded to
-\ the nearest of sixteen levels instead of to black or white.  A
-\ sample is the average of 1, 2 by 2, 4 by 4 or 8 by 8 of the
-\ image's pixels, rounded.  The pixels of a sample's rows are
-\ added two to a lane into one row of lanes, as at half size;
-\ for wider samples, adjacent lanes are then added in pairs
-\ (fold-pairs, tiff.fs), a cell at a time, until a lane is a
-\ sample; then the sum is shifted down.
-
-\ As with a pixel, a lane's value when its sample is looked at
-\ is its gray, plus 768, plus what it was passed.  One fetch
-\ from a table, indexed by that value, gives both the sample's
-\ level and the error it passes on.  The table is on top of the
-\ return stack while a row is done.  The error is the low twelve
-\ bits, passed to the next two lanes as a pixel's is, and the
-\ level is the four bits above.  So when a row is done its lanes
-\ hold both the errors for the rows below and the levels, and
-\ each of the four level planes is gathered out of them as the
-\ dither gathers pixels, from bit 12, 13, 14 or 15 of each lane.
-\ The error is how far the level is from the sample, an eighth
-\ to each of six neighbours, as for a pixel.
-
-\ A lane's value never goes below 762 or above 1029.  A sample
-\ is off its level by at most half a level (8), unless it is
-\ past black or white, and then by less than it was passed; it
-\ is passed an eighth of six such errors, so it is never more
-\ than 6 past black or white.  So the table covers the 272
-\ values from 760.
+\ A picture kept as gray (gray.fs) is dithered the same way, but
+\ a lane is a sample, the average of a square of the image's
+\ pixels, and is rounded to the nearest of sixteen levels.  One
+\ fetch from a table, by the lane's value, gives the sample's
+\ level, at bit 12, and the error it passes on, below.  The
+\ table covers the 272 values from 760, which is all a lane can
+\ come to.
 
 meta
-\ A number in each lane of a cell; and the bits of a lane that
-\ hold a gray once a sum is shifted down, without what came down
-\ from the lane above.
+\ a number in each lane of a cell; and the bits of a lane that
+\ hold a gray once a sum is shifted down
 :: LANES*     lanes 1 > if s" aone @ *" evaluate then ;
 :: GRAY-BITS  lanes 1 > if s" gray-mask @ and" evaluate then ;
 
-\ The samples of a cell, as CELL-DONE does a cell's pixels: one
-\ table fetch each, from the table on top of the return stack
-\ (offset by 760).
+\ the samples of a cell, as CELL-DONE does a cell's pixels: the
+\ table is on top of the return stack
 :: CELL-LEVELS ( x -- e x' )
     lanes 0 do
         \ the rest of the cell, and this sample's value
@@ -637,10 +504,8 @@ meta
     s" r>" evaluate
 ;
 
-\ Plane pb of the levels of a cell's lanes, one bit each, where
-\ acell-bits gathers them.  With one lane per cell and the
-\ leftmost pixel in the lowest bit, the bit is wanted at the
-\ top, and is moved straight there.
+\ plane pb of the levels of a cell's lanes, one bit each, where
+\ acell-bits gathers them
 variable pb
 
 :: PLANE-BITS ( e -- n )
@@ -658,10 +523,8 @@ variable pb
     then
 ;
 
-\ Gather plane pb of the samples whose lanes start at p into one
-\ cell; the cell being built is on top of the return stack.
-\ There is a word per plane, so the bit's position is a literal
-\ in the code.
+\ plane pb of the samples whose lanes start at p, in one cell: a
+\ word a plane, so that the bit's place is a number in the code
 :: GATHER ( p -- p' bits )
     s" d# 0 >r  dup d# 16 + swap" evaluate
     s" begin 2dup xor while  dup @" evaluate
@@ -748,13 +611,10 @@ W32+? [if]
     an @ ash @ 1- lshift  max
 ;
 
-\ A sum is rounded when it is shifted down, by adding half the
-\ divisor first.  Each lane of pair sums starts with its share
-\ of that, 1 << s, since 1 << (s - 1) of them are added into a
-\ sample's lane; so the sum only needs shifting at the end.
-
 \ the pair sums of the rows of a sample, each row read but the
-\ first, which the caller has read
+\ first, which the caller has read.  Each lane starts with its
+\ share of half the divisor, so the sum is rounded when it is
+\ shifted down.
 : asum-rows ( -- )
     d# 1 ash @ lshift LANES* agw @ awide cells-fill
     agw @ apairs
@@ -779,11 +639,8 @@ W32+? [if]
     2drop rdrop
 ;
 
-\ The table is on top of the return stack while the row is done,
-\ where each sample can use it as an ALU input.  What a cell
-\ owes the first two lanes of the next is added straight into
-\ the next cell, so nothing is carried between cells; after the
-\ last cell it goes into the cell at the end of the row.
+\ What a cell owes the first two lanes of the next is added
+\ straight into the next cell.
 W32+? [if]
 : lpixels ( lanes table -- ) \ each lane: its error and level
     >r  h# 800100 over +!  an @ bounds
@@ -796,12 +653,8 @@ W32+? [if]
 ;
 [then]
 
-\ With one lane per cell, what the next sample is owed by the
-\ two before it (this one's error, and the previous one's, which
-\ is in the lane before) is added into its lane as soon as it is
-\ known, so nothing is carried from sample to sample.  The lane
-\ before the first holds what a missing pixel would pass on.
-
+\ The lane before the first holds what a missing pixel would
+\ pass on.
 W32+? [if] [else]
 : lpixels ( lanes table -- ) \ the same, one sample per cell
     >r  d# 128 over 1- !  d# 256 over +!
