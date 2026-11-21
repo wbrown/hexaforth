@@ -41,6 +41,11 @@ uint64_t qemu_cell(uint64_t address);
 // machine's, written to a file.
 void qemu_memory(uint64_t address, uint64_t bytes, const char* to);
 
+// Where the kernel has the Forth machine's cell 0, which its symbols say
+// (image): what asks for the Forth machine's memory (desk_memory) says it
+// first.
+void qemu_image(uint64_t address);
+
 // With SCALE: how many each pixel is across and down, the screens taken,
 // and those that were not in whole blocks.
 extern int qemu_scale, qemu_shots, qemu_inexact;

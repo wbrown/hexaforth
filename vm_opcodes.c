@@ -162,23 +162,36 @@ int decode_name(const uint8_t* cells, size_t room, char* out) {
 }
 
 // The dictionary of an image of `len` bytes.  A header is cells: the address
-// of the header before it, which is nothing for the first; the word's
-// execution token, with the top bit set if the word is immediate; and the
-// name.  The address of the newest header is the first cell of the image's
-// data, the cell at VAR_BASE, where cross.fs puts it.  An address is the
-// number of a cell, and a header is said here by the byte it starts at.
-uint32_t newest_header(const uint8_t* image, size_t len) {
+// of the header looked at after it, which is nothing for the last; the
+// word's execution token, with the top bit set if the word is immediate;
+// and the name.  The address of the first header, which is where a search
+// starts, is the first cell of the image's data, the cell at VAR_BASE,
+// where cross.fs puts it.  An address is the number of a cell, and a header
+// is said here by the byte it starts at.
+//
+// The headers are in the order they are searched in, which is not the order
+// they are in memory: cross.fs links an image's by how often their names
+// are said (headers-ordered), and a header made on the machine is linked
+// before those.  So a link may go on in memory as well as back, and what is
+// read is not a dictionary if it has more headers than it has room for:
+// each is three cells at the least.
+static size_t headers_read;     // since the first was asked for
+
+uint32_t first_header(const uint8_t* image, size_t len) {
     uint64_t head = 0;
+    headers_read = 0;
     if ((VAR_BASE + 1) * CELL_BYTES > len) return(0);
     memcpy(&head, image + VAR_BASE * CELL_BYTES, CELL_BYTES);
     return(head < len / CELL_BYTES ? head * CELL_BYTES : 0);
 }
 
 // Read the header at byte `head`: its name, and its execution token without
-// the top bit.  Returns the byte the header before it starts at, which is
-// nothing for the first.  What does not fit in the image, or has a link
-// that does not go back, is not a header: then the name is empty and
-// nothing is returned.
+// the top bit.  Returns the byte the header linked after it starts at,
+// which is nothing for the last.  What does not fit in the image, or is
+// linked to itself or to what is outside the image, is not a header: then
+// the name is empty and nothing is returned.  Nor is anything returned for
+// one of more headers than the image has room for, since the first was
+// asked for: a chain that comes round to itself is gone through once.
 uint32_t read_header(const uint8_t* image, size_t len, uint32_t head,
                      uint64_t* xt, char* name) {
     uint64_t link = 0;
@@ -188,8 +201,9 @@ uint32_t read_header(const uint8_t* image, size_t len, uint32_t head,
     memcpy(&link, image + head, CELL_BYTES);
     memcpy(xt, image + head + CELL_BYTES, CELL_BYTES);
     *xt &= ~(1ull << (CELL_BITS - 1));
-    if (link >= head / CELL_BYTES) return(0);
+    if (link == head / CELL_BYTES || link >= len / CELL_BYTES) return(0);
     decode_name(image + head + 2 * CELL_BYTES, len - head - 2 * CELL_BYTES, name);
+    if (++headers_read > len / (3 * CELL_BYTES)) return(0);
     return(link * CELL_BYTES);
 }
 

@@ -356,6 +356,26 @@ const uint8_t* desk_screen(void) {
     return(screen);
 }
 
+// The machine's memory is QEMU's from where the kernel has the image
+// (qemu_image): all of it is saved to a file, and read.
+static uint64_t image_at;
+
+void qemu_image(uint64_t address) {
+    image_at = address;
+}
+
+const uint8_t* desk_memory(size_t* bytes) {
+    static unsigned char* memory;
+    char* path = text("%s/memory", tmp);
+    wait_ms(TURN);
+    qemu_memory(image_at, (uint64_t)CELL_BYTES << ADDR_BITS, path);
+    free(memory);
+    *bytes = file_bytes(path, &memory);
+    if (!*bytes) fail(path);
+    free(path);
+    return(memory);
+}
+
 void desk_block(long n, int count, uint8_t* bytes) {
     wait_ms(500);
     FILE* in = fopen(disk, "rb");

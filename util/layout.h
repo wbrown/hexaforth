@@ -11,7 +11,7 @@
 // of what is in one is nothing, as a count is until it is counted.
 //
 // The rest of an image is cells.  The dictionary's headers are found by
-// going through it from the newest (words.h).  The data starts at the cell
+// going through it as a search does (words.h).  The data starts at the cell
 // VAR_BASE, and the nucleus keeps where it has got to, in bytes, in dp.
 // What is not nothing past that, outside the headers and the pages of
 // code, is data that was laid down in a place of its own: what cross.fs

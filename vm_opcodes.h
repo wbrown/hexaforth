@@ -317,7 +317,7 @@ bool init_opcodes(word_node opcodes[]);
 #define NAME_ROOM (NAME_MOST + CELL_BITS + 1)
 
 int decode_name(const uint8_t* cells, size_t room, char* out);
-uint32_t newest_header(const uint8_t* image, size_t len);
+uint32_t first_header(const uint8_t* image, size_t len);
 uint32_t read_header(const uint8_t* image, size_t len, uint32_t head,
                      uint64_t* xt, char* name);
 uint32_t header_end(const uint8_t* image, size_t len, uint32_t head);

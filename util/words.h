@@ -98,7 +98,7 @@ static long labels_of(const char* tables, int of_data, word** list, long n, long
 static int words_and(const uint8_t* image, size_t len, const char* tables, const word* more, long nmore, word** list) {
     word* out = NULL;
     long n = 0, room = 0;
-    for(uint32_t head = newest_header(image, len); head; ) {
+    for(uint32_t head = first_header(image, len); head; ) {
         uint64_t xt;
         ONE_MORE(out, n, room);
         head = read_header(image, len, head, &xt, out[n].name);
@@ -268,12 +268,12 @@ static const char* word_at(const word* words, int n, long at) {
     return(in);
 }
 
-// The dictionary of an image: the byte its first header starts at, the
-// byte after its last, and how many headers it has.
+// The dictionary of an image: the byte its headers start at in memory, the
+// byte after the last of them there, and how many headers it has.
 static int headers_of(const uint8_t* image, size_t len, size_t* from, size_t* to) {
     int n = 0;
     *from = *to = 0;
-    for(uint32_t head = newest_header(image, len); head; n++) {
+    for(uint32_t head = first_header(image, len); head; n++) {
         uint64_t xt;
         char name[NAME_ROOM];
         size_t end = header_end(image, len, head);

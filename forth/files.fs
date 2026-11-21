@@ -107,9 +107,9 @@ create stays 0 ,
     hdl @ hdp @ - OWN-LEAST u< if own-piece then
 ;
 
-\ a file is begun: dpl, the newest header, the stays of the file
+\ a file is begun: dpl, forth's header, the stays of the file
 \ this is read from, and where its own names start
-: own-names ( -- limit newest stays first? base )
+: own-names ( -- limit head stays first? base )
     dpl @  forth @  stays @  d# 0 stays !
     own @ 0=  dup if
         hdp @ own 1+ !  hdl @ own CELL2 + !  own-piece
@@ -245,8 +245,8 @@ header pushes
 \ the file is done: its own headers, those laid at base or
 \ after, are out of the dictionary; and when the first file is,
 \ the scratch is given back
-: own-done ( limit newest stays first? base -- )
-    >r rot forth  ( limit stays first? newest a ) ( R: base )
+: own-done ( limit head stays first? base -- )
+    >r rot forth  ( limit stays first? head a ) ( R: base )
     begin 2dup @ xor while
         dup @ r@ u< if @ else dup @ @ over ! then
     repeat

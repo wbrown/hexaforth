@@ -194,7 +194,7 @@ create "boot"
 create "error:"
     'e' c, 'r' c, 'r' c, 'o' c, 'r' c, ':' c,
 
-\ forth, the newest word, is the first cell of the data (cross.fs)
+\ forth, the header a search starts at, is the first cell of the data (cross.fs)
 create cp       0 ,         \ Code pointer, grows up,
 create cpn      0 ,         \ and where it goes on from after page 1
 create cpr      $e00 ,      \ and how far into a page a definition may begin
@@ -435,9 +435,9 @@ header cells-fill
 
 \ ---- the dictionary
 \
-\ A header is cells: a link to the header before it, or 0; the
-\ xt, with the top bit set if the word is immediate; and the
-\ name.  A name is codes of five bits, the first in the lowest
+\ A header is cells: a link to the header looked at after it, or
+\ 0; the xt, with the top bit set if the word is immediate; and
+\ the name.  A name is codes of five bits, the first in the lowest
 \ bits of a cell, and the top bit of its last cell is set
 \ (cross.fs lists the codes).  A name is looked up by packing it
 \ the same way into skey and comparing cells.
@@ -501,7 +501,11 @@ header samename?
 : samename? ( wp -- f ) \ has the header that name?
     CELL2 + same-cells? ;
 
-\ The search goes from the newest header to the oldest.
+\ The search goes from forth's header along the links.  A header
+\ made here is linked before the rest, so of a name the newest is
+\ found.  The image's are linked in the order of how often source
+\ says each (cross.fs, headers-ordered): source says the kernel's
+\ words most, and they are the oldest.
 \ Not done, because each changes the header's form for everything
 \ that reads one: a last header whose name is the key, which
 \ would remove the test for the end; and the link pointing at
@@ -513,7 +517,7 @@ header sfind
     begin
         dup
     while
-        dup @ >r  CELL2 +                   ( c-addr u key name ) ( R: the header before )
+        dup @ >r  CELL2 +                   ( c-addr u key name ) ( R: the header after )
         2dup @ = if
             dup same-cells? if
                 rdrop nip nip nip           ( name )
@@ -862,7 +866,7 @@ header s,
 ;
 
 header immediate
-:noname
+: timmediate
     lastword @ cell+
     dup @ d# 1 TOPBIT lshift or
     swap !
@@ -1334,6 +1338,12 @@ header interpret1
         0< state @ and if compile, exit then
         execute exit
     then
+;fallthru
+\ What says it has a number (d#, literals.fs) comes here with it:
+\ a number is no word, and to find that out sfind looks at every
+\ header there is.
+header numbered
+: numbered ( c-addr u -- ) \ a number of the source: left, or compiled
     (doubleAlso)                                ( x literal )
     state @ if execute exit then
     drop

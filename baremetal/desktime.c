@@ -71,7 +71,7 @@ int main(int argc, char *argv[]) {
         return(1);
     }
     tables_are(argv[6]);
-    desk watched = { {"cold", "desktop"}, " catch drop", true, argv[5], argv[8] };
+    desk watched = { true, argv[5], argv[8] };
     for(int what=0; what < TIMES; what++) when[what] = -1;
 
     clock_gettime(CLOCK_MONOTONIC, &started);

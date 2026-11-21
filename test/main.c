@@ -66,14 +66,14 @@ typedef struct dict_entry {
   uint16_t code_addr;
 } dict_entry;
 
-// The words of a test image's dictionary, from the newest (read_header in
-// vm_opcodes.c): how many, and the entries, which are made here and are
-// as many as the dictionary has.
+// The words of a test image's dictionary, from the first that is looked at
+// (read_header in vm_opcodes.c): how many, and the entries, which are made
+// here and are as many as the dictionary has.
 static int parse_dictionary(uint16_t *memory, int total_words,
                             dict_entry **entries) {
   const uint8_t *bytes = (const uint8_t *)memory;
   size_t image_len = (size_t)total_words * 2;
-  uint32_t head = newest_header(bytes, image_len);
+  uint32_t head = first_header(bytes, image_len);
   dict_entry *found = NULL;
   int count = 0, room = 0;
 

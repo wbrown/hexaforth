@@ -393,14 +393,64 @@ s" (the program)" save-mem file-names 2 cells + 2!      \ 1 is the file that is 
 wordlist constant said-wordlist             \ the names the source gave a header
 
 2048 constant saids-room
-create saids saids-room 3 * cells allot     \ of each: the file that gave it its header, and the name
+create saids saids-room 4 * cells allot     \ of each: the file that gave it its header, the name, and the cell the header is at
 variable saids#     0 saids# !
-: said-at ( i -- a ) 3 * cells saids + ;
-: note-said ( -- ) \ the name that create has just made in said-wordlist
+: said-at ( i -- a ) 4 * cells saids + ;
+: note-said ( a -- ) \ the header at the cell a, whose name create has just made in said-wordlist
     saids# @ saids-room = abort" more headers than there is room to note"
     saids# @ said-at >r
+    r@ 3 cells + !
     file-now @ r@ !  latest name>string r> cell+ 2!
     1 saids# +!
+;
+
+\ ---- how often the source says each name
+\
+\ The names the source says are counted as its files are read: a
+\ file is read again as text, a name being what has no space in
+\ it.  \ and ( are names, which the machine looks up as it does
+\ any, and what is after \ on its line or between ( and ) is not
+\ counted.  It is what the order the image's headers are searched
+\ in is made from (headers-ordered).  A file that cross.fs does
+\ not compile, and the machine will, is counted by `says`, and so
+\ is every file it includes.
+wordlist constant said-counts               \ a word a name, with how often it is said
+: said-count ( c-addr u -- a | 0 ) said-counts search-wordlist if >body else 0 then ;
+: count-said ( c-addr u -- ) \ what is longer than a name can be is none
+    dup 63 > if 2drop exit then
+    2dup said-count ?dup if  1 swap +!  2drop exit  then
+    warnings @ >r  warnings off
+    get-current >r  said-counts set-current  nextname create  1 ,  r> set-current
+    r> warnings !
+;
+: token ( a u -- a' u' c-addr n ) \ the next run of what is not a space, which is of no characters at the end
+    begin dup if over c@ bl 1+ u< else false then while 1 /string repeat
+    over >r
+    begin dup if over c@ bl u> else false then while 1 /string repeat
+    over r@ -  r> swap
+;
+: past-char ( a u c -- a' u' ) \ past the next c, or to the end
+    >r  begin dup if over c@ r@ <> else false then while 1 /string repeat  rdrop
+    dup if 1 /string then
+;
+: said-in ( c-addr u follows? -- ) \ count what the file of that name says; with follows?, what it includes too
+    { follows? }
+    slurp-file  over >r                         ( a u ) ( R: the text )
+    begin
+        token dup
+    while
+        2dup s" \" compare 0= if
+            count-said  #lf past-char
+        else 2dup s" (" compare 0= if
+            count-said  [char] ) past-char
+        else 2dup s" include" compare 0=  follows? and if
+            2drop  token  dup if save-mem true recurse else 2drop then
+        else
+            count-said
+        then then then
+    repeat
+    2drop 2drop
+    r> free throw
 ;
 
 4096 constant defs-room
@@ -781,12 +831,17 @@ variable included#  0 included# !
     file-now @ { was }
     a u file-id file-now !  1 file-now @ cells file-open + +!
     1 included-deep +!  1 included# +!
+    a u false said-in
     a u included-whole
     -1 file-now @ cells file-open + +!  was file-now !
     a u  c one-run  tdp @ thp @ + tbp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  c 2/  included-deep @  size-line
     -1 included-deep +!
 ;
 :: include  parse-name save-mem include-measured ;
+\ says FILE: the file is not compiled here, and the machine will
+\ compile it and what it includes from its disk: what they say
+\ is counted
+:: says  parse-name save-mem true said-in ;
 
 \ nearby ... nearby-end: the code between them is laid in the
 \ upper half of the kernel's page.  Each stretch gets a line of
@@ -1047,7 +1102,7 @@ variable fl-run#
 variable link 0 link !
 
 \ A dictionary header is cells:
-\     link    address of the previous header, or 0
+\     link    address of the header looked at after it, or 0
 \     xt      of the code; the top bit is set if immediate
 \     name    codes of five bits, packed from a cell's low bits
 \             up; the top bit of the name's last cell is set
@@ -1148,7 +1203,7 @@ wordlist constant headers-wordlist          \ where each header is, by name (hdr
     link @ note-header
     wordstr nextname
     get-current  said-wordlist set-current  create  set-current
-    note-said
+    link @ note-said
     tcp @ 2/ swap if 1 cell-bits 1- lshift or then tcell,
     bl parse tname,
     there r> - hdr-bytes +!
@@ -1909,7 +1964,7 @@ both-flag:: LEFT-LOW?  disp-left-low 0<> ;
 ( Memory )
 
 both:: VARS       var-base literal ;                \ the first cell one instruction can fetch
-:: forth          var-base literal ;                \ which holds the newest header's address
+:: forth          var-base literal ;                \ which holds the address of the header a search starts at
 both:: HDR-BASE   hdr-base literal ;
 both:: HDR-LIMIT  code-base 2* literal ;            \ where headers made at run time stop: a byte
 both:: DATA-LIMIT data-limit literal ;
@@ -2168,9 +2223,45 @@ create ntb 8 allot
     swap cell-bytes 0 do dup $ff and ntb i + c!  8 rshift loop drop
     ntb cell-bytes rot write-file throw
 ;
+\ ---- the order the image's headers are searched in
+\
+\ The nucleus looks a name up a header at a time, from the header
+\ `forth` holds and along the links (sfind, nuc.fs).  The image's
+\ headers are linked in the order of how often the source says
+\ each one's name (said-counts): the one said most is the first
+\ looked at.  Headers of one name are said as often as each other
+\ and stay newest first, so the newest is the one found.  A header
+\ made on the machine is linked before all of the image's.
+variable ordered  false ordered !
+: said-times ( i -- n ) said-at cell+ 2@ said-count dup if @ then ;
+: header-of ( i -- a ) said-at 3 cells + @ ;
+: headers-ordered ( -- )
+    ordered @  saids# @ 0=  or if exit then
+    true ordered !
+    here  saids# @ cells allot  { order }           \ which header is looked at first, second and so on
+    saids# @ 0 ?do  saids# @ 1- i -  order i cells + !  loop    \ as they are: the newest first
+    saids# @ 1 ?do                                  \ each is put before those said less often
+        order i cells + @ { h }
+        h said-times { n }
+        i begin
+            dup 0> if  order over 1- cells + @ said-times n <  else false then
+        while
+            order over 1- cells + @  order 2 pick cells + !
+            1-
+        repeat
+        cells order + h swap !
+    loop
+    saids# @ 0 ?do                                  \ each is linked to the next, and the last to nothing
+        i 1+ saids# @ < if  order i 1+ cells + @ header-of  else 0 then
+        order i cells + @ header-of  tvar!
+    loop
+    order @ header-of link !
+;
+
 \ forth0 and stamp are two variables of the image: the first is
-\ set to the newest header, the second to the stamp
+\ set to the first of the image's headers, the second to the stamp
 : name-tables ( forth0 stamp -- )
+    headers-ordered
     link @  tcp @ 16 lshift xor  lp @ 7 lshift xor  cell-mask and   ( forth0 stamp x )
     dup rot tvar!                                       ( forth0 x )
     link @ rot tvar!                                    ( x )
@@ -2257,7 +2348,7 @@ variable in-picture  false in-picture !     \ true while a picture has its memor
 get-current  reading-wordlist set-current
 : header ( "name" -- ) parse-name save-mem head-name 2!  true head-given !  false head-imm ! ;
 : header-imm ( "name" -- ) parse-name save-mem head-name 2!  true head-given !  true head-imm ! ;
-: tevaluate ( c-addr u -- ) base @ base>number ;    \ a number, compiled for the machine
+: numbered ( c-addr u -- ) base @ base>number ;     \ a number, compiled for the machine
 : tliteral ( n -- ) literal ;
 : s, ( c-addr u -- ) dup tc,  bounds ?do i c@ tc, loop ;
 : u/mod ( u1 u2 -- rem quot ) 0 swap um/mod ;
@@ -2318,6 +2409,7 @@ s" divide.fs" true host-included
 s" pixels.fs" false host-included
 
 1 file-now !  1 file-open cell+ !
+2dup false said-in
 target included                         \ include the program.fs
 
 [ tcp @ 0 org ]
@@ -2466,6 +2558,7 @@ shadows-written
 ;
 needs-written
 
+headers-ordered                         \ an image with no tables of names has not had it done
 link @ var-base tvar!
 plain @ 0= [if]
     inline-name create-output-file  dup inl-map call# @ rot write-file throw  close-file throw

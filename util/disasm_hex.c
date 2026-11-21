@@ -33,8 +33,8 @@
 // it, the words its boot compiled that are each file's own have their names
 // too, which it keeps there (forth/files.fs).
 //
-// --headers is the dictionary and nothing else, from the newest header to
-// the one its chain stops at (show_headers).
+// --headers is the dictionary and nothing else, from the header a search
+// starts at to the one its chain stops at (show_headers).
 //
 // --typed FILE.fs is the image as the machine has it when that file has
 // been typed at the nucleus's prompt: the words the file defines are
@@ -148,33 +148,34 @@ static int pushes_only(long at, uint64_t* value) {
 }
 
 static void read_dictionary(void) {
-    for(uint32_t head = newest_header(BYTES, LEN); head; ) {
+    for(uint32_t head = first_header(BYTES, LEN); head; ) {
         uint64_t xt;
         char name[NAME_ROOM];
-        uint32_t before = read_header(BYTES, LEN, head, &xt, name);
+        uint32_t after = read_header(BYTES, LEN, head, &xt, name);
         ONE_MORE(HEADERS, NHEADERS, HEADER_ROOM);
         header* h = &HEADERS[NHEADERS++];
         h->xt = (long)xt, h->head = head;
         h->pushes = pushes_only(h->xt, &h->value);
         if (!strcmp(name, "execute")) EXECUTE = h->xt;
-        head = before;
+        head = after;
     }
 }
 
-// The dictionary as it is, from the newest header: the cell each is at,
-// the cell its link says, its word's place and its name.  The last line is
-// the header the chain stops at, which in an image is the first: of a
-// machine's memory it is where a chain that was broken stops, and its link
-// is there to be read.
+// The dictionary as it is searched, from the header a search starts at:
+// the cell each is at, the cell its link says, which is the header looked
+// at after it, its word's place and its name.  The last line is the header
+// the chain stops at, whose link in an image is nothing: of a machine's
+// memory it is where a chain that was broken stops, and its link is there
+// to be read.
 static void show_headers(void) {
-    printf("  cell  before   place  name\n");
-    for(uint32_t head = newest_header(BYTES, LEN); head; ) {
+    printf("  cell   after   place  name\n");
+    for(uint32_t head = first_header(BYTES, LEN); head; ) {
         uint64_t xt;
         char name[NAME_ROOM];
-        uint32_t before = read_header(BYTES, LEN, head, &xt, name);
+        uint32_t after = read_header(BYTES, LEN, head, &xt, name);
         printf("%6lx  %6llx  %6llx  %s\n", (long)(head / CELL_BYTES),
                (unsigned long long)cell_of(BYTES, head / CELL_BYTES), (unsigned long long)xt, name);
-        head = before;
+        head = after;
     }
 }
 

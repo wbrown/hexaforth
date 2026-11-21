@@ -140,6 +140,17 @@ The first of it, on the reference VM, on every size of machine:
   kept of such a number's name has the number, and no place. The target
   `booted-64` and the like say what a boot laid beside what `cross.fs`
   lays of the same words.
+- The boot looks a name up a header at a time (`sfind`, `nuc.fs`), so
+  the image's headers are linked in the order of how often the system's
+  source says each name, the one said most first (`headers-ordered`,
+  `cross.fs`): the applications' source as well, which the image a
+  machine boots from is built without (`says`, `system.fs`). A header
+  made on the machine is linked before the image's, so of a name the
+  newest is found. A number after `d#` or `h#` is read as a number and
+  is not looked up (`numbered`, `nuc.fs`). The target `compiling-64` and
+  the like say what a boot costs and where that goes, and `finding-64`
+  and the like what it asks the dictionary for, and how many headers
+  were looked at for each name.
 - The desktop on a machine started so. `mkdisk --boot-desk` makes a disk
   a machine starts from that is the desktop's as well. The source is
   first, all of it, from block 1, which is the list the boot loads: who

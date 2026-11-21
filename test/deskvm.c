@@ -152,6 +152,12 @@ const uint8_t* desk_screen(void) {
     return(screen);
 }
 
+const uint8_t* desk_memory(size_t* bytes) {
+    taken();
+    *bytes = sizeof(machine.memory);
+    return((const uint8_t*)machine.memory);
+}
+
 void desk_block(long n, int count, uint8_t* bytes) {
     taken();
     fflush(machine.DISKS[0]);
@@ -294,6 +300,6 @@ desk deskvm_start(const char* image, const char* disk, const char* pictures, con
     line(": tp key t1 t2 drop ;");
     line("0 0 display-init ' tp 'poll ! windows");
 
-    desk on = { {"tp", "t2"}, " key t1 t2 drop", names, picture, out };
+    desk on = { names, picture, out };
     return(on);
 }

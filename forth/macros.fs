@@ -7,11 +7,9 @@
 \ runs, and s" keeps its text.
 
 create macro-xt 0 ,     \ where the :: word being made starts
-create t-immediate ," immediate"
 
 header :: : cw-:: ( "name" -- )
-    mkheader t]  thisxt @ macro-xt !
-    t-immediate >c count by-name
+    mkheader t]  thisxt @ macro-xt !  timmediate
 ;
 header-imm literal : cw-literal ( x -- )
     thisxt @ macro-xt @ = if

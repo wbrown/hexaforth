@@ -11,6 +11,7 @@
 #define HEXAFORTH_DESKCHECK_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 // What the machine does.  A screen is a byte a pixel, DISP_W by DISP_H of
@@ -24,11 +25,13 @@ void desk_button(bool down);                        // its button goes down or u
 void desk_turns(int turns);                         // the desktop is given time: so many turns of its loop
 const uint8_t* desk_screen(void);
 void desk_block(long n, int count, uint8_t* bytes); // blocks of the disk, as it now is
+// Its memory as it now is, from cell 0, and how many bytes that is: for its
+// dictionary, which the Words window lists in the order it is searched in.
+// It is the machine's until it is next asked for.
+const uint8_t* desk_memory(size_t* bytes);
 
 // What is so of the machine.
 typedef struct {
-    const char* newest[2];      // the two newest words of its dictionary as the desktop starts,
-    const char* ending;         // and how the definition of the first of them ends
     bool names;                 // its disk has the tables of names
     const char* picture;        // the picture that is on its disk, as a file
     const char* out;            // where the screens are kept

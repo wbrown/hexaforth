@@ -35,29 +35,31 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     int code_end = first_gap;
     if (code_end > 0 && !ctx->memory[code_end - 1]) code_end--;
 
-    // The words of the image's dictionary, from the newest (read_header in
-    // vm_opcodes.c), each noted at the instruction its code starts at.
+    // The words of the image's dictionary, from the first that is looked at
+    // (read_header in vm_opcodes.c), each noted at the instruction its code
+    // starts at.
     const uint8_t *bytes = (const uint8_t *)ctx->memory;
     size_t image_len = (size_t)ctx->HERE * 2;
-    uint32_t head = newest_header(bytes, image_len);
+    uint32_t head = first_header(bytes, image_len);
     char word[256];
     dprintf("WORDS:\n");
 
-    // Where the headers start and where they end, in instructions.
+    // Where the headers start and where they end, in instructions: the
+    // first of them in memory and the last, which are not the first and the
+    // last of the chain (read_header).
     uint32_t DP0 = code_end;
     uint32_t DP1 = DP0;
-    if (head) {
-        DP1 = header_end(bytes, image_len, head) / 2;
-    }
     uint16_t WORDCT=0;
     while (head) {
         uint64_t xt;
         uint32_t before = read_header(bytes, image_len, head, &xt, word);
         if (!word[0]) break;
         if (xt < 65536) asprintf(&ctx->meta[xt], "%s", word);
+        uint32_t end = header_end(bytes, image_len, head) / 2;
+        if (!WORDCT || head / 2 < DP0) DP0 = head / 2;
+        if (!WORDCT || end > DP1) DP1 = end;
         WORDCT++;
         dprintf("  0x%0.4x @ %s => 0x%0.4x\n", head, word, (unsigned)xt);
-        DP0 = head / 2;
         head = before;
     }
     dprintf(" ... %d words scanned!\n", WORDCT);

@@ -1162,6 +1162,23 @@ function(compiled NAME)
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             VERBATIM)
     add_dependencies(compiling-${NAME} counting-${NAME} costs-${NAME} boot-system-${NAME} picture pictures)
+
+    # `finding-64` and the like: what that boot asks the dictionary for.
+    # The same machine is run on the reference VM that watches sfind
+    # (bench/finds.c): how often it is asked, how many headers it looks at,
+    # and each name by what was looked at for it.  It is in
+    # build/NAME/compiling/finds.txt.
+    machine_tool(finds ${NAME} bench/finds.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
+    add_custom_target(finding-${NAME}
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${CP}
+            COMMAND           ${CMAKE_COMMAND} -E env FINDS=${CP}/finds.txt FINDS_NAMES=${AT}/boot/nuc.tables
+                                $<TARGET_FILE:finds-${NAME}> ${AT}/boot/nuc.hex ${AT}/boot/desk.img,${PICTURES}
+                                < ${CMAKE_SOURCE_DIR}/bench/idle.fs > ${CP}/finds.out 2>&1
+            COMMAND           ${CMAKE_COMMAND} -E cat ${CP}/finds.txt
+            COMMAND           ${KEEP} finding ${AT}/boot/nuc.hex ${CP}/finds.txt
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            VERBATIM)
+    add_dependencies(finding-${NAME} finds-${NAME} boot-system-${NAME} picture pictures)
 endfunction()
 
 # What a machine's display shows, from its memory as the reference VM
@@ -1681,9 +1698,12 @@ target_compile_definitions(guitest PRIVATE QEMU_AARCH64="${QEMU_AARCH64}")
 target_compile_definitions(desktime PRIVATE QEMU_AARCH64="${QEMU_AARCH64}")
 tool(kernel_size baremetal/size.c)
 
-# The tests: each kernel against vm.c, and the desktop on QEMU with each,
-# the small one halting if it leaves memory.  A desktop's screens, and its
-# copy of the disk, are kept in a directory named for the kernel.
+# The tests: each kernel against vm.c; the desktop on QEMU with the small
+# one, which halts if it leaves memory; and the desktop with each started
+# from its ROM alone.  The fast kernel's desktop is checked only so: it is
+# the same checks after a boot and a compile as well, and the kernels'
+# devices are the same code.  A desktop's screens, and its copy of the
+# disk, are kept in a directory named for the kernel.
 #
 # A kernel has the machine's image in it, so a test of one needs the kernel
 # built, which is built again when the image is; kernel-tests is the cases,
@@ -1717,7 +1737,6 @@ endfunction()
 kernel_test(hexaforth)
 kernel_test(hexaforth-fast)
 qemu_test(hexaforth STRICT)
-qemu_test(hexaforth-fast)
 qemu_test(hexaforth STRICT ROM)
 qemu_test(hexaforth-fast ROM)
 get_property(SCREENS GLOBAL PROPERTY SCREENS)

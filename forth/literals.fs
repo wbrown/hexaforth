@@ -6,7 +6,7 @@
 
 : base-number ( base "n" -- ) \ compiled, or left if not
     base @ >r  base !
-    parse-name tevaluate
+    parse-name numbered
     r> base !
 ;
 
