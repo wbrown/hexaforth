@@ -2134,7 +2134,7 @@ set(BENCH ${CMAKE_SOURCE_DIR}/bench)
 # one-sample TIFFs (bench/grays.c writes the two files).  A machine is given
 # the three, and bench/pictures.fs, typed at it, finds each picture by its
 # label.  It says a label with parse-name, which the nucleus has: the
-# system with the picture alone has no s" (cross-words.fs).
+# system with the picture alone has no s" (macros.fs).
 tool(picture-grays bench/grays.c bench/tiff.c test/dither.c)
 add_custom_command(
         OUTPUT            ${GRAYS} ${SMALL}

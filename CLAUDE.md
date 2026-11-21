@@ -302,7 +302,7 @@ the tool is extended. What there is to ask:
   (`files.fs`): a use of another file's word that has no header is a
   word the nucleus does not find, and `.public` lists those `cross.fs`
   saw. A macro that another file says has a word with a header that says
-  it (`header FACE : code-face FACE ;`, `text.fs`), as `cross-words.fs`
+  it (`header FACE : code-face FACE ;`, `text.fs`), as `names.fs`
   has for `cross.fs`'s own. A header's name is found only once its file
   has been read: in the file a name is what it was, as it is to
   `cross.fs`
@@ -932,13 +932,28 @@ The toolchain and the nucleus, in Forth (`forth/`):
   left with a call. The words that move the return stack are here, each
   an immediate that offers its instruction to the one before, and so is
   the exit
-- `cross-words.fs`: the words of `cross.fs` that the system's source
-  says (`d#`, `,"`, `[if]`, `::`, the machine's sizes), for the
-  nucleus to compile that source too: each a header named as `cross.fs`'s
-  word is, on a word named otherwise, since `cross.fs` lets no word of
-  the program take the name of one of its own; and what the image says
-  of itself to the decompiler, which may be compiled after the image is
-  made (`forth0`, `tstamp`, `fused-at`)
+- The words of `cross.fs` that the system's source says, for the nucleus
+  to compile that source too: each a header named as `cross.fs`'s word
+  is, on a word named otherwise, since `cross.fs` lets no word of the
+  program take the name of one of its own. Four files are one text for
+  both compilers: `cross.fs` compiles each for the nucleus, and gforth
+  compiles the same file for `cross.fs` itself (`host-included`), which
+  has no copy of its own
+  - `literals.fs`: `d#`, `h#`, `c#`, `,"`, `char`, `[char]`
+  - `conditional.fs`: `[if]`, `[else]`, `[then]`
+  - `divide.fs`: `/` and `mod`, which source between `meta` and `target`
+    uses as well
+  - `pixels.fs`: `picture[` and its rows, and rows of pixels (`p,`,
+    `prow,`, `lefts,`)
+- What each compiler does its own way:
+  - `placement.fs`: `bulk` and `high`, and `meta`, `target` and the words
+    that say a page, which do nothing on the machine
+  - `macros.fs`: `::`, with `literal` and `s"` as they are in its body
+  - `names.fs`: the kernel's words under `cross.fs`'s names, and a word
+    for each macro, flag and constant `cross.fs` defines with `both::`,
+    `both-flag::` and `both-constant`, laid from that list
+- `image.fs`: what the image says of itself to the decompiler, which may
+  be compiled after the image is made (`forth0`, `tstamp`, `fused-at`)
 - `apps.fs`: the applications, which are the end of the system's list:
   every file past the window manager and the console, and the page each
   is laid on.  The image a machine boots from a disk is without them

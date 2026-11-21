@@ -84,12 +84,16 @@ The first of it, on the reference VM, on every size of machine:
   decompiler, the gray picture, the viewer with its menu, the
   calculator, HexaPaint, on 64 bits QEMU's drivers, and `desk.fs`.
   What the image says of itself to the decompiler, which is compiled
-  after it is made, is the image's (`cross-words.fs`).
-  `forth/cross-words.fs` gives the nucleus the words of `cross.fs` that
-  such a file says, each under a header named as `cross.fs`'s word is:
-  `d#`, `,"`, `header`, `[if]`, `meta`, `::` (in whose body `literal`
-  compiles a call), `s"`, the builders of pictures and pattern rows, and
-  the machine's sizes and flags, made from `cross.fs`'s own (`HOST`).
+  after it is made, is the image's (`image.fs`).
+  The words of `cross.fs` that such a file says are the nucleus's too.
+  Those that are one text for both compilers are in files of their own,
+  which gforth compiles for `cross.fs` as well: `d#` and `,"`
+  (`literals.fs`), `[if]` (`conditional.fs`), `/` (`divide.fs`), the
+  builders of pictures and pattern rows (`pixels.fs`).  Those that each
+  compiler does its own way are `meta` and `bulk` (`placement.fs`) and
+  `::`, in whose body `literal` compiles a call, with `s"`
+  (`macros.fs`).  The machine's sizes and flags are laid from
+  `cross.fs`'s own definitions (`names.fs`; `both::`, `HOST`).
   The basewords are words of the nucleus too (`baseword-words`, which
   `basewords.fs` has from `vm_opcodes.h`). `boot_test` starts the ROM
   alone on that disk, runs the desktop the boot compiled, and leaves it:
@@ -410,8 +414,8 @@ A header is of a name the source gives one, and they are where they
 were, below the code (`build/64/nuc.sizes` and the others say what they
 take; the room is what `cross.fs` gives them, `hdr-base`).
 
-- Of those, the headers of `cross-words.fs` and of the basewords and
-  sizes `system.fs` lays are there only for the nucleus to compile the
+- Of those, the headers of `names.fs`, with the basewords and sizes it
+  lays, and of `placement.fs` are there only for the nucleus to compile the
   system's source with.
 - `mkheader` checks the header pointer against the cell headers must
   stop before (`hdp` and `hdl`, `nuc.fs`): where the code starts, for

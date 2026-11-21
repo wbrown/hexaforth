@@ -694,7 +694,7 @@ static const char* step(void) {
 
 // A picture is rows of # and . in the source, and cross.fs lays it in the
 // image.  The nucleus lays one too, when it compiles such a file from a
-// disk (picture[, cross-words.fs): the lines of the picture a table of the
+// disk (picture[, pixels.fs): the lines of the picture a table of the
 // source is are typed at it here, and every pixel it laid is compared with
 // the pixel the source has, as tables.h reads it.  The memory it keeps the
 // rows in while they are typed is to be given back.  Returns whether all

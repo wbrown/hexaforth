@@ -53,7 +53,7 @@ static bool number(const char* word, int64_t* n) {
     return(!*end);
 }
 
-// A picture drawn in the source (picture[, cross.fs): rows of # and ., each
+// A picture drawn in the source (picture[, pixels.fs): rows of # and ., each
 // the rest of a line after row|, in pieces side by side with `beside`
 // between them, up to ]picture; a line that starts with \ is a comment.
 // It is the numbers px, would lay it down as: 64 pixels to a number, the

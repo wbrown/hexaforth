@@ -131,6 +131,14 @@ static check CHECKS[] = {
      5, {5, 9, 7, 7, 0}},
     {"a throw out of a loop leaves the loop it comes back to as it was",
      ": t4 10 0 do i 3 = if 7 throw then loop ; : t5 0 5 0 do ['] t4 catch + i + loop ; t5", 1, {45}},
+    {"what is not a picture is refused, and its memory given back (pixels.fs)",
+     "variable h0  himem @ h0 !\n"
+     "picture[\n"
+     "' row| catch ##x#\n"
+     "' beside catch\n"
+     "picture[\n"
+     "' row| catch ###.\n"
+     "' ]picture catch  himem @ h0 @ -", 5, {-24, -24, 0, -24, 0}},
     {"finding a word, and whether it is immediate",
      ": imm? parse-name sfind nip ;  imm? dup  imm? if  ' dup 0=  ' if 0=", 4, {-1, 1, 0, 0}},
     {"a string interpreted",

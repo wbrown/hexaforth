@@ -17,6 +17,9 @@ variable lst        \ .lst output file handle
     0. bl parse >number throw 2drop postpone literal
     r> base ! ; immediate
 
+: gliteral ( n -- ) postpone literal ;   \ gforth's own literal: this file has another below
+variable reading    false reading !     \ true while gforth compiles a file of the program's (host-included)
+
 : tcell     2 ;
 : tcells    tcell * ;
 : tcell+    tcell + ;
@@ -363,6 +366,7 @@ create page-at code-pages cells allot   page-at code-pages cells erase   \ for e
 ;
 
 wordlist constant target-wordlist
+wordlist constant meta-wordlist             \ words of the program's that source between meta and target runs (host-included)
 : add-order ( wid -- ) >r get-order r> swap 1+ set-order ;
 
 \ ---- who uses what: every definition is noted with its file
@@ -524,6 +528,27 @@ variable listing  false listing !       \ true once the basewords are read: macr
 ;
 : included-whole ( c-addr u -- ) 2dup 2>r included 2r> ?macros ;
 
+\ ---- what the nucleus has a word of too
+\
+\ Source that the nucleus compiles uses these names as well.
+\ both:: is ::, both-flag:: is :: for a flag, and both-constant
+\ is constant.  Each notes its name.  For each name noted,
+\ names.fs lays a word of the nucleus with a header of
+\ that name (both-laid): a macro's word is the macro's body, a
+\ flag's is true or false, and a constant's is its number.
+256 constant boths-room
+create boths boths-room 3 * cells allot     \ of each: its kind (0 a macro, 1 a flag, 2 a constant) and its name
+variable boths#  0 boths# !
+: note-both ( kind "name" -- ) \ the name is left to be read again
+    boths# @ boths-room = abort" more names for the nucleus than there is room to note"
+    boths# @ 3 * cells boths + >r
+    r@ !  >in @  parse-name save-mem r> cell+ 2!  >in !
+    1 boths# +!
+;
+: both:: ( "name" -- ) 0 note-both :: ;
+: both-flag:: ( "name" -- ) 1 note-both :: ;
+: both-constant ( x "name" -- ) 2 note-both constant ;
+
 next-arg included       \ include the machine.fs
 true listing !
 
@@ -531,7 +556,7 @@ true listing !
 
 \ The machine file defines cell-bits and addr-bits.
 
-cell-bits 8 / constant cell-bytes
+cell-bits 8 / both-constant cell-bytes
 var-base fv-base !
 krom-bytes upper !
 
@@ -558,8 +583,9 @@ c-function (machine-lit) fuse_lit a n n a -- n
 ' (machine-fuse) is machine-fuse
 ' (machine-two) is machine-two
 ' (machine-lit) is machine-lit
-cell-bytes 2 = [if] 1 [else] cell-bytes 4 = [if] 2 [else] 3 [then] [then] constant byte-shift
-var-base byte-shift lshift constant data-base       \ the byte of the image the data starts at
+cell-bytes 2 = [if] 1 [else] cell-bytes 4 = [if] 2 [else] 3 [then] [then] both-constant byte-shift
+cell-bits #64 = [if] -1 [else] 1 cell-bits lshift 1- [then] both-constant cell-mask
+var-base byte-shift lshift both-constant data-base  \ the byte of the image the data starts at
 
 : taddr ( byte -- a ) byte-shift rshift ;   \ the number of a cell
 
@@ -583,7 +609,6 @@ var-base byte-shift lshift constant data-base       \ the byte of the image the 
     disp-base one-literal? 0= abort" display: the base is not a single shifted literal"
 ;
 display-ok
-cell-bits #64 = [if] -1 [else] 1 cell-bits lshift 1- [then] constant cell-mask
 
 \ The image, from byte 0: code pages 0 and 1; the data, from the
 \ cell var-base (the variables first, which one instruction
@@ -737,9 +762,7 @@ variable top-kept  0 top-kept !     \ the cells at the top of memory that the RO
 ;
 :: included     included-whole ;
 :: marker       marker ;
-:: [if]         postpone [if] ;
-:: [else]       postpone [else] ;
-:: [then]       postpone [then] ;
+\ [if] [else] [then] are conditional.fs's.
 
 \ A literal is twelve bits shifted left by 0, 12 or 24, pushed or
 \ added.  A wider number is its high part shifted left 36 and the
@@ -760,6 +783,7 @@ variable top-kept  0 top-kept !     \ the cells at the top of memory that the RO
 ;
 
 : literal ( n -- )
+    reading @ if gliteral exit then         \ in a file gforth is compiling: a number of gforth's
     dup 0< if
         invert recurse
         ~T alu
@@ -1258,18 +1282,7 @@ variable key-at
     128 0 do key-shifted i + c@ tc, loop
 ;
 
-:: p,  pixels tc, ;
-:: pcell, ( byte -- ) tcalign pixels tcell, ;   \ eight pixels as a cell
-:: prow, ( byte -- ) \ eight pixels, repeated across a cell
-    tcalign
-    pixels cell-bytes 0 do dup tc, loop drop
-;
-:: px-cells, ( n -- ) \ the cells that n runs of 64 pixels are
-
-    #64 cell-bits / *
-    tcalign
-    there tcell!  cell-bytes tdp +!
-;
+\ p, pcell, prow, px-cells, lefts, and pictures are pixels.fs's.
 
 \ A font is written as a strike (mono.fs).  ]font lays it in
 \ another form, and replaces the last two of the strike's five
@@ -1377,68 +1390,6 @@ variable fg                                 \ the glyph whose rows are being lai
 ;
 :: px, ( pixels -- ) px-lay ;
 
-\ picture[ ... ]picture: a row is the line after row|, # ink and
-\ . none.  The piece after `beside` goes to the right of what is
-\ drawn, row for row.  A row is a whole number of 64 pixels.
-#64 constant pic-down                       \ the most rows a picture has,
-#1024 constant pic-across                   \ and the most pixels a row
-create pic-px  pic-down pic-across * allot  \ a character a pixel, 1 for ink: a row after a row
-create pic-n   pic-down cells allot         \ how many pixels each row has so far
-variable pic-rows                           \ how many rows the first piece had: -1 until it is done
-variable pic-row                            \ the row of this piece that is next
-variable in-picture     false in-picture !
-
-: pic-piece ( -- ) \ the piece that was being drawn is done
-    pic-row @ 0= abort" a piece of a picture has no rows"
-    pic-row @ 0 do
-        pic-n i cells + @  pic-n @  <> abort" the rows of a piece of a picture are not all as long"
-    loop
-    pic-rows @ 0< if pic-row @ pic-rows ! then
-    pic-row @ pic-rows @ <> abort" a piece of a picture has not as many rows as the first"
-;
-:: picture[ ( -- )
-    in-picture @ abort" picture[ within a picture"
-    true in-picture !  -1 pic-rows !  0 pic-row !
-    pic-n pic-down cells erase
-;
-:: beside ( -- )
-    in-picture @ 0= abort" beside with no picture"
-    pic-piece  0 pic-row !
-;
-:: row| ( "pixels" -- )
-    in-picture @ 0= abort" a row of a picture with no picture[ before it"
-    pic-row @ pic-down = abort" a picture has too many rows"
-    0 parse bounds ?do
-        i c@ bl <> if
-            i c@ [char] # <>  i c@ [char] . <>  and abort" a picture is # and ."
-            pic-n pic-row @ cells + @               ( across )
-            dup pic-across = abort" a row of a picture is too long"
-            i c@ [char] # = 1 and
-            over  pic-row @ pic-across * +  pic-px + c!
-            1+  pic-n pic-row @ cells + !
-        then
-    loop
-    1 pic-row +!
-;
-:: ]picture ( -- )
-    in-picture @ 0= abort" ]picture with no picture"
-    pic-piece  false in-picture !
-    pic-n @ 63 and abort" a row of a picture is not a whole number of 64 pixels"
-    pic-rows @ 0 do
-        pic-n @ 0 do
-            0  64 0 do  2*  k pic-across * j + i + pic-px + c@ or  loop
-            px-lay
-        64 +loop
-    loop
-;
-:: lefts, ( -- ) \ a cell for each count: that many pixels at its left
-    tcalign
-    cell-bits 1+ 0 do
-        i cell-bits = if -1 else 1 i lshift 1- then
-        disp-left-low 0= if cell-bits i - lshift then
-        tcell,
-    loop
-;
 
 \ ---- the decompiler's tables of names (.tables), for the disk:
 \ words and labels by xt, and those that are a number by the
@@ -1590,10 +1541,7 @@ variable nt-at                              \ the cell the block being filled st
     >body @  tcalign tcell,
 ;
 
-:: ," \ a counted string
-    [char] " parse dup tc,
-    bounds ?do i c@ tc, loop
-;
+\ ," d# h# c# char and [char] are literals.fs's.
 
 :: allot
     0 ?do
@@ -1731,7 +1679,7 @@ variable tabled  -1 tabled !            \ the page the last table is on
 
 : target    only target-wordlist add-order definitions ;
 : ]         target ;
-:: meta     forth definitions ;
+:: meta     forth definitions  meta-wordlist add-order ;
 :: [        forth definitions ;
 
 : t'        bl parse target-wordlist search-wordlist 0= throw >body @ ;
@@ -1769,139 +1717,162 @@ variable tabled  -1 tabled !            \ the page the last table is on
     then ;
 warnings on
 
-:: c# base @ >r decimal 0. bl parse >number 2drop drop r> base ! literal ;
-:: d# bl parse 10 base>number ;
-:: h# bl parse 16 base>number ;
 :: ['] ' >body dup name-used @ literal ;
 
 \ n at: data name  is the address n cells past data, in line
 :: at: ( n "data" "name" -- )
     ' >body dup name-used @ +  create  false said-header !  note-def  ,
     does> dup name-used @ literal ;
-:: [char] char literal ;
 
 ( The machine's sizes, for the target program )
 
-:: CELL       1 literal ;                       \ from one cell's address to the next
-:: CELL2      2 literal ;                       \ offset of a header's name
-:: CELLB      cell-bytes literal ;              \ bytes in a cell
-:: BYTESHIFT  byte-shift literal ;              \ and the shift that multiplies by that
-:: ALIGN-MASK cell-bytes negate literal ;       \ of a byte address: the start of its cell
-:: OFFSET-MASK cell-bytes 1- literal ;          \ of a byte address: where in its cell
-:: (>c)       byte-shift literal s" lshift" evaluate ;  \ a cell's byte address
-:: (c>)       byte-shift literal s" rshift" evaluate ;  \ the cell a byte is in
-:: TOPBIT     cell-bits 1- literal ;            \ index of the sign bit
-:: HALFBITS   cell-bits 2/ literal ;
-:: NAME-PER   name-per literal ;                \ codes of a name in a cell,
-:: NAME-BITS  name-bits literal ;               \ and the bits they are,
-:: NAME-SPARE cell-bits name-bits - literal ;   \ and the bits of a cell that are not theirs
-:: codes-of-chars, codes-of-chars, ;            \ the two tables of a name's codes
+\ What is defined with both:: or both-flag:: the nucleus has a
+\ word of, laid in the order they are defined here.
+
+both:: CELL       1 literal ;                       \ from one cell's address to the next
+both:: CELL2      2 literal ;                       \ offset of a header's name
+both:: CELLB      cell-bytes literal ;              \ bytes in a cell
+both:: BYTESHIFT  byte-shift literal ;              \ and the shift that multiplies by that
+both:: ALIGN-MASK cell-bytes negate literal ;       \ of a byte address: the start of its cell
+both:: OFFSET-MASK cell-bytes 1- literal ;          \ of a byte address: where in its cell
+both:: TOPBIT     cell-bits 1- literal ;            \ index of the sign bit
+both:: HALFBITS   cell-bits 2/ literal ;
+both:: NAME-PER   name-per literal ;                \ codes of a name in a cell,
+both:: NAME-BITS  name-bits literal ;               \ and the bits they are,
+both:: NAME-SPARE cell-bits name-bits - literal ;   \ and the bits of a cell that are not theirs
+:: codes-of-chars, codes-of-chars, ;                \ the two tables of a name's codes
 :: chars-of-codes, chars-of-codes, ;
-:: TOP16      cell-bits #16 - literal ;         \ shift that puts 16 bits at the top
-:: (i@)  cell-bits #16 = if s" @" else s" 2* uw@" then evaluate ;
-:: (i!)  cell-bits #16 = if s" !" else s" 2* w!" then evaluate ;
+both:: TOP16      cell-bits #16 - literal ;         \ shift that puts 16 bits at the top
 
 ( The display, for display.fs )
 
-:: RAW>SRC        disp-ink-black 0= if s" invert" evaluate then ;   \ a set bit is black
-:: PXCELL         cell-bits literal ;           \ pixels in a cell
-:: CELLBITS       cell-bits literal ;
-:: LANE1          0 cell-bits 16 / 0 do 16 lshift 1 or loop literal ;   \ 1 in each lane of 16 bits
-:: LANES          lanes literal ;               \ how many lanes that is,
-:: LANESHIFT                                    \ and the shift that divides by it
+both:: PXCELL     cell-bits literal ;               \ pixels in a cell
+both:: CELLBITS   cell-bits literal ;
+both:: LANE1      0 cell-bits 16 / 0 do 16 lshift 1 or loop literal ;   \ 1 in each lane of 16 bits
+both:: LANES      lanes literal ;                   \ how many lanes that is,
+both:: LANESHIFT                                    \ and the shift that divides by it
     lanes 4 = if 2 else lanes 2 = if 1 else 0 then then literal ;
-:: PXMASK         cell-bits 1- literal ;        \ and: how far into its cell a pixel is
-:: PXSHIFT        byte-shift 3 + literal ;      \ rshift: which cell of its row
+both:: PXMASK     cell-bits 1- literal ;            \ and: how far into its cell a pixel is
+both:: PXSHIFT    byte-shift 3 + literal ;          \ rshift: which cell of its row
 :: DISP-BASE      disp-base literal ;
 :: DISP-STRIDE    disp-stride literal ;
 :: DISP-BANKS     disp-banks literal ;
 :: DISP-BANK-STEP disp-bank-step literal ;
-:: BANKED?    disp-banks 1 > ;
-:: INK-BLACK? disp-ink-black 0<> ;
-:: LEFT-LOW?  disp-left-low 0<> ;
-:: PIXR   disp-left-low if s" lshift" else s" rshift" then evaluate ;  \ pixels to the right
-:: PIXL   disp-left-low if s" rshift" else s" lshift" then evaluate ;
-:: EDGE   disp-left-low 0= if cell-bits 8 - literal s" lshift" evaluate then ; \ a byte to a cell's left
-:: LEFT8  disp-left-low if $ff literal s" and" evaluate
-          else cell-bits 8 - literal s" rshift" evaluate then ;
-:: LEFT1  disp-left-low if 1 else 1 cell-bits 1- lshift then literal ;
-:: M8     disp-left-low if $ff else $ff cell-bits 8 - lshift then literal ;
-:: VARS       var-base literal ;                \ the first cell one instruction can fetch
-:: forth      var-base literal ;                \ which holds the newest header's address
-:: HDR-BASE   hdr-base literal ;
+both-flag:: BANKED?    disp-banks 1 > ;
+both-flag:: INK-BLACK? disp-ink-black 0<> ;
+both-flag:: LEFT-LOW?  disp-left-low 0<> ;
+
+( Memory )
+
+both:: VARS       var-base literal ;                \ the first cell one instruction can fetch
+:: forth          var-base literal ;                \ which holds the newest header's address
+both:: HDR-BASE   hdr-base literal ;
+both:: HDR-LIMIT  code-base 2* literal ;            \ where headers made at run time stop: a byte
+both:: DATA-LIMIT data-limit literal ;
+\ the cell after the last that is anyone's to take
+both:: MEM-END    1 addr-bits lshift top-kept @ - cell-mask and literal ;
+both:: CODE-BASE  code-base literal ;
+both:: CODE-SIZE  code-size literal ;
 
 ( The disk )
 
-:: LINE-CHARS  disk-line literal ;
-:: BLOCK-LINES disk-block disk-line / literal ;
-:: LINE-SHIFT  0 begin 1 over lshift disk-line < while 1+ repeat literal ;
-:: LAST-COLUMN disk-line 1- literal ;
-:: LAST-LINE   disk-block disk-line / 1- literal ;
-:: BLOCK-CHARS disk-block literal ;
-:: BLKCELLS    disk-block cell-bytes / literal ;
-:: LINE-ROUND  disk-line 2 - literal ;          \ added to >in, which is two past a \,
-:: LINE-MASK   disk-line negate literal ;       \ and this kept: where its line ends
-:: NAMES-BLK   disk-names-block literal ;       \ what is where on the disk: vm_constants.h
-:: CANVAS-BLK  disk-canvas-block literal ;
-:: MASK64-BLK  disk-masks-block literal ;       \ the threshold masks: blue noise of 64 by 64,
-:: MASK32-BLK  disk-mask32-block literal ;      \ of 32 by 32,
-:: BAYER-BLK   disk-bayer-block literal ;       \ and Bayer's of 8 by 8
-:: VIEW-BLK    disk-view-block literal ;        \ the viewer's bitmap,
-:: VIEW-BLKS   disk-view-blocks literal ;
-:: GRAY-BLK    disk-gray-block literal ;        \ the viewer's picture kept as gray,
-:: GRAY-BLKS   disk-gray-blocks literal ;
-:: OWN-BLKS    disk-own-blocks literal ;        \ for the names of words a boot compiles
-:: SOURCE-BLK  disk-source-block literal ;      \ what a machine started from its ROM loads
-:: DISK-SHIFT  disk-block-bits literal ;        \ a block's number, rshift: its disk
-:: DRIVES      disk-drives literal ;
+both:: LINE-CHARS  disk-line literal ;
+both:: BLOCK-LINES disk-block disk-line / literal ;
+both:: LINE-SHIFT  0 begin 1 over lshift disk-line < while 1+ repeat literal ;
+both:: LAST-COLUMN disk-line 1- literal ;
+both:: LAST-LINE   disk-block disk-line / 1- literal ;
+both:: BLOCK-CHARS disk-block literal ;
+both:: BLKCELLS    disk-block cell-bytes / literal ;
+both:: LINE-ROUND  disk-line 2 - literal ;          \ added to >in, which is two past a \,
+both:: LINE-MASK   disk-line negate literal ;       \ and this kept: where its line ends
+both:: NAMES-BLK   disk-names-block literal ;       \ what is where on the disk: vm_constants.h
+both:: CANVAS-BLK  disk-canvas-block literal ;
+both:: MASK64-BLK  disk-masks-block literal ;       \ the threshold masks: blue noise of 64 by 64,
+both:: MASK32-BLK  disk-mask32-block literal ;      \ of 32 by 32,
+both:: BAYER-BLK   disk-bayer-block literal ;       \ and Bayer's of 8 by 8
+both:: VIEW-BLK    disk-view-block literal ;        \ the viewer's bitmap,
+both:: VIEW-BLKS   disk-view-blocks literal ;
+both:: GRAY-BLK    disk-gray-block literal ;        \ the viewer's picture kept as gray,
+both:: GRAY-BLKS   disk-gray-blocks literal ;
+:: OWN-BLKS        disk-own-blocks literal ;        \ for the names of words a boot compiles
+both:: SOURCE-BLK  disk-source-block literal ;      \ what a machine started from its ROM loads
+:: DISK-SHIFT      disk-block-bits literal ;        \ a block's number, rshift: its disk
+:: DRIVES          disk-drives literal ;
 \ the index, block 0 (doc/disk.md): a number of an entry is two bytes
-:: ENTRY-BYTES  disk-entry literal ;
-:: ENTRIES      disk-block disk-entry / literal ;
-:: ENTRY-TYPE   disk-entry-type literal ;
-:: ENTRY-FIRST  disk-entry-first literal ;
-:: ENTRY-BLOCKS disk-entry-blocks literal ;
-:: ENTRY-WHERE  disk-entry-where literal ;
-:: TYPE-BINARY  disk-binary literal ;
-:: TYPE-SOURCE  disk-source literal ;
-:: TYPE-INDEX   disk-index literal ;
+both:: ENTRY-BYTES  disk-entry literal ;
+both:: ENTRIES      disk-block disk-entry / literal ;
+both:: ENTRY-TYPE   disk-entry-type literal ;
+both:: ENTRY-FIRST  disk-entry-first literal ;
+both:: ENTRY-BLOCKS disk-entry-blocks literal ;
+both:: ENTRY-WHERE  disk-entry-where literal ;
+both:: TYPE-BINARY  disk-binary literal ;
+both:: TYPE-SOURCE  disk-source literal ;
+both:: TYPE-INDEX   disk-index literal ;
 \ a row of a mask on the disk: its planes, the lowest first
-:: MASK-WIDTH  disk-mask-width literal ;        \ pixels across,
-:: MASK-CELLS  disk-mask-width cell-bits / literal ;    \ which is the cells of a plane's row;
-:: MASK-ROW    disk-mask-width cell-bits / disk-mask-planes * literal ; \ the cells of a row
-:: MASK-ROWS-SHIFT                              \ 1, lshift: the rows in a block
+both:: MASK-WIDTH  disk-mask-width literal ;        \ pixels across,
+both:: MASK-CELLS  disk-mask-width cell-bits / literal ;    \ which is the cells of a plane's row;
+both:: MASK-ROW    disk-mask-width cell-bits / disk-mask-planes * literal ; \ the cells of a row
+both:: MASK-ROWS-SHIFT                              \ 1, lshift: the rows in a block
     disk-block 8 * disk-mask-width / disk-mask-planes /
     0 begin 2dup 1 swap lshift > while 1+ repeat nip literal ;
-:: DATA-LIMIT data-limit literal ;
-\ the cell after the last that is anyone's to take
-:: MEM-END    1 addr-bits lshift top-kept @ - cell-mask and literal ;
-:: CODE-BASE  code-base literal ;
-:: CODE-SIZE  code-size literal ;
-:: DISPLAY? disp-w 0<> ;
-:: W64?   cell-bits #64 = ;
-:: W32?   cell-bits #32 = ;
-:: W32+?  cell-bits #32 >= ;
+
+both-flag:: DISPLAY? disp-w 0<> ;
+both-flag:: W64?   cell-bits #64 = ;
+both-flag:: W32?   cell-bits #32 = ;
+both-flag:: W32+?  cell-bits #32 >= ;
 
 s" BOOT" getenv s" on" compare 0= constant booting  \ BOOT=on: the image without apps.fs
-:: BOOTING? booting ;
+both-flag:: BOOTING? booting ;
 
-\ a baseword as a word with a header of its name, if there is none
-:: bw-header ( "name" -- )
-    bl word count  2dup headers-wordlist search-wordlist if drop 2drop exit then
-    s" header " pad place  2dup pad +place  s"  : bw-" pad +place  2dup pad +place
-    s"  " pad +place  pad +place  s"  ;" pad +place  pad count evaluate
+( What is code, and not a number )
+
+both:: (i@)  cell-bits #16 = if s" @" else s" 2* uw@" then evaluate ;
+both:: (i!)  cell-bits #16 = if s" !" else s" 2* w!" then evaluate ;
+both:: (>c)       byte-shift literal s" lshift" evaluate ;  \ a cell's byte address
+both:: (c>)       byte-shift literal s" rshift" evaluate ;  \ the cell a byte is in
+both:: RAW>SRC    disp-ink-black 0= if s" invert" evaluate then ;   \ a set bit is black
+both:: PIXR   disp-left-low if s" lshift" else s" rshift" then evaluate ;  \ pixels to the right
+both:: PIXL   disp-left-low if s" rshift" else s" lshift" then evaluate ;
+both:: EDGE   disp-left-low 0= if cell-bits 8 - literal s" lshift" evaluate then ; \ a byte to a cell's left
+both:: LEFT8  disp-left-low if $ff literal s" and" evaluate
+          else cell-bits 8 - literal s" rshift" evaluate then ;
+both:: LEFT1  disp-left-low if 1 else 1 cell-bits 1- lshift then literal ;
+both:: M8     disp-left-low if $ff else $ff cell-bits 8 - lshift then literal ;
+
+\ `HEAD NAME : bw-NAME BODY ;` is compiled, unless NAME has a
+\ header: a word of the nucleus with a header of that name
+: word-of { na nu ba bu ha hu -- }
+    na nu headers-wordlist search-wordlist if drop exit then
+    ha hu pad place  na nu pad +place  s"  : bw-" pad +place  na nu pad +place
+    s"  " pad +place  ba bu pad +place  s"  ;" pad +place  pad count evaluate
 ;
+\ a baseword as a word with a header of its name
+:: bw-header ( "name" -- ) bl word count  2dup  s" header " word-of ;
 \ and one of the machine's sizes
-:: bw-size ( "name" -- )
-    bl word count  2dup headers-wordlist search-wordlist if drop 2drop exit then
-    s" header " pad place  2dup pad +place  s"  : bw-" pad +place  2dup pad +place
-    s"  HOST " pad +place  pad +place  s"  ;" pad +place  pad count evaluate
-;
+:: bw-size ( "name" -- ) bl word count  s" HOST " 2over s+  s" header " word-of ;
 
 :: HOST ( "name" -- ) \ what that word of this file's is, as a number
     bl word count forth-wordlist search-wordlist 0= abort" HOST: there is no such word here"
     execute literal ;
 
-:: HDR-LIMIT code-base 2* literal ;     \ where headers made at run time stop: a byte
+\ a word of the nucleus for each name noted of that kind
+: both-laid { kind -- }
+    boths# @ 0 ?do
+        i 3 * cells boths + @ kind = if
+            i 3 * cells boths + cell+ 2@ { na nu }
+            kind 0 = if na nu  na nu  s" header " word-of then
+            kind 1 = if
+                na nu target-wordlist search-wordlist 0= abort" a flag noted for the nucleus is not a macro"
+                execute if s" true" else s" false" then { ba bu }
+                na nu  ba bu  s" header-imm " word-of
+            then
+            kind 2 = if na nu  s" HOST " na nu s+  s" header " word-of then
+        then
+    loop
+;
+:: machine-words ( -- ) 0 both-laid ;   \ the macros
+:: flag-words ( -- ) 1 both-laid ;      \ the flags: immediate, for a conditional
+:: size-words ( -- ) 2 both-laid ;      \ cross.fs's own constants
 
 :: asm-0branch
     ' >body @
@@ -2083,6 +2054,122 @@ plain @ [if]
     [then]
 [then]
 
+
+\ ---- a file of the program's that cross.fs runs as well
+\
+\ Some words of the program are run as source is compiled
+\ (pixels.fs).  They are written once, as target source, and
+\ host-included has gforth compile the same file: its words go
+\ in common-wordlist, and one that has a header is made a macro
+\ of the header's name.  reading-wordlist is what words of the
+\ text mean while gforth compiles it: those gforth has not, or
+\ has otherwise, and every macro and flag of both:: as a word
+\ that acts at once.  A cell of gforth's stands for a cell of
+\ the machine's, and a count of cells for a count of bytes.
+wordlist constant common-wordlist
+wordlist constant reading-wordlist
+2variable head-name                         \ the name a header gave the next definition,
+variable head-given  false head-given !     \ if one did,
+variable head-imm                           \ and whether it was header-imm
+variable to-meta                            \ true if the file's words are for meta passages too
+
+: macro-of { xt na nu -- } \ a macro of that name that runs xt
+    get-current  target-wordlist set-current
+    na nu nextname create  xt ,
+    set-current
+    align here  macros @ ,  latestxt ,  true ,  nu ,  na here nu dup allot move  macros !
+    does> @ execute
+;
+: meta-of { xt na nu imm -- } \ and a word of meta-wordlist that runs it
+    get-current  meta-wordlist set-current
+    na nu nextname create  xt ,  imm if immediate then
+    set-current
+    does> @ execute
+;
+
+: host-number ( base "n" -- n )
+    base @ >r base !
+    parse-name s>number? 0= abort" a file gforth compiles has what is not a number"
+    d>s  r> base !
+;
+: host-literal ( n -- ) state @ if gliteral then ;
+
+\ In a font a picture's cells go to the strike, 64 pixels at a
+\ time with the leftmost highest.
+variable strike-run  0 strike-run !         \ the pixels gathered,
+variable strike-n    0 strike-n !           \ and how many cells of them
+: strike-cell ( x -- ) \ a cell of pixels as the display has them
+    cell-mask and
+    disp-left-low if  0 swap cell-bits 0 do dup 1 and rot 2* or swap 2/ loop drop  then
+    strike-run @  cell-bits 64 = if drop 0 else cell-bits lshift then  or strike-run !
+    1 strike-n +!
+    strike-n @ 64 cell-bits / = if  strike-run @ px-lay  0 strike-run !  0 strike-n !  then
+;
+variable host-dpl  -1 1 rshift host-dpl !   \ no limit: the data's room is checked when the image is done
+variable in-picture  false in-picture !     \ true while a picture has its memory: from picture[ to ]picture
+
+get-current  reading-wordlist set-current
+: header ( "name" -- ) parse-name save-mem head-name 2!  true head-given !  false head-imm ! ;
+: header-imm ( "name" -- ) parse-name save-mem head-name 2!  true head-given !  true head-imm ! ;
+: tevaluate ( c-addr u -- ) base @ base>number ;    \ a number, compiled for the machine
+: tliteral ( n -- ) literal ;
+: s, ( c-addr u -- ) dup tc,  bounds ?do i c@ tc, loop ;
+: u/mod ( u1 u2 -- rem quot ) 0 swap um/mod ;
+: d# ( "n" -- ) 10 host-number host-literal ; immediate
+: h# ( "n" -- ) 16 host-number host-literal ; immediate
+: c# ( "n" -- ) 10 host-number host-literal ; immediate
+: u2/ ( u -- u' ) 1 rshift ;
+: or! ( x a -- ) tuck @ or swap ! ;
+: >c ( n -- n ) ;                           \ a count of cells is not made a count of bytes
+: halloc ( n -- a ) cells allocate throw  true in-picture ! ;
+: hgive ( a n -- ) drop free throw  false in-picture ! ;
+: cells-fill ( x a n -- ) cells bounds ?do dup i ! cell +loop drop ;
+: align ( -- ) tcalign ;
+: t, ( x -- ) in-font @ in-picture @ and if strike-cell else tcalign tcell, then ;
+: dp ( -- a ) tdp ;
+: dpl ( -- a ) host-dpl ;
+: -throw ( f n -- ) negate and throw ;
+: ; ( -- ) \ and a macro of the header's name, if a header named the definition
+    postpone ;
+    head-given @ if
+        false head-given !
+        latestxt { xt }
+        xt head-name 2@ macro-of
+        to-meta @ if xt head-name 2@ head-imm @ meta-of then
+    then
+; immediate
+set-current
+
+: acts-at-once ( xt na nu -- ) nextname create , immediate does> @ execute ;
+: both-at-once ( -- ) \ each macro and flag of both::, in reading-wordlist
+    get-current  reading-wordlist set-current
+    boths# @ 0 ?do
+        i 3 * cells boths + dup @ 2 < if
+            cell+ 2@  2dup target-wordlist search-wordlist 0= abort" a name noted for the nucleus is not a macro"
+            -rot acts-at-once
+        else
+            drop
+        then
+    loop
+    set-current
+;
+both-at-once
+
+\ gforth compiles the file.  With meta? true its words are also
+\ the ones source between meta and target runs.
+: host-included ( c-addr u meta? -- )
+    to-meta !
+    2>r  get-order get-current  base @  2r>     ( order n current base c-addr u )
+    decimal
+    only forth-wordlist add-order common-wordlist add-order reading-wordlist add-order
+    common-wordlist set-current
+    true reading !  included  false reading !
+    base !  set-current set-order
+;
+s" literals.fs" false host-included
+s" conditional.fs" true host-included
+s" divide.fs" true host-included
+s" pixels.fs" false host-included
 
 1 file-now !  1 file-open cell+ !
 target included                         \ include the program.fs

@@ -135,8 +135,7 @@ void generate_basewords_fs(const char* path) {
     // nucleus compiles can say it: a header of its name on a word that is
     // the baseword, which the nucleus compiles in place.  cross.fs lets no
     // word of the program take a macro's name, so the word is bw- and the
-    // name, and the header is given the name (forth/cross-words.fs runs
-    // this).
+    // name, and the header is given the name (forth/names.fs runs this).
     fprintf(out, "\n\\ the words as the nucleus's\nsource: baseword-words\n");
     for(curr_word = &FORTH_WORDS[0]; curr_word->repr && strlen(curr_word->repr); curr_word++) {
         if (is_phrase(curr_word->repr)) continue;

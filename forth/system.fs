@@ -16,7 +16,14 @@ target
 
 include machine.fs      \ device registers, high memory, byte-order helpers
 include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD
-include cross-words.fs  \ cross.fs's words, for the nucleus
+include literals.fs     \ numbers, characters and strings in source
+include conditional.fs  \ [if] [else] [then]
+include divide.fs       \ / mod
+include placement.fs    \ where data and code are laid
+include macros.fs       \ :: on the machine
+include pixels.fs       \ pictures and rows of pixels in source
+include names.fs        \ names source uses that the kernel has not
+include image.fs        \ what the image says of itself
 
 \ ---- what draws
 
