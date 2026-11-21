@@ -1,0 +1,18 @@
+Names defined when there was one of that name already: the name, the file that had it, and the file
+that defines it again.  Forth finds the newest, and nothing is stopped for these (cross.fs, names defined again).
+
+A word, table, constant or macro of a name the program has defined already.
+  twice  (the program)  (the program)
+
+One with no header, of a name that has a header: once its file is read the machine finds the header's word again, and cross.fs goes on finding this one.
+  kept  (the program)  (the program)
+
+A header of a name that has a header: typed, the newer is found.
+  said  (the program)  (the program)
+
+Between meta and target, a name that is also a word's, a macro's or a header's, or one cross.fs or gforth has: on the machine they are one dictionary.
+  spaces  (cross.fs)  (the program)
+  twice  (the program)  (the program)
+
+A word, table, constant or macro named as something defined between meta and target was.
+  seven  (the program)  (the program)

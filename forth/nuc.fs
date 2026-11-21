@@ -198,6 +198,9 @@ create "error:"
 create cp       0 ,         \ Code pointer, grows up,
 create cpn      0 ,         \ and where it goes on from after page 1
 create cpr      $e00 ,      \ and how far into a page a definition may begin
+\ for each code page, the instruction its code has reached, or 0
+\ for a page with none (pages-laid, cross.fs)
+create pages   meta code-pages cell-bytes * target allot
 create dp       0 ,         \ Data pointer, in bytes, grows up,
 create dpl      0 ,         \ and where the data must stop
 create bdp      0 ,         \ the same of what is not variables (bulk)
@@ -1664,6 +1667,7 @@ target
 header bye : bye halt ;
 
 include join.fs
+meta t' pcompile, t' 'compile tvar! target  \ placement.fs puts a word before it
 DISPLAY? [if]
 include-system
 \ what is given out at run time starts above the display's data
@@ -1673,7 +1677,6 @@ include folds.fs
 [then]
 
 meta
-    t' pcompile, t' 'compile tvar!
     t' main-task t' main-task tvar!     \ the first task, in a ring of one
     t' main-task t' up tvar!
     t' uart-emit t' main-task 6 + tvar!
@@ -1697,4 +1700,5 @@ meta
     dup t' cpn tvar!
     tabled @ 1 = [if] [else] drop  page-at cell+ @ 2/ [then]
     t' cp tvar!
+    t' pages pages-laid
 target

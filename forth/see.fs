@@ -14,7 +14,7 @@ create sfresh 0 ,      \ true while the line has no token
 create sbold 0 ,       \ true for the words of a
                        \ fused instruction
 create sital 0 ,       \ true for a name that is a label
-create slab 0 ,        \ true if the last xt>hdr found a label
+create slabel 0 ,      \ true if the last xt>hdr found a label
 create squiet 0 ,      \ true on the first reading
 create sxt 0 ,         \ the definition
 create spc 0 ,         \ the instruction being read
@@ -154,12 +154,24 @@ header names-unload
     2* own-ix +  2dup @ < if 2drop false exit then
     1+ @ > 0= ;
 
+\ the record of the word at xt: not one whose key is a number
+: own-in ( xt a -- rec|0 ) \ of the records of a block
+    dup @ negate >r 1+                      ( xt rec ) ( R: -k )
+    begin r@ while
+        2dup cell+ @ =  over @ d# 2 and 0=  and if
+            nip rdrop exit
+        then
+        rec-next  r> 1+ >r
+    repeat
+    2drop rdrop d# 0
+;
+
 : own>rec ( xt -- rec|0 )
     names? 0= if drop d# 0 exit then
     >r  own-kept 1+ @ negate                ( -n ) ( R: xt )
     begin dup while
         r@ over own-kept 1+ @ + own-has? if
-            r@ over own-kept 1+ @ + own-block rec-find
+            r@ over own-kept 1+ @ + own-block own-in
             ?dup if nip rdrop exit then
         then
         1+
@@ -174,13 +186,13 @@ header names-unload
 : xt>file ( xt -- hdr|0 ) \ a word's header, or a label's record
     names? 0= if drop d# 0 exit then
     xrun nm-find dup if
-        dup @ dup 0< dup slab !  if drop else nip then
+        dup @ dup 0< dup slabel !  if drop else nip then
     then
 ;
 
 \ the word at xt: a header, a label, or one the boot kept
 : xt>hdr ( xt -- hdr|0 )
-    stmp !  d# 0 slab !
+    stmp !  d# 0 slabel !
     tstop >r forth @
     begin
         dup r@ <>
@@ -189,7 +201,7 @@ header names-unload
         @
     repeat
     rdrop drop  stmp @ xt>file  ?dup if exit then
-    stmp @ own>rec  dup 0<> slab !
+    stmp @ own>rec  dup 0<> slabel !
 ;
 
 : data>lbl ( a -- lbl|0 ) \ the label for the data at a
@@ -222,35 +234,12 @@ create sgap 0 ,   \ the line the word before of it was on, or -1
     r> [char] ! = if snl then
 ;
 
-create hp 0 ,          \ hval: the instruction it is reading,
-create hv 0 ,          \ and the number so far
-
-: lv ( w -- n )
-    dup h# fff and swap d# 12 rshift d# 3 and d# 12 * lshift ;
-
-\ the number, if the code there only pushes one
-: hval ( xt -- n true | false )
-    hp !
-    hp @ ins@ dup h# c000 and h# 8000 <>
-    over h# 3000 and h# 3000 = or
-    if drop false exit then
-    lv hv !
-    begin
-        d# 1 hp +!
-        hp @ ins@ dup h# c000 and h# c000 =
-        over h# 3000 and h# 3000 <> and
-    while
-        lv hv +!
-    repeat
-    h# 7403 = if hv @ true else false then
-;
-
-\ the record of a word the boot compiled that only pushes n
+\ the record of a word the boot compiled that only pushed n
 : data-in ( n a -- rec|0 ) \ of the records of a block
     dup @ negate >r 1+                      ( n rec ) ( R: -k )
     begin r@ while
-        dup cell+ @ hval if
-            3rd = if nip rdrop exit then
+        2dup cell+ @ =  over @ d# 2 and 0<>  and if
+            nip rdrop exit
         then
         rec-next  r> 1+ >r
     repeat
@@ -275,7 +264,7 @@ create hv 0 ,          \ and the number so far
         dup r@ <>
     while
         dup hxt dup sxt @ <> if
-            hval if stmp @ = if rdrop exit then then
+            pushes if stmp @ = if rdrop exit then then
         else
             drop
         then
@@ -295,7 +284,7 @@ create hv 0 ,          \ and the number so far
     dup hxt sxt @ = if drop d# 0 lit-walk then
 ;
 
-: sxname ( hdr -- ) slab @ sital !  sname  d# 0 sital ! ;
+: sxname ( hdr -- ) slabel @ sital !  sname  d# 0 sital ! ;
 
 : xt? ( n -- f ) \ may the number be an execution token?
     dup CODE-BASE - CODE-SIZE u< swap h# 1001 - h# fff u< or ;
@@ -612,32 +601,37 @@ target
     2drop
 ;
 
-\ the newest word of the name among those the boot kept
-: named-in ( xt a -- xt' ) \ of the records of a block
-    dup @ negate >r 1+                      ( xt rec ) ( R: -k )
+\ the newest word of the name among those the boot kept: what
+\ its record has where the place goes, and the record's first
+\ cell
+: named-in ( x first a -- x' first' ) \ of a block's records
+    dup @ negate >r 1+                      ( x first rec )
     begin r@ while
-        dup samename? if nip dup cell+ @ swap then
+        dup samename? if nip nip dup cell+ @ over @ rot then
         rec-next  r> 1+ >r
     repeat
     drop rdrop
 ;
 
-: own-named ( -- xt|0 )
-    d# 0  own-kept 1+ @ negate              ( xt -b )
+: own-named ( -- x first | 0 0 )
+    d# 0 d# 0  own-kept 1+ @ negate         ( x first -b )
     begin dup while
-        tuck own-kept 1+ @ + own-block named-in
-        swap 1+
+        >r  r@ own-kept 1+ @ + own-block named-in  r> 1+
     repeat
     drop
+;
+
+: own-find ( -- x data? true | false ) \ by the name in the key
+    own-named ?dup 0= if drop false exit then
+    d# 2 and if true true exit then
+    dup pushes if nip true true exit then
+    false true
 ;
 
 : lfind ( c-addr u -- x data? true | false )
     names? 0= if 2drop false exit then
     >key drop
-    own-named ?dup if
-        dup hval if nip true true exit then
-        false true exit
-    then
+    own-find if true exit then
     d# 1 TOPBIT lshift d# 0  xrun newest      ( p1 v1 )
     over d# 0  nrun newest                     ( p1 v1 p2 v2 )
     >r rot over = if

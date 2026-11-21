@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "vm.h"
+#include "vm_stopped.h"
 #include "vm_debug.h"
 
 void load_hex(const char* filepath, const char* lstpath, context *ctx) {
@@ -168,9 +169,14 @@ int main(int argc, char *argv[]) {
         }
         free(files);
     }
-    // ctx->EIP=0x462C / 2;
+    // What the environment says to stop it at (vm_stopped.h); stopped
+    // for one of those, it says what it was at.
+    stops_from_env();
     vm(ctx);
     printf("\n[%lld instructions executed]\n", ctx->CYCLES);
+    if (STOPS.on && STOPS.reason != STOP_HALT) {
+        post_mortem(stderr, ctx, argv[1], argc > 3 ? argv[3] : NULL, CELL_BITS);
+    }
     // A third argument is a file to write the machine's memory to when it
     // has stopped, as rtl/tb.cpp does: the two are then compared (bench/).
     if (argc > 3) {

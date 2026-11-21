@@ -37,6 +37,8 @@ typedef struct {
     long instructions;                  // as many as the image has
     word* words;                        // its words, in order of where they are,
     int n;                              // and how many
+    word* defined;                      // its words that have code, in the order the source defines them (its listing),
+    long ndefined;                      // and how many
     item* items;                        // its runs and what leaves them, in order,
     long count, room;                   // how many, and how many there is room for
     unsigned char* lands;               // of each instruction: a branch lands here, or (2) a word starts here
@@ -79,6 +81,7 @@ static void cut(cut_image* m, const char* hex, const char* tables) {
     m->code = (uint16_t*)bytes;
     m->instructions = len / sizeof(uint16_t);
     m->n = words_of(bytes, len, tables, &m->words);
+    m->ndefined = listing_of(hex, &m->defined);
     long execute = place_of(m->words, m->n, "execute");
     without_tables(bytes, len, m->words, m->n);
 
@@ -172,12 +175,28 @@ static int owner_of(const cut_image* m, long at) {
     return(-1);
 }
 
-// Which of the words of its name a word is, of those that have code, in
-// order of place: a name may be given to more than one word.
+// Which of the words of its name a word is, of those that have code, in the
+// order the source defines them, which the image's listing has: a name may
+// be given to more than one word, and two builds of a source do not lay
+// them in the same order of place (one of them may be in the kernel's
+// upper half, or on a page that is gone back to).  A word the listing has
+// not is the only one of its name; if it is not, nothing says which it is,
+// and the image is not cut.
 static int rank_of(const cut_image* m, int which) {
-    int rank = 0;
-    for(int idx=0; idx < which; idx++) rank += m->words[idx].size && !strcmp(m->words[idx].name, m->words[which].name);
-    return(rank);
+    const word* is = &m->words[which];
+    int rank = 0, named = 0;
+    for(long idx=0; idx < m->ndefined; idx++) {
+        if (strcasecmp(m->defined[idx].name, is->name)) continue;
+        if (m->defined[idx].at == is->at) return(rank);
+        rank++;
+    }
+    for(int idx=0; idx < m->n; idx++) named += m->words[idx].size && !strcmp(m->words[idx].name, is->name);
+    if (named > 1) {
+        fprintf(stderr, "%d words are named %s, and the image's listing (.lst) has not the one at %lx: "
+                        "nothing says which of them it is\n", named, is->name, is->at);
+        exit(EXIT_FAILURE);
+    }
+    return(0);
 }
 
 // Every instruction's item, if an item starts there: m->item_of.

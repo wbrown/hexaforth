@@ -14,7 +14,7 @@
 
 meta
 : each-lane ( -- x ) 0 lanes 0 do #16 lshift 1 or loop ;
-each-lane constant lane1        \ 1 in each lane
+each-lane constant each1        \ 1 in each lane
 
 \ times this, bit 0 of each lane is at the top of the cell, in
 \ the display's order
@@ -62,7 +62,7 @@ then ;
 ;
 
 \ four grays added in a lane that had AROUND, quartered
-:: AROUND     lane1 2 * literal ;
+:: AROUND     each1 2 * literal ;
 :: QUARTERED ( x -- y )
     lanes 1 = if
         s" d# 2 rshift" evaluate
@@ -97,8 +97,8 @@ then ;
 target
 
 W32+? [if]
-create aone    meta lane1 target ,          \ 1 in each lane
-create aclean  meta lane1 $fff * target ,   \ each lane's number
+create aone    meta each1 target ,          \ 1 in each lane
+create aclean  meta each1 $fff * target ,   \ each lane's number
 create agather meta gather target ,
 [then]
 

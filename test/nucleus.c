@@ -9,10 +9,13 @@
 #include "nucleus.h"
 #include "../util/image.h"
 #include "../util/room.h"
+#include "../vm_stopped.h"
 
 context machine;                // too big for the stack: it has the machine's memory
 char* said = "";                // all it printed, however much
+void (*stopped_short)(void);
 
+static const char* nucleus_path;
 static uint8_t* nucleus;        // the image, as cross.fs wrote it,
 static size_t nucleus_len;      // and how many bytes it is
 static int stop_at;             // an instruction that is nothing: the machine stops at one
@@ -49,6 +52,8 @@ void nucleus_is(const char* path) {
         exit(EXIT_FAILURE);
     }
     stop_at = nothing_at();
+    nucleus_path = path;
+    stops_from_env();
     start();
     line("' quit");
     type();
@@ -98,6 +103,12 @@ static void read_it(void) {
     said = was_said;
     typed_len = 0;
     has_run = true;
+    if (!STOPS.on || STOPS.reason == STOP_HALT) return;
+    // It stopped, and did not halt (vm_stopped.h): nothing goes on from there.
+    if (stopped_short) stopped_short();
+    fprintf(stderr, "%s\n", said);
+    post_mortem(stderr, &machine, nucleus_path, NULL, CELL_BITS);
+    exit(EXIT_FAILURE);
 }
 
 // What is then on the machine's data stack is what the lines left there.

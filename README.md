@@ -239,6 +239,7 @@ what is missing. The top of `CMakeLists.txt` lists them all.
     cmake -S . -B build/cmake
     cmake --build build/cmake --target demo      # the desktop, on QEMU
     cmake --build build/cmake --target demo-boot # the same, from its ROM and a disk: it compiles its desktop
+    cmake --build build/cmake --target quick     # the tests on the reference VM alone; with no target, this
     cmake --build build/cmake --target check     # every test
     cmake --build build/cmake --target bench     # the benchmarks, on the Verilog CPU
     cmake --build build/cmake --target gates     # the gate counts

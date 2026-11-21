@@ -37,6 +37,34 @@
 // for the machine whose memory it is (vm_constants.h), and fails if it
 // finds no words in the image: then it looked at nothing.
 //
+// memory-map --table WHOLE.hex WHOLE.tables BOOT.hex BOOT.tables MEMORY.out
+//
+// The same, as a table to be read at a glance: a line a part that has a
+// limit, with the bytes of it that are used and that are left, twice.
+// Once of WHOLE.hex, the system as cross.fs built it, applications and all;
+// and once of the machine that started from BOOT.hex, the system without
+// the applications, and compiled them from its disk: MEMORY.out is its
+// memory when it had (the targets quick and check show it).  What a part
+// has left is what the nucleus's own pointers say, and not what is nothing
+// in memory:
+//
+//   the kernel's ROM, and the rest of its page: as far as their words go
+//   a page of code      how far its code has got (pages, nuc.fs), to its
+//                       end; a page that ends in a table has no room, and
+//                       is said to
+//   the scratch         the end of the last page of code (placement.fs)
+//   variables           from VAR_BASE to the data pointer, and to dpl
+//   bulk                to its pointer, and to its limit
+//   the dictionary      to the header pointer, and to hdl
+//   the heap            from where the image left himem to where it is,
+//                       and to the end of what may be given out
+//
+// Memory is cells, and nothing in the machine tells code from data: a page
+// is how far a call reaches, and which cells have code is how cross.fs laid
+// the image.  So every part is in bytes, which add up, and a place is the
+// byte it starts at.  Where the limit is in the machine's own terms, what
+// is left is said in those as well: instructions of a page, cells of data.
+//
 
 #include <stdarg.h>
 #include "layout.h"
@@ -112,9 +140,186 @@ static void place_said(size_t byte) {
     printf("  $%-8zx $%-8zx", byte, byte / CELL_BYTES);
 }
 
+// ---- the table
+
+enum { NO_UNIT, INSTRUCTIONS, CELLS, ENDS_IN_A_TABLE };
+enum { BUILT, BOOTED, STATES };
+
+typedef struct {
+    long used, left;            // bytes; what has no limit has less than nothing left
+    int is;                     // whether it has the part
+} amount;
+
+typedef struct {
+    char what[40];
+    size_t from;                // the byte it starts at
+    int unit;                   // what what is left is said in as well
+    amount of[STATES];
+} row;
+static row* ROWS;
+static long nrows, rows_room;
+
+static void row_is(int state, const char* what, size_t from, long used, long left, int unit) {
+    row* r = NULL;
+    for(long idx=0; idx < nrows && !r; idx++) if (ROWS[idx].from == from && !strcmp(ROWS[idx].what, what)) r = &ROWS[idx];
+    if (!r) {
+        ONE_MORE(ROWS, nrows, rows_room);
+        r = &ROWS[nrows++];
+        memset(r, 0, sizeof(row));
+        snprintf(r->what, sizeof(r->what), "%s", what);
+        r->from = from;
+        r->unit = unit;
+    }
+    r->of[state].used = used;
+    r->of[state].left = left;
+    r->of[state].is = 1;
+}
+
+static int by_from(const void* a, const void* b) {
+    const row* x = a;
+    const row* y = b;
+    if (x->from != y->from) return(x->from < y->from ? -1 : 1);
+    return(strcmp(x->what, y->what));
+}
+
+// The cell a variable of an image's nucleus is, as `variable` finds it.
+static uint64_t cell_named(const layout* m, const char* tables, const char* name) {
+    uint64_t at = data_called(tables, name);
+    if (at) return(at);
+    long place = place_of(m->words, m->n, name);
+    return(place >= 0 ? pushed_by(m->bytes, place) : 0);
+}
+
+// The number a word of an image pushes, which is how the image has a
+// number of cross.fs's (names.fs); or nothing, if it has no such word.
+static long pushed_named(const layout* m, const char* name) {
+    long place = place_of(m->words, m->n, name);
+    return(place >= 0 ? (long)pushed_by(m->bytes, place) : 0);
+}
+
+// The rows of one state: an image, and the memory of the machine that was
+// started from it, which is the image itself if the machine was never run.
+static void rows_of(int state, const layout* m, const char* tables, const uint8_t* mem, size_t mem_len) {
+#define NOW(cell) ((cell) && ((uint64_t)(cell) + 1) * CELL_BYTES <= mem_len ? cell_of(mem, (cell)) : 0)
+    const long two = sizeof(instruction);
+
+    long rest_end = KROM_BYTES / two;
+    for(int idx=0; idx < m->n; idx++) {
+        const word* w = &m->words[idx];
+        if (w->size && w->at >= KROM_BYTES / two && w->at < PAGE && w->at + w->size > rest_end) rest_end = w->at + w->size;
+    }
+    row_is(state, "the kernel's ROM", 0, m->kernel * two, (long)KROM_BYTES - m->kernel * two, INSTRUCTIONS);
+    row_is(state, "page 0 past the ROM", KROM_BYTES, rest_end * two - (long)KROM_BYTES, (PAGE - rest_end) * two, INSTRUCTIONS);
+
+    // The pages of code: page 1, and those cross.fs keeps for code past it.
+    // An image that does not say which those are has the pages its words
+    // are on.  The last of them ends where the scratch starts.
+    uint64_t pages = cell_named(m, tables, "pages"), scratch = cell_named(m, tables, "scratch");
+    long cp = (long)NOW(cell_named(m, tables, "cp"));
+    long code_base = pushed_named(m, "code-base"), code_end = code_base + pushed_named(m, "code-size");
+    long scratch_from = scratch ? (long)cell_of(m->bytes, scratch) : 0, scratch_now = scratch ? (long)NOW(scratch) : 0;
+    long last = code_base ? code_end / PAGE : m->npages;
+    for(long page=1; page < last; page++) {
+        int kept_for_code = code_base ? page >= code_base / PAGE : page < m->npages && m->pages[page].words;
+        if (page != 1 && !kept_for_code) continue;
+        long start = page * PAGE, end = start + PAGE, got_to = pages ? (long)NOW(pages + page) : 0;
+        if (!got_to && page < m->npages && m->pages[page].words) got_to = start + m->pages[page].end;
+        if (cp / PAGE == page && cp > got_to) got_to = cp;      // code is being laid on it, and has got further
+        if (got_to < start) got_to = start;
+        if (scratch_from / PAGE == page) end = scratch_from;
+        char what[40];
+        snprintf(what, sizeof(what), "page %ld", page);
+        // (pages-laid, cross.fs: a page that ends in a table is said to have got to its last instruction)
+        row_is(state, what, start * two, (got_to - start) * two, (end - got_to) * two,
+               got_to == start + PAGE - 1 ? ENDS_IN_A_TABLE : INSTRUCTIONS);
+    }
+    if (scratch_from) {
+        row_is(state, "the scratch", scratch_from * two, (scratch_now - scratch_from) * two, (code_end - scratch_now) * two,
+               INSTRUCTIONS);
+    }
+
+    // The data and the dictionary, by the nucleus's pointers and limits.
+    long dp = (long)NOW(cell_named(m, tables, "dp")), dpl = (long)NOW(cell_named(m, tables, "dpl"));
+    long bdp = (long)NOW(cell_named(m, tables, "bdp")), bdl = (long)NOW(cell_named(m, tables, "bdl"));
+    long hdp = (long)NOW(cell_named(m, tables, "hdp")), hdl = (long)NOW(cell_named(m, tables, "hdl"));
+    const long data_from = (long)VAR_BASE * CELL_BYTES;
+    if (dp) row_is(state, "variables", data_from, dp - data_from, dpl - dp, CELLS);
+    if (bdp) row_is(state, "bulk", dpl, bdp - dpl, bdl - bdp, CELLS);
+    size_t headers_from, headers_to;
+    headers_of(mem, mem_len, &headers_from, &headers_to);
+    if (hdp) row_is(state, "the dictionary", headers_from, hdp * CELL_BYTES - (long)headers_from, (hdl - hdp) * CELL_BYTES, CELLS);
+
+    // The display, what the image laid above it, and the heap.
+    uint64_t himem = cell_named(m, tables, "himem");
+    long heap_from = himem ? (long)cell_of(m->bytes, himem) : 0, heap_now = (long)NOW(himem);
+    long given_to = pushed_named(m, "mem-end");
+    if (!given_to) given_to = (long)(MEMORY / CELL_BYTES);
+#if DISP_W
+    long display_end = DISP_BASE + (long)(DISP_BANKS - 1) * DISP_BANK_STEP + (long)DISP_ROWS_PER_BANK * DISP_STRIDE;
+    row_is(state, "the display", (size_t)DISP_BASE * CELL_BYTES, (display_end - DISP_BASE) * CELL_BYTES, -1, NO_UNIT);
+    if (heap_from > display_end) {
+        row_is(state, "data above the display", (size_t)display_end * CELL_BYTES, (heap_from - display_end) * CELL_BYTES, -1,
+               NO_UNIT);
+    }
+#endif
+    if (himem) {
+        row_is(state, "the heap", (size_t)heap_from * CELL_BYTES, (heap_now - heap_from) * CELL_BYTES,
+               (given_to - heap_now) * CELL_BYTES, CELLS);
+    }
+#undef NOW
+}
+
+static void amount_said(const amount* a) {
+    if (!a->is) printf(" %9s %8s", "", "");
+    else if (a->left < 0) printf(" %9ld %8s", a->used, "");
+    else printf(" %9ld %8ld", a->used, a->left);
+}
+
+static int table(char *argv[]) {
+    static layout WHOLE, BOOT;
+    lay_out(&WHOLE, argv[0], argv[1]);
+    lay_out(&BOOT, argv[2], argv[3]);
+    uint8_t* left_as;
+    size_t len = file_bytes(argv[4], &left_as);
+    if (len != MEMORY) {
+        fprintf(stderr, "memory-map: %s is %zu bytes, and this machine's memory is %zu\n", argv[4], len, MEMORY);
+        return(1);
+    }
+    rows_of(BUILT, &WHOLE, argv[1], WHOLE.bytes, WHOLE.len);
+    rows_of(BOOTED, &BOOT, argv[3], left_as, len);
+    qsort(ROWS, nrows, sizeof(row), by_from);
+
+    printf("a machine of %d-bit cells: a cell is %d bytes and an instruction %d; %zu bytes of memory\n",
+           CELL_BITS, CELL_BYTES, (int)sizeof(instruction), MEMORY);
+    printf("bytes used and left: built, as cross.fs laid the whole system; booted, as a machine left them\n"
+           "that started without the applications and compiled them from its disk.  left (units) is what\n"
+           "the booted machine has left, in instructions of a page of code or cells of data\n\n");
+    printf("%-24s %9s %9s %8s %9s %8s   %s\n", "", "from", "built", "left", "booted", "left", "left (units)");
+    for(long idx=0; idx < nrows; idx++) {
+        const row* r = &ROWS[idx];
+        char from[24];
+        snprintf(from, sizeof(from), "$%zx", r->from);
+        printf("%-24s %9s", r->what, from);
+        amount_said(&r->of[BUILT]);
+        amount_said(&r->of[BOOTED]);
+        const amount* said_of = r->of[BOOTED].is ? &r->of[BOOTED] : &r->of[BUILT];
+        long in_units = said_of->left / (r->unit == CELLS ? CELL_BYTES : (long)sizeof(instruction));
+        if (r->unit == ENDS_IN_A_TABLE) {
+            printf("   a table ends it");
+        } else if (r->unit != NO_UNIT && said_of->left >= 0) {
+            printf("   %ld %s%s", in_units, r->unit == CELLS ? "cell" : "instruction", in_units == 1 ? "" : "s");
+        }
+        printf("\n");
+    }
+    printf("\n");
+    return(!WHOLE.n || !BOOT.n);
+}
+
 int main(int argc, char *argv[]) {
+    if (argc == 7 && !strcmp(argv[1], "--table")) return(table(argv + 2));
     if (argc < 3 || argc > 4) {
-        fprintf(stderr, "usage: memory-map IMAGE.hex IMAGE.tables [MEMORY.out]\n");
+        fprintf(stderr, "usage: memory-map IMAGE.hex IMAGE.tables [MEMORY.out]\n"
+                        "       memory-map --table WHOLE.hex WHOLE.tables BOOT.hex BOOT.tables MEMORY.out\n");
         return(1);
     }
     const char* tables = argv[2];

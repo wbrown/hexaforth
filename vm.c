@@ -5,10 +5,21 @@
 #include <math.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdlib.h>
 #include "vm.h"
+#include "vm_stopped.h"
 #include "vm_instruction.h"
 #include "vm_constants.h"
 #include "util/stack.h"
+
+vm_stops STOPS = { .break_at = -1, .break_store = -1 };
+
+// Something was put in the cells from one on: an instruction there may be run.
+void stops_put(int64_t cell, int64_t cells) {
+    if (!STOPS.put) return;
+    uint64_t from = (uint64_t)cell * (CELL_BYTES / 2), slots = (uint64_t)cells * (CELL_BYTES / 2);
+    for(uint64_t at = from; at < from + slots && at < MEM_BYTES / 2; at++) STOPS.put[at >> 3] |= (uint8_t)(1 << (at & 7));
+}
 #ifdef DEBUG
 #include "vm_debug.h"
 #include "vm_opcodes.h"
@@ -121,6 +132,10 @@ static inline void mem_store(context *ctx, int64_t addr, int64_t v) {
         exit(3);
     }
 #endif
+    if (STOPS.on) {
+        if (STOPS.put && !(ucell(addr) >> ADDR_BITS)) stops_put((int64_t)ucell(addr), 1);
+        if ((int64_t)ucell(addr) == STOPS.break_store) STOPS.stored = 1;
+    }
     memcpy(cell_at(ctx, addr), &v, CELL_BYTES);
 }
 
@@ -189,6 +204,7 @@ static inline void disk_io(context *ctx, int64_t addr, int write) {
     } else {
         size_t n = disk ? fread(p, 1, DISK_BLOCK, disk) : 0;
         memset(p + n, 0, DISK_BLOCK - n);
+        stops_put((int64_t)ucell(addr), DISK_BLOCK / CELL_BYTES);
         FILLS(ucell(addr), DISK_BLOCK / CELL_BYTES);
     }
 }
@@ -257,6 +273,7 @@ static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
     switch (io_addr) {
         case 0xe0:
             fflush(ctx->OUT);       // what was printed is seen before a key is waited for
+            STOPS.since = 0;        // it is not running on: it took a key
             return(fgetc(ctx->IN));
         default:
             return(false);
@@ -369,10 +386,25 @@ int vm(context *ctx) {
     register int64_t OUT = 0;               // OUT - result from ALU
     register uint64_t cycles = ctx->CYCLES; // how many instructions processed
 
+    STOPS.reason = STOP_HALT;
     for (; ctx->memory[EIP] != 0; ++cycles, strict_run(EIP)) {
 #ifdef STRICT_ALIGN
         if (strict_steps && cycles - ctx->CYCLES >= strict_steps) break;
 #endif
+        if (STOPS.on) {         // what stops it besides a halt (vm_stopped.h)
+            if (STOPS.stored) {
+                STOPS.stored = 0;
+                if (!STOPS.pass) { STOPS.reason = STOP_AT_STORE; break; }
+                STOPS.pass--;
+            }
+            if (EIP == STOPS.break_at) {
+                if (!STOPS.pass) { STOPS.reason = STOP_AT_BREAK; break; }
+                STOPS.pass--;
+            }
+            if (STOPS.budget && ++STOPS.since > STOPS.budget) { STOPS.reason = STOP_RAN_ON; break; }
+            if (STOPS.put && !(STOPS.put[EIP >> 3] & (1 << (EIP & 7)))) { STOPS.reason = STOP_NO_CODE; break; }
+            STOPS.ring[STOPS.ran++ % STOP_RING] = EIP;
+        }
         // #ifdef DEBUG
         //    show_registers(T, R, EIP, SP, RSP, ctx);
         // #endif // DEBUG
@@ -423,6 +455,11 @@ int vm(context *ctx) {
 #ifdef DEBUG
     print_state(ctx, RSP, SP, EIP, R, T);
 #endif
+    // A halt where nothing was ever put is the machine running where there is no code.
+    if (STOPS.on && STOPS.reason == STOP_HALT && STOPS.put && !(STOPS.put[EIP >> 3] & (1 << (EIP & 7)))) {
+        STOPS.reason = STOP_NO_CODE;
+    }
+    STOPS.at = EIP;
     ctx->CYCLES = cycles;
     ctx->DSTACK[SP-1] = T;
     ctx->RSTACK[RSP-1] = R;
@@ -431,6 +468,77 @@ int vm(context *ctx) {
     ctx->EIP = EIP;
     fflush(ctx->OUT);
     return 1;
+}
+
+void stops_from_env(void) {
+    const char* at = getenv("STOP_AT");
+    const char* store = getenv("STOP_ON_STORE");
+    const char* budget = getenv("STOP_BUDGET");
+    const char* pass = getenv("STOP_PASS");
+    if (at) STOPS.break_at = (int64_t)strtoull(at, NULL, 16), STOPS.on = 1;
+    if (store) STOPS.break_store = (int64_t)strtoull(store, NULL, 16), STOPS.on = 1;
+    if (budget) STOPS.budget = strtoull(budget, NULL, 10), STOPS.on = 1;
+    if (pass) STOPS.pass = strtoull(pass, NULL, 10);
+}
+
+// What is in memory now was put there: the image.  A halt is nothing, so
+// an instruction that is nothing beside one that is something is taken to
+// have been put too.
+void stops_watch_code(context *ctx) {
+    const long slots = MEM_BYTES / 2;
+    if (!STOPS.put) STOPS.put = calloc((size_t)slots / 8 + 1, 1);
+    if (!STOPS.put) return;
+    for(long at = 0; at < slots; at++) {
+        if (ctx->memory[at] || (at && ctx->memory[at - 1]) || (at + 1 < slots && ctx->memory[at + 1])) {
+            STOPS.put[at >> 3] |= (uint8_t)(1 << (at & 7));
+        }
+    }
+    STOPS.on = 1;
+}
+
+const char* stop_reason(void) {
+    switch (STOPS.reason) {
+        case STOP_RAN_ON:   return("it ran on, taking no key and not halting");
+        case STOP_NO_CODE:  return("it ran where nothing was ever put");
+        case STOP_AT_BREAK: return("it came to the instruction STOP_AT says");
+        case STOP_AT_STORE: return("it stored to the cell STOP_ON_STORE says");
+        default:            return("it halted");
+    }
+}
+
+void post_mortem(FILE *to, context *ctx, const char *image, const char *memory_path, int bits) {
+    fprintf(to, "the machine stopped: %s, at %llx, which is %04x\n", stop_reason(),
+            (unsigned long long)ctx->EIP, (unsigned)ctx->memory[ctx->EIP]);
+    fprintf(to, "  the data stack, %d deep, the top first:", ctx->SP);
+    for(int at = ctx->SP - 1; at >= 0 && at >= ctx->SP - 8; at--) {
+        if (at < STACK_CELLS) fprintf(to, " %llx", (unsigned long long)ucell(ctx->DSTACK[at]));
+    }
+    fprintf(to, "\n  the return stack, %d deep, the top first:", ctx->RSP);
+    for(int at = ctx->RSP - 1; at >= 0; at--) {
+        if (at < STACK_CELLS) fprintf(to, " %llx", (unsigned long long)ucell(ctx->RSTACK[at]));
+    }
+    fprintf(to, "\n");
+    if (STOPS.on && STOPS.ran) {
+        fprintf(to, "  the instructions it ran before that, the last first:");
+        uint64_t kept = STOPS.ran < STOP_RING ? STOPS.ran : STOP_RING;
+        for(uint64_t back = 1; back <= kept; back++) {
+            if (back % 16 == 1) fprintf(to, "\n   ");
+            fprintf(to, " %llx", (unsigned long long)STOPS.ring[(STOPS.ran - back) % STOP_RING]);
+        }
+        fprintf(to, "\n");
+    }
+    if (!memory_path) memory_path = getenv("STOP_MEMORY");
+    if (!memory_path) return;
+    FILE* memory = fopen(memory_path, "wb");
+    if (!memory) {
+        perror(memory_path);
+        return;
+    }
+    fwrite(ctx->memory, 1, sizeof(ctx->memory), memory);
+    fclose(memory);
+    fprintf(to, "  its memory is in %s; a place is named with\n"
+                "    build/cmake/disasm_hex-%d %s --memory %s PLACE PLACE\n",
+            memory_path, bits, image ? image : "IMAGE.hex", memory_path);
 }
 
 // What has the step again, on something else, says these again.

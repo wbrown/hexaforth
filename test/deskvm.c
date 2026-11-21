@@ -9,6 +9,7 @@
 #include "../bench/tiff.h"
 #include "deskvm.h"
 #include "nucleus.h"
+#include "../vm_stopped.h"
 
 #define W   DISP_W
 #define H   DISP_H
@@ -31,6 +32,29 @@ static bool started;            // the machine has left its prompt for the deskt
 static uint8_t* screen;         // its screen, when it was last asked for
 static long sent;               // the things sent that it has not taken yet
 
+// The machine stopped where it was not sent: which check it was at, and
+// what it was at (vm_stopped.h).
+static void stopped_wrong(void) {
+    printf("FAIL the machine stopped at 0x%04x (expected 0x%04x)%s%s%s%s%s\n"
+           "  inspect with: build/cmake/disasm_hex-%d %s 0x%04x 0x%04x\n"
+           "  screens in:   %s/\n"
+           "  console said: %s\n",
+           (unsigned)machine.EIP, (unsigned)stopping(),
+           desk_checking ? " during check \"" : "",
+           desk_checking ? desk_checking : "",
+           desk_checking ? "\"" : "",
+           desk_doing && desk_doing[0] ? " while doing: " : "",
+           desk_doing && desk_doing[0] ? desk_doing : "",
+           CELL_BITS, image_path ? image_path : "IMAGE.hex",
+           (unsigned)machine.EIP, (unsigned)machine.EIP,
+           out_dir ? out_dir : ".", said);
+    static const char file[] = "/stopped.memory";
+    char* memory = malloc(strlen(out_dir ? out_dir : ".") + sizeof(file));
+    if (memory) sprintf(memory, "%s%s", out_dir ? out_dir : ".", file);
+    post_mortem(stdout, &machine, image_path, memory, CELL_BITS);
+    exit(EXIT_FAILURE);
+}
+
 // The machine takes what has been sent and then stops, in its event loop.
 static void taken(void) {
     keys("s", 1);
@@ -38,22 +62,7 @@ static void taken(void) {
     started = true;
     deskvm_turns += sent + 1;
     sent = 0;
-    if (machine.EIP != stopping()) {
-        printf("FAIL the machine stopped at 0x%04x (expected 0x%04x)%s%s%s%s%s\n"
-               "  inspect with: build/cmake/disasm_hex-%d %s 0x%04x 0x%04x\n"
-               "  screens in:   %s/\n"
-               "  console said: %s\n",
-               (unsigned)machine.EIP, (unsigned)stopping(),
-               desk_checking ? " during check \"" : "",
-               desk_checking ? desk_checking : "",
-               desk_checking ? "\"" : "",
-               desk_doing && desk_doing[0] ? " while doing: " : "",
-               desk_doing && desk_doing[0] ? desk_doing : "",
-               CELL_BITS, image_path ? image_path : "IMAGE.hex",
-               (unsigned)machine.EIP, (unsigned)machine.EIP,
-               out_dir ? out_dir : ".", said);
-        exit(EXIT_FAILURE);
-    }
+    if (machine.EIP != stopping()) stopped_wrong();
 }
 
 static void event(char what, int a, int b) {
@@ -219,6 +228,12 @@ desk deskvm_start(const char* image, const char* disk, const char* pictures, con
     nucleus_is(image);
     start();
     if (rom_only) memset((uint8_t*)machine.memory + KROM_BYTES, 0, sizeof(machine.memory) - KROM_BYTES);
+    // What stops it besides its halt (vm_stopped.h): running where nothing
+    // was put, and running on.  A boot that compiles the system takes no
+    // key for some hundred million instructions; this is twenty times that.
+    if (!STOPS.budget) STOPS.budget = 2000000000ull;
+    stops_watch_code(&machine);
+    stopped_short = stopped_wrong;
     disk_is(disk, copy);
     pictures_are(pictures);
     if (rom_only) {             // it boots, and is at its prompt: an error in a block of the disk is said
@@ -226,6 +241,14 @@ desk deskvm_start(const char* image, const char* disk, const char* pictures, con
         if (strstr(said, "error")) {
             printf("FAIL the machine's boot from the disk said an error:\n%s\n", said);
             exit(EXIT_FAILURE);
+        }
+        if (getenv("BOOTED")) {         // its memory as its boot left it: nothing has been typed at its prompt
+            FILE* booted = fopen(getenv("BOOTED"), "wb");
+            if (booted == NULL || fwrite(machine.memory, 1, sizeof(machine.memory), booted) != sizeof(machine.memory)) {
+                perror(getenv("BOOTED"));
+                exit(EXIT_FAILURE);
+            }
+            fclose(booted);
         }
     }
     going_on();

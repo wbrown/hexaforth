@@ -594,6 +594,14 @@ function(needs TEST)
     endforeach()
 endfunction()
 
+# The tests that need only the reference VM, with no QEMU and no Verilog,
+# have a label, and the target `quick` runs those (at the end of this
+# file).  A test is given it here.
+set(ON_THE_VM vm)
+function(on_the_vm)
+    set_property(TEST ${ARGN} APPEND PROPERTY LABELS ${ON_THE_VM})
+endfunction()
+
 # The three that the target `tests` runs are tests like any other.
 add_custom_target(test-cases DEPENDS ${BUILD}/test_cases.hex)
 add_test(NAME instructions COMMAND hexaforth_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
@@ -606,6 +614,31 @@ add_test(NAME tables COMMAND fused build/nuc.hex build/nuc.tables forth/fused.fs
 needs(tables fused forth-env)
 add_test(NAME fewer COMMAND fewer_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 needs(fewer fewer_test)
+
+# The names cross.fs notes as defined again (cross.fs, names defined again):
+# forth/shadowed.fs is a program that has one of each kind, and two that
+# are not to be noted, and test/shadowed.shadows is what cross.fs is to
+# write of it.
+add_custom_command(
+        OUTPUT            ${BUILD}/shadowed/shadowed.shadows
+        COMMAND           ${CMAKE_COMMAND} -E make_directory ${BUILD}/shadowed
+        COMMAND           ${CMAKE_COMMAND} -E env BUILD=${BUILD}/shadowed/
+                            ${RUN_GFORTH} ./cross.fs ./basewords.fs ./shadowed.fs > ${BUILD}/shadowed/cross.log 2>&1
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
+        DEPENDS           forth/shadowed.fs
+                          forth/basewords.fs
+                          forth/cross.fs
+                          ${MACHINE_SOURCES})
+add_custom_target(shadowed DEPENDS ${BUILD}/shadowed/shadowed.shadows)
+add_test(NAME shadows COMMAND ${CMAKE_COMMAND} -E compare_files ${BUILD}/shadowed/shadowed.shadows test/shadowed.shadows
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+needs(shadows shadowed)
+on_the_vm(instructions kernel tables fewer shadows)
+
+# The names the system's own source defines again, of every machine's
+# image, each said once (util/again.c): what quick and check show before
+# they run their tests.
+tool(again util/again.c)
 
 # What makes a disk, and the Mandrill, as the USC-SIPI image database has
 # it: a TIFF that is not compressed, which is what the system reads.
@@ -864,6 +897,7 @@ endfunction()
 function(machine_test TEST NAME TOOL)
     add_test(NAME ${TEST} COMMAND ${TOOL}-${NAME} ${ARGN} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     needs(${TEST} ${TOOL}-${NAME} machine-${NAME})
+    on_the_vm(${TEST})
 endfunction()
 
 # The tests that type at the prompt of a machine's reference VM: the
@@ -972,7 +1006,7 @@ function(machine_tests NAME)
     # cross.fs lays them (bench/booted.c): the target booted-NAME.
     machine_tool(booted_sizes ${NAME} bench/booted.c vm_opcodes.c vm_debug.c util/image.c)
     add_custom_target(booted-${NAME}
-            COMMAND           ${CMAKE_COMMAND} -E env MEMORY=${AT}/booted/memory
+            COMMAND           ${CMAKE_COMMAND} -E env BOOTED=${AT}/booted/memory
                                 $<TARGET_FILE:desktop_test-${NAME}> ${AT}/boot/nuc.hex ${AT}/boot/desk.img ${PICTURES}
                                 ${PICTURE} forth ${AT}/booted names rom > ${AT}/booted/checks.txt
             COMMAND           booted_sizes-${NAME} ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables ${AT}/booted/memory
@@ -1081,6 +1115,26 @@ function(mapped NAME)
             VERBATIM)
     add_dependencies(memory-map-${NAME} map-${NAME} heap-${NAME} desktop_test_heap-${NAME} machine-${NAME}
                      boot-system-${NAME} picture pictures)
+
+    # The same as a table (map --table): what each part of memory has used
+    # and has left, of the system as cross.fs built it and of the machine
+    # that boots without the applications and has compiled them from its
+    # disk.  That machine is run to its prompt here, and stopped if it runs
+    # on (vm_stopped.h).  memory-table-NAME makes build/NAME/map/table.txt,
+    # which quick and check show.
+    add_custom_target(memory-table-${NAME}
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${MP}
+            COMMAND           ${CMAKE_COMMAND} -E copy ${AT}/boot/apps.img ${MP}/table.img
+            COMMAND           ${CMAKE_COMMAND} -E env STOP_BUDGET=2000000000
+                                $<TARGET_FILE:hexaforth-${NAME}> ${AT}/boot/nuc.hex ${MP}/table.img ${MP}/table.mem
+                                < ${CMAKE_SOURCE_DIR}/bench/idle.fs > ${MP}/table.out 2>&1
+            COMMAND           map-${NAME} --table ${AT}/nuc.hex ${AT}/nuc.tables ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables
+                                ${MP}/table.mem > ${MP}/table.txt
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            VERBATIM)
+    add_dependencies(memory-table-${NAME} map-${NAME} hexaforth-${NAME} machine-${NAME} boot-system-${NAME})
+    set_property(GLOBAL APPEND PROPERTY MEMORY_TABLES ${MP}/table.txt)
+    set_property(GLOBAL APPEND PROPERTY MEMORY_TABLED memory-table-${NAME})
 endfunction()
 
 # `compiling-64` and the like: what it costs a machine to boot from its
@@ -2786,7 +2840,45 @@ foreach(TEST ${EVERY_TEST})                             # each that has not been
         message(FATAL_ERROR "the test ${TEST} does not say what it needs built (needs)")
     endif()
 endforeach()
+# Before its tests, each of the two says the names the system's source
+# defines again, on every machine (util/again.c, of what cross.fs wrote
+# beside each image), and what each machine's memory has used and has left
+# (util/map.c, --table: memory-table-NAME): so each has those made first.
+# Neither is an error.  They are said where whoever is at work reads them,
+# and before the tests, so that they are there when a test fails.
+set(AGAIN_SAID)
+set(AGAIN_OF)
+foreach(NAME ${MACHINES})
+    list(APPEND AGAIN_SAID ${NAME} ${BUILD}/${NAME}/nuc.shadows)
+    list(APPEND AGAIN_OF machine-${NAME})
+endforeach()
+get_property(MEMORY_TABLES GLOBAL PROPERTY MEMORY_TABLES)
+get_property(MEMORY_TABLED GLOBAL PROPERTY MEMORY_TABLED)
 add_custom_target(check
+        COMMAND           again ${AGAIN_SAID}
+        COMMAND           ${CMAKE_COMMAND} -E cat ${MEMORY_TABLES}
         COMMAND           ${CMAKE_CTEST_COMMAND} --output-on-failure -j ${CHECK_JOBS}
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
         USES_TERMINAL)
+add_dependencies(check ${AGAIN_OF} ${MEMORY_TABLED})
+
+# quick is the tests that need only the reference VM (ON_THE_VM): every
+# machine's prompt, boot, desktop and drawing, and the two builds compared.
+# It is what is run while the source is being changed, and it is what
+# building with no target named does: it is built after everything else
+# such a build makes, since its tests build what they need themselves, one
+# target at a time.
+add_custom_target(quick ALL
+        COMMAND           again ${AGAIN_SAID}
+        COMMAND           ${CMAKE_COMMAND} -E cat ${MEMORY_TABLES}
+        COMMAND           ${CMAKE_CTEST_COMMAND} --output-on-failure -j ${CHECK_JOBS} -L ${ON_THE_VM}
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        USES_TERMINAL)
+add_dependencies(quick ${AGAIN_OF} ${MEMORY_TABLED})
+get_property(EVERY_TARGET DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(EACH ${EVERY_TARGET})
+    get_target_property(LEFT_OUT ${EACH} EXCLUDE_FROM_ALL)
+    if(NOT LEFT_OUT AND NOT "${EACH}" STREQUAL "quick")
+        add_dependencies(quick ${EACH})
+    endif()
+endforeach()
