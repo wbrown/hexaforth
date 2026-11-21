@@ -803,11 +803,15 @@ static struct { int w, x, y, dx, dy; uint8_t before[SCREEN]; } grabbed;
 static void does(const char* said) {
     for(const char* at = said; ; ) {
         while (*at == ' ') at++;
-        if (!*at) return;
+        if (!*at) {
+            desk_doing = NULL;
+            return;
+        }
         // a word of it, with room for all that is said and for each %W or
         // %H as a number, which is no more digits than three a byte
         static char* word;
         const size_t room = strlen(said) * (1 + 3 * sizeof(int)) + 1;
+        desk_doing = NULL;
         free(word);
         word = malloc(room);
         if (word == NULL) {
@@ -1630,10 +1634,8 @@ int desk_checks(const desk* on) {
     for(const check* c = CHECKS; c->label; c++) {
         if (c->when == (machine->names ? NO_NAMES : NAMES)) continue;
         desk_checking = c->label;
-        desk_doing = "";
         char why[WHY] = "";
         does(c->does);
-        desk_doing = "";
         if (c->does[0] || c->shot) look(c->shot);
         bool right = true;
         for(int n=0; n < 3 && c->sees[n].grid; n++) right = right && is_seen(&c->sees[n], why);
