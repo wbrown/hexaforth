@@ -32,8 +32,10 @@ target
 create main-task 0 , 0 , 0 ,   0 , 0 , $a , 0 ,   0 , 0 , 0 , 0 ,
 header up create up 0 ,                     \ the task that is running
 
+#4 constant HANDLER-CELL                    \ where a record has its handler
+
 header sbase    : sbase    up @ c# 3 + ;    \ where its data stack starts
-: handler                  up @ c# 4 + ;    \ the catch that a throw goes to
+: handler       up @ HANDLER-CELL + ;       \ the catch that a throw goes to
 header base     : base     up @ c# 5 + ;
 header 'emit    : 'emit    up @ c# 6 + ;    \ where its output goes
 header sourceid : sourceid up @ c# 7 + ;
@@ -137,11 +139,17 @@ header lo32  : lo32 ( dw -- w ) h# ffffffff and ;
 header lo16  : lo16 ( dw -- s ) h# ffff and ;
 header hi16  : hi16 ( dw -- s ) d# 16 rshift lo16 ;
 
-\ a field of the cell a byte is in, from that byte up
+\ a field of the cell a byte is in, from that byte up.  The byte's
+\ place in its cell is worked out first and kept on the return
+\ stack, so the address is used up by the fetch
 header field@ : field@ ( c-addr mask -- x )
     >r
-    dup (c>) @
-    swap OFFSET-MASK and d# 3 lshift rshift
+    dup OFFSET-MASK and >r
+    (c>) @
+;fallthru
+\ a cell from one of its bytes up, and masked: ifield ends here too
+: (field) ( w -- x ) ( R: mask place -- )
+    r> d# 3 lshift rshift
     r> and
 ;
 
@@ -228,7 +236,15 @@ header forth :noname forth ;
 
 header -        : -         negate + ;
 header abs      : abs       dup 0< if negate then ;
-header 2/       : 2/        dup 0< TOPBIT lshift  swap d# 1 rshift  or ;    \ the sign stays where it is
+\ The sign stays where it is.  Whether it is set goes to the return
+\ stack, and the 0 it was compared with is made the count of the
+\ shift (doc/superoptimizations.md).
+header 2/ : 2/ ( n -- n/2 )
+    d# 0 2dup < >r                          ( n 0 ) ( R: is n negative? )
+    1+ over swap rshift                     ( n n>>1 )
+    TOPBIT r> swap lshift                   ( n n>>1 sign )
+    or nip
+;
 header here     : here      dp @ (c>) ;
 header align    : align     dp @ CELLB 1- + ALIGN-MASK and dp ! ;
 header adepth : adepth ( -- n ) IO-SP io@ 1- ;            \ less the port number itself
@@ -272,10 +288,10 @@ header d+
 ;
 
 header dnegate
-: dnegate 
-    invert swap invert swap 
+: dnegate
+    >r invert r> invert
     d# 1. d+
-; 
+;
 
 header s>d
 : s>d dup 0< ;
@@ -357,10 +373,9 @@ header u/mod : u/mod ( u1 u2 -- rem quot )
 W32+? [if]
     >r
     dup d# 16 rshift if
-        d# 0 r> divstep
-    else
-        TOP16 lshift d# 0 r> div16
+        d# 0 r> um/mod exit
     then
+    TOP16 lshift d# 0 r> div16
     drop swap
 [else]
     d# 0 swap um/mod
@@ -370,7 +385,7 @@ W32+? [if]
 \ Unicode-friendly ACCEPT contibuted by Matthias Koch
 
 : delchar ( addr len -- addr len )
-    dup if d# 8 emit d# 32 emit d# 8 emit then
+    dup if d# 8 emit space d# 8 emit then
 
     begin
         dup 0= if exit then
@@ -419,6 +434,11 @@ header cells-move
         dup @  over r@ + !
         1+
     repeat
+;fallthru
+\ the end of a loop over cells that kept something on the return
+\ stack.  cells-fill and cmove end here too, by a jump: it is
+\ never called, since what it drops is the caller's
+: cells-done ( end a -- ) ( R: x -- )
     2drop rdrop
 ;
 
@@ -430,7 +450,7 @@ header cells-fill
     while
         r@ over ! 1+
     repeat
-    2drop rdrop
+    cells-done
 ;
 
 \ ---- the dictionary
@@ -448,14 +468,23 @@ create psh 0 ,              \ the bit of it the next field goes at,
 create pw 0 ,               \ how many bits a field is,
 create pfull 0 ,            \ and how many bits of a cell fields have
 
+\ The 0 is pushed once: the store that swaps keeps it for psh.
 : pack> ( a width full -- ) \ to pack fields from the cell at a
     pfull !  pw !
-    d# 0 over !  pto !  d# 0 psh !
+    d# 0 tuck over !                        ( 0 a )
+    pto !  psh !
 ;
 
+\ When the cell is full, pto steps to the next and 0 goes there
+\ and in psh: the address is kept from the step, and each 0 is
+\ the 1 with itself (doc/superoptimizations.md).
 : pack, ( x -- ) \ the next field
     psh @ pfull @ = if
-        d# 1 pto +!  d# 0 pto @ !  d# 0 psh !
+        d# 1 pto 2dup @ +                   ( 1 pto p )
+        tuck swap !                         ( 1 p )
+        meta N->IN IN^N ->[T] alu target    ( 1 p )     \ over dup xor over !
+        drop dup xor                        ( 0 )
+        psh !
     then
     psh @ lshift  pto @ or!
     pw @ psh +!
@@ -521,9 +550,13 @@ header sfind
         2dup @ = if
             dup same-cells? if
                 rdrop nip nip nip           ( name )
-                1- @
-                dup 2* u2/                          \ the xt, less the flag
-                swap 0< invert d# 1 or
+                1- @                        ( x )
+                \ the xt, less the flag: x shifted up onto the return
+                \ stack, and down from there by the same 1
+                d# 1 2dup lshift >r         ( x 1 )
+                r@ swap rshift              ( x xt )
+                swap rdrop                  ( xt x )
+                0< invert d# 1 or
                 exit
             then
         then
@@ -551,8 +584,11 @@ header name>
 : name> ( a -- c-addr u ) \ the name whose cells start at a
     d# 0 kpg !  nbuf d# 8 CELLBITS pack>
     begin
-        dup @ dup >r                                ( a cell ) ( R: the cell )
-        NAME-SPARE lshift NAME-SPARE rshift
+        \ the cell is fetched onto the return stack, and its codes
+        \ come from there: shifted up onto it and down by one count
+        dup @ >r                                    ( a ) ( R: the cell )
+        NAME-SPARE r@ over lshift >r
+        r> swap rshift                              ( a codes )
         begin
             dup
         while
@@ -623,7 +659,7 @@ header cmove
         r> 1+ >r
         1+
     repeat
-    rdrop 2drop
+    cells-done
 ;
 
 header execute
@@ -747,7 +783,7 @@ header c,
 
 header .
 : . ( n -- )
-    dup 0< if [char] - emit negate then
+    s>d if [char] - emit negate then        \ s>d is dup 0<, and a call
     (.) space
 ;
 
@@ -757,6 +793,14 @@ header .
 \ restores the three, leaving the thrown number where the xt
 \ was.  With no catch, throw prints the number and restarts the
 \ prompt.
+
+\ the prompt as it starts, here and when the ROM does (afresh):
+\ interpreting, from the console, and no catch round it
+: prompting ( -- )
+    d# 0 state !
+    d# 0 sourceid !
+    d# 0 sbase !        \ only the first task has no catch round it
+;
 
 header throw
 : throw ( n -- )
@@ -777,10 +821,8 @@ header throw
             space
             .
         then
-        d# 0 state !
-        d# 0 sourceid !
+        prompting
         'console @ 'emit !
-        d# 0 sbase !        \ only the first task has no catch round it
         d# 0 IO-RSP io!
         d# 0 IO-SP io!
         d# 1 execute        \ word 1 of the boot vector: quit
@@ -857,9 +899,13 @@ header s,
     dp @ dpl @ u> d# 8 -throw
     parse-name >key                         ( n )
     hdp @ over + CELL2 +  hdl @ u> d# 8 -throw
-    hdp @  dup lastword !
-    forth @ over !                          \ link
-    cp @ dup thisxt !  over 1+ !            \ xt
+    \ The link: forth's address goes to the return stack, and what
+    \ forth holds goes from there to the header, a cell to a cell.
+    forth hdp @ swap >r dup                 ( n h h ) ( R: forth )
+    lastword !                              ( n h )
+    meta R->IN [IN] ->[T] d+1 alu target    ( n h h )       \ r@ @ over ! dup
+    cp @ tuck rdrop                         ( n h xt h xt )
+    thisxt !  1+ !                          ( n h )         \ xt
     CELL2 +  2dup + hdp !                   ( n name )
     skey swap rot cells-move
     sync
@@ -945,7 +991,7 @@ header-imm 2literal
 header-imm literal
 : tliteral
 W64? [if]
-    dup 0< if
+    s>d if
         invert tliteral
         inline; invert
     then
@@ -961,7 +1007,10 @@ W64? [if]
         tliteral
         d# 36 tliteral
         inline: lshift
-        d# 28 lshift d# 28 rshift
+        \ the low 36 bits: shifted up onto the return stack, and down
+        \ from there by the same 28
+        d# 28 2dup lshift >r
+        nip r> swap rshift
         h# c000 segs,
         exit
     then
@@ -1097,16 +1146,24 @@ header-imm recurse
 \ start - limit to 0.  rO holds the limit, and I is that count
 \ plus rO.  The loop before's rO is kept on the return stack.
 
+\ rO's address is pushed once: the limit before is fetched through
+\ it over the top of the return stack, which is copied first as
+\ where this returns to, and the limit is stored through it
+\ (doc/superoptimizations.md).
 : (do)  ( limit start -- start-limit )
-    r> rO @ >r >r
-    over rO !
-    swap -
+    swap r@                                 ( start limit ra )
+    rO tuck rdrop @ >r                      ( start limit rO ra ) ( R: old )
+    >r                                      ( start limit rO ) ( R: old ra )
+    over swap !                             ( start limit )
+    -
 ;
 
 : (?do)  ( limit start -- start-limit start!=limit )
-    r> rO @ >r >r
-    over rO !
-    swap -
+    swap r@
+    rO tuck rdrop @ >r
+    >r
+    over swap !
+    -
     dup 0=
 ;
 
@@ -1150,11 +1207,10 @@ header-imm loop
 
 \ finished when the count has gone round, up or down
 : (+loopnext) ( inc R -- R finished )
-    over 0< >r
-    dup >r +
-    r> over ( R old new )
-    u>
-    r> xor
+    dup >r over +                           ( inc new ) ( R: old )
+    swap 0<                                 ( new f )       \ is the step negative?
+    over r> u<                              ( new f f2 )    \ is new below old?
+    xor
 ;
 
 header-imm +loop
@@ -1188,11 +1244,16 @@ header-imm ?do
     inline; >r
 ;fallthru
 
+\ Where this returns to is put back before the add, which drops it
+\ and the count under what it makes, and has the return in it.
+\ The add is said by its fields, and rO's address pushed for it:
+\ of `rO @ + nip` cross.fs makes the add and then swap >r, whose
+\ return is an instruction of its own.
 header i
 : i
     r>
-    r@ rO @ +
-    swap >r
+    r@ over >r                              ( ra count ) ( R: count ra )
+    rO  meta [T]->IN IN+N ->T d-2 alu target    \ @ + nip
 ;
 
 header j
@@ -1365,10 +1426,12 @@ header catch
     rO @ >r
     IO-RSP io@ handler !
     execute
-    rdrop
-    r> handler !
-    rdrop
-    d# 0
+    \ rO as it was is dropped in the fetch of up; the handler is put
+    \ back and the depth dropped in one store; and the 0 is up's
+    \ address with itself, in the instruction that returns.
+    up dup rdrop @                          ( up task )
+    HANDLER-CELL +  r> rdrop over !         ( up handler )
+    drop dup xor                            ( 0 )
 ;
 
 : idle ;
@@ -1390,13 +1453,18 @@ header spawn
     dup IO-RSP io!                  \ on its return stack,
     ['] (task) >r  d# 0 >r  rot >r  \ what pause leaves   ( xt dbase mine rbase )
     d# 3 + swap IO-RSP io!          ( xt dbase rdepth )
-    r@ CELL + !
-    r@ c# 3 + !
-    r@ c# 2 + !
+    \ cells 1, 3 and 2 of the record, by one address stepped along
+    r@ CELL + tuck !                ( xt dbase a )      \ the depth
+    tuck d# 2 + !                   ( xt a )    \ where its data stack starts
+    1+ !                                        \ the word it runs
     d# 0 r@ c# 4 + d# 7 cells-fill
     d# 10 r@ c# 5 + !
-    'emit @ r@ c# 6 + !
-    up @ @ r@ !  r> up @ !          \ next after this one
+    \ where its output goes, a cell to a cell through the return
+    \ stack; and then it is next after this one
+    'emit r@ over >r dup            ( 'emit task task ) ( R: task 'emit )
+    c# 6 + r@ @ swap !              ( 'emit task )
+    up @ rdrop @ swap !             ( 'emit ) ( R: task )
+    up @ nip r> swap !
 ;
 
 header '
@@ -1466,15 +1534,17 @@ include-rom
 : afresh ( -- ) \ what the console and throw need
     main-task dup up !  dup !               \ the first task, in a ring of one
     ['] uart-emit dup 'emit !  'console !  decimal
-    d# 0 handler !  d# 0 sbase !
-    d# 0 state !  d# 0 blk !  d# 0 sourceid !
+    d# 0 handler !  d# 0 blk !
+    prompting
 ;
 
 : boot-buf ( -- a ) MEM-END BLKCELLS - ;    \ block 0, in the last block of memory
 : entry ( i -- a ) ENTRY-BYTES BYTESHIFT rshift *  boot-buf + ;
 : ifield ( a offset -- u ) \ two bytes that far into the cells from a
-    dup >r BYTESHIFT rshift + @
-    r> OFFSET-MASK and d# 3 lshift rshift  h# ffff and
+    h# ffff >r
+    dup OFFSET-MASK and >r
+    BYTESHIFT rshift + @
+    (field)                                 \ a jump: it takes the two off the return stack
 ;
 
 \ The image from the console: numbers in hex, each followed by
@@ -1492,7 +1562,9 @@ include-rom
     repeat
     drop
 ;
-: deposit ( a sum u -- a' sum' ) tuck + >r  over !  1+ r> ;
+\ what is stored goes to the return stack, and the store takes it
+\ from there as it swaps the address up
+: deposit ( a sum u -- a' sum' ) dup >r +  swap r> over !  1+ swap ;
 : record ( a sum u c -- a sum )
     dup bl = if drop deposit exit then
     dup [char] @ = if drop nip nip dup exit then

@@ -514,9 +514,15 @@ static int fetch_is_wanted(const wanted* w, const named* m, int place) {
 
 static int look(wanted* w, const named* m, int left, uint16_t* path, int at);
 
+// What is looked for may be to end in an instruction of some set, as one
+// that a return can be folded into: by instruction, whether it is of the
+// set.  With none, it ends in any.
+static const unsigned char* ends_in;
+
 // One instruction on from a state, if what it leaves is worth going on
 // from; and on from there.
 static int on(wanted* w, const named* m, uint16_t x, int left, uint16_t* path, int at) {
+    if (left == 1 && ends_in && !ends_in[x]) return(0);
     named s = *m;
     step_named(&s, x);
     if (s.unsaid || lost || s.next >= 0) { lost = 0; return(0); }     // the step says when a stack is deeper than it names

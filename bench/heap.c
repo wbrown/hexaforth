@@ -20,12 +20,21 @@
 // the piece was held: so a piece that is given more than it ever uses
 // shows.
 //
+// The stacks are the machine's other room, and are not memory: how many
+// cells each has had at the most is watched too, with the word that was
+// running when the return stack had its most, what that stack held then
+// (held_said), and how many files were being read (own-names and own-done,
+// files.fs): a file that is read keeps what it has of the dictionary on the
+// return stack until it is done.  The most a stack has had is the highest
+// cell that was used, and not how deep one task went: a task has a part of
+// each stack, from where spawn is told (nuc.fs).
+//
 // When the machine stops, what was found is written to the file that the
 // environment's HEAP names, if it names one (heap_said): how far the heap
 // reached and who asked then; what of it is held, kept to be had again and
-// neither when the machine stopped; and a line for each who asked, with
-// how often, how big a piece, how much is held and was at most, and the
-// most of any one piece that was stored to.  HEAP_NAMES names the file of
+// neither when the machine stopped; the most each stack had; and a line
+// for each who asked, with how often, how big a piece, how much is held
+// and was at most, and the most of any one piece that was stored to.  HEAP_NAMES names the file of
 // names that goes with the image (nuc.tables), for the words that have no
 // header.  The machine is watched from when it last started at instruction
 // 0, so a test that starts it more than once says what the last did.
@@ -40,11 +49,11 @@
 #include <stdlib.h>
 #include "../vm.h"
 
-static void ran(context* ctx, int64_t at, int sp, int64_t t);
+static void ran(context* ctx, int64_t at, int sp, int rsp, int64_t t, int64_t r);
 static void stored(context* ctx, int64_t addr, int64_t x, int64_t next, int rsp, int64_t r);
 static void filled(context* ctx, uint64_t cell, uint64_t cells);
 
-#define RUNS(at)            ran(ctx, at, SP, T)
+#define RUNS(at)            ran(ctx, at, SP, RSP, T, R)
 #define STORES(addr, x)     stored(ctx, addr, x, EIP, RSP, R)
 #define FILLS(cell, cells)  filled(ctx, cell, cells)
 #include "../vm.c"
@@ -86,6 +95,12 @@ static int64_t LEFT = -1;       // where the last jump or call was,
 static int64_t ASKING = -1;     // and where the one to halloc or hreuse was
 static long given_out;          // how many pieces there have been
 static uint64_t held_now;       // the cells held now
+
+static int DEEPEST, DEEPEST_RETURN;     // the most cells each stack has had: the data stack, and the return stack
+static int64_t DEEPEST_AT = -1;         // the instruction about to be run when the return stack had that many,
+static int64_t DEEPEST_HELD[STACK_CELLS];       // and what it held then, the oldest first
+static long OWN_NAMES = -1, OWN_DONE = -1;      // the words a file that is read begins and is done with, or less than nothing
+static int reading, most_reading, reading_then; // files being read: now, at the most, and when the return stack had its most
 
 // The word that the instruction at a place is in, or less than nothing.
 static int word_holding(int64_t at) {
@@ -133,10 +148,14 @@ static void watch(context* ctx) {
         HALLOC = word_called("halloc");
         HREUSE = word_called("hreuse");
         HFREE = word_called("hfree");
+        OWN_NAMES = word_called("own-names");
+        OWN_DONE = word_called("own-done");
         TOUCHED = room_for(CELLS, 1);
     }
     npieces = naskers = given_out = 0;
     held_now = 0;
+    DEEPEST = DEEPEST_RETURN = reading = most_reading = reading_then = 0;
+    DEEPEST_AT = -1;
     FROM = FURTHEST = HIMEM ? cell_now(HIMEM) : 0;
     FURTHEST_FOR = -1;
     LEFT = ASKING = -1;
@@ -221,8 +240,15 @@ static void back_to(uint64_t at) {
     }
 }
 
-static void ran(context* ctx, int64_t at, int sp, int64_t t) {
+static void ran(context* ctx, int64_t at, int sp, int rsp, int64_t t, int64_t r) {
     if (at == 0 || !MACHINE) watch(ctx);
+    if (sp > DEEPEST) DEEPEST = sp;
+    if (OWN_NAMES >= 0 && at == WORDS[OWN_NAMES].at && ++reading > most_reading) most_reading = reading;
+    if (OWN_DONE >= 0 && at == WORDS[OWN_DONE].at && reading) reading--;
+    if (rsp > DEEPEST_RETURN) {
+        DEEPEST_RETURN = rsp, DEEPEST_AT = at, reading_then = reading;
+        for(int idx=0; idx < rsp && idx < STACK_CELLS; idx++) DEEPEST_HELD[idx] = idx == rsp - 1 ? r : ctx->RSTACK[idx];
+    }
     if (!HIMEM) return;
     if ((HALLOC >= 0 && at == WORDS[HALLOC].at) || (HREUSE >= 0 && at == WORDS[HREUSE].at)) {
         if (!inside(HREUSE, LEFT)) ASKING = LEFT;       // halloc asked by hreuse is for whoever asked hreuse
@@ -255,6 +281,48 @@ static void filled(context* ctx, uint64_t cell, uint64_t cells) {
 
 static const char* named(int which) {
     return(which >= 0 ? WORDS[which].name : "?");
+}
+
+// What the return stack held when it had its most, the oldest first, as far
+// as that says what the machine was at.  A cell that is where a call
+// returns to is said by the word it goes back into; one that is where a
+// word starts, by that word with a tick before it, which is how a task's
+// word and a caught word are there; and the cells between, by how many they
+// are.  A number that is kept there and is also such a place is said as
+// one.  A task has a part of the stack (spawn, nuc.fs), so the cells under
+// the part of the task that was running are other tasks'.
+static void held_said(FILE* out) {
+    int col = 0, others = 0;
+    fprintf(out, "  what it held then, the oldest first.  A word: a call returns into it.  'word: the word starts there,\n"
+                 "  or a number kept there is that.  A number: so many cells that are neither.  [n]: the cell the line\n"
+                 "  starts at.  A task has a part of the stack: the cells under the running task's are other tasks'\n");
+    for(int idx=0; idx <= DEEPEST_RETURN && idx <= STACK_CELLS; idx++) {
+        char said[NAME_ROOM + 2] = "";
+        if (idx < DEEPEST_RETURN && idx < STACK_CELLS) {
+            const uint64_t x = ucell(DEEPEST_HELD[idx]);
+            int in = x && returns_to(MACHINE, x) ? word_holding((int64_t)x - 1) : -1;
+            if (in >= 0) {
+                snprintf(said, sizeof(said), "%s", WORDS[in].name);
+            } else if (x && (in = word_holding((int64_t)x)) >= 0 && WORDS[in].at == (long)x) {
+                snprintf(said, sizeof(said), "'%s", WORDS[in].name);
+            } else {
+                others++;
+                continue;
+            }
+        }
+        for(int which=0; which < 2; which++) {          // the cells that were neither, and then the word
+            char token[NAME_ROOM + 2];
+            if (which == 0 && !others) continue;
+            if (which == 1 && !*said) continue;
+            if (which == 0) snprintf(token, sizeof(token), "%d", others);
+            else snprintf(token, sizeof(token), "%s", said);
+            const int first = which == 0 ? idx - others : idx;
+            if (!col || col + 1 + (int)strlen(token) > 100) col = fprintf(out, "%s  [%3d]", col ? "\n" : "", first) - (col ? 1 : 0);
+            col += fprintf(out, " %s", token);
+            if (which == 0) others = 0;
+        }
+    }
+    fprintf(out, "\n");
 }
 
 static int by_most_held(const void* a, const void* b) {
@@ -295,10 +363,18 @@ void heap_said(void) {
         fprintf(out, ", for %s (%s)", named(ASKERS[FURTHEST_FOR].who), named(ASKERS[FURTHEST_FOR].of));
     }
     fprintf(out, "\n  when the machine stopped: %llu bytes from its start to byte $%llx; %llu held in %ld pieces, "
-            "%llu kept to be had again, %llu neither\n\n",
+            "%llu kept to be had again, %llu neither\n",
             (unsigned long long)(extent * bytes), (unsigned long long)(now * bytes),
             (unsigned long long)(held_now * bytes), npieces, (unsigned long long)(kept * bytes),
             (unsigned long long)((extent > held_now + kept ? extent - held_now - kept : 0) * bytes));
+    fprintf(out, "  the stacks, %d cells each: the data stack had %d at the most, and the return stack %d, in %s",
+            STACK_CELLS, DEEPEST, DEEPEST_RETURN, named(DEEPEST_AT >= 0 ? word_holding(DEEPEST_AT) : -1));
+    if (OWN_NAMES >= 0 && OWN_DONE >= 0) {
+        fprintf(out, ";\n  files being read then: %d, and the most at once: %d", reading_then, most_reading);
+    }
+    fprintf(out, "\n");
+    held_said(out);
+    fprintf(out, "\n");
 
     qsort(ASKERS, naskers, sizeof(asker), by_most_held);
     fprintf(out, "  who asked (and who asked that)             times     bytes a piece        held   most held  most stored to\n");

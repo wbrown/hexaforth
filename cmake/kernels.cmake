@@ -83,6 +83,7 @@ set(VIRT machine-virt boot-system-virt)
 # disk's driver in it and is the fullest there is, so this is where how long
 # its kernel is, and what its ROM has left, is asked.
 examined(examine-virt ${OF_KERNEL})
+shortened(shorter-virt ${OF_KERNEL})
 
 # A number that may have a fraction, times a whole number, as a whole
 # number: CMake's own arithmetic is of whole numbers.

@@ -242,8 +242,9 @@ the tool is extended. What there is to ask:
   `compiling-16`
 - what that boot asks the dictionary for: the targets `finding-64` and
   the like (`bench/finds.c`), which say how often a name is looked up,
-  how many headers are looked at, and each name by what was looked at
-  for it
+  how many headers are looked at, what would be looked at were the
+  dictionary several chains, by each way of choosing a name's chain, and
+  each name by what was looked at for it
 - what a boot laid beside what `cross.fs` lays of the same words: the
   targets `booted-64` and the like (`bench/booted.c`)
 - how many words, headers and bytes an image has: `examine`
@@ -538,6 +539,13 @@ virtio disk's driver in it and is the fullest.
   put there. What says how long a kernel is measures it to where its
   code stops, and an image whose kernel does not end inside its ROM is
   not built (`rom-ends`, `cross.fs`)
+- What fewer instructions would do of a kernel's ROM is asked of the
+  targets `shorter-16` and the like, and `shorter-virt` of QEMU's
+  (`bench/shorter.c`, `--rom`): every run of its words, whole and a part
+  at a time, and every loop, each with the fewest instructions found
+  that leave what it leaves, run on `vm.c` beside it. It finds what is
+  next to each other and can be said in fewer with everything where it
+  is. It does not find what is written twice: that is read for
 - Why a word of the kernel is written as it is, where another way would
   be the first thought of, is said in the comment at the word: what the
   other way is, and what it would cost or save. Read it before writing the
@@ -1008,13 +1016,17 @@ The machine, in C:
   same words as `cross.fs` lays them), `finds.c` (the reference VM
   watching `sfind`: what the dictionary is asked for, and the headers
   looked at for each name), `shorter.c` (the loops that ran, and fewer instructions that do a turn
-  of each), `uses.c` (where the work uses a small word, called or
+  of each; and with `--rom`, every run and every loop of a kernel's ROM,
+  for what would make it shorter: the targets `shorter-16` and the like,
+  and `shorter-virt`), `uses.c` (where the work uses a small word, called or
   compiled in place, how often, and what it is given: the target
   `subtracts` asks it of `-`, `1-` and `negate`, and `uses.c` says at its
   top how it is asked of any other), `heap.c` (the reference VM watching
   the heap, by itself or as the VM in a test: what was given out and to
   whom, how much of each piece was ever stored to, what was given back,
-  and how far the heap reached: the target `memory-map-64` and the like
+  how far the heap reached, and the highest cell of each stack that was
+  used, with what the return stack held then, word by word, and how many
+  files were being read: the target `memory-map-64` and the like
   print it after each map) and `cycles.h` (the
   cycles the Verilog takes for an instruction)
 
@@ -1187,7 +1199,11 @@ The other two machines:
   built), `dictionary.md` (how a name is found, what a search costs and
   where that is asked, what reads a header, and the changes to the
   dictionary that have not been made: what each is and would change,
-  and the room it needs in the ROM) and
+  and the room it needs in the ROM), `hardware.md` (the machine as
+  chips: how deep other Forths' stacks are, where a stack can be kept
+  and what each place costs, what the pins come to, how the CPU divides
+  among several chips, and what the parts cost: notes of what was looked
+  up and worked out, none of it built) and
   `superoptimizations.md` (each way the machine's work has been made
   shorter or faster, by hand or by the tools: where it is used, what it
   replaced, why in the machine's terms, and the commit that measured it;

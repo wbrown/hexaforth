@@ -186,6 +186,17 @@ machine_tool(counting bench/counting.c)
 stepping_tool(costs bench/costs.c util/image.c)
 stepping_tool(shorter bench/shorter.c util/image.c)
 target_compile_definitions(shorter PRIVATE SEARCH_STATES=${SEARCH_STATES})
+# What would make a kernel's ROM shorter: its loops, and every run of its
+# words, each with the fewest instructions found that do it (shorter
+# --rom).  shortened() makes the target that says it of the image in a
+# directory, shorter-NAME, and it takes as long as its searches do: what is
+# found is in shorter.txt there as it is found, and the run each search is
+# of in shorter.log.
+function(shortened TARGET AT)
+    report(${TARGET}
+            COMMAND           shorter ${AT}/nuc.hex ${AT}/nuc.tables --rom ${AT}/shorter.txt 2> ${AT}/shorter.log
+            COMMAND           ${KEEP} shorter ${AT}/nuc.hex ${AT}/shorter.txt)
+endfunction()
 # Two measurements of the same work, by word (bench/compared.c): compared
 # WAS WAS.work IS IS.work, of what is built and of what was kept
 # (build/kept/, and build/kept/log.txt says what there is).
@@ -360,8 +371,10 @@ endfunction()
 # the desktop, when its checks are done.  The last three are run on the
 # reference VM that watches the heap (bench/heap.c: `heap` by itself, and
 # as the VM in the desktop's test, desktop_test_heap), and after the map of
-# each is what the heap was given out to while it ran.  Each map, what the
-# watch said and the memory they are of are kept in build/NAME/map/.
+# each is what the heap was given out to while it ran, and the highest cell
+# of each stack that was used, with what the return stack held then.  Each
+# map, what the watch said and the memory they are of are kept in
+# build/NAME/map/.
 set(WATCHED_SOURCES test/nucleus.c bench/heap.c)
 machine_tool(map util/map.c)
 machine_tool(heap bench/heap.c)
@@ -443,7 +456,8 @@ function(compiled NAME)
     # `finding-64` and the like: what that boot asks the dictionary for.
     # The same machine is run on the reference VM that watches sfind
     # (bench/finds.c): how often it is asked, how many headers it looks at,
-    # and each name by what was looked at for it.  It is in
+    # what it would look at were the dictionary several chains, and each
+    # name by what was looked at for it.  It is in
     # build/NAME/compiling/finds.txt.
     report(finding-${NAME}
             COMMAND           ${MKDIR} ${CP}
@@ -479,6 +493,7 @@ foreach(LINE ${MACHINE_LINES})
     machine_made(${CELL})
     if(HOW_MUCH GREATER 2)
         examined(examine-${CELL} ${BUILD}/${CELL})      # the names it reads are a machine's that has a display
+        shortened(shorter-${CELL} ${BUILD}/${CELL})
         listed(${CELL})
         mapped(${CELL})
         compiled(${CELL})

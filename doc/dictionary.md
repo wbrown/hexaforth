@@ -105,8 +105,10 @@ What knows where a header's link, token and name are:
   loops
 - `finding-16` and the like (`bench/finds.c`): how often the dictionary is
   asked, how many headers are looked at, by what was found; what the best
-  order of the image's headers would look at; and each name by what was
-  looked at for it
+  order of the image's headers would look at; what the same searches would
+  look at were the dictionary several chains, for each way of choosing a
+  name's chain and each number of chains, beside what that would be if
+  names fell evenly; and each name by what was looked at for it
 - `disasm_hex build/16/boot/nuc.hex sfind --counts
   build/16/compiling/work`: how often each instruction of the loop ran
 
@@ -197,16 +199,31 @@ fields. What changes is what links and what goes along the links:
 - `words`, the walkers of `see.fs` and the C go along every chain, and the
   order that `words` and the Words window list is the chains one after
   another
-- `files.fs` takes a file's own names out of every chain, and so keeps
-  the head each chain had when the file began, for every file that is
-  being read
+- `files.fs` takes a file's own names out of every chain when the file
+  is done (`own-done`), and so is told where each chain was when the
+  file began. For the one chain now that is the header `forth` held,
+  which `own-names` keeps on the return stack among the cells a file
+  being read has there. A head for each chain kept there would be a
+  cell a chain for every file being read, out of the part of the stack
+  that the task reading it has (`spawn`), and a deeper stack is dear
+  (`doc/hardware.md`). The heads need not be there: `own-names` keeps
+  where the file's own names begin (`base`), and they can be laid
+  there, in the memory the names are laid in. `memory-map-16` and the
+  like say the highest cell of that stack a boot uses, what it held
+  then, word by word, and how many files were being read
 - `cross.fs` links each of the image's headers into its chain, and orders
   each chain by use
 
-Whether names fall evenly is not known, and is to be measured before
-anything is built. `bench/finds.c` is where what a search looks at is
-counted, and it already says what another order of the headers would look
-at.
+How names fall is measured, and `finding-16` and the like say it: what the
+searches of a boot would look at for each way of choosing a chain and each
+number of chains, beside what they would look at if names fell evenly. The
+low bits of the first cell are the name's first code, and by those alone
+names do not fall evenly: few letters begin most of them. With the second
+code mixed in (`dup 5 rshift xor`) they fall nearly evenly, and a third
+code, or a multiply, adds little to that. Choosing a chain is a few
+instructions, once for a search and once for a header that is made, since
+the name is packed before either: `disasm_hex IMAGE.hex --typed FILE.fs`
+shows what the nucleus makes of a way of choosing one.
 
 ### Taken together
 
@@ -221,8 +238,8 @@ well. These are in the kernel's ROM, and a kernel is to fit its ROM on
 every machine: an image whose kernel does not end inside it is not built
 (`rom-ends`, `cross.fs`).
 
-The reference machines' ROMs have room. QEMU's has next to none: its ROM
-has the driver of a virtio disk in it (`virt-disk.fs`, `virtio-disk.fs`),
+The reference machines' ROMs have room. QEMU's has the least: its ROM has
+the driver of a virtio disk in it (`virt-disk.fs`, `virtio-disk.fs`),
 which is longer than the one the reference machines have
 (`port-disk.fs`). `examine-16` and the like say how long each reference
 machine's kernel is and what its ROM has left, with each file's words and
@@ -235,7 +252,7 @@ By a count from the source, and not from a build:
   as long as it was
 - the chains add the choice of a chain to `sfind`, to `mkheader` and to
   `attach`, and `words` goes along each: longer, by more than QEMU's ROM
-  has left
+  had left when this was first written
 
 So room is made in QEMU's ROM before either, and that is by making what is
 in it shorter. How that is done is in `CLAUDE.md` (Making the kernel
@@ -254,10 +271,16 @@ smaller), and it is asked of the image and not of the source:
 - the driver is the ROM's as much as the nucleus is, and it is what makes
   this one full
 
-None of that has been looked at for this.
+The first has been done, together with what the search for fewer
+instructions finds of the ROM's runs (`shorter-virt`):
+`doc/superoptimizations.md` says each, and every word is where it was.
+Whether the room that made is enough is known when a change is written.
+The rest have not been looked at for this. A word is on the kernel's page
+to be one instruction from every page, for what the machine compiles
+later as well as for the image: that nothing in the image calls it is no
+reason for it to leave.
 
 ## Not decided
 
 - Whether the dictionary is changed again, and which of the three it is.
-- Where the room in QEMU's ROM comes from.
 - Whether a number said bare is to go on being looked up first.
