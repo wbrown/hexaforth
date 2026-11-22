@@ -3,7 +3,7 @@
 //
 // What clangd says of the C, from what it printed when it was asked of a
 // file at a time (clangd --check=FILE: the target `clangd`, which
-// CMakeLists.txt says).  A language server says what it finds wrong with a
+// cmake/clangd.cmake says).  A language server says what it finds wrong with a
 // file each time the file is changed.  What it says of the tree as it is
 // would be said again after every change, of what was not changed: so
 // there is to be none of it.

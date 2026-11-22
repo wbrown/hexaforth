@@ -168,7 +168,7 @@ The first of it, on the reference VM, on every size of machine:
   on such a disk is `apps.fs`.
 
 - QEMU started so. A kernel can be built with only its ROM in it
-  (`kernel(... ROM)` in `CMakeLists.txt`; `hex2bin --rom` is the first
+  (`kernel(... ROM)` in `cmake/kernels.cmake`; `hex2bin --rom` is the first
   4KB of the image the machine boots with), and what is after it is the
   machine's memory, with nothing in it. QEMU's virt has an image of its
   own (`build/virt/`, `machine-virt`), since its ROM has its own disk's

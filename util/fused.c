@@ -6,7 +6,7 @@
 // made from a built image.  It is in the image, so it is not made from the
 // image it is in: an image is built first with the table of no image, which
 // this writes when it is given no image, and the table is made of that one
-// (CMakeLists.txt).  The table is laid after all an image's other data
+// (cmake/default-machine.cmake).  The table is laid after all an image's other data
 // (forth/system.fs), where how long it is moves nothing: a table laid
 // before a variable can push it out of the cells one instruction reaches,
 // and the code that fetches it is then other instructions.  So the image

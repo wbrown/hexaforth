@@ -234,7 +234,7 @@ You need CMake and either Homebrew or apt. Configuring installs the rest: it
 runs `brew install`, or `apt-get install` as root, for whichever of the
 twenty programs and libraries it needs are missing, QEMU, Verilator, Yosys
 and LLVM among them. With `-DINSTALL_NEEDED=OFF` it only checks and reports
-what is missing. The top of `CMakeLists.txt` lists them all.
+what is missing. `cmake/needs.cmake` lists them all.
 
     cmake -S . -B build/cmake
     cmake --build build/cmake --target demo      # the desktop, on QEMU

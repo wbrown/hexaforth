@@ -12,8 +12,8 @@
 // (build/profile/desktop.counts; work.h).  ONLY in the environment is
 // words, with commas between, whose loops alone are looked at.  Every loop
 // that ran and has a turn is looked at, however long its turn; how long a
-// search may take is said once, in CMakeLists.txt (SEARCH_STATES, which
-// fewer.h has).
+// search may take is said once, in cmake/default-machine.cmake
+// (SEARCH_STATES, which fewer.h has).
 //
 // The report is build/shorter.txt if none is named: for each loop, the
 // turn as it is, each way that fewer do it, and for each way it was looked

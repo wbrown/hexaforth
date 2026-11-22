@@ -4,7 +4,7 @@
 // How big a CPU is, as gates, from what Yosys counted of it.
 //
 // The CPU was put through a flow that leaves it as NAND gates of two
-// inputs, inverters and D flip-flops (CMakeLists.txt says the flow), and
+// inputs, inverters and D flip-flops (cmake/gates.cmake says the flow), and
 // Yosys's `stat` says how many of each cell there are: a line a kind, with
 // the number before its name or after it, as the Yosys is.  A NAND is one
 // gate, an inverter half of one and a

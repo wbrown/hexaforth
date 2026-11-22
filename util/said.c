@@ -2,7 +2,7 @@
 // said_files GIT KIND... [--not DIRECTORY...] [--besides NAME...]
 //
 // The files that the tree's own text says by name, and whether each is
-// there: the target `said`, which CMakeLists.txt says.
+// there: the target `said`, which cmake/said.cmake says.
 //
 // A file is named in many places besides where it is: by what includes
 // it, by CMake, in the comment at the top of another file, in CLAUDE.md.
@@ -27,7 +27,7 @@
 //   file (FILE.fs), and before the name a directory with none (FORTH/),
 //   which stands for wherever that is;
 //   and each NAME, which is a file that is said here and is not the
-//   tree's: CMakeLists.txt says which and why.
+//   tree's: cmake/said.cmake says which and why.
 //
 // It prints each name that is not there after the file and the line that
 // say it, and then how many names were said in how many files.  It fails

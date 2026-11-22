@@ -449,7 +449,7 @@ the order things happened to be written in.
   The target `bench` says cycles
 - The target `bench` is the benchmarks: a piece of work is a file typed
   at the prompt, the same file on the Verilog CPU of every size, and what
-  it made is checked before a figure is printed for it. `CMakeLists.txt`
+  it made is checked before a figure is printed for it. `cmake/bench.cmake`
   says what there is (`bench-draw`, `bench-dither`, `bench-gray`,
   `bench-m68k`, and `gates`). What a change costs is what it prints before the change
   and after; no figure is kept in the repository
@@ -553,10 +553,39 @@ VM: one program, which is of the machine whose image it is given),
 `generate-test-cases`; and
 `examine-image`, with the target `examine`, which runs it on the image.
 
-`CMakeLists.txt` says each kind of thing once, and a new one is said with
+`CMakeLists.txt` names the project, and says where what is made goes and
+how the C is compiled. The rest is the parts it includes, in the order it
+includes them. Each is of one thing, says at its top what that is, and
+uses what the parts before it say:
+
+- `cmake/needs.cmake`: what the project needs that is not in it
+- `cmake/kinds.cmake`: the kinds of thing that are made, each said once
+- `cmake/default-machine.cmake`: the two files of Forth that are made, the
+  default machine's nucleus, and the tests of it
+- `cmake/disks.cmake`: what makes a disk, the source that goes on one, and
+  the pictures
+- `cmake/machines.cmake`: the machines of `util/machines`, and for each
+  its images, its disks, its tests and its reports
+- `cmake/reports.cmake`: the reports of the first machine
+- `cmake/kernels.cmake`: the AArch64 kernels, and the desktop on QEMU
+- `cmake/verilog.cmake`: the Verilog, its tests, and `synth`
+- `cmake/bench.cmake` and `cmake/gates.cmake`: the benchmarks, and the
+  CPU's size
+- `cmake/said.cmake` and `cmake/clangd.cmake`: the targets `said`,
+  `figures` and `clangd`
+- `cmake/check.cmake`: `check` and `quick`, which are last, since they are
+  of every test and every tool
+
+The parts are one directory to CMake: a part is included, and no directory
+is added, so that a file or a target one part makes is named as it is in
+any part after it. `clangd` asks of the C the parts before it compile, so
+a part that compiles C is included before `cmake/clangd.cmake`.
+
+`cmake/kinds.cmake` says each kind of thing once, and a new one is said with
 what says it, not by copying another: an image is made by `image`, which
 is the one place that runs `cross.fs`; a system, which is a machine's
-images and their disks, by `system`, QEMU's as well as each machine's of
+images and their disks, by `system` (`cmake/machines.cmake`), QEMU's as
+well as each machine's of
 `util/machines`; a tool by `tool`, or by `machine_tool` if it has the
 machine in it or reads a machine's image, which is then one program for
 every machine and has from a library what every such tool has, or by
@@ -566,8 +595,8 @@ name, so that no report lists what it needs. A build with no target
 builds every tool, so that after one no tool in `build/cmake` is older
 than its source, and then runs `quick`. A tool that is run by hand is run
 after such a build.
-What the project needs that is not in it is said once, at the top of
-`CMakeLists.txt`: each program or library, what it is for, and the
+What the project needs that is not in it is said once, in
+`cmake/needs.cmake`: each program or library, what it is for, and the
 package that has it, Homebrew's and apt's. When CMake is configured each
 is looked for, and what is not there is asked of Homebrew, or of apt as
 root, all at once; `-DINSTALL_NEEDED=OFF` only looks and says. So a
@@ -577,10 +606,11 @@ given there, not by a name that is hoped to be in `PATH`.
 
 Whatever else is compiled or run is CMake's to compile and run too: the
 machines, the AArch64 kernels, the Verilog, the tests, the reports and
-the benchmarks. `CMakeLists.txt` says what each thing is made of, once,
-and at each part what its targets are and what can be said to them. A
-tool, a test or a report that is added is added there: not a compiler's
-command line in a script, not a script, and not a Makefile. What looks at
+the benchmarks. The parts say what each thing is made of, once, and each
+at its top what its targets are and what can be said to them. A tool, a
+test or a report that is added is added to the part it is of: not a
+compiler's command line in a script, not a script, and not a Makefile.
+What looks at
 what a program printed, or works something out of it, is a function of
 the tree's C that a tool has in it, and not a pipe of `grep` and `awk`:
 `baremetal/symbols.h` is where a kernel's symbols are, `bench/figure.h`
@@ -689,7 +719,7 @@ of `fuse.h` and of the machine, so that a change to either starts
 another), so the first image built after such a change takes longer than
 the rest. gforth prints the C compiler's warnings of `fuse.h` each time. Where gforth is
 Homebrew's, the compiler is told where Homebrew's headers are:
-`CMakeLists.txt` does, and by hand it is
+`cmake/kinds.cmake` does, and by hand it is
 `CPATH="$(brew --prefix)/include" gforth ...`.
 
 Generated, and checked in: `forth/basewords.fs` (by `basewords-fs-gen`,
@@ -698,7 +728,8 @@ nucleus's peephole is told of numbers, by `util/joins.c`, which reads no
 image); and `forth/fused.fs` (the words the decompiler shows an
 instruction as, by `util/fused.c`, from a built image). Both have
 `fuse.h` in them and ask the machine. Each is made by a command of its
-own, which `CMakeLists.txt` says with what it is made from, and every
+own, which `cmake/default-machine.cmake` says with what it is made from,
+and every
 nucleus is built after the default machine's (`build/nuc.hex`), which is
 built after them. The decompiler's table is in the image, so it is not
 made from the image it is in: an image is built first with the table of
@@ -729,14 +760,14 @@ prints a line for each.
 
 `cmake --build build/cmake`, with no target, is the target `quick`: the
 tests that need only the reference VM (`on_the_vm`, in
-`CMakeLists.txt`), among them every machine's prompt, boot, desktop and
+`cmake/kinds.cmake`), among them every machine's prompt, boot, desktop and
 drawing, and the two builds compared. It is what is run while the source
 is being changed.
 Before their tests, `quick` and `check` print the names the system's
 source defines again and what each machine's memory has used and has
 left. Neither is an error: they are printed to be read.
 
-A test says what it needs built (`needs`, in `CMakeLists.txt`), and what
+A test says what it needs built (`needs`, in `cmake/kinds.cmake`), and what
 it needs is built before it is run, however it is run: each target a test
 names is built by a test of its own, `built-TARGET`, which it waits for.
 A test whose needs do not build is not run, and has failed. So a test is
@@ -946,7 +977,7 @@ The machine, in C:
   builds, run for run: it has `fuse.h` in it, and asks the machine);
   `session_test.c` (what the Verilog sent of a session against what
   `vm.c` sent)
-- `bench/`: the benchmarks (the target `bench`, and `CMakeLists.txt`
+- `bench/`: the benchmarks (the target `bench`, and `cmake/bench.cmake`
   says what each is): `draw.fs`,
   `dither.fs` and `gray.fs` (the work, as it is typed); `pictures.fs`
   (the pictures the work is done on, found by their labels on the

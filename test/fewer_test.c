@@ -77,7 +77,7 @@ static turn_check TURNS[] = {
 
 // A search here is of a few instructions, and is never to be given up: none
 // of these looks at as many states as a search may (SEARCH_STATES, which
-// CMakeLists.txt says and fewer.h has).
+// cmake/default-machine.cmake says and fewer.h has).
 
 // Words as their instructions: how many.  A number is the instruction
 // that pushes it, as the step found them (kinds.h).

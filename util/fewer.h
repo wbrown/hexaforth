@@ -41,11 +41,11 @@
 // How far a search goes is the problem's to say: a line of it is given up
 // when what is left to do cannot be done in the instructions left
 // (at_least), and the stacks are as deep as the step has names for.  How
-// long one may take is said once, in CMakeLists.txt (SEARCH_STATES): the
-// states a search looks at before it is given up, the same for every
-// search.
+// long one may take is said once, in cmake/default-machine.cmake
+// (SEARCH_STATES): the states a search looks at before it is given up, the
+// same for every search.
 #ifndef SEARCH_STATES
-#error "fewer.h: the states a search looks at are said in CMakeLists.txt (SEARCH_STATES)"
+#error "fewer.h: the states a search looks at are said in cmake/default-machine.cmake (SEARCH_STATES)"
 #endif
 #define FEW_SEEN_BITS   16              // there is room to begin with for two to this many states come to: it grows
 #define FEW_NEVER       INT_MAX         // how many instructions it takes to do what cannot be done

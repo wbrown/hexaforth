@@ -4,7 +4,7 @@
 // `image` and becomes cell 0 of the machine's memory.  It may be the
 // kernel's ROM alone, the first 4KB of an image: what is after it is the
 // machine's memory all the same, with nothing in it, and the ROM reads the
-// rest from the machine's disk (CMakeLists.txt, a kernel that is ROM).  An
+// rest from the machine's disk (cmake/kernels.cmake, a kernel that is ROM).  An
 // address is the number of a cell; the program counter is the number of an
 // instruction.
 //
