@@ -3,12 +3,18 @@
 //
 
 #include <stdio.h>
+#include <stdlib.h>
 #include "../vm_opcodes.h"
+#include "image.h"
 
 // The machine's sizes and what is where on its disk, from vm_constants.h:
 // a constant each for cross.fs, and (sizes-words, below) a word each for
-// the nucleus.  A name with no value ends a group.
-static const struct { const char* name; long value; } SIZES[] = {
+// the nucleus.  A name with no value ends a group.  The sizes are the
+// machine's this is run for, so the table is made when it runs.
+typedef struct { const char* name; long value; } size_said;
+static size_said SIZES[64];
+static void sizes_said(void) {
+  const size_said now[] = {
     {"\\ machine sizes, from vm_constants.h"},
     {"cell-bits", CELL_BITS}, {"addr-bits", ADDR_BITS}, {"stack-cells", STACK_CELLS},
     {"var-base", (long)VAR_BASE}, {"disp-w", DISP_W}, {"disp-h", DISP_H}, {"disp-base", DISP_BASE},
@@ -28,6 +34,9 @@ static const struct { const char* name; long value; } SIZES[] = {
     {"disk-entry-blocks", DISK_ENTRY_BLOCKS}, {"disk-entry-where", DISK_ENTRY_WHERE},
     {"disk-binary", DISK_BINARY}, {"disk-source", DISK_SOURCE}, {"disk-index", DISK_INDEX},
     {NULL}};
+  _Static_assert(sizeof(now) <= sizeof(SIZES), "baseword_fs_gen.c: there are more sizes than SIZES has room for");
+  memcpy(SIZES, now, sizeof(now));
+}
 
 // The names of a field's values, in the order of the values, as a table of
 // the nucleus's (`create`, and a counted string each): they are the words
@@ -59,6 +68,7 @@ static uint16_t with_out(int v) { instruction ins = {0}; ins.alu.out_mux = v; re
 #define VALUES(names) ((int)(sizeof(names) / sizeof((names)[0])))
 
 void generate_basewords_fs(const char* path) {
+    sizes_said();
     init_opcodes(FORTH_WORDS);
     FILE* out = fopen(path, "w");
 
@@ -160,7 +170,21 @@ void generate_basewords_fs(const char* path) {
     fclose(out);
 }
 
+// basewords-fs-gen FILE [CELL [ADDR [W H BASE]]]
+//
+// The machine is said as util/machines says one: the bits of its cell, the
+// bits of an address, and its display's width, height and first cell.
+// What is not said is what vm_constants.h gives a cell of that size; with
+// no machine said it is the machine vm_constants.h gives when nothing is.
 int main(int argc, char *argv[]) {
+    if (argc < 2 || argc == 5 || argc == 6 || argc > 7) {
+        fprintf(stderr, "usage: %s FILE [CELL [ADDR [W H BASE]]]\n", argv[0]);
+        return(1);
+    }
+    if (argc > 2) {
+        machine_said(atoi(argv[2]), argc > 3 ? atoi(argv[3]) : -1, argc > 6 ? atoi(argv[4]) : -1,
+                     argc > 6 ? atoi(argv[5]) : -1, argc > 6 ? strtoll(argv[6], NULL, 0) : -1);
+    }
     generate_basewords_fs(argv[1]);
     return(0);
 }

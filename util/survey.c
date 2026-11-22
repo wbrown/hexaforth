@@ -108,6 +108,7 @@ int main(int argc, char *argv[]) {
         return(1);
     }
     const char* report = argc > 4 ? argv[4] : "build/survey.txt";
+    machine_from(argv[1]);              // the cell is the image's, before anything is asked of it
     get_ready();
     uint16_t takes = ins_named("r>");
     list_kinds();

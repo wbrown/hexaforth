@@ -2,6 +2,7 @@
 \ 16-bit machine (SYSTEM=picture.fs)
 
 include machine.fs      \ device registers, high memory, byte-order helpers
+include placement.fs    \ where data and code are laid
 include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD
 include sans.fs         \ the font
 include spin.fs         \ the disk light in the menu bar

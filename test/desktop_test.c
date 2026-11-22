@@ -25,7 +25,10 @@
 // the environment the machine's memory is written to the file it names
 // when the checks are done; if the VM in this is the one that counts
 // (bench/counting.c), its counts are written; and if it is the one that
-// watches the heap (bench/heap.c), what it found is.
+// watches the heap (bench/heap.c), what it found is.  With BOOTED there,
+// the memory of a machine started from its ROM alone is written to the
+// file that names when it has booted, before anything is typed at its
+// prompt (deskvm.c).
 //
 
 #include <stdio.h>
@@ -59,7 +62,7 @@ int main(int argc, char *argv[]) {
             perror(getenv("MEMORY"));
             return(1);
         }
-        fwrite(machine.memory, 1, sizeof(machine.memory), out);
+        fwrite(machine.memory, 1, MEM_BYTES, out);
         fclose(out);
     }
 #ifdef COUNTING_A_TEST

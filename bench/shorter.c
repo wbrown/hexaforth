@@ -104,6 +104,7 @@ int main(int argc, char *argv[]) {
     }
     const char* report = argc > 4 ? argv[4] : "build/shorter.txt";
     const char* only = getenv("ONLY");
+    machine_from(argv[1]);              // the cell is the image's, before anything is asked of it
     get_ready();
     list_kinds();
     fewer_ready();

@@ -29,7 +29,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../vm_constants.h"
+#include "../vm_opcodes.h"
 #include "../bench/tiff.h"
+#include "../util/room.h"
 #include "deskcheck.h"
 #include "dither.h"
 #include "gray.h"
@@ -42,12 +44,14 @@
 #define ROWS    16              // the rows of a window's text, and of a glyph
 #define COLS    64              // the most columns a window's text has
 #define MOST_LINES (H / ROWS)   // the most lines of text a window can show: as many as the screen
+#define SCREEN_ROOM ((size_t)DISP_W_MOST * DISP_H_MOST)     // room for the screen of any machine,
+#define LINES_ROOM  (DISP_H_MOST / ROWS)                    // and for its lines
 
 typedef struct {
     const char* grid;           // where: a window's text (GRIDS, below)
     int row;                    // which row of it
     char how;                   // = it is the text; ^ it starts with it; $ it ends with it; ~ it has it
-    const char* text;           // %1 and %2 are the machine's two newest words, %e how the first ends,
+    const char* text;           // %1 and %2 are the second and the third word of the machine's dictionary,
 } seen;                         // and %b the first line of block 1 of its disk
 
 enum { ALWAYS, NAMES, NO_NAMES };       // whether the disk has the tables of names
@@ -74,7 +78,7 @@ static bool sees_label(char* why), data_place(char* why), see_blocks(char* why);
 static bool calc_picked(char* why), words_held(char* why), menu_whole(char* why), menu_away(char* why);
 static bool menu_gone(char* why), forth_closed(char* why), words_reopened(char* why);
 static bool paint_front(char* why), canvas_right(char* why), shape_shown(char* why);
-static bool on_disk(char* why), from_disk(char* why), listed_both(char* why);
+static bool on_disk(char* why), from_disk(char* why), was_found(char* why);
 static bool as_picked(char* why), picture_marked(char* why), view_on_disk(char* why), outlined(char* why);
 static int picture_title(void), picture_line(const char* name);
 static uint64_t disk_cell(const uint8_t* bytes, size_t n);
@@ -131,8 +135,11 @@ static check CHECKS[] = {
 
     // ^W brings the window at the back to the front, until it is the Words
     // window.  Its list is 2 in from its content and the definition 112.
-    // sq, defined in the Forth window above, is the newest word and so the
-    // first listed; a click on its name shows it.
+    // The list is the dictionary in the order it is searched in.  sq,
+    // defined in the Forth window above, is the newest word and so the
+    // first listed; the two after it are whatever the machine's dictionary
+    // has next (%1, %2), which is asked of the machine.  A click on a name
+    // shows it.
     {"the Words window lists the dictionary", "cycle:words click:words+10+8 away", "8-words",
      {{"names", 0, '=', "sq"}, {"names", 1, '=', "%1"}, {"names", 2, '=', "%2"}}},
     // What is inside a definition is indented three columns a level.
@@ -142,34 +149,32 @@ static check CHECKS[] = {
      {{"source", 0, '=', ": dup"}, {"source", 1, '=', "   dup"}, {"source", 2, '=', ";"}}},
     {"Backspace goes back", "backspace", "10-back",
      {{"source", 0, '=', ": sq"}, {"source", 1, '=', "   dup *"}, {"source", 2, '=', ";"}}},
-    {"Down moves to the next word", "down", "10-down",
-     {{"source", 0, '=', ": %1"}, {"source", 1, '$', "%e"}, {"source", 2, '=', ";"}}},
+    {"Down moves to the next word", "down", "10-down", {{"source", 0, '=', ": %1"}}},
     // A definition longer than the window: PgDn shows it from a window
     // less a line further down, or as far down as fills the window, and
     // PgUp from where it was.  [PGDN] ends its last row while more of it
     // is below, and [PGUP] its first while more is above.  words-key, a
     // few lines for each key the Words window takes, is longer than the
-    // window on either screen; it is newer than the words of the dither,
-    // which the list is paged on to next.
-    {"a definition longer than the window is shown from its start", "find:words-key,words-click name:words-key",
+    // window on either screen.
+    {"a definition longer than the window is shown from its start", "find:words-key name:words-key",
      "10-long", {{"source", 0, '=', ": words-key"}}, remember},
     {"and says that more of it is below", "", NULL, .also = words_marked},
     {"PgDn scrolls it", "pgdn", "10-pgdn", .also = scrolled_down},
     {"and says that more of it is above", "", NULL, .also = words_marked},
     {"and PgUp scrolls it back", "pgup", "10-pgup", .also = box_gone},
-    // Two words of the dither, which are next to each other in the list:
-    // dither-row has fused instructions in it, and dither-start a variable
-    // that has no header and a plain word that is one instruction.
-    {"Right pages through the dictionary", "find:dither-row,dither-start", "10-list", .also = listed_both},
+    // Two words of the dither, each paged to: dither-row has fused
+    // instructions in it, and dither-start a variable that has no header
+    // and a plain word that is one instruction.
+    {"the list is paged to a word, wherever in the dictionary it is", "find:dither-row", "10-list", .also = was_found},
     // Words in bold are one instruction between them.  With the pointer on
     // them a box by them says which: its number, and its fields.
     {"a fused instruction is shown as its words, in bold", "name:dither-row", "10-fused",
      {{"source", 0, '=', ": dither-row"}}, bold},
     {"the pointer on a fused instruction shows the machine's form of it", "", NULL, .also = fused_told},
-    {"a headerless variable is shown by its label", "name:dither-start", "10-label",
+    {"a headerless variable is shown by its label", "find:dither-start name:dither-start", "10-label",
      {{"source", 0, '=', ": dither-start"}, {"source", 1, '$', " img !"}}, remember, NAMES},
-    {"a headerless variable is shown as its number, with no names on the disk", "name:dither-start", "10-label",
-     {{"source", 0, '=', ": dither-start"}}, a_number, NO_NAMES},
+    {"a headerless variable is shown as its number, with no names on the disk", "find:dither-start name:dither-start",
+     "10-label", {{"source", 0, '=', ": dither-start"}}, a_number, NO_NAMES},
     {"and on a word that is one instruction", "", NULL, .also = word_told},
     {"and the box goes when the pointer does", "away", "10-hover-off", .also = box_gone},
 
@@ -839,12 +844,55 @@ static int canvas_wrong(const uint8_t* should, bool but, int but_x, int but_y, i
 
 // ---- what is done
 
-static char names[MOST_LINES][COLS + 1];        // the Words window's list, when it was last looked for names in
-static bool both;                               // and whether both of those looked for were in it
+static char names[LINES_ROOM][COLS + 1];        // the Words window's list, when it was last looked for names in
+static bool found;                              // and whether the name looked for was then in it
 
 static int listed(const char* name) {   // the row a name is on, or -1
     for(int row=0; row < grid_rows(grid_named("names")); row++) {
         if (!strcmp(names[row], name)) return(row);
+    }
+    return(-1);
+}
+
+// The machine's dictionary.  The Words window lists it in the order it is
+// searched in: what was defined on the machine, the newest first, and then
+// the image's words as cross.fs linked them, which is by how often the
+// source says each (headers-ordered).  So which word is where in the list
+// is not known here, and is asked of the machine: its memory is read, and
+// its headers gone through as the tools go through an image's
+// (vm_opcodes.c).
+static char (*words)[NAME_ROOM];        // the names, in that order,
+static long nwords, words_room;         // and how many
+
+static void words_read(void) {
+    size_t len;
+    const uint8_t* memory = desk_memory(&len);
+    nwords = 0;
+    for(uint32_t head = first_header(memory, len); head; nwords++) {
+        uint64_t xt;
+        ONE_MORE(words, nwords, words_room);
+        head = read_header(memory, len, head, &xt, words[nwords]);
+    }
+}
+
+static long word_at(const char* name) { // where a name is in the dictionary, or less than nothing
+    for(long n=0; n < nwords; n++) if (!strcmp(words[n], name)) return(n);
+    return(-1);
+}
+
+// The list's rows are read, and which word of the dictionary its first row
+// has: less than nothing, if its rows are not words of the dictionary one
+// after another.  A row has as much of a name as the list is wide.
+static long list_read(void) {
+    const grid* g = grid_named("names");
+    const int rows = grid_rows(g);
+    for(int row=0; row < rows; row++) read_grid("names", row, names[row]);
+    for(long top=0; top < nwords; top++) {
+        bool same = true;
+        for(int row=0; row < rows && top + row < nwords && same; row++) {
+            same = !strncmp(words[top + row], names[row], (size_t)g->cols) && strlen(names[row]) <= (size_t)g->cols;
+        }
+        if (same) return(top);
     }
     return(-1);
 }
@@ -863,7 +911,7 @@ static int numbers(const char* at, int* out, int most) {
 
 // A window being dragged (grab:): which, where the pointer pressed on its
 // title, how far it was moved, and the screen just before the press.
-static struct { int w, x, y, dx, dy; uint8_t before[SCREEN]; } grabbed;
+static struct { int w, x, y, dx, dy; uint8_t before[SCREEN_ROOM]; } grabbed;
 
 // What a check does, a word at a time:
 //
@@ -887,7 +935,7 @@ static struct { int w, x, y, dx, dy; uint8_t before[SCREEN]; } grabbed;
 //   pmenu              the picture's title in the bar is clicked, which brings its menu down
 //   picture:LINE       a line of the picture's menu is picked (atkinson, ordered, blue, finer,
 //                      coarser, darker or lighter), and the picture looked at until it is so
-//   find:A,B           Right, until the Words window lists both names
+//   find:A             Right or Left, as often as brings a name into the Words window's list
 //   name:A             a name in the Words window's list is clicked
 //   tool:N pattern:N   HexaPaint's tool or pattern is clicked
 //   pull:X0,Y0,X1,Y1   the button down at a place of the canvas, the pointer to another, the button up
@@ -1022,34 +1070,29 @@ static void does(const char* said) {
         } else if (!strncmp(word, "over:", 5)) {
             desk_pointer(80, 20 + 16 * menu_line(window(of, name)) + 8);
         } else if (!strncmp(word, "find:", 5)) {
-            // the two names, in what was said: the first ends where the comma was
-            size_t comma = strcspn(of, ",");
-            char* first = word + (of - word);
-            const char* second = of[comma] ? of + comma + 1 : "";
-            first[comma] = '\0';
-            // a page of the list at a time, until both are on one, or a
-            // page down shows the page there was: that was the last.  Two
-            // that are next to each other may be the last of a page and the
-            // first of the next: when one is on the last line and the other
-            // is not listed, the choice goes down a line at a time, which
-            // moves the list a line once the choice is on its last line.
-            static char before[MOST_LINES][COLS + 1];
-            const int rows = grid_rows(grid_named("names"));
-            bool last = false;
-            for(int page=0; !last; page++) {
+            // Where the list is and where the word is are both asked: the
+            // screen says which word the list's first row has, and the
+            // machine's dictionary which word is where.  The first row is
+            // clicked, which chooses its word and leaves the list where it
+            // is.  Right and Left move the choice a window of lines, and the
+            // list follows it: on by Right until the choice is its last
+            // row, and back by Left until it is its first (see.fs, wpick).
+            // So the word is in the list after as many of them as there are
+            // windows of lines between it and the choice, in whole windows.
+            const grid* g = grid_named("names");
+            const int rows = grid_rows(g);
+            look("10-list");
+            words_read();
+            long top = list_read(), wanted = word_at(of);
+            found = false;
+            if (top >= 0 && wanted >= 0) {
+                click(grid_x(g) + 8, grid_y(g) + 8);
+                away();
+                if (wanted >= top + rows) for(long at = top; at < wanted; at += rows) desk_key("right", NULL);
+                for(long at = top; at > wanted; at -= rows) desk_key("left", NULL);
                 look("10-list");
-                memcpy(before, names, sizeof(names));
-                for(int row=0; row < rows; row++) read_grid("names", row, names[row]);
-                both = listed(first) >= 0 && listed(second) >= 0;
-                for(int line=0; !both && line < rows && (listed(first) == rows - 1 || listed(second) == rows - 1 ||
-                                                         (line && (listed(first) >= 0 || listed(second) >= 0))); line++) {
-                    desk_key("down", NULL);
-                    look("10-list");
-                    for(int row=0; row < rows; row++) read_grid("names", row, names[row]);
-                    both = listed(first) >= 0 && listed(second) >= 0;
-                }
-                last = both || (page && !memcmp(before, names, sizeof(names)));
-                if (!last) desk_key("right", NULL);
+                list_read();
+                found = listed(of) >= 0;
             }
         } else if (!strncmp(word, "name:", 5)) {
             const grid* g = grid_named("names");
@@ -1325,9 +1368,9 @@ static bool moved(char* why) {
     return(titled && has_x);
 }
 
-static bool listed_both(char* why) {
+static bool was_found(char* why) {
     snprintf(why, WHY, "the list starts %s, %s, %s, %s", names[0], names[1], names[2], names[3]);
-    return(both);
+    return(found);
 }
 
 // The first character in bold of the definition: its row and column.
@@ -1377,7 +1420,7 @@ static bool fused_told(char* why) {
 
 // The definition as it is, to look in and to see that it is so again; and
 // the screen as it is, to see what of it changes.
-static char source[MOST_LINES][COLS + 1];
+static char source[LINES_ROOM][COLS + 1];
 static bool remember(char* why) {
     (void)why;
     for(int row=0; row < grid_rows(grid_named("source")); row++) read_grid("source", row, source[row]);
@@ -1773,23 +1816,32 @@ static void block1_read(void) {
     first_line[wide] = '\0';
 }
 
-// A text a check has, with what the machine says of itself in it.
+// A text a check has, with what the machine says of itself in it: the
+// second and the third word of its dictionary as it now is, which is read
+// for them, and the first line of its disk's block 1.
 static void with_names(const char* text, char* out, size_t len) {
     size_t n = 0;
+    bool read = false;
     for(; *text && n + 1 < len; text++) {
-        const char* is = text[0] != '%' ? NULL : text[1] == '1' ? machine->newest[0] :
-                         text[1] == '2' ? machine->newest[1] : text[1] == 'e' ? machine->ending :
-                         text[1] == 'b' ? first_line : NULL;
+        const char* is = text[0] == '%' && text[1] == 'b' ? first_line : NULL;
+        if (text[0] == '%' && (text[1] == '1' || text[1] == '2')) {
+            if (!read) words_read();
+            read = true;
+            is = text[1] - '0' < nwords ? words[text[1] - '0'] : "";
+        }
         if (is) n += snprintf(out + n, len - n, "%s", is), text++;
         else out[n++] = *text;
     }
     out[n < len ? n : len - 1] = '\0';
 }
 
+// (What is wanted is no longer than the text it is wanted of is wide: a
+// name of the dictionary's may be, and the list has as much of it as fits.)
 static bool is_seen(const seen* s, char* why) {
     char text[COLS + 1], want[COLS + 1];
     read_grid(s->grid, s->row, text);
     with_names(s->text, want, sizeof(want));
+    if (strlen(want) > (size_t)grid_named(s->grid)->cols) want[grid_named(s->grid)->cols] = '\0';
     size_t len = strlen(text), wanted = strlen(want);
     bool is = s->how == '=' ? !strcmp(text, want) :
               s->how == '^' ? !strncmp(text, want, wanted) :

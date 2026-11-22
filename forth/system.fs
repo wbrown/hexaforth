@@ -7,19 +7,19 @@
 \   after them                the applications (apps.fs)
 
 meta
-: big-page ( n -- ) addr-bits #16 > if sys-page else drop then ;
-: small-page ( n -- ) addr-bits #16 > if drop else sys-page then ;
+: big-page ( n -- ) small if drop else sys-page then ;
+: small-page ( n -- ) small if sys-page else drop then ;
 : small-first ( -- ) small if 1 code-page then ;
 target
 
 \ ---- page 1, after the peephole: what compiles
 
 include machine.fs      \ device registers, high memory, byte-order helpers
+include placement.fs    \ where data and code are laid
 include blocks.fs       \ block interface, BLOCK UPDATE FLUSH LOAD
 include literals.fs     \ numbers, characters and strings in source
 include conditional.fs  \ [if] [else] [then]
 include divide.fs       \ / mod
-include placement.fs    \ where data and code are laid
 include macros.fs       \ :: on the machine
 include pixels.fs       \ pictures and rows of pixels in source
 include names.fs        \ names source uses that the kernel has not
@@ -51,7 +51,11 @@ meta 1 code-page target
 include files.fs        \ a source of the disk's by its label, and a file's own names
 include console.fs      \ the screen as the console, and the boot from a disk
 
-BOOTING? [if] [else]
+\ what a machine that boots compiles from its disk is counted,
+\ for the order the image's headers are searched in (cross.fs)
+BOOTING? [if]
+says apps.fs
+[else]
 include apps.fs
 [then]
 

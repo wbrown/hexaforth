@@ -23,6 +23,13 @@ extern char* said;              // what it printed when it was last typed at: al
 // The image the machine is started from.  This is said once, first.
 void nucleus_is(const char* path);
 
+// A machine that stops and has not halted (vm_stopped.h: it ran on, ran
+// where nothing was put, or came to a break the environment says) is not
+// gone on with: what it said and what it was at are printed, and the test
+// has failed.  A test that has more to say of its machine has it said by
+// this, which is run first and may end the test itself.
+extern void (*stopped_short)(void);
+
 // Start the machine from its image, with nothing to type and no disk.
 void start(void);
 

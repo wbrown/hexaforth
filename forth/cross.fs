@@ -393,14 +393,64 @@ s" (the program)" save-mem file-names 2 cells + 2!      \ 1 is the file that is 
 wordlist constant said-wordlist             \ the names the source gave a header
 
 2048 constant saids-room
-create saids saids-room 3 * cells allot     \ of each: the file that gave it its header, and the name
+create saids saids-room 4 * cells allot     \ of each: the file that gave it its header, the name, and the cell the header is at
 variable saids#     0 saids# !
-: said-at ( i -- a ) 3 * cells saids + ;
-: note-said ( -- ) \ the name that create has just made in said-wordlist
+: said-at ( i -- a ) 4 * cells saids + ;
+: note-said ( a -- ) \ the header at the cell a, whose name create has just made in said-wordlist
     saids# @ saids-room = abort" more headers than there is room to note"
     saids# @ said-at >r
+    r@ 3 cells + !
     file-now @ r@ !  latest name>string r> cell+ 2!
     1 saids# +!
+;
+
+\ ---- how often the source says each name
+\
+\ The names the source says are counted as its files are read: a
+\ file is read again as text, a name being what has no space in
+\ it.  \ and ( are names, which the machine looks up as it does
+\ any, and what is after \ on its line or between ( and ) is not
+\ counted.  It is what the order the image's headers are searched
+\ in is made from (headers-ordered).  A file that cross.fs does
+\ not compile, and the machine will, is counted by `says`, and so
+\ is every file it includes.
+wordlist constant said-counts               \ a word a name, with how often it is said
+: said-count ( c-addr u -- a | 0 ) said-counts search-wordlist if >body else 0 then ;
+: count-said ( c-addr u -- ) \ what is longer than a name can be is none
+    dup 63 > if 2drop exit then
+    2dup said-count ?dup if  1 swap +!  2drop exit  then
+    warnings @ >r  warnings off
+    get-current >r  said-counts set-current  nextname create  1 ,  r> set-current
+    r> warnings !
+;
+: token ( a u -- a' u' c-addr n ) \ the next run of what is not a space, which is of no characters at the end
+    begin dup if over c@ bl 1+ u< else false then while 1 /string repeat
+    over >r
+    begin dup if over c@ bl u> else false then while 1 /string repeat
+    over r@ -  r> swap
+;
+: past-char ( a u c -- a' u' ) \ past the next c, or to the end
+    >r  begin dup if over c@ r@ <> else false then while 1 /string repeat  rdrop
+    dup if 1 /string then
+;
+: said-in ( c-addr u follows? -- ) \ count what the file of that name says; with follows?, what it includes too
+    { follows? }
+    slurp-file  over >r                         ( a u ) ( R: the text )
+    begin
+        token dup
+    while
+        2dup s" \" compare 0= if
+            count-said  #lf past-char
+        else 2dup s" (" compare 0= if
+            count-said  [char] ) past-char
+        else 2dup s" include" compare 0=  follows? and if
+            2drop  token  dup if save-mem true recurse else 2drop then
+        else
+            count-said
+        then then then
+    repeat
+    2drop 2drop
+    r> free throw
 ;
 
 4096 constant defs-room
@@ -409,7 +459,89 @@ variable defs#      0 defs# !
 variable said-header                        \ whether a header named the word being defined
 : def-at ( i -- a ) 5 * cells defs + ;
 
+\ ---- names defined again
+\
+\ A name defined when there is one of that name already is
+\ noted, and what is noted is written beside the image
+\ (.shadows, shadows-written).  Nothing stops: Forth finds the
+\ newest, and what is compiled after means that one.  The
+\ machine has one dictionary where cross.fs has several places
+\ for names, so what is noted is what hides a name in either.
+\
+\   again     a word, table, constant or macro of a name the
+\             program has defined already
+\   own       one that has no header, of a name that has a
+\             header.  A file the machine compiles has its own
+\             names only until it is read (files.fs): after it
+\             the machine finds the header's word again, and
+\             cross.fs goes on finding this one
+\   header    a header of a name that has a header: typed, the
+\             newer is found
+\   meta      a name defined between meta and target that is
+\             also a word's, a macro's or a header's, or a
+\             word's of cross.fs or gforth
+\   of-meta   a word, table, constant or macro named as
+\             something defined between meta and target was
+\
+\ A baseword given its body is not noted: the macro and the word
+\ are one instruction.  Nor is a name at: defines, where the
+\ word its header names pushes that address: they are one cell.
+0 constant shadow-again
+1 constant shadow-own
+2 constant shadow-header
+3 constant shadow-meta
+4 constant shadow-of-meta
+5 constant shadow-kinds
+
+1024 constant shadows-room
+create shadows shadows-room 5 * cells allot \ of each: its kind, the file the name was in, the file it is in now, the name
+variable shadows#   0 shadows# !
+: shadow-at ( i -- a ) 5 * cells shadows + ;
+: note-shadow ( c-addr u was kind -- )
+    shadows# @ shadows-room = abort" more names defined again than there is room to note"
+    shadows# @ shadow-at >r
+    r@ !  r@ cell+ !  file-now @ r@ 2 cells + !  save-mem r> 3 cells + 2!
+    1 shadows# +!
+;
+
+: same-name? ( c-addr1 u1 c-addr2 u2 -- f ) \ a name has one case
+    2 pick over <> if 2drop 2drop false exit then
+    capscompare 0=
+;
+: def-named ( c-addr u -- a | 0 ) \ what was noted of the newest word of that name
+    defs# @ begin dup while
+        1- >r
+        2dup r@ def-at 3 cells + 2@ same-name? if 2drop r> def-at exit then
+        r>
+    repeat
+    drop 2drop 0
+;
+: said-file ( c-addr u -- file ) \ the file of the newest header of that name
+    saids# @ begin dup while
+        1- >r
+        2dup r@ said-at cell+ 2@ same-name? if 2drop r> said-at @ exit then
+        r>
+    repeat
+    drop 2drop 0
+;
+
+wordlist constant meta-names                \ the names defined between meta and target, each with its file
+variable as-header  false as-header !       \ true if the word about to be noted is the cell its header's word pushes (at:)
+
+: word-again ( c-addr u -- ) \ a word, table, constant or macro of that name is about to be noted
+    as-header @  false as-header !  if 2drop exit then
+    2dup meta-names search-wordlist if >body @ >r  2dup r> shadow-of-meta note-shadow then
+    said-header @ 0= if
+        2dup said-wordlist search-wordlist if
+            drop  2dup 2dup said-file shadow-own note-shadow  2drop exit
+        then
+    then
+    2dup def-named ?dup if cell+ @ shadow-again note-shadow exit then
+    2drop
+;
+
 : note-def ( -- ) \ the word that create has just made: its body is here
+    latest name>string word-again
     defs# @ defs-room = abort" more words than there is room to note"
     defs# @ def-at >r
     here r@ !  file-now @ r@ cell+ !  said-header @ r@ 2 cells + !
@@ -699,12 +831,17 @@ variable included#  0 included# !
     file-now @ { was }
     a u file-id file-now !  1 file-now @ cells file-open + +!
     1 included-deep +!  1 included# +!
+    a u false said-in
     a u included-whole
     -1 file-now @ cells file-open + +!  was file-now !
     a u  c one-run  tdp @ thp @ + tbp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  c 2/  included-deep @  size-line
     -1 included-deep +!
 ;
 :: include  parse-name save-mem include-measured ;
+\ says FILE: the file is not compiled here, and the machine will
+\ compile it and what it includes from its disk: what they say
+\ is counted
+:: says  parse-name save-mem true said-in ;
 
 \ nearby ... nearby-end: the code between them is laid in the
 \ upper half of the kernel's page.  Each stretch gets a line of
@@ -965,7 +1102,7 @@ variable fl-run#
 variable link 0 link !
 
 \ A dictionary header is cells:
-\     link    address of the previous header, or 0
+\     link    address of the header looked at after it, or 0
 \     xt      of the code; the top bit is set if immediate
 \     name    codes of five bits, packed from a cell's low bits
 \             up; the top bit of the name's last cell is set
@@ -1041,9 +1178,24 @@ wordlist constant headers-wordlist          \ where each header is, by name (hdr
     get-current >r  headers-wordlist set-current  create ,  r> set-current
 ;
 
+\ The listing (.lst): every word that has code, in the order the
+\ source defines them: the instruction it starts at, in hex, and
+\ its name.  Two words of one name are told apart by it, however
+\ the image is laid (util/cut.h).
+: listed ( "name" -- ) \ the word that starts here; its name is left to be read again
+    base @ >r  hex
+    tcp @ 2/ s>d <# bl hold # # # # #> lst @ write-file throw
+    r> base !
+    wordstr lst @ write-line throw
+;
+
 : (header) ( immediate? "name" -- ) \ a header for the definition that starts here
     ?own-page
     label
+    listed
+    wordstr said-wordlist search-wordlist if
+        drop  wordstr 2dup said-file shadow-header note-shadow
+    then
     >hdr
     there >r
     tcalign
@@ -1051,7 +1203,7 @@ wordlist constant headers-wordlist          \ where each header is, by name (hdr
     link @ note-header
     wordstr nextname
     get-current  said-wordlist set-current  create  set-current
-    note-said
+    link @ note-said
     tcp @ 2/ swap if 1 cell-bits 1- lshift or then tcell,
     bl parse tname,
     there r> - hdr-bytes +!
@@ -1179,14 +1331,9 @@ variable in-depth                           \ how many cells it has pushed on th
 \ records whether that use was inlined.
 :: :
     hex
-    there s>d
-    <# bl hold # # # # #>
-    lst @ write-file throw
-    wordstr lst @ write-line throw
-
     ?own-page
     named? dup said-header !
-    0= labelling and if tcp @ 2/ (label) then
+    0= labelling and if tcp @ 2/ (label)  listed then
     tcp @ wordstart !
     label
     create  here lastdef !  note-def  codeptr , 0 , 0 , 0 , 0 ,
@@ -1653,6 +1800,18 @@ variable tabled  -1 tabled !            \ the page the last table is on
     2* tcp @ $1fff and + $1ffe u> if next-page then
     tcp @ $2000 / tabled !
 ;
+\ The image's table of its pages, the cells from a: the
+\ instruction each page's code has reached, or 0 for a page with
+\ none.  A page with a table has no room: its last instruction.
+: pages-laid ( a -- )
+    page-kept
+    code-pages 0 do
+        page-at i cells + @ 2/
+        i tabled @ = if drop  i 1+ $1000 * 1-  then
+        over i + tvar!
+    loop
+    drop
+;
 : (i,) ( w -- )
     settle
     tcp @ $1fff and $1ffe = abort" a table of instructions has run off its page"
@@ -1677,9 +1836,45 @@ variable tabled  -1 tabled !            \ the page the last table is on
 
 ( Switching between target and meta          JCB 19:08 05/02/12)
 
-: target    only target-wordlist add-order definitions ;
+\ What is defined between meta and target is a word of gforth's,
+\ and on the machine a word like any other: each is looked for
+\ among the program's names when target is said (names defined
+\ again).
+variable meta-from  0 meta-from !       \ gforth's newest word when meta was said, or 0
+: older? ( nt -- f ) \ has gforth an older word of that name?
+    dup name>string 2>r  @
+    begin dup while
+        dup name>string 2r@ same-name? if drop 2r> 2drop true exit then
+        @
+    repeat
+    2r> 2drop
+;
+: meta-seen ( nt -- )
+    dup >r name>string                                  ( c-addr u ) ( R: nt )
+    2dup target-wordlist search-wordlist if
+        >body def-of ?dup if cell+ @ else 0 then  >r 2dup r> shadow-meta note-shadow
+    else 2dup said-wordlist search-wordlist if
+        drop  2dup 2dup said-file shadow-meta note-shadow
+    else 2dup meta-names search-wordlist if
+        >body @ >r  2dup r> shadow-meta note-shadow
+    else r@ older? if
+        2dup 0 shadow-meta note-shadow
+    then then then then
+    rdrop
+    warnings @ >r  warnings off
+    get-current >r  meta-names set-current  nextname create  file-now @ ,  r> set-current
+    r> warnings !
+;
+: meta-done ( -- ) \ the words defined since meta was said
+    meta-from @ ?dup 0= if exit then
+    forth-wordlist wordlist-id @                        ( from nt )
+    begin dup 0<> >r  2dup <>  r> and while  dup meta-seen  @  repeat
+    2drop  0 meta-from !
+;
+: target    meta-done  only target-wordlist add-order definitions ;
 : ]         target ;
-:: meta     forth definitions  meta-wordlist add-order ;
+:: meta     meta-from @ 0= if forth-wordlist wordlist-id @ meta-from ! then
+            forth definitions  meta-wordlist add-order ;
 :: [        forth definitions ;
 
 : t'        bl parse target-wordlist search-wordlist 0= throw >body @ ;
@@ -1721,7 +1916,11 @@ warnings on
 
 \ n at: data name  is the address n cells past data, in line
 :: at: ( n "data" "name" -- )
-    ' >body dup name-used @ +  create  false said-header !  note-def  ,
+    ' >body dup name-used @ +                           ( address )
+    wordstr headers-wordlist search-wordlist if         \ the name has a header: is its word this cell?
+        >body @ hdr-xt thval if over = as-header ! then
+    then
+    create  false said-header !  note-def  ,
     does> dup name-used @ literal ;
 
 ( The machine's sizes, for the target program )
@@ -1765,7 +1964,7 @@ both-flag:: LEFT-LOW?  disp-left-low 0<> ;
 ( Memory )
 
 both:: VARS       var-base literal ;                \ the first cell one instruction can fetch
-:: forth          var-base literal ;                \ which holds the newest header's address
+:: forth          var-base literal ;                \ which holds the address of the header a search starts at
 both:: HDR-BASE   hdr-base literal ;
 both:: HDR-LIMIT  code-base 2* literal ;            \ where headers made at run time stop: a byte
 both:: DATA-LIMIT data-limit literal ;
@@ -1773,6 +1972,7 @@ both:: DATA-LIMIT data-limit literal ;
 both:: MEM-END    1 addr-bits lshift top-kept @ - cell-mask and literal ;
 both:: CODE-BASE  code-base literal ;
 both:: CODE-SIZE  code-size literal ;
+:: CODE-PAGES     code-pages literal ;              \ the pages the table `pages` has a cell for (nuc.fs)
 
 ( The disk )
 
@@ -1820,6 +2020,7 @@ both-flag:: DISPLAY? disp-w 0<> ;
 both-flag:: W64?   cell-bits #64 = ;
 both-flag:: W32?   cell-bits #32 = ;
 both-flag:: W32+?  cell-bits #32 >= ;
+both-flag:: SMALL? small ;
 
 s" BOOT" getenv s" on" compare 0= constant booting  \ BOOT=on: the image without apps.fs
 both-flag:: BOOTING? booting ;
@@ -2022,9 +2223,45 @@ create ntb 8 allot
     swap cell-bytes 0 do dup $ff and ntb i + c!  8 rshift loop drop
     ntb cell-bytes rot write-file throw
 ;
+\ ---- the order the image's headers are searched in
+\
+\ The nucleus looks a name up a header at a time, from the header
+\ `forth` holds and along the links (sfind, nuc.fs).  The image's
+\ headers are linked in the order of how often the source says
+\ each one's name (said-counts): the one said most is the first
+\ looked at.  Headers of one name are said as often as each other
+\ and stay newest first, so the newest is the one found.  A header
+\ made on the machine is linked before all of the image's.
+variable ordered  false ordered !
+: said-times ( i -- n ) said-at cell+ 2@ said-count dup if @ then ;
+: header-of ( i -- a ) said-at 3 cells + @ ;
+: headers-ordered ( -- )
+    ordered @  saids# @ 0=  or if exit then
+    true ordered !
+    here  saids# @ cells allot  { order }           \ which header is looked at first, second and so on
+    saids# @ 0 ?do  saids# @ 1- i -  order i cells + !  loop    \ as they are: the newest first
+    saids# @ 1 ?do                                  \ each is put before those said less often
+        order i cells + @ { h }
+        h said-times { n }
+        i begin
+            dup 0> if  order over 1- cells + @ said-times n <  else false then
+        while
+            order over 1- cells + @  order 2 pick cells + !
+            1-
+        repeat
+        cells order + h swap !
+    loop
+    saids# @ 0 ?do                                  \ each is linked to the next, and the last to nothing
+        i 1+ saids# @ < if  order i 1+ cells + @ header-of  else 0 then
+        order i cells + @ header-of  tvar!
+    loop
+    order @ header-of link !
+;
+
 \ forth0 and stamp are two variables of the image: the first is
-\ set to the newest header, the second to the stamp
+\ set to the first of the image's headers, the second to the stamp
 : name-tables ( forth0 stamp -- )
+    headers-ordered
     link @  tcp @ 16 lshift xor  lp @ 7 lshift xor  cell-mask and   ( forth0 stamp x )
     dup rot tvar!                                       ( forth0 x )
     link @ rot tvar!                                    ( x )
@@ -2111,7 +2348,7 @@ variable in-picture  false in-picture !     \ true while a picture has its memor
 get-current  reading-wordlist set-current
 : header ( "name" -- ) parse-name save-mem head-name 2!  true head-given !  false head-imm ! ;
 : header-imm ( "name" -- ) parse-name save-mem head-name 2!  true head-given !  true head-imm ! ;
-: tevaluate ( c-addr u -- ) base @ base>number ;    \ a number, compiled for the machine
+: numbered ( c-addr u -- ) base @ base>number ;     \ a number, compiled for the machine
 : tliteral ( n -- ) literal ;
 : s, ( c-addr u -- ) dup tc,  bounds ?do i c@ tc, loop ;
 : u/mod ( u1 u2 -- rem quot ) 0 swap um/mod ;
@@ -2172,6 +2409,7 @@ s" divide.fs" true host-included
 s" pixels.fs" false host-included
 
 1 file-now !  1 file-open cell+ !
+2dup false said-in
 target included                         \ include the program.fs
 
 [ tcp @ 0 org ]
@@ -2262,6 +2500,40 @@ sizes @ close-file throw
 ;
 public-written
 
+\ .shadows: the names defined again, by what each hides
+: kind-says ( kind -- c-addr u )
+    case
+        shadow-again of s" A word, table, constant or macro of a name the program has defined already." endof
+        shadow-own of s" One with no header, of a name that has a header: once its file is read the machine finds the header's word again, and cross.fs goes on finding this one." endof
+        shadow-header of s" A header of a name that has a header: typed, the newer is found." endof
+        shadow-meta of s" Between meta and target, a name that is also a word's, a macro's or a header's, or one cross.fs or gforth has: on the machine they are one dictionary." endof
+        shadow-of-meta of s" A word, table, constant or macro named as something defined between meta and target was." endof
+        s" " rot
+    endcase
+;
+: shadows-written ( -- )
+    s" shadows" out-suffix { f }
+    s" Names defined when there was one of that name already: the name, the file that had it, and the file" f write-line throw
+    s" that defines it again.  Forth finds the newest, and nothing is stopped for these (cross.fs, names defined again)." f write-line throw
+    shadow-kinds 0 do
+        0  shadows# @ 0 ?do i shadow-at @ j = if 1+ then loop
+        if
+            s" " f write-line throw
+            i kind-says f write-line throw
+            shadows# @ 0 ?do
+                i shadow-at @ j = if
+                    s"   " f write-file throw  i shadow-at 3 cells + 2@ f write-file throw
+                    s"   " f write-file throw  i shadow-at cell+ @ file-name f write-file throw
+                    s"   " f write-file throw  i shadow-at 2 cells + @ file-name f write-line throw
+                then
+            loop
+        then
+    loop
+    f close-file throw
+    cr ." names defined again: " shadows# @ .
+;
+shadows-written
+
 \ .needs: for each file, the files whose words it uses; and then
 \ those and every file they need in turn
 : needed-said ( user f -- )
@@ -2286,6 +2558,25 @@ public-written
 ;
 needs-written
 
+\ .machine: the machine the image is for, as basewords.fs said it:
+\ a line of its sizes, in the order util/image.c reads them.  A tool
+\ that is given the image is that machine's from it, and is not
+\ built for one machine.
+: size-said ( n f -- ) >r  s>d <# bl hold #s #>  r> write-file throw ;
+: machine-written ( -- )
+    s" machine" out-suffix { f }
+    base @ >r decimal
+    cell-bits f size-said  addr-bits f size-said
+    disp-w f size-said  disp-h f size-said  disp-base f size-said
+    disp-left-low f size-said  disp-ink-black f size-said
+    disp-stride f size-said  disp-banks f size-said  disp-bank-step f size-said
+    r> base !
+    s" " f write-line throw
+    f close-file throw
+;
+machine-written
+
+headers-ordered                         \ an image with no tables of names has not had it done
 link @ var-base tvar!
 plain @ 0= [if]
     inline-name create-output-file  dup inl-map call# @ rot write-file throw  close-file throw

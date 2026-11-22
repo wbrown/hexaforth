@@ -8,8 +8,9 @@ which is named; the figures are not repeated here.
 
 The last section covers what the search for fewer instructions has found,
 each with the loop before and after and the stacks after every
-instruction. The search is `bench/shorter.c` (built per machine as
-`shorter-16` and so on, and run at the end of the target `profile`). It
+instruction. The search is `bench/shorter.c` (the program `shorter`, of
+the machine whose image it is given, run at the end of the target
+`profile`). It
 takes one turn of a loop, puts the words it calls inline, and looks for the
 fewest instructions that leave the same result, wherever the values are
 kept (`util/loops.h`, `util/turns.h`, `util/fewer.h`). Every answer is run

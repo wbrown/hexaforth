@@ -3,7 +3,9 @@
 #include <string.h>
 #include <unistd.h>
 #include "vm.h"
+#include "vm_stopped.h"
 #include "vm_debug.h"
+#include "util/image.h"
 
 void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     printf("Loading %s\n", filepath);
@@ -34,29 +36,31 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     int code_end = first_gap;
     if (code_end > 0 && !ctx->memory[code_end - 1]) code_end--;
 
-    // The words of the image's dictionary, from the newest (read_header in
-    // vm_opcodes.c), each noted at the instruction its code starts at.
+    // The words of the image's dictionary, from the first that is looked at
+    // (read_header in vm_opcodes.c), each noted at the instruction its code
+    // starts at.
     const uint8_t *bytes = (const uint8_t *)ctx->memory;
     size_t image_len = (size_t)ctx->HERE * 2;
-    uint32_t head = newest_header(bytes, image_len);
+    uint32_t head = first_header(bytes, image_len);
     char word[256];
     dprintf("WORDS:\n");
 
-    // Where the headers start and where they end, in instructions.
+    // Where the headers start and where they end, in instructions: the
+    // first of them in memory and the last, which are not the first and the
+    // last of the chain (read_header).
     uint32_t DP0 = code_end;
     uint32_t DP1 = DP0;
-    if (head) {
-        DP1 = header_end(bytes, image_len, head) / 2;
-    }
     uint16_t WORDCT=0;
     while (head) {
         uint64_t xt;
         uint32_t before = read_header(bytes, image_len, head, &xt, word);
         if (!word[0]) break;
         if (xt < 65536) asprintf(&ctx->meta[xt], "%s", word);
+        uint32_t end = header_end(bytes, image_len, head) / 2;
+        if (!WORDCT || head / 2 < DP0) DP0 = head / 2;
+        if (!WORDCT || end > DP1) DP1 = end;
         WORDCT++;
         dprintf("  0x%0.4x @ %s => 0x%0.4x\n", head, word, (unsigned)xt);
-        DP0 = head / 2;
         head = before;
     }
     dprintf(" ... %d words scanned!\n", WORDCT);
@@ -119,7 +123,7 @@ static void stop_it(int signal) {
     if (stopped_to) {
         FILE* memory = fopen(stopped_to, "wb");
         if (memory) {
-            fwrite(stopped->memory, 1, sizeof(stopped->memory), memory);
+            fwrite(stopped->memory, 1, MEM_BYTES, memory);
             fclose(memory);
         }
     }
@@ -139,6 +143,7 @@ int main(int argc, char *argv[]) {
 #ifdef DEBUG
     init_opcodes(ctx->words);
 #endif
+    machine_from(argv[1]);              // the machine is the image's (util/image.h)
     load_hex(argv[1], NULL, ctx);
     // What the machine says is written a line at a time, so that a machine
     // that is stopped from outside has said what it said until then.
@@ -168,9 +173,14 @@ int main(int argc, char *argv[]) {
         }
         free(files);
     }
-    // ctx->EIP=0x462C / 2;
+    // What the environment says to stop it at (vm_stopped.h); stopped
+    // for one of those, it says what it was at.
+    stops_from_env();
     vm(ctx);
     printf("\n[%lld instructions executed]\n", ctx->CYCLES);
+    if (STOPS.on && STOPS.reason != STOP_HALT) {
+        post_mortem(stderr, ctx, argv[1], argc > 3 ? argv[3] : NULL);
+    }
     // A third argument is a file to write the machine's memory to when it
     // has stopped, as rtl/tb.cpp does: the two are then compared (bench/).
     if (argc > 3) {
@@ -179,7 +189,7 @@ int main(int argc, char *argv[]) {
             perror(argv[3]);
             exit(EXIT_FAILURE);
         }
-        fwrite(ctx->memory, 1, sizeof(ctx->memory), memory);
+        fwrite(ctx->memory, 1, MEM_BYTES, memory);
         fclose(memory);
     }
 

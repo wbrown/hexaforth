@@ -5,35 +5,39 @@
 // lays them.
 //
 // BOOT.hex is the image a machine boots with (BOOT=on), MEMORY its memory
-// when it had booted from DISK.img and stopped (the reference VM writes it:
-// main.c, test/desktop_test.c), and DISK.img that disk as the machine left
-// it, which has the names of the words it compiled that are each file's own
-// (forth/files.fs, util/words.h).  WHOLE.hex is the same system with the
-// applications laid by cross.fs.
+// when it had booted from DISK.img, before anything was typed at its
+// prompt (test/deskvm.c writes it where BOOTED says), and DISK.img that
+// disk as the machine left it, which has the names of the words it compiled
+// that are each file's own (forth/files.fs, util/words.h).  WHOLE.hex is
+// the same system with the applications laid by cross.fs.
 //
 // A word the machine compiled is one whose code is where the image it
 // booted with has nothing.  It is the same word as one of cross.fs's by its
-// name, and words of one name are one line.  The machine also lays what
-// cross.fs lays no word for, and those are added up by what they are:
+// name, and words of one name are one line.  A word of cross.fs's that the
+// image the machine booted with has too, of that name at that place, is not
+// an application's: it is not put beside a word the machine compiled of the
+// same name.  The machine also lays what cross.fs lays no word for, and
+// those are added up by what they are:
 //
 //   a :: word       its body, which cross.fs runs as it compiles and the
 //                   machine runs as it reads the file; it is immediate
-//   a number        a word that only pushes one, which the kernel lays for
-//                   every create, variable and constant, and cross.fs lays
-//                   only for one that has a header
-//   the rest        a name cross.fs has no word of: what a file defines
-//                   between meta and target, which cross.fs runs itself
+//   a number        a word that only pushes one and has no header, which
+//                   cross.fs lays no word for
+//   the rest        a name cross.fs has no word of
+//
+// What a file defines between meta and target, and a word of its own that
+// only pushes a number join.fs lays in place, the machine lays in its
+// scratch and makes zero when the file has been read (placement.fs,
+// files.fs); and what a definition laid on a page it ran off is made zero
+// too (blocks.fs).  None of that is here.
 //
 // A call to a word on another page is the word's place pushed and a call of
 // execute: of the words both have, how many such calls each has, and how
 // many instructions they are more than calls of one.
 //
-// The last word of a page is as long as to the end of what the page has: a
-// definition that ran off the page and was compiled again on the next
-// (blocks.fs) left what it had laid there, and that is counted in it.  Such
-// a word is marked.
-//
-// It fails if no word is in both, since then nothing was compared.
+// It fails if no word is in both, since then nothing was compared, and if
+// no word of cross.fs's is one the image booted with has, since then the
+// two images are not one system.
 //
 
 #include <stdbool.h>
@@ -45,7 +49,7 @@ typedef struct {
     long here, there;                   // instructions the machine laid for it, and cross.fs
     long far_here, far_there;           // calls to another page in each,
     long more_here, more_there;         // and the instructions those are more than calls of one
-    bool immediate, number, last;       // of the machine's: a :: word, one that only pushes, the last of its page
+    bool immediate, number;             // of the machine's: a :: word, one that only pushes
 } line;
 
 static line* LINES;
@@ -94,6 +98,12 @@ static void far_calls(const uint16_t* code, long at, long size, long execute, lo
         (*calls)++;
         *more += pushes;
     }
+}
+
+// Is a word of that name one that has code of its own?
+static bool has_code(const word* words, int n, const char* name) {
+    for(int idx=0; idx < n; idx++) if (words[idx].size && !strcmp(words[idx].name, name)) return(true);
+    return(false);
 }
 
 static int by_more(const void* a, const void* b) {
@@ -147,22 +157,46 @@ int main(int argc, char *argv[]) {
     const uint16_t* booted_with = (const uint16_t*)image;
     const uint16_t* code = (const uint16_t*)memory;
     const uint16_t* laid = (const uint16_t*)whole;
+    // How far the code of each of the machine's pages had got: its table
+    // `pages` (nuc.fs).  What is past that on a page is not code: the
+    // nucleus's peephole keeps there what it has laid while it tries a word
+    // in place of a call (join.fs, keep).
+    uint64_t pages = data_called(argv[2], "pages");
+    if (!pages) {
+        fprintf(stderr, "booted: %s does not say where pages is, which has how far each page's code has got\n", argv[2]);
+        return(1);
+    }
+
     long compiled = 0, instructions = 0;
     for(int w=0; w < nhere; w++) {
-        long at = here[w].at;
-        if (!here[w].size || booted_with[at]) continue;         // a second name, or a word of the image's
-        line* l = line_named(here[w].name);
-        l->here += here[w].size;
+        long at = here[w].at, size = here[w].size;
+        if (!size || booted_with[at]) continue;                 // a second name, or a word of the image's
+        if (!code[at]) continue;                                // code that was made zero
+        long got_to = (long)cell_of(memory, pages + at / PAGE);
+        if (got_to && at + size > got_to) size = got_to - at;
+        if (size <= 0) continue;
+        // Of its names, one that cross.fs has a word of: a word with a header
+        // of another name is that name to cross.fs (header F-BOLD : code-bold).
+        const char* name = here[w].name;
+        for(int k=w; k < nhere && here[k].at == at; k++) {
+            if (has_code(there, nthere, here[k].name)) { name = here[k].name; break; }
+        }
+        line* l = line_named(name);
+        l->here += size;
         for(long k=0; k < nkept; k++) if (kept[k].at == at && kept[k].size) l->immediate = true;
-        if (pushes_only(code, at, here[w].size)) l->number = true;
-        int next = w + 1;
-        while (next < nhere && !here[next].size) next++;
-        if (next == nhere || here[next].at / PAGE != at / PAGE) l->last = true;
-        far_calls(code, at, here[w].size, execute_here, &l->far_here, &l->more_here);
-        compiled++, instructions += here[w].size;
+        if (pushes_only(code, at, size)) l->number = true;
+        far_calls(code, at, size, execute_here, &l->far_here, &l->more_here);
+        compiled++, instructions += size;
     }
+    long of_both = 0;                                           // words of cross.fs's that the image booted with has
     for(int w=0; w < nthere; w++) {
         if (!there[w].size) continue;
+        bool booted_with_it = false;
+        for(int k=0; k < in_image && of_image[k].at <= there[w].at && !booted_with_it; k++) {
+            booted_with_it = of_image[k].at == there[w].at && booted_with[there[w].at]
+                             && !strcmp(of_image[k].name, there[w].name);
+        }
+        if (booted_with_it) { of_both++; continue; }
         line* l = NULL;
         for(long n=0; n < lines && !l; n++) if (!strcmp(LINES[n].name, there[w].name)) l = &LINES[n];
         if (!l) continue;                                       // a word the machine did not compile
@@ -189,9 +223,14 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "booted: no word the machine compiled is one %s has: nothing was compared\n", argv[5]);
         return(1);
     }
+    if (!of_both) {
+        fprintf(stderr, "booted: no word of %s is where %s has it: they are not one system\n", argv[5], argv[1]);
+        return(1);
+    }
 
-    printf("%s, booted from %s: %ld words compiled, of %ld names it kept and its dictionary; %ld instructions, %ld bytes\n\n",
+    printf("%s, booted from %s: %ld words compiled, of %ld names it kept and its dictionary; %ld instructions, %ld bytes\n",
            argv[3], argv[4], compiled, nkept, instructions, 2 * instructions);
+    printf("%s has %ld words that %s has too, which are not the machine's to compile\n\n", argv[5], of_both, argv[1]);
     printf("%-52s %6s %10s %10s %8s\n", "", "names", "machine", "cross.fs", "more");
     printf("%-52s %6ld %10ld %10ld %+8ld\n", "words cross.fs lays too", both, both_here, both_there, both_here - both_there);
     printf("%-52s %6s %10ld %10ld %+8ld\n", "  their calls to another page", "", far_here, far_there, far_here - far_there);
@@ -203,19 +242,19 @@ int main(int argc, char *argv[]) {
     printf("%-52s %6ld %10ld %10ld %+8ld\n\n", "all of it", lines, instructions, both_there, instructions - both_there);
 
     qsort(LINES, lines, sizeof(line), by_more);
-    printf("the words both have, by how many instructions more the machine's is (* the last of its page)\n");
+    printf("the words both have, by how many instructions more the machine's is\n");
     printf("%-28s %8s %8s %6s   %s\n", "word", "machine", "cross.fs", "more", "calls to another page: machine, cross.fs");
     for(long n=0; n < lines; n++) {
         const line* l = &LINES[n];
         if (!l->there || l->here == l->there) continue;
-        printf("%-28s %8ld %8ld %+6ld   %ld, %ld%s\n", l->name, l->here, l->there, l->here - l->there,
-               l->far_here, l->far_there, l->last ? " *" : "");
+        printf("%-28s %8ld %8ld %+6ld   %ld, %ld\n", l->name, l->here, l->there, l->here - l->there,
+               l->far_here, l->far_there);
     }
-    printf("\nthe words cross.fs lays none of, by how long (: a :: word, # one that only pushes, * the last of its page)\n");
+    printf("\nthe words cross.fs lays none of, by how long (: a :: word, # one that only pushes)\n");
     for(long n=0; n < lines; n++) {
         const line* l = &LINES[n];
         if (l->there) continue;
-        printf("%-28s %8ld %s%s%s\n", l->name, l->here, l->immediate ? ":" : "", l->number ? "#" : "", l->last ? " *" : "");
+        printf("%-28s %8ld %s%s\n", l->name, l->here, l->immediate ? ":" : "", l->number ? "#" : "");
     }
     return(0);
 }

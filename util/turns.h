@@ -39,7 +39,7 @@
 #include "fewer.h"
 
 typedef struct {
-    uint16_t code[LAID];                // the turn as one run, as long as one can be run on vm.c (fuse.h),
+    uint16_t code[LAID_MOST];                // the turn as one run, as long as one can be run on vm.c (fuse.h),
     int len;
     int now;                            // and how many instructions it runs in the loop, with its branches and calls
     int at_top;                         // the loop tests at the top, and goes round on something
@@ -189,7 +189,7 @@ static int turn_with(a_turn* t, int64_t number, const uint16_t* puts, int length
         return(0);
     }
     if (!exactly(&WANTED, &from, length, states, found, given_up)) return(0);
-    uint16_t whole[LAID + PUTS];
+    uint16_t whole[LAID_MOST + PUTS];
     if (length + PUTS > LAID) return(0);
     memcpy(whole, puts, PUTS * sizeof(uint16_t));
     memcpy(whole + PUTS, found, length * sizeof(uint16_t));
@@ -241,7 +241,7 @@ static void (*a_search)(int how, int length, int of, int given_up);
 
 typedef struct {
     int how;                            // which way it was found
-    uint16_t code[LAID];                // the instructions before the branch that goes back,
+    uint16_t code[LAID_MOST];                // the instructions before the branch that goes back,
     int len;                            // and how many
     int to[CELL_TERMS];                 // KEPT_ANYWHERE: where what the turn keeps is kept
     int64_t number;                     // NUMBER_IN_R: the number
@@ -249,7 +249,7 @@ typedef struct {
 
 typedef struct {
     a_turn turn;
-    way found[NUMBER_IN_R + LAID];      // every way that fewer do it, in the order they were looked for: each of
+    way found[NUMBER_IN_R + LAID_MOST]; // every way that fewer do it, in the order they were looked for: each of
     int n;                              // the ways before the last once, and that once for each number pushed
     int fewest;                         // the fewest instructions a turn, with the branch: as many as now, if no fewer
     long searched[NUMBER_IN_R + 1];     // by way: the searches made,
@@ -270,7 +270,7 @@ static way* a_way(shortened* s, int how, const uint16_t* code, int len) {
 // found is there only if it is fewer than those found before it by the
 // same means: anywhere, only if fewer than where it is.
 static int shorten(const turn* is, long states, shortened* s) {
-    uint16_t found[LAID], known_to[LAID];
+    uint16_t found[LAID_MOST], known_to[LAID_MOST];
     a_turn* t = &s->turn;
     int at_top = is->tests_at == TESTS_AT_TOP;
     memset(s, 0, sizeof(shortened));
@@ -327,7 +327,7 @@ static int shorten(const turn* is, long states, shortened* s) {
         }
     }
     if (known_len) {
-        uint16_t parted[LAID];
+        uint16_t parted[LAID_MOST];
         memcpy(parted, known_to, known_len * sizeof(uint16_t));
         int searched = 0, given_up = 0;
         int len = by_parts(parted, known_len, states, &searched, &given_up);
@@ -340,8 +340,8 @@ static int shorten(const turn* is, long states, shortened* s) {
 
     // A number the turn pushes, kept on the return stack instead.  (The
     // parts forgot the turn's terms, so it is taken again.)
-    int64_t pushed[LAID];
-    uint16_t pushed_by[LAID], to_r = ins_named(">r");
+    int64_t pushed[LAID_MOST];
+    uint16_t pushed_by[LAID_MOST], to_r = ins_named(">r");
     int pushes = to_r && take_turn(is, t) ? numbers_pushed(t, pushed, pushed_by) : 0;
     for(int n=0; n < pushes; n++) {
         const uint16_t puts[PUTS] = { pushed_by[n], to_r };
@@ -376,7 +376,7 @@ static int by_parts(uint16_t* code, int len, long states, int* searched, int* gi
                 if (!names(code + at, size, &left) || left.next >= 0) continue;
                 if (!want(&WANTED, &left, last ? nothing(left.T) : -1)) continue;
                 for(int length=1; length < size && !again; length++) {
-                    uint16_t found[LAID];
+                    uint16_t found[LAID_MOST];
                     int gave_up_this, is = exactly(&WANTED, NULL, length, states, found, &gave_up_this);
                     ++*searched;
                     *given_up += gave_up_this;

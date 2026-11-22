@@ -110,6 +110,17 @@ int main(int argc, char *argv[]) {
                         "  WAS and IS: each a directory with nuc.hex and nuc.tables in it\n");
         return(1);
     }
+    // The two are of one machine, which an image says beside it: one of
+    // another machine stops this where it is read (util/image.h).  One
+    // that was kept before an image said its machine is taken to be of
+    // the other's.
+    char* was = NULL;
+    char* is = NULL;
+    text_more(&was, "%s/nuc.hex", argv[1]);
+    text_more(&is, "%s/nuc.hex", argv[3]);
+    if (!machine_of(is)) machine_from(was);
+    free(was);
+    free(is);
     get_ready();
     list_kinds();
     weigh(0, argv[1], argv[2]);

@@ -1,8 +1,10 @@
 //
-// memimage IMAGE.hex OUTDIR
+// memimage IMAGE.hex OUTDIR ADDR_BITS
 //
-// An image as what the Verilog memory is loaded from, for the machine this
-// is built for (-DCELL_BITS, -DADDR_BITS).  Writes OUTDIR/mem.hex, a cell on
+// An image as what the Verilog memory is loaded from.  The cell is that of
+// the machine the image is for, which it says beside it (util/image.h), and
+// the memory is 2^ADDR_BITS of them: what the Verilog is given, which may be
+// less than that machine has.  Writes OUTDIR/mem.hex, a cell on
 // each line, no more of them than the memory has.  Also writes
 // OUTDIR/krom.vh, the kernel's ROM as a Verilog function and how big it is,
 // and says so if the kernel's code does not fit in it.
@@ -49,8 +51,13 @@ void write_krom(const char* path, const uint8_t* bytes, size_t len) {
 }
 
 int main(int argc, char *argv[]) {
+    if (argc != 4) {
+        fprintf(stderr, "usage: %s IMAGE.hex OUTDIR ADDR_BITS\n", argv[0]);
+        return(1);
+    }
     uint8_t* bytes;
-    size_t len = load_image(argv[1], &bytes);
+    size_t len = load_image(argv[1], &bytes);   // the cell is the image's machine's;
+    THIS_MACHINE.addr_bits = atoi(argv[3]);     // the memory is as much as is said, which may be less than that machine's
     if (len > MEM_BYTES) len = MEM_BYTES;
     while (len % CELL_BYTES) len++;
 

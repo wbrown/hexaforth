@@ -1,7 +1,10 @@
 //
 // pairs type IMAGE.hex IMAGE.tables            what is to be typed at the nucleus
-// pairs read OUTPUT                            and what it answered
-// pairs seen TYPED                             what it joined of the system's code
+// pairs read IMAGE.hex OUTPUT                  and what it answered
+// pairs seen IMAGE.hex TYPED                   what it joined of the system's code
+//
+// It is of the machine the image is for, each time: what a run is together
+// is asked of the step on cells of that size.
 //
 // The nucleus works out what two instructions are together, and three
 // (forth/compose.fs).  This puts to it every pair of instructions it can
@@ -207,13 +210,15 @@ static int seen(const char* typed) {
 
 int main(int argc, char *argv[]) {
     int type = argc == 4 && !strcmp(argv[1], "type");
-    int read = argc == 3 && !strcmp(argv[1], "read");
-    if (!type && !read && !(argc == 3 && !strcmp(argv[1], "seen"))) {
-        fprintf(stderr, "usage: pairs type IMAGE.hex IMAGE.tables\n       pairs read OUTPUT\n       pairs seen TYPED\n");
+    int read = argc == 4 && !strcmp(argv[1], "read");
+    if (!type && !read && !(argc == 4 && !strcmp(argv[1], "seen"))) {
+        fprintf(stderr, "usage: pairs type IMAGE.hex IMAGE.tables\n       pairs read IMAGE.hex OUTPUT\n"
+                        "       pairs seen IMAGE.hex TYPED\n");
         return(1);
     }
+    machine_from(argv[2]);                      // the cell is the image's, before anything is asked of it
     get_ready();
-    if (!type && !read) return(seen(argv[2]));
+    if (!type && !read) return(seen(argv[3]));
     meet_all();
 
     if (type) {
@@ -247,8 +252,8 @@ int main(int argc, char *argv[]) {
     // line a three; each where the instructions are in the table, and
     // the instruction, as numbers.  Every other pair and three it said
     // nothing of.
-    FILE* in = fopen(argv[2], "r");
-    if (!in) { perror(argv[2]); return(1); }
+    FILE* in = fopen(argv[3], "r");
+    if (!in) { perror(argv[3]); return(1); }
     uint16_t* said_two = room_for((size_t)met * met, sizeof(uint16_t));
     uint16_t* said_three = room_for((size_t)named_ones * named_ones * named_ones, sizeof(uint16_t));
     char* line = NULL;
@@ -272,7 +277,7 @@ int main(int argc, char *argv[]) {
     }
     fclose(in);
     if (!ended) {
-        fprintf(stderr, "pairs: %s is not all of what the nucleus was to say\n", argv[2]);
+        fprintf(stderr, "pairs: %s is not all of what the nucleus was to say\n", argv[3]);
         return(1);
     }
 

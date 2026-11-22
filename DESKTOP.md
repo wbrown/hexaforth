@@ -36,7 +36,7 @@ A machine with only a console uses the console's keys.
 
 The reference VM has no display. The desktop's test drives the desktop on it
 and saves a screen after each step (`build/64/desktop/`), and the tools
-`screen-64` and `png` make a picture of the display from the memory the VM
+`screen` and `png` make a picture of the display from the memory the VM
 writes out when it stops (the target `seen` builds them).
 
 ## Using it
@@ -271,12 +271,13 @@ types that file at the reference VM, prints what it said (which ends with
 do the same by hand with your own file, once `hello` or `seen` has built the
 tools, with `/tmp/mine` standing for a directory of your own:
 
-    build/cmake/hexaforth-64 build/64/nuc.hex build/64/disk.img /tmp/mine/memory.out < /tmp/mine/mine.fs
-    build/cmake/screen-64 /tmp/mine/memory.out /tmp/mine/mine.pbm
+    build/cmake/hexaforth build/64/nuc.hex build/64/disk.img /tmp/mine/memory.out < /tmp/mine/mine.fs
+    build/cmake/screen build/64/nuc.hex /tmp/mine/memory.out /tmp/mine/mine.pbm
     build/cmake/png /tmp/mine/mine.pbm /tmp/mine/mine.png
 
 The VM is given the image, a disk, and where to write its memory when it
-stops. It opens the disk for writing as well, so a program that writes
+stops, and `screen` the image as well, which says what machine the memory
+is of. The VM opens the disk for writing as well, so a program that writes
 blocks should be given a copy of `disk.img`.
 
 ### A machine's devices

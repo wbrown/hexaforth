@@ -208,6 +208,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "usage: builds_test PLAIN.hex PLAIN.tables IMAGE.hex IMAGE.tables\n");
         return(1);
     }
+    machine_from(argv[3]);              // the cell is the image's, before anything is asked of it
     get_ready();
     EXIT = ins_named("exit");
     if (!EXIT) {

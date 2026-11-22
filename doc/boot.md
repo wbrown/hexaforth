@@ -120,9 +120,37 @@ The first of it, on the reference VM, on every size of machine:
   labels are in the tables of names, and `see` and the Words window show
   a word the boot compiled by them (`files.fs`, `see.fs`).
 - A definition that runs off its page of code while a block is read is
-  compiled again on the next page, from where it began (`reading`,
+  compiled again on another page, from where it began (`reading`,
   `blocks.fs`), so a block is read with next to nothing of a page held
-  back; what is typed still has a kilobyte (`cpr`, `nuc.fs`).
+  back; what is typed still has a kilobyte (`cpr`, `nuc.fs`). What it
+  laid on the page it ran off is made zero, and the page has that room
+  again.
+- The machine lays a file on the page its list says, as `cross.fs` does
+  (`placement.fs`): the image has how far each page's code has got
+  (`pages`, `nuc.fs`), and `code-page`, `sys-page`, `big-page` and
+  `small-page` in a block take code on from there. A page that is full
+  sends code on after all there is, and when the first block read is
+  done, code is left there, where the kernel's `newpage?` finds the page
+  after free.
+- What a file needs only while it is compiled is not kept
+  (`placement.fs`, `files.fs`): code between `meta` and `target`, and a
+  word of the file's own that only pushes a number, which is the number
+  in place wherever it is said, are laid in the scratch, the end of the
+  last code page, and made zero when the file has been read. The record
+  kept of such a number's name has the number, and no place. The target
+  `booted-64` and the like say what a boot laid beside what `cross.fs`
+  lays of the same words.
+- The boot looks a name up a header at a time (`sfind`, `nuc.fs`), so
+  the image's headers are linked in the order of how often the system's
+  source says each name, the one said most first (`headers-ordered`,
+  `cross.fs`): the applications' source as well, which the image a
+  machine boots from is built without (`says`, `system.fs`). A header
+  made on the machine is linked before the image's, so of a name the
+  newest is found. A number after `d#` or `h#` is read as a number and
+  is not looked up (`numbered`, `nuc.fs`). The target `compiling-64` and
+  the like say what a boot costs and where that goes, and `finding-64`
+  and the like what it asks the dictionary for, and how many headers
+  were looked at for each name.
 - The desktop on a machine started so. `mkdisk --boot-desk` makes a disk
   a machine starts from that is the desktop's as well. The source is
   first, all of it, from block 1, which is the list the boot loads: who
@@ -338,7 +366,7 @@ prompt, and no disk.
 
 What the ROM has left on each machine is what `examine` says of its
 image. Where it is not enough, these are the words nothing in the boot
-uses (`disasm_hex-64` says how long each is):
+uses (`disasm_hex` says how long each is):
 
 | What | Words |
 |---|---|

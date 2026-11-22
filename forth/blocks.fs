@@ -111,7 +111,8 @@ nearby-end
 ;
 
 \ A definition of a block that runs off its page of code is
-\ compiled again on the next, from where it began.
+\ compiled again on another, from where it began (code-off,
+\ placement.fs).  One of the scratch that does is an error.
 
 \ where one may begin: >in, hdp, dp, the stack's depth and base
 create began 0 , 0 , 0 , 0 , 0 ,
@@ -122,14 +123,15 @@ header stay-xt create stay-xt 0 ,
     d# -8 =  state @ 0<> and
     cp @ 1+ h# fff and 0= and
     thisxt @ h# fff and 0<> and
+    cp-kept @ 0= and
 ;
 
-: begin-again ( blk# -- ) \ the definition, on the next page
+: begin-again ( blk# -- ) \ the definition, on another page
     dup blk !  d# -1 sourceid !  block BLOCK-CHARS source!
     began @ >in !  began 1+ @ hdp !  began CELL2 + @ dp !
     begin depth began c# 3 + @ > while drop repeat
     began c# 4 + @ base !  d# 0 state !
-    thisxt @  newpage?
+    thisxt @  dup code-off
     stay-xt @ ?dup if
         2dup @ = if cp @ swap ! else drop then
     then
@@ -151,6 +153,7 @@ nearby
     lastword @ dup 0= swap forth @ = or
 ;
 : begins ( -- ) \ a definition may begin here
+    code-room
     >in @ began !  hdp @ began 1+ !  dp @ began CELL2 + !
     depth began c# 3 + !  base @ began c# 4 + !
 ;
@@ -167,6 +170,8 @@ nearby
     2drop rdrop
 ;
 
+\ When the first block read is done, the pages are left as
+\ newpage? needs them (pages-kept, placement.fs).
 header load
 : load ( blk# -- ) \ a throw is printed, and thrown on as -1
     blk @ >r  >in @ >r  source >r >r  source-id >r  cpr @ >r
@@ -176,6 +181,7 @@ header load
     dup 1+ d# 1 u> if r@ said-where d# -1 then  rdrop
     r> cpr !
     r> sourceid !  r> r> source!  r> >in !  r> blk !
+    blk @ 0= if pages-kept then
     throw
 ;
 

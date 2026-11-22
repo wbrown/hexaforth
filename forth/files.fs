@@ -86,8 +86,9 @@ header labelled
 $400 constant OWN-CELLS  \ a piece of memory for names,
 $100 constant OWN-LEAST  \ and the least a block is begun with
 
-\ the newest piece, and the dictionary's own hdp and hdl
-create own 0 , 0 , 0 ,
+\ the newest piece, the dictionary's own hdp and hdl, and where
+\ the scratch was (placement.fs)
+create own 0 , 0 , 0 , 0 ,
 
 \ the newest of the headers that stay: a chain of their own
 \ until the file is done
@@ -106,12 +107,13 @@ create stays 0 ,
     hdl @ hdp @ - OWN-LEAST u< if own-piece then
 ;
 
-\ a file is begun: dpl, the newest header, the stays of the file
+\ a file is begun: dpl, forth's header, the stays of the file
 \ this is read from, and where its own names start
-: own-names ( -- limit newest stays first? base )
+: own-names ( -- limit head stays first? base )
     dpl @  forth @  stays @  d# 0 stays !
     own @ 0=  dup if
         hdp @ own 1+ !  hdl @ own CELL2 + !  own-piece
+        scratch @ own c# 3 + !
     then
     hdp @
 ;
@@ -128,6 +130,9 @@ create stays 0 ,
 \ cell with its top bit set, 1 more if the word is immediate;
 \ the word's place; and its name.  A block is how many records
 \ it has and then those.
+\ A word of the scratch that only pushes a number has 2 more in
+\ that cell, and the number where the place would be.  Other
+\ code of the scratch has no record.
 
 \ the first block, or 0; how many have records; how many in all
 header own-kept create own-kept 0 , 0 , 0 ,
@@ -167,19 +172,43 @@ create "own-names"
     nip
 ;
 
+\ the number, if the code at xt only pushes one and returns
+header pushes
+: pushes ( xt -- n true | false )
+    dup i@ dup h# 8000 lit? 0= if 2drop false exit then
+    lval swap                               ( n xt )
+    begin
+        1+ dup i@ dup h# c000 lit?          ( n xt w f )
+    while
+        lval rot + swap
+    repeat
+    nip h# 7403 = dup 0= if nip then
+;
+
+\ what a header's record has where the place goes, and 2 if
+\ that is a number
+: rec-key ( hdr -- key kind true | false )
+    1+ @ d# 1 lshift d# 1 rshift
+    dup SCRATCH0 u< if d# 0 true exit then
+    pushes if d# 2 true exit then  false
+;
+
 : own-rec ( hdr -- ) \ kept as a record, if there is room
+    dup rec-key 0= if drop exit then  >r >r ( R: kind key )
     dup name-cells CELL2 +                  ( hdr n )
     dup own-fill @ + BLKCELLS u> if
-        own-more 0= if 2drop exit then
+        own-more 0= if 2drop rdrop rdrop exit then
     then
     >r  dup own-buf own-fill @ +            ( hdr hdr to )
-    tuck r@ cells-move                      ( hdr to )
-    over 1+ @ TOPBIT rshift  d# 1 TOPBIT lshift or  over !
-    swap 1+ @ d# 1 lshift d# 1 rshift       ( to xt )
-    tuck swap 1+ !                          ( xt )
-    dup own-ix-at @ min own-ix-at !
-    own-ix-at 1+ @ max own-ix-at 1+ !
-    r> own-fill +!  d# 1 own-buf +!  update
+    tuck r@ cells-move  r> own-fill +!      ( hdr to )
+    swap 1+ @ TOPBIT rshift  d# 1 TOPBIT lshift or
+    r> swap r@ or                           ( to key first )
+    3rd !  dup rot 1+ !                     ( key ) ( R: kind )
+    r> if drop else
+        dup own-ix-at @ min own-ix-at !
+        own-ix-at 1+ @ max own-ix-at 1+ !
+    then
+    d# 1 own-buf +!  update
 ;
 
 : keep-run ( a e -- ) \ the headers from a up to e
@@ -214,15 +243,16 @@ create "own-names"
 ;
 
 \ the file is done: its own headers, those laid at base or
-\ after, are out of the dictionary
-: own-done ( limit newest stays first? base -- )
-    >r rot forth  ( limit stays first? newest a ) ( R: base )
+\ after, are out of the dictionary; and when the first file is,
+\ the scratch is given back
+: own-done ( limit head stays first? base -- )
+    >r rot forth  ( limit stays first? head a ) ( R: base )
     begin 2dup @ xor while
         dup @ r@ u< if @ else dup @ @ over ! then
     repeat
     2drop rdrop  d# 0 lastword !
     stays-in
-    if own-free then
+    if own-free  own c# 3 + @ scratch-back then
     stays !  dpl !
 ;
 
@@ -236,6 +266,40 @@ header header
     stays @ lastword @ !  lastword @ stays !  d# 0 lastword !
     hdp @ own 1+ !  hdl !  hdp !
 ;
+
+\ ---- a file's own words that only push a number
+
+\ Such a word is the number in place wherever it is said
+\ (join.fs), so its code goes to the scratch: not that of a name
+\ that stays, nor of a number join.fs does not lay in place.
+
+: staying? ( -- f ) \ does a name that stays have the next code?
+    stay-xt @ dup if @ cp @ = then ;
+
+: aside? ( x -- f ) \ may the word that pushes x go there?
+    own @ 0=  cp-kept @ or  staying? or
+    if drop false exit then
+    cw-meta  cp @ swap  tliteral exit,      ( xt )
+    dup dup small dup 0< if 2drop false else number? then
+    swap cp !  cw-target ;
+
+: aside ( x xt -- ) \ xt defines the word that pushes x
+    swap aside? dup >r if cw-meta then
+    execute  r> if cw-target then ;
+
+\ In a definition each compiles the kernel's word.
+header-imm constant
+:noname ( x "name" -- )
+    state @ if ['] tconstant compile, exit then
+    dup ['] tconstant aside ;
+header-imm create
+:noname ( "name" -- )
+    state @ if ['] tcreate compile, exit then
+    align here ['] tcreate aside ;
+header-imm variable
+:noname ( "name" -- )
+    state @ if ['] variable compile, exit then
+    align here ['] variable aside ;
 
 \ ---- a file, read
 
@@ -266,5 +330,6 @@ header include
     own-names >r >r >r >r >r
     ['] file-blocks catch  dup if nip nip then
     r> r> r> r> r> own-done
+    cp @ SCRATCH0 u< 0= if drop d# -8 then  \ in the scratch
     line-ends  throw
 ;

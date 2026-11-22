@@ -1,5 +1,5 @@
 //
-// screen MEMORY.out SCREEN.pbm
+// screen IMAGE.hex MEMORY.out SCREEN.pbm
 //
 // The display of a machine, from its memory as the reference VM writes it
 // when it has stopped (`hexaforth IMAGE.hex DISK.img MEMORY.out`): a PBM of
@@ -8,19 +8,26 @@
 // one.  The reference VM shows no display, and this is how what a program
 // drew on it is seen.
 //
-// It is built for the machine whose memory it is, and has where the
-// display is, and which bit of a cell is which pixel, from
-// vm_constants.h.  It fails if the file is less than the display's memory.
+// The machine is the one the image is for, which the image says beside it
+// (util/image.h): where its display is, and which bit of a cell is which
+// pixel.  It fails if the image says no machine, or the file is less than
+// the display's memory.
 //
 
 #include "../vm_constants.h"
+#include "image.h"
 #include "room.h"
 
 int main(int argc, char *argv[]) {
-    if (argc != 3) {
-        fprintf(stderr, "usage: screen MEMORY.out SCREEN.pbm\n");
+    if (argc != 4) {
+        fprintf(stderr, "usage: screen IMAGE.hex MEMORY.out SCREEN.pbm\n");
         return(1);
     }
+    if (!machine_of(argv[1])) {
+        fprintf(stderr, "%s has no machine said beside it\n", argv[1]);
+        return(1);
+    }
+    argv++;
     unsigned char* memory;
     size_t len = file_bytes(argv[1], &memory);
     size_t row = (size_t)(DISP_W + 7) / 8;

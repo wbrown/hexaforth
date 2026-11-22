@@ -55,8 +55,8 @@ picture takes 0.7 seconds.
 - The instruction set. An instruction is a control word: where the ALU's
   input comes from, the operation, where the result goes, and how each
   stack moves
-- How little code it takes. The kernel is 3,326 bytes, in a 4,096-byte ROM.
-  The paint program is 2,270 bytes. The whole machine, written in AArch64
+- How little code it takes. The kernel is 3,726 bytes, in a 4,096-byte ROM.
+  The paint program is 2,250 bytes. The whole machine, written in AArch64
   assembler, is 880 bytes
 
 It is meant to be built from TTL, on an FPGA, or through TinyTapeout.
@@ -157,23 +157,23 @@ ECP5: 14,989 LUTs and 986 flip-flops, at 30.21 MHz.
 
 | | words | bytes of code |
 |---|---|---|
-| The kernel, in a 4,096-byte ROM | 267 | 3,740 |
+| The kernel, in a 4,096-byte ROM | 268 | 3,726 |
 | All drawing: fills, copying, text | 156 | 5,276 |
 | Regions | 37 | 1,418 |
-| The window manager | 106 | 3,144 |
+| The window manager | 116 | 3,548 |
 | The TIFF reader and the dither | 121 | 3,946 |
 | Text kept as lines, which two windows scroll | 44 | 1,158 |
 | The Forth window | 22 | 696 |
 | The block editor | 9 | 394 |
-| The picture viewer, and its picture kept as gray | 158 | 4,298 |
+| The picture viewer, and its picture kept as gray | 158 | 4,302 |
 | The calculator | 17 | 638 |
 | The paint program | 51 | 2,250 |
-| The decompiler and the Words window | 132 | 4,842 |
-| What the disks have, by label, and the boot's console | 39 | 1,292 |
-| The compiler's peephole, for what is typed | 36 | 1,326 |
-| Everything | 1,505 | 38,930 |
+| The decompiler and the Words window | 132 | 4,816 |
+| What the disks have, by label, and the boot's console | 47 | 1,574 |
+| The compiler's peephole, for what is typed | 51 | 1,770 |
+| Everything | 1,558 | 40,570 |
 
-The dictionary holds 624 names in 5,828 bytes, at five bits per character.
+The dictionary holds 643 names in 6,008 bytes, at five bits per character.
 
 **The machine on another processor** (`size`). `baremetal/hexaforth.S` is
 the whole machine in AArch64 assembler, with a console. It is 880 bytes:
@@ -212,7 +212,7 @@ It has ~270 words, and these have names you can type:
   space bl type . .x .x2 hex1 accept io@ io!`
 - **The interpreter**: `source source-id sourceid >in parse parse-name
   isspace? isnotspace? isnotdelim >number base decimal hex state interpret1
-  refill evaluate quit execute \ (`
+  numbered refill evaluate quit execute \ (`
 - **The compiler**: `: ; :noname ] [ immediate create does> variable constant
   , c, w, s, compile, literal 2literal postpone recurse exit ' ['] inline:
   join-rules`, and `if else then ahead begin again until while repeat do ?do
@@ -239,6 +239,7 @@ what is missing. The top of `CMakeLists.txt` lists them all.
     cmake -S . -B build/cmake
     cmake --build build/cmake --target demo      # the desktop, on QEMU
     cmake --build build/cmake --target demo-boot # the same, from its ROM and a disk: it compiles its desktop
+    cmake --build build/cmake --target quick     # the tests on the reference VM alone; with no target, this
     cmake --build build/cmake --target check     # every test
     cmake --build build/cmake --target bench     # the benchmarks, on the Verilog CPU
     cmake --build build/cmake --target gates     # the gate counts
@@ -348,10 +349,10 @@ runs every test and prints a line for each:
   against a model that draws a pixel at a time, the dither and the TIFF
   reader against a reference dither, and the desktop driven with keys and a
   pointer and its screen checked
-- each AArch64 kernel against `vm.c` on eight thousand cases, and the desktop
-  on QEMU with each, its screens checked; and again with nothing in the
-  machine's memory but its ROM, which reads the system from the disk and
-  compiles the desktop from source
+- each AArch64 kernel against `vm.c` on eight thousand cases; the desktop on
+  QEMU with the small kernel, its screens checked; and with each kernel
+  again with nothing in the machine's memory but its ROM, which reads the
+  system from the disk and compiles the desktop from source
 - the Verilog against `vm.c` at every cell size, with one-cycle and two-cycle
   memory, and with the kernel in ROM: on the same cases, and on a session
   typed at the nucleus

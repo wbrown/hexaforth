@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include "../vm_opcodes.h"
 #include "room.h"
 
@@ -97,7 +98,7 @@ static long labels_of(const char* tables, int of_data, word** list, long n, long
 static int words_and(const uint8_t* image, size_t len, const char* tables, const word* more, long nmore, word** list) {
     word* out = NULL;
     long n = 0, room = 0;
-    for(uint32_t head = newest_header(image, len); head; ) {
+    for(uint32_t head = first_header(image, len); head; ) {
         uint64_t xt;
         ONE_MORE(out, n, room);
         head = read_header(image, len, head, &xt, out[n].name);
@@ -158,6 +159,40 @@ static uint64_t data_called(const char* tables, const char* name) {
     return(is);
 }
 
+// The listing beside an image (IMAGE.lst, which cross.fs writes): every
+// word that has code, in the order the source defines them, each the
+// instruction it starts at, in hex, and its name.  How many there are, and
+// the list, which is made here; none if the image has no listing.  Two
+// words of one name are told apart by it: which was defined first is the
+// same in every build of a source, and where each is laid is not.
+static long listing_of(const char* hex, word** list) {
+    word* out = NULL;
+    long n = 0, room = 0;
+    size_t len = strlen(hex);
+    char* path = room_for(len + 5, 1);
+    strcpy(path, hex);
+    if (len > 4 && !strcmp(path + len - 4, ".hex")) strcpy(path + len - 4, ".lst");
+    FILE* in = fopen(path, "r");
+    char* line = NULL;
+    long line_room = 0;
+    while (in && line_of(in, &line, &line_room)) {
+        long at;
+        int skip = 0;
+        if (sscanf(line, "%lx %n", &at, &skip) != 1 || !line[skip]) continue;
+        line[strcspn(line, "\r\n")] = 0;
+        ONE_MORE(out, n, room);
+        out[n].at = at;
+        out[n].size = 0;
+        snprintf(out[n++].name, NAME_ROOM, "%s", line + skip);
+    }
+    if (in) fclose(in);
+    free(line);
+    free(path);
+    ONE_MORE(out, n, room);                             // so that there is a list, if there are none
+    *list = out;
+    return(n);
+}
+
 // Where a word is, or less than nothing if the image has none of that name.
 static long place_of(const word* words, int n, const char* name) {
     for(int idx=0; idx < n; idx++) if (!strcmp(words[idx].name, name)) return(words[idx].at);
@@ -195,9 +230,10 @@ static uint64_t pushed_at(const uint8_t* image, long at) {
 // memory when it stopped, of which `words` are the words of its image, and
 // `disk` the disk it booted from as it left it.  The machine's cells
 // own-kept say the first block they are in and how many blocks have any,
-// and files.fs what a block of them is.  Whether a word is immediate is
-// left where its size goes, for whoever asks before the list is put in
-// order.
+// and files.fs what a block of them is.  A record that has a number where
+// a place goes is of no word that is anywhere, and is not in the list.
+// Whether a word is immediate is left where its size goes, for whoever
+// asks before the list is put in order.
 static long kept_of(const uint8_t* memory, size_t len, const word* words, int n,
                     const uint8_t* disk, size_t disk_len, word** list, long have, long* room) {
     long told = place_of(words, n, "own-kept");
@@ -211,11 +247,13 @@ static long kept_of(const uint8_t* memory, size_t len, const word* words, int n,
         const uint8_t* cells = disk + b * DISK_BLOCK;
         size_t at = 1;
         for(uint64_t r = cell_of(cells, 0); r && at + 2 < block; r--) {
+            bool a_number = cell_of(cells, at) & 2;
             ONE_MORE(*list, have, *room);
             (*list)[have].size = (long)(cell_of(cells, at) & 1);
             (*list)[have].at = (long)cell_of(cells, at + 1);
             at += 2;
-            decode_name(cells + at * CELL_BYTES, (block - at) * CELL_BYTES, (*list)[have++].name);
+            decode_name(cells + at * CELL_BYTES, (block - at) * CELL_BYTES, (*list)[have].name);
+            if (!a_number) have++;
             while (at < block && !(cell_of(cells, at) & top)) at++;
             at++;                                               // past the name's last cell
         }
@@ -230,12 +268,12 @@ static const char* word_at(const word* words, int n, long at) {
     return(in);
 }
 
-// The dictionary of an image: the byte its first header starts at, the
-// byte after its last, and how many headers it has.
+// The dictionary of an image: the byte its headers start at in memory, the
+// byte after the last of them there, and how many headers it has.
 static int headers_of(const uint8_t* image, size_t len, size_t* from, size_t* to) {
     int n = 0;
     *from = *to = 0;
-    for(uint32_t head = newest_header(image, len); head; n++) {
+    for(uint32_t head = first_header(image, len); head; n++) {
         uint64_t xt;
         char name[NAME_ROOM];
         size_t end = header_end(image, len, head);

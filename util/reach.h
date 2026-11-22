@@ -103,7 +103,7 @@ static void reach(const cut_image* m, reached* how) {
     const unsigned char* has_code = m->has_code;
     size_t headers_from, headers_to;
     headers_of(bytes, len, &headers_from, &headers_to);
-    for(uint32_t head = newest_header(bytes, len); head; ) {
+    for(uint32_t head = first_header(bytes, len); head; ) {
         uint64_t xt;
         char name[NAME_ROOM];
         head = read_header(bytes, len, head, &xt, name);

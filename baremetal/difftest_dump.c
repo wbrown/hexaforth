@@ -13,6 +13,7 @@
 #include "../test/compiler.h"
 #include "../test/tests.h"
 #include "../test/vm_test.h"
+#include "../util/image.h"
 #include "../vm.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -133,7 +134,15 @@ static void variable_case(FILE *f, word_node *words) {
   free(ctx);
 }
 
+// difftest_dump CASES.bin [CELL]: the cases are of a machine of that cell,
+// as vm_constants.h has one when nothing else is said of it; and of the
+// machine vm_constants.h gives when nothing is said, if no cell is.
 int main(int argc, char **argv) {
+  if (argc < 2 || argc > 3) {
+    fprintf(stderr, "usage: %s CASES.bin [CELL]\n", argv[0]);
+    return 1;
+  }
+  if (argc > 2) machine_said(atoi(argv[2]), -1, -1, -1, -1);
   FILE *f = fopen(argv[1], "wb");
   word_node *words = calloc(256, sizeof(word_node));
   init_opcodes(words);
@@ -155,8 +164,8 @@ int main(int argc, char **argv) {
   // one of the eight.  The return stack holds addresses of the empty cells
   // after them: an instruction that returns goes to one of those, and on a
   // machine whose cells are 16 bits that is the cell itself, which halts.
-  enum { DATA = 0x8000 | (0x400 / CELL_BYTES) };
-  static const uint16_t prefix[] = {
+  const uint16_t DATA = 0x8000 | (0x400 / CELL_BYTES);
+  const uint16_t prefix[] = {
       DATA + 8, DATA + 9, DATA + 10,        // literals destined for the return stack
       0x650d, 0x650d, 0x650d,               // >r >r >r
       DATA, DATA + 1, DATA + 2, DATA + 7,   // data stack

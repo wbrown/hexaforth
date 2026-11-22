@@ -111,6 +111,19 @@ static check CHECKS[] = {
      "more-of", false, 0, BLOCK1_SAID, 0, NULL},
     {"the image in memory, and the disk: a word of the file it includes that has no header", false, DISK, NOTHING,
      "eight", false, 0, BLOCK1_SAID, 0, NULL},
+    // A cell of the file's own, and a word it defines between meta and
+    // target, are laid in the scratch (placement.fs, files.fs): what used
+    // them is as it was when the file is read, the scratch has no code, and
+    // neither name is found.
+    {"the ROM alone, and the disk: a word that used a cell of the file's own and a word of its scratch", true, DISK,
+     NOTHING, "five-twice", true, 5 + 6, BLOCK1_SAID, 0, NULL},
+    {"the image in memory, and the disk: the same", false, DISK, NOTHING, "five-twice", true, 5 + 6, BLOCK1_SAID, 0,
+     NULL},
+    {"the ROM alone, and the disk: the scratch when the file is read", true, DISK, NOTHING, "scratch @ i@", true, 0,
+     BLOCK1_SAID, 0, NULL},
+    {"the ROM alone, and the disk: the cell's name", true, DISK, NOTHING, "own-five", false, 0, BLOCK1_SAID, 0, NULL},
+    {"the ROM alone, and the disk: the name of the word of the scratch", true, DISK, NOTHING, "twice", false, 0,
+     BLOCK1_SAID, 0, NULL},
     // What is found again after such a file is what was found before it:
     // nothing of the dictionary is lost with the file's own names.
     {"the ROM alone, and the disk: a word of the kernel's after the file", true, DISK, NOTHING,
@@ -302,7 +315,7 @@ static int times_said(const char* what) {
 static void run(const check* test) {
     start();
     if (test->rom_only) {
-        memset((uint8_t*)machine.memory + KROM_BYTES, 0, sizeof(machine.memory) - KROM_BYTES);
+        memset((uint8_t*)machine.memory + KROM_BYTES, 0, MEM_BYTES - KROM_BYTES);
     }
     FILE* disk = test->disk == NO_DISK ? NULL : disk_of(disks[test->disk]);
     machine.DISKS[0] = disk;
