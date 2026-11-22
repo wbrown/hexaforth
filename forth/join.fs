@@ -62,11 +62,19 @@ include compose.fs
 
 \ ---- numbers: code that only computes a number is run, and
 \ the number compiled.  folds.fs lists the instructions that
-\ compute one number from one or from two.
+\ compute one number from one or from two, and puts here those
+\ that compute one from none: true and false, each of which
+\ pushes a number of its own, whatever the stacks have.
+
+create of-none 0 , 0 ,
+
+: of-none? ( w -- f ) dup of-none @ =  swap of-none 1+ @ =  or ;
 
 : folds ( -- ia ) folds-at @ ;
 
-: makes ( w -- n ) \ numbers w computes one from: 1, 2 or 0
+\ how many numbers w computes one from, 1 or 2, if it is one of
+\ those folds.fs lists, and 0 if it is not
+: makes ( w -- n )
     folds d# 4 +  folds i@ folds 1+ i@ +  bounds    ( w end a )
     begin
         2dup xor
@@ -80,12 +88,14 @@ include compose.fs
 ;
 
 \ how many numbers are needed before w, going back: a push
-\ gives one, and what `makes` n takes n and gives one
+\ gives one, what `makes` n takes n and gives one, and what
+\ computes one from none gives one
 : wants ( wanted w -- wanted' true | false )
     dup h# 8000 lit? if drop 1- true exit then
     dup h# c000 lit? if drop true exit then
-    makes ?dup 0= if drop false exit then
-    1- + true
+    dup makes ?dup if nip 1- + true exit then
+    of-none? if 1- true exit then
+    drop false
 ;
 
 : number-at ( e -- s | 0 )
@@ -202,11 +212,19 @@ include compose.fs
 : emit-lit ( w -- ) \ a literal: after an add, tidy
     dup code,  h# c000 lit? if room? if tidy drop then then ;
 
-: add-to ( -- f ) \ jn, a +, is added to the number before it
+\ jn, a +, is added to the number before it, where that is no
+\ more instructions than the number is: -1 that an instruction
+\ of its own pushes (true) is one, and added it is more.  What
+\ is added is laid past the code first, to see how long it is.
+: add-to ( -- f )
     jn @ h# 643c <> if false exit then
     cp @ number-at ?dup 0= if false exit then
     dup cp @ number@                ( s n )
     dup d# 36 rshift if 2drop false exit then
+    over cp @ swap - >r             ( s n ) ( R: its length )
+    cp @ >r  dup h# c000 segs,      ( s n ) ( R: length end )
+    cp @ r@ -  r> cp !              ( s n added )
+    r> u> if 2drop false exit then
     swap cp !  h# c000 segs,  true
 ;
 

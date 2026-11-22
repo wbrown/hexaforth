@@ -1475,6 +1475,13 @@ variable in-depth                           \ how many cells it has pushed on th
     tc,
 ;
 
+\ sixteen bits of data, the low byte first: a field of a cell,
+\ the first of a cell its lowest
+:: w, ( u -- )
+    dup $ffff u> abort" w,: more than sixteen bits"
+    tw,
+;
+
 \ Pixels are written with the leftmost in the highest bit.
 : pixels ( byte -- byte' ) \ in the machine's order
     disp-left-low if
@@ -1760,9 +1767,11 @@ variable nt-at                              \ the cell the block being filled st
     nt-lay
 ;
 
-:: hdr, ( "name" -- ) \ a cell that holds the address of the word's header
+:: hdr, ( "name" -- ) \ sixteen bits that are the address of the word's header
     bl parse headers-wordlist search-wordlist 0= abort" hdr, of a word with no header"
-    >body @  tcalign tcell,
+    >body @
+    dup $ffff u> abort" hdr,: the header's address is more than sixteen bits"
+    tw,
 ;
 
 \ ," d# h# c# char and [char] are literals.fs's.

@@ -130,8 +130,8 @@ header hex1 : hex1
 header .x       : .x hex8 space ;
 header .x2      : .x2 hex2 space ;
 
-header true     : true  d# -1 ;
-header false    : false d# 0 ;
+header true     :noname     true     ;
+header false    :noname     false    ;
 header rot      : rot   >r swap r> swap ;
 header tuck     :noname     tuck     ;
 header ?dup     : ?dup  dup if dup then ;
@@ -330,6 +330,11 @@ header 2!
 \ follows it and then runs into it, so that code runs twice.
 \ Not done: a step that adds only for a set bit, which is
 \ quicker and longer.
+\ Whether the product's high cell is less than nothing is asked
+\ with the 0 on the return stack, where it is an input of the
+\ compare, and the multiplier is then put over it: `>r dup 0<
+\ r@ and >r` is an instruction more, for every bit
+\ (doc/superoptimizations.md).
 : mulstep ( ud u -- ud u ) \ ud: the product, under what is left of the multiplier
 W64? [if]
     DOUBLE
@@ -338,8 +343,10 @@ W32+? [if]
     DOUBLE
 [then]
     DOUBLE DOUBLE DOUBLE DOUBLE
-    >r
-    dup 0< r@ and >r
+    false >r                    ( lo hi u ) ( R: 0 )
+    over r@ <                   ( lo hi u f )
+    rdrop over >r               ( lo hi u f ) ( R: u )
+    and >r                      ( lo hi ) ( R: u u&f )
     d2*
     r> d# 0 d+
     r>
@@ -485,11 +492,17 @@ create psh 0 ,              \ the bit of it the next field goes at,
 create pw 0 ,               \ how many bits a field is,
 create pfull 0 ,            \ and how many bits of a cell fields have
 
-\ The 0 is pushed once: the store that swaps keeps it for psh.
+\ Nothing goes in the cell at a and in psh, and no 0 is pushed
+\ for either: each is a cell with itself.  psh's is stored
+\ through its address, so that the return is in the store, which
+\ a variable's own instruction cannot have.  That is an
+\ instruction less where the address is one literal (cells of 64
+\ bits); where it is two, cross.fs makes the variable's
+\ instruction of this, and the word is as long as it was.
 : pack> ( a width full -- ) \ to pack fields from the cell at a
     pfull !  pw !
-    d# 0 tuck over !                        ( 0 a )
-    pto !  psh !
+    false over !  pto !
+    psh false swap !
 ;
 
 \ When the cell is full, pto steps to the next and 0 goes there
@@ -565,13 +578,17 @@ header sfind
         dup @ >r  CELL2 +                   ( c-addr u key name ) ( R: the header after )
         2dup @ = if
             dup same-cells? if
-                rdrop nip nip nip           ( name )
-                1- @                        ( x )
-                \ the xt, less the flag: x shifted up onto the return
-                \ stack, and down from there by the same 1
-                d# 1 2dup lshift >r         ( x 1 )
-                r@ swap rshift              ( x xt )
-                swap rdrop                  ( xt x )
+                \ The header's cell, x, is fetched to the return
+                \ stack, over the header after, which is done with.
+                \ The xt is x less the flag: shifted up onto the
+                \ return stack, and down from there by the same 1.
+                \ Each of these drops what it is done with: to drop
+                \ the four cells first is an instruction more.
+                true + nip                  ( c-addr u name-1 )
+                @ rdrop >r drop             ( c-addr ) ( R: x )
+                d# 1 r@ over lshift >r      ( c-addr 1 ) ( R: x x<<1 )
+                r> swap rshift              ( c-addr xt ) ( R: x )
+                nip r>                      ( xt x )
                 0< invert d# 1 or
                 exit
             then
@@ -779,7 +796,7 @@ header allot
 ;
 
 header w,
-: w,
+: tw,
     dp @ w!
     d# 2 tallot
 ;
@@ -1502,9 +1519,13 @@ header refill
     then
 ;
 
+\ blk is kept and made nothing through its address, pushed once:
+\ `blk @ >r  d# 0 blk !` is an instruction more where the
+\ address is one literal (cells of 64 bits), and as many where
+\ it is two.
 header evaluate
 : tevaluate
-    blk @ >r  d# 0 blk !
+    blk dup @ >r  false swap !
     >in @ >r  source >r >r
     source-id >r d# -1 sourceid !
     source!
@@ -1546,6 +1567,11 @@ include-rom
 
 : boot-buf ( -- a ) MEM-END BLKCELLS - ;    \ block 0, in the last block of memory
 : entry ( i -- a ) ENTRY-BYTES BYTESHIFT rshift *  boot-buf + ;
+\ A field of sixteen bits in cells, by the cell they start at and
+\ how many bytes on: the address of a byte is not needed, which
+\ cells above the display have none of.  The disk's index is such
+\ fields, and so is the decompiler's table (see.fs).
+header ifield
 : ifield ( a offset -- u ) \ two bytes that far into the cells from a
     h# ffff >r
     dup OFFSET-MASK and >r

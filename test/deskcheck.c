@@ -1084,8 +1084,11 @@ static void does(const char* said) {
             // row, and back by Left until it is its first (see.fs, wpick).
             // So the word is in the list after as many of them as there are
             // windows of lines between it and the choice, in whole windows.
+            // The pointer is put off the list before it is read: it is on
+            // the screen, and a row under it does not read as its word.
             const grid* g = grid_named("names");
             const int rows = grid_rows(g);
+            away();
             look("10-list");
             words_read();
             long top = list_read(), wanted = word_at(of);
@@ -1117,6 +1120,12 @@ static void does(const char* said) {
                        "another. They read:", of);
                 for(int row=0; row < rows; row++) printf(" [%s]", names[row]);
                 printf("\n");
+            }
+            // What works a desktop and checks nothing has no check after
+            // this to fail (bench/profile.c): it stops here.
+            if (!found && !desk_checking) {
+                fprintf(stderr, "deskcheck: find:%s did not come to the word, and no check is being run that would fail for it\n", of);
+                exit(EXIT_FAILURE);
             }
         } else if (!strncmp(word, "name:", 5)) {
             const grid* g = grid_named("names");

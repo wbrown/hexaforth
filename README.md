@@ -55,8 +55,8 @@ picture takes 0.7 seconds.
 - The instruction set. An instruction is a control word: where the ALU's
   input comes from, the operation, where the result goes, and how each
   stack moves
-- How little code it takes. The kernel is 3,564 bytes, in a 4,096-byte ROM.
-  The paint program is 2,250 bytes. The whole machine, written in AArch64
+- How little code it takes. The kernel is 3,538 bytes, in a 4,096-byte ROM.
+  The paint program is 2,236 bytes. The whole machine, written in AArch64
   assembler, is 880 bytes
 
 It is meant to be built from TTL, on an FPGA, or through TinyTapeout.
@@ -98,7 +98,7 @@ fetches or stores one of 4,096 variables.
 A Forth word is a name for one of these instructions or for a sequence of
 them. Leaving out the ones that read or write a port, the fields give 5,344
 instructions that behave differently; many combinations do the same thing.
-Fifty-six of those have names, and the system uses 395. The rest of the
+Fifty-eight of those have names, and the system uses 406. The rest of the
 ones it uses come from the compiler, which replaces a sequence with a single
 instruction wherever one does the same work, and finds out which by asking
 the machine. (The target `profile` counts them, for the 64-bit image.)
@@ -140,7 +140,7 @@ before its figure is printed. In millions of clocks:
 |---|---|---|---|---|
 | colour, full size | 63.2 | 21.5 | 31.5 | 30.5 * |
 | colour, half size | 40.3 | 11.7 | 17.4 | 17.4 |
-| grayscale, full size | 31.7 | 14.8 | 21.2 | 21.5 * |
+| grayscale, full size | 31.7 | 14.8 | 21.2 | 21.4 * |
 | grayscale, half size | 13.3 | 4.4 | 6.7 | 7.6 |
 
 \* Run on a smaller system, `forth/picture.fs`: the windowing system, the
@@ -157,23 +157,23 @@ ECP5: 14,989 LUTs and 986 flip-flops, at 30.21 MHz.
 
 | | words | bytes of code |
 |---|---|---|
-| The kernel, in a 4,096-byte ROM | 270 | 3,564 |
-| All drawing: fills, copying, text | 156 | 5,276 |
-| Regions | 37 | 1,418 |
-| The window manager | 116 | 3,548 |
-| The TIFF reader and the dither | 121 | 3,946 |
-| Text kept as lines, which two windows scroll | 44 | 1,158 |
-| The Forth window | 22 | 696 |
-| The block editor | 9 | 394 |
-| The picture viewer, and its picture kept as gray | 158 | 4,302 |
-| The calculator | 17 | 638 |
-| The paint program | 51 | 2,250 |
-| The decompiler and the Words window | 133 | 4,848 |
-| What the disks have, by label, and the boot's console | 47 | 1,574 |
-| The compiler's peephole, for what is typed | 51 | 1,770 |
-| Everything | 1,561 | 40,440 |
+| The kernel, in a 4,096-byte ROM | 270 | 3,538 |
+| All drawing: fills, copying, text | 156 | 5,252 |
+| Regions | 37 | 1,406 |
+| The window manager | 116 | 3,538 |
+| The TIFF reader and the dither | 121 | 3,920 |
+| Text kept as lines, which two windows scroll | 44 | 1,146 |
+| The Forth window | 22 | 692 |
+| The block editor | 9 | 386 |
+| The picture viewer, and its picture kept as gray | 158 | 4,282 |
+| The calculator | 17 | 634 |
+| The paint program | 51 | 2,236 |
+| The decompiler and the Words window | 134 | 4,798 |
+| What the disks have, by label, and the boot's console | 47 | 1,542 |
+| The compiler's peephole, for what is typed | 52 | 1,748 |
+| Everything | 1,563 | 40,092 |
 
-The dictionary holds 641 names in 5,994 bytes, at five bits per character.
+The dictionary holds 642 names in 6,002 bytes, at five bits per character.
 
 **The machine on another processor** (`size`). `baremetal/hexaforth.S` is
 the whole machine in AArch64 assembler, with a console. It is 880 bytes:
@@ -205,9 +205,9 @@ It has ~270 words, and these have names you can type:
 - **Bits**: `and or xor invert lshift rshift`
 - **Comparison**: `= <> < > u< u> 0= 0<> 0< 0> true false`
 - **Double-cell numbers**: `d+ dnegate s>d d2* 2@ 2!`
-- **Memory**: `@ ! +! or! and! xor! *! not! c@ c! uw@ w! field@ field! >c
-  c> hi32 lo32 hi16 lo16 count cell+ cells aligned align cmove cells-move
-  cells-fill /string bounds i@ i!`
+- **Memory**: `@ ! +! or! and! xor! *! not! c@ c! uw@ w! field@ field!
+  ifield >c c> hi32 lo32 hi16 lo16 count cell+ cells aligned align cmove
+  cells-move cells-fill /string bounds i@ i!`
 - **The console and the ports**: `key key? emit uart-emit 'emit 'console cr
   space bl type . .x .x2 hex1 accept io@ io!`
 - **The interpreter**: `source source-id sourceid >in parse parse-name

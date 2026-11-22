@@ -227,7 +227,8 @@ An ALU instruction is carried out in this order:
    top, unless that is where OUT went.
 
 `+` is `T->IN IN+N ->T d-1 alu`, `dup` is `T->IN IN-> ->T d+1 alu`, and
-`exit` is `T->IN IN-> ->T RET r-1 alu`.
+`exit` is `T->IN IN-> ->T RET r-1 alu`. `true` is `N->IN IN==N ->T d+1
+alu`: N compared with itself, which pushes -1 whatever N is.
 
 ## Display
 

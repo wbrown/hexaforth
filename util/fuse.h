@@ -16,8 +16,10 @@
 // arithmetic in vm.c: which operations take their inputs in either order,
 // which may be regrouped and what number leaves the other input as it was,
 // which is undone by being done again, which leave a flag, and that two
-// cells are the same when their difference is nothing.  Two sequences that
-// do the same only by something else that is so of numbers are not found.
+// cells are the same when their difference is nothing, which a cell's with
+// itself is.  Each of those is tried on the arithmetic as this starts
+// (try_facts).  Two sequences that do the same only by something else that
+// is so of numbers are not found.
 //
 // On cells it is a test of that, made otherwise.  Every answer the terms
 // give is run on vm.c against what it is the answer to, from a number of
@@ -739,8 +741,10 @@ static int of_flag(int op, int a, int b) {
 // (vm.c) gives one term to what is the same cell: the inputs in one order,
 // a run of an operation as one term of all its inputs with the numbers
 // among them made one, what was done twice undone, what is made of a flag,
-// and whether two cells are the same for whether what tells them apart
-// made nothing.
+// whether two cells are the same for whether what tells them apart made
+// nothing, and a cell with itself for nothing where it is told apart from
+// itself: so a cell compared with itself is the flag that says it is the
+// same, which is a number.
 static int t_made(int op, int a, int b) {
     const term* x = &KNOWN[a];
     const term* y = &KNOWN[b];
@@ -756,6 +760,7 @@ static int t_made(int op, int a, int b) {
         if (!ALU_DIFFERS(apart) || !ALU_REGROUPS(apart)) continue;
         int told = t_made(apart, a, b);
         const term* t = &KNOWN[told];
+        if (t->kind == A_NUMBER) return(t_number(alu(op, t->number, 0)));   // what tells them apart is a number
         int two[2] = { told, 0 };
         if (t->kind == BY_ALU && t->op == apart && t->n == 2) { two[0] = t->of[0]; two[1] = t->of[1]; }
         else two[1] = t_number(0);
@@ -777,7 +782,20 @@ static int t_made(int op, int a, int b) {
                 else number = cell(numbers++ ? alu(op, number, KNOWN[o].number) : KNOWN[o].number);
             }
         }
+        // What tells cells apart makes nothing of a cell and itself, and
+        // nothing is the number that leaves its other input as it was: so
+        // two of the same term are not among what it is made of.
+        if (ALU_DIFFERS(op) && cell(ALU_NOTHING(op)) == 0) {
+            int kept = 0;
+            in_order(of, n);
+            for(int idx=0; idx < n; idx++) {
+                if (idx + 1 < n && of[idx] == of[idx + 1]) idx++;
+                else of[kept++] = of[idx];
+            }
+            n = kept;
+        }
         if (numbers && (number != cell(ALU_NOTHING(op)) || !n)) of[n++] = t_number(number);
+        if (!n) return(t_number(ALU_NOTHING(op)));
         if (n == 1) return(of[0]);
         if (n > OPERANDS) { lost = 1; return(0); }
         in_order(of, n);
@@ -1226,6 +1244,43 @@ static long keep(uint64_t was_asked, long found) {
 static void learn_literals(void);
 static void list_tried(void);
 
+// What vm.c says is so of the arithmetic is tried on the arithmetic, for
+// every operation and for cells of each kind, before anything is reasoned
+// from it: one that is not so stops whatever has this.  The cells are
+// numbers at each end of each width a cell has, and what each is inverted.
+static void try_facts(void) {
+    static const int64_t of[] = { 0, 1, 2, 3, 7, 8, 15, 16, 255, 256, 4095, 4096, 0x7fff, 0x8000, 0xffff, 0x10000,
+                                  0x7fffffff, 0x80000000ll, 0xffffffffll, 0x123456789abcdefll, 0x7fffffffffffffffll };
+    enum { FACT_CELLS = 2 * (sizeof(of) / sizeof(of[0])) };
+    int64_t given[FACT_CELLS];
+    for(int idx=0; idx < FACT_CELLS / 2; idx++) given[2 * idx] = cell(of[idx]), given[2 * idx + 1] = cell(~of[idx]);
+    for(int op=0; op < OPS; op++) {
+        for(int i=0; i < FACT_CELLS; i++) for(int j=0; j < FACT_CELLS; j++) {
+            const int64_t a = given[i], b = given[j], made = cell(alu(op, a, b));
+            const char* not_so = NULL;
+            if (ALU_EITHER_WAY(op) && made != cell(alu(op, b, a))) not_so = "it takes its inputs either way";
+            if (ALU_REGROUPS(op) && cell(alu(op, a, cell(ALU_NOTHING(op)))) != a) {
+                not_so = "there is a number that, as one input, leaves the other as it was";
+            }
+            for(int k=0; ALU_REGROUPS(op) && k < FACT_CELLS && !not_so; k++) {
+                if (cell(alu(op, made, given[k])) != cell(alu(op, a, cell(alu(op, b, given[k]))))) not_so = "a run of it may be regrouped";
+            }
+            if (ALU_UNDOES(op) && cell(alu(op, cell(alu(op, a, a)), cell(alu(op, a, a)))) != a) {
+                not_so = "done twice it gives back the cell it was given";
+            }
+            if (ALU_FLAGS(op) && made != cell(TRUE) && made != cell(FALSE)) not_so = "it leaves a flag";
+            if (ALU_SAME(op) && made != cell(a == b ? TRUE : FALSE)) not_so = "its flag is whether two cells are the same";
+            if (ALU_DIFFERS(op) && (made == 0) != (a == b)) {
+                not_so = "it makes nothing of two cells when they are the same, and of no others";
+            }
+            if (!not_so) continue;
+            fprintf(stderr, "fuse.h: vm.c says of the operation %s that %s, and of %llx and %llx it is not so\n",
+                    ALU_OPS_REPR[op], not_so, (unsigned long long)ucell(a), (unsigned long long)ucell(b));
+            exit(EXIT_FAILURE);
+        }
+    }
+}
+
 // It is made ready once: its states and what it lists are of the cell
 // there is then, and a program that has another machine after that is
 // stopped.
@@ -1238,6 +1293,7 @@ static void get_ready(void) {
     }
     init_opcodes(FORTH_WORDS);
     nowhere = fopen("/dev/null", "w");
+    try_facts();
     make_states();
     list_give();
     lay_leads();

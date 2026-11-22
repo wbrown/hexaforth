@@ -53,6 +53,12 @@ static run_check RUNS[] = {
     {"= and then not, for whether it is nothing, is xor", "= invert", 1, 1},
     {"xor and then = of nothing, for whether it is nothing, is =", "xor 0=", 1, 1},
     {"a flag is wanted whole: = and invert are two", "= invert", 2},
+    // A cell is the same as itself, and the cell under the top can be both
+    // of the ALU's inputs: so -1 is one instruction, and nothing is.
+    {"-1 is one instruction: the cell under the top compared with itself", "0 invert", 1},
+    {"one taken away is two: that, and an add", "0 invert +", 2},
+    {"two cells dropped and nothing pushed are one", "drop drop 0", 1},
+    {"a cell pushed and told apart from itself is one: nothing", "dup dup xor", 1},
     {NULL}};
 
 typedef struct {

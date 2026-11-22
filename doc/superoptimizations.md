@@ -6,11 +6,14 @@ what it replaced, and why it takes fewer instructions or cycles on this
 machine. How much a change saved is recorded in the commit that made it,
 which is named; the figures are not repeated here.
 
-The last section is what reading the kernel's ROM found. The two before it
-cover what the search for fewer instructions has found, each with the code
-before and after and the stacks after every instruction. The search is `bench/shorter.c` (the program `shorter`, of
-the machine whose image it is given, run at the end of the target
-`profile`). It
+The last section is a cell with itself: what the cell under the top makes
+as both of the ALU's inputs, why neither compiler nor the search had it,
+and what the search found once the step knew. The one before it is what
+reading the kernel's ROM found. The two before that cover what the search
+for fewer instructions has found, each with the code before and after and
+the stacks after every instruction. The search is `bench/shorter.c` (the
+program `shorter`, of the machine whose image it is given, run at the end
+of the target `profile`). It
 takes one turn of a loop, puts the words it calls inline, and looks for the
 fewest instructions that leave the same result, wherever the values are
 kept (`util/loops.h`, `util/turns.h`, `util/fewer.h`). Asked of a kernel's
@@ -1661,11 +1664,199 @@ run, and the kernel is short before it is quick. `type`, `s,`, `(`,
 `interpret`, `by-name` and `ipl` end so.
 
 A number pushed cannot take the return either, and a word that is one
-number is held the same way: `same-cells?` ends `2drop false`, and its
-`false` is a jump to the word `false`.
+number is held the same way, as `false` was at the end of `same-cells?`
+while it was a 0 pushed (it is an instruction that takes the return now: A
+cell with itself, below).
 
-`kernel_test IMAGE.hex IMAGE.tables to 2drop false` says every place that
-jumps to either, in the ROM and in the rest of the kernel's page.
+`kernel_test IMAGE.hex IMAGE.tables to 2drop` says every place that jumps
+to it, in the ROM and in the rest of the kernel's page.
 
 Not done: `io!` the same way, in `uart-emit` and `reg32!`. Those are run
 for every character sent and every register written.
+
+## A cell with itself
+
+An instruction of the ALU has two inputs: the one its input field chooses,
+and the cell under the top. The input field can choose the cell under the
+top as well, and then the operation is given one cell twice. A cell is the
+same as itself, so `N->IN IN==N ->T d+1` pushes the flag that says so, -1,
+which is every bit set: whatever the cell is, and with nothing on the stack
+too, since what is read is only compared with itself. `N->IN IN^N ->T d+1`
+pushes nothing the same way.
+
+A literal holds what is not negative, so -1 was a 0 pushed and inverted
+(2):
+
+    0                               0
+    invert                          -1
+
+It is one instruction (1):
+
+    (N->IN IN==N ->T d+1)           -1
+
+One taken away was those two and an add, and is two instructions. And where
+cells are dropped and then a flag pushed, the one instruction drops them as
+well: `2drop false` is `N->IN IN^N ->T d-1`, since the cell it reads is one
+of those it drops.
+
+### Why it was not found
+
+Neither compiler made it and the search for fewer instructions did not find
+it, for one reason. What they know of the machine they ask of the step on
+terms (`util/fuse.h`), which gives one term to what is the same cell, and
+does so by what `vm.c` says is so of the arithmetic: which operations take
+their inputs either way, which may be regrouped, which is undone by being
+done twice. `vm.c` said as well that xor makes nothing of two cells when
+they are the same. The terms used that to ask whether two cells are the
+same, and not for a cell with itself: `x xor x` was a term like any other,
+and so `x = x` was.
+
+`t_made` takes two of the same term out of what a xor is made of, and where
+the difference of two cells is a number, whether they are the same is a
+number too. Each thing `vm.c` says of the arithmetic is also tried on the
+arithmetic when `fuse.h` starts, for every operation and for cells of each
+kind: one that is not so stops whatever has `fuse.h` in it.
+
+Not done: that a cell and-ed or or-ed with itself is the cell, and that no
+cell is less than itself. Nothing has been shown to be shorter by them.
+
+### The two names
+
+`true` and `false` are names in `vm_opcodes.h` for the two instructions,
+and the nucleus's word for each is the one instruction with its return. So
+the decompiler shows `true`, where with no name it showed the fewest words
+that do the same, `r@ r@ =`; and a `true` typed at the prompt, or in source
+the machine compiles from its disk, is the one instruction. A number below
+nothing that is typed there is still its complement and an `invert`
+(`tliteral`, `nuc.fs`).
+
+Source says `d# -1`, `true`, `1-` and `2drop false` as it did. `cross.fs`
+asks the step what shorter run does a run's work, and is now told.
+
+On the machine a `true` was a call of a word of two instructions, and is
+an instruction that the nucleus's peephole tries with its neighbours as it
+does any other.
+
+The nucleus works a number out by running the code that computes it, and
+knew that code by its literals and by the instructions `folds.fs` lists,
+which make one number of one or of two. `1-` was a 0, an `invert` and an
+add, so `16 1-` was 15 to it. It is `true` and an add, and `true` is
+neither a literal nor one of those: it makes a number of none. `joins`
+asks the step which named instructions do, and `folds.fs` puts the two in
+cells the nucleus keeps (`of-none`, `join.fs`): where a number is looked
+for, one of them is a number, and `16 1-` is 15 as it was. An add after
+one with no number before it is left an add: -1 as what is added is no
+fewer instructions than `true` and the add are, and what is added joins
+nothing after it (`add-to`).
+
+`1-` in place is two instructions where it was three, so the nucleus has it
+in place where its add joins the word after it, which is as long as the
+call of it and runs two instructions fewer: there is no call, and the word
+after is in the add. Where the word after that would have joined too it is
+an instruction longer: `1- rdrop dup` was the call and `rdrop dup`, and is
+`true`, `+ rdrop` and `dup`. `booted-16` and the like say what a boot lays
+beside what `cross.fs` lays, `compiling-16` what a boot costs, and
+`peephole` what the nucleus's code would cost beside `cross.fs`'s.
+
+### Room for the decompiler's table
+
+The table the decompiler shows an instruction's words by (`fused.fs`) has
+an entry for every instruction the image uses, and this brought more of
+them. Its fields were a cell each: the instruction, how many words, and
+each word's header, none of which is more than sixteen bits. Where a cell
+is 64 bits and there is no bulk, that was four times the bytes, in the
+cells one instruction reaches. They are fields of sixteen bits, one after
+another in cells (`w,` and `hdr,` lay them; `ffield` in `see.fs` reads one
+through the kernel's `ifield`). `memory-table-64` says what those cells
+have left.
+
+### What the search then found
+
+The search for fewer instructions asks the same step, so it sees a nothing
+that is made of whatever cell is to hand. `shorter-virt` then found these
+in the ROM, none of which is of this image's numbers alone.
+
+`mulstep` is run for every bit of a multiply. It put the multiplier aside
+and asked whether the product's high cell is less than nothing. As it was
+(5):
+
+    >r                              lo hi           R: u
+    0                               lo hi 0
+    over >                          lo hi f         f: hi is less than nothing
+    r@                              lo hi f u
+    and >r                          lo hi           R: u u&f
+
+The 0 it compared with goes on the return stack, made of the cell under
+the top, where it is an input: the compare pushes its flag and takes the 0
+off, and the multiplier goes there after it. As it is (4):
+
+    false >r                        lo hi u         R: 0
+    over r> <                       lo hi u f
+    over >r                         lo hi u f       R: u
+    and >r                          lo hi           R: u u&f
+
+(The search left the 0 where it was and stored the multiplier over it,
+`N->IN IN-> ->R`: as many instructions.)
+
+`pack>` put nothing in the cell a name is packed from and in `psh`: a 0
+pushed, a store that kept it, and two stores of variables (7). The first
+nothing is stored without being pushed, and the second is the last
+instruction, a store through `psh`'s address that the return is in (6):
+
+    pfull !  pw !                   a
+    false over !                    a               nothing, in the cell at a
+    pto !
+    psh                             psh
+    false swap ! ;                                  and in psh
+
+`evaluate` begins by keeping `blk` and putting nothing in it: a fetch, a
+`>r`, a 0 and a store (4). With `blk`'s address pushed once, the fetch
+goes straight to the return stack and the nothing is stored through the
+same address (3):
+
+    blk                             blk
+    dup @ >r                        blk             R: what blk had
+    false swap !
+
+Both of these are shorter where a variable's address is one literal, which
+it is with cells of 64 bits. With cells of 16 or 32 bits it is two, and
+`cross.fs` makes of the same source what is as long as it was: in `pack>`
+the variable's own instruction again.
+
+`sfind`, when it has found the name, has four cells on the data stack that
+it is done with and the next header's address on the return stack. It
+dropped those first, and then fetched the header's cell and took the flag
+off it by a shift up and a shift down. As it was (8):
+
+    nip nip rdrop                   c-addr name
+    true                            c-addr name -1
+    + nip                           name-1
+    @                               x
+    1                               x 1
+    2dup lshift >r                  x 1             R: x<<1
+    r@ swap rshift                  x xt
+    swap rdrop                      xt x
+
+Nothing is dropped by an instruction of its own. The cell is fetched to
+the return stack, over the address that was there, and the instructions
+that do the work drop what is done with. As it is (7):
+
+    true                            c-addr u key name -1
+    + nip                           c-addr u name-1
+    nip rdrop @ >r                  c-addr          R: x
+    1                               c-addr 1
+    r@ over lshift >r               c-addr 1        R: x x<<1
+    nip r> swap rshift              xt              R: x
+    r>                              xt x
+
+The search's seven were other instructions: it kept three of the cells to
+the end and dropped two with the shift down, `R->IN IN>>T ->T d-2 r-1`,
+which no four words say, so the decompiler would have shown it by its
+number. These seven drop them sooner, and each is a phrase the decompiler
+has.
+
+In `nuc.fs` each is the standard words for it, which `cross.fs` makes
+those instructions of: `false >r`, `over r@ <` and `rdrop over >r` in
+`mulstep`; `false over !` and `false swap !` in `pack>` and `evaluate`;
+and in `sfind` `true + nip`, `@ rdrop >r drop`, `r@ over lshift >r`,
+`r> swap rshift` and `nip r>`.

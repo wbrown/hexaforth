@@ -190,6 +190,11 @@ typedef struct {
 // Every name is held to the machine when an image is built (util/joins.c):
 // the instruction it is given is to be the one that stands for all that do
 // the same, and a phrase's is to do what its words do.
+//
+// `true` and `false` are the cell under the top compared with itself, and
+// told apart from itself: the flag that says it is the same, and nothing,
+// whatever the cell is.  A literal holds what is not negative, so `true`
+// is the one instruction that pushes -1.
 
 
 static forth_define FORTH_OPS[] = {
@@ -251,6 +256,8 @@ static forth_define FORTH_OPS[] = {
         {"2dup xor", "      T->IN   IN^N       ->T       d+1       alu"},
         {"over +",  "       T->IN   IN+N       ->T                 alu"},
         {"over =",  "       T->IN   IN==N      ->T                 alu"},
+        {"true",    "       N->IN   IN==N      ->T       d+1       alu"},
+        {"false",   "       N->IN   IN^N       ->T       d+1       alu"},
         {"swap >r", "       N->IN   T<>N,IN->  ->R       d-1  r+1  alu"},
         {"swap r>", "       R->IN   T<>N,IN->  ->T       d+1  r-1  alu"},
         {"1+",      "1      imm+                                   imm"},

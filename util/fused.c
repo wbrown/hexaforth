@@ -44,6 +44,12 @@
 
 #define MOST 4                          // the most words an instruction is shown as: chosen, and not the machine's
 
+// An entry of the table, as the file says it: the instruction and how many
+// words it is, each laid as sixteen bits (w,), and then the words, each a
+// header's address laid so (hdr,, which is before each name in what an
+// instruction is shown as).
+#define ENTRY "$%04x w, $%x w, %s\n"
+
 typedef struct {
     const char* name;
     uint16_t code[COUNT(((word_node*)0)->ins)];     // as long as a word of vm_opcodes.h can be
@@ -336,7 +342,8 @@ int main(int argc, char *argv[]) {
     fprintf(out, "\\ fused.fs - the image's instructions as words, for see.fs\n"
                  "\\ GENERATED from the image by util/fused.c.\n"
                  "\\ An entry is the instruction, how many words it is, and each\n"
-                 "\\ word's header.  A zero ends the table.\n\n"
+                 "\\ word's header: fields of sixteen bits, one after another in\n"
+                 "\\ cells.  A field that is nothing ends the table.\n\n"
                  "high\n"
                  "create fused\n");
     // The table is source that goes on a disk: cut with a line of nothing,
@@ -350,13 +357,14 @@ int main(int argc, char *argv[]) {
             fprintf(out, "\n");
             run = 0;
         }
-        fprintf(out, "$%04x , $%x , %s\n", WANT[w].ins, WANT[w].said_n, WANT[w].shown);
+        fprintf(out, ENTRY, WANT[w].ins, WANT[w].said_n, WANT[w].shown);
         run++;
         shown++;
         one += WANT[w].said_n == 1;
     }
-    if (run + 3 > DISK_BLOCK / DISK_LINE) fprintf(out, "\n");
-    fprintf(out, "0 ,\nunhigh\nmeta t' fused t' fused-at tvar! target\n");
+    // After the last field the data is on a cell again.
+    if (run + 4 > DISK_BLOCK / DISK_LINE) fprintf(out, "\n");
+    fprintf(out, "0 w,\nmeta tcalign target\nunhigh\nmeta t' fused t' fused-at tvar! target\n");
     fclose(out);
     if (same) {
         // nothing is written: is the image's table what the file has?
@@ -369,7 +377,7 @@ int main(int argc, char *argv[]) {
         for(int w=0; w < wants && !is; w++) {
             if (!WANT[w].shown) continue;
             char* line = NULL;
-            text_more(&line, "$%04x , $%x , %s\n", WANT[w].ins, WANT[w].said_n, WANT[w].shown);
+            text_more(&line, ENTRY, WANT[w].ins, WANT[w].said_n, WANT[w].shown);
             size_t len = strlen(line), at = 0;
             while (had && at + len <= have && memcmp(had + at, line, len)) at++;
             if (!had || at + len > have) {
@@ -387,5 +395,12 @@ int main(int argc, char *argv[]) {
     }
     printf("%d instructions as one word and %d as more written to %s; %d needed four words; %d have no words\n",
            one, shown - one, table, needed_four, not_shown);
+    // One that no words of as many as that make is shown by its number
+    // (see.fs): each the image has is said, with where it first has it.
+    for(int w=0; w < wants; w++) {
+        if (WANT[w].shown || !WANT[w].uses) continue;
+        printf("  no words for $%04x, which the image has %ld times, the first at $%lx in %s\n",
+               WANT[w].ins, WANT[w].uses, WANT[w].at, WANT[w].in ? WANT[w].in : "no word");
+    }
     return(shown ? 0 : 1);
 }

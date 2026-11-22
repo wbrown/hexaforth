@@ -9,8 +9,13 @@
 \ rule: a mask, the value an instruction has under it, and
 \ the bits to invert in it.  The last set is for `0 =` after
 \ what leaves a flag: its third numbers are `invert`.
+\ An instruction that computes a number from none pushes one
+\ of its own.  Those are not in the table: join.fs has a cell
+\ for each (of-none), which the lines before the table fill.
 
-meta $6b table-room  tcp @ 2/ t' folds-at tvar! target
+meta $6094 t' of-none 0 + tvar! target   \ true
+meta $6064 t' of-none 1 + tvar! target   \ false
+meta $6e table-room  tcp @ 2/ t' folds-at tvar! target
 $0002 i, $000c i, $0003 i,   \ how many of each
 $0063 i,   \ and where the last set is
 $6400 i,   \ noop
@@ -24,9 +29,9 @@ $649c i,   \ =
 $64ac i,   \ <
 $64bc i,   \ u<
 $640c i,   \ nip
+
 $600c i,   \ drop
 $60cc i,   \ rshift
-
 $60dc i,   \ lshift
 $6404 i, $000b i,   \ across dup
 $03cc i, $004c i, $000c i,   \ xor and or * @ and @ or @ xor @ *
@@ -41,9 +46,9 @@ $01cc i, $0148 i, $0004 i,   \ or! and! xor! *!
 $03ac i, $008c i, $000c i,   \ = @ = rshift lshift
 $02fc i, $001c i, $001c i,   \ swap >r
 $6c04 i, $0007 i,   \ across r@
+
 $0ff4 i, $0010 i, $0c14 i,   \ swap
 $077c i, $040c i, $000c i,   \ nip
-
 $0f7c i, $000c i, $0c0c i,   \ drop
 $0fee i, $0d08 i, $0d04 i,   \ 2drop
 $0d7c i, $0108 i, $0c04 i,   \ !
@@ -57,6 +62,8 @@ $0fef i, $0d08 i, $0d07 i,   \ 2drop
 $0d7f i, $0108 i, $0c07 i,   \ !
 $0fef i, $00cc i, $0c0f i,   \ rshift lshift
 $0fff i, $011d i, $051d i,   \ swap >r
-$649c i, $0002 i,   \ what leaves a flag, before 0 =
-$03d0 i, $0090 i, $6480 i,   \ = u< @ = @ u< over =
+$649c i, $0003 i,   \ what leaves a flag, before 0 =
+
+$03d0 i, $0090 i, $6480 i,   \ = u< @ = @ u< over = true
 $03e0 i, $00a0 i, $6480 i,   \ < u< @ < @ u< 2dup <
+$0ff0 i, $0060 i, $6480 i,   \ false

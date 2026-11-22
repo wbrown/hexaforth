@@ -12,6 +12,13 @@
 // listed here, of the instructions that have a name (vm_opcodes.h), since
 // those are what is typed.
 //
+// An instruction that makes a number of nothing the stacks have pushes one
+// of its own: the cell under the top compared with itself, and told apart
+// from itself (`true`, `false`).  Where the nucleus looks for a number, one
+// of these is a number.  There are the two, and they are not in the table:
+// the file puts them in two cells of the nucleus (`of-none`, join.fs), each
+// of which is one instruction to fetch.
+//
 // The other thing it is told is what `dup 16 rshift` is: a dup, something
 // pushed, and an instruction, which are the thing pushed and one
 // instruction.  Which instruction is a rule by bits: an instruction that
@@ -74,20 +81,23 @@ static int made_only_of(int t, int allowed) {
     return(1);
 }
 
-// How many numbers an instruction makes one of, touching nothing else: one,
-// two, or none if it is not such an instruction.
+// How many numbers an instruction makes one of, touching nothing else:
+// none, one or two; or NOT_SUCH if it is not such an instruction.  One that
+// makes a number of none pushes it, and what it is made of is numbers.
+enum { NOT_SUCH = -1, OF_NONE = 0 };
+#define KEPT_OF_NONE 2                  // the cells the nucleus has for those of none (of-none, join.fs)
 static int folds(uint16_t ins) {
     named m;
     forget();
     start(&m);
     step_named(&m, ins);
-    if (m.unsaid || lost || m.next >= 0 || m.fetches || m.M != MEMORY_TERM) return(0);
-    if (m.RSP != DEEP || m.R != RETURN_TERM(DEEP - 1)) return(0);
-    for(int idx=0; idx < DEEP - 1; idx++) if (m.RS[idx] != RETURN_TERM(idx)) return(0);
+    if (m.unsaid || lost || m.next >= 0 || m.fetches || m.M != MEMORY_TERM) return(NOT_SUCH);
+    if (m.RSP != DEEP || m.R != RETURN_TERM(DEEP - 1)) return(NOT_SUCH);
+    for(int idx=0; idx < DEEP - 1; idx++) if (m.RS[idx] != RETURN_TERM(idx)) return(NOT_SUCH);
     int of = DEEP + 1 - m.SP;
-    if (of != 1 && of != 2) return(0);
-    for(int idx=0; idx < m.SP - 1; idx++) if (m.DS[idx] != DATA_TERM(idx)) return(0);
-    return(made_only_of(m.T, of == 1 ? 1 : 3) ? of : 0);
+    if (of < OF_NONE || of > 2) return(NOT_SUCH);
+    for(int idx=0; idx < m.SP - 1; idx++) if (m.DS[idx] != DATA_TERM(idx)) return(NOT_SUCH);
+    return(made_only_of(m.T, of == 2 ? 3 : of) ? of : NOT_SUCH);
 }
 
 // Something pushed: a number, a variable fetched, and a number that is two
@@ -352,10 +362,11 @@ int main(int argc, char *argv[]) {
         sets++;
     }
 
-    uint16_t of_one[MOST], of_two[MOST];
-    int ones = 0, twos = 0;
+    uint16_t of_none[MOST], of_one[MOST], of_two[MOST];
+    int nones = 0, ones = 0, twos = 0;
     for(int at=0; at < named_ones; at++) {
         int of = folds(NAMED[at]);
+        if (of == OF_NONE) of_none[nones++] = NAMED[at];
         if (of == 1) of_one[ones++] = NAMED[at];
         if (of == 2) of_two[twos++] = NAMED[at];
     }
@@ -363,6 +374,11 @@ int main(int argc, char *argv[]) {
     if (!ones || !twos || !rules || !FLAGS.n) {
         fprintf(stderr, "joins: found %d instructions that make one number of one, %d of two, %d rules, and %d rules for what "
                         "leaves a flag: there are some of each\n", ones, twos, rules, FLAGS.n);
+        return(1);
+    }
+    if (nones != KEPT_OF_NONE) {
+        fprintf(stderr, "joins: %d instructions that have a name make a number of none, and the nucleus has cells for %d "
+                        "(of-none, join.fs)\n", nones, KEPT_OF_NONE);
         return(1);
     }
     const int flags_at = 4 + ones + twos + 2 * sets + 3 * rules;   // how far into the table the flags' set is
@@ -384,9 +400,16 @@ int main(int argc, char *argv[]) {
                  "\\ push is moved across, how many rules, and the rules.  A\n"
                  "\\ rule: a mask, the value an instruction has under it, and\n"
                  "\\ the bits to invert in it.  The last set is for `0 =` after\n"
-                 "\\ what leaves a flag: its third numbers are `invert`.\n\n");
+                 "\\ what leaves a flag: its third numbers are `invert`.\n"
+                 "\\ An instruction that computes a number from none pushes one\n"
+                 "\\ of its own.  Those are not in the table: join.fs has a cell\n"
+                 "\\ for each (of-none), which the lines before the table fill.\n\n");
     int run = 0;                        // lines of the table since a line of nothing
     #define TABLE_LINE() do { if (run == DISK_BLOCK / DISK_LINE) { fprintf(out, "\n"); run = 0; } run++; } while (0)
+    for(int at=0; at < nones; at++) {
+        TABLE_LINE();
+        fprintf(out, "meta $%04x t' of-none %d + tvar! target   \\ %s\n", of_none[at], at, name_of(of_none[at]));
+    }
     TABLE_LINE();
     fprintf(out, "meta $%x table-room  tcp @ 2/ t' folds-at tvar! target\n", flags_at + 2 + 3 * FLAGS.n);
     TABLE_LINE();
@@ -441,8 +464,8 @@ int main(int argc, char *argv[]) {
     fclose(out);
     if (!write_whole(argv[1], made, made_len)) { perror(argv[1]); return(1); }
     free(made);
-    printf("%d instructions that make one number of one and %d of two, %d rules in %d sets for what follows",
-           ones, twos, rules, sets);
+    printf("%d instructions that make one number of none, %d of one and %d of two, %d rules in %d sets for what follows",
+           nones, ones, twos, rules, sets);
     for(int set=0; set < sets; set++) printf("%s %s", set ? "," : "", name_of(SET[set].across));
     printf(" and a push, and %d rules for what leaves a flag, written to %s\n", FLAGS.n, argv[1]);
     return(0);

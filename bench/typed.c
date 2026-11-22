@@ -170,7 +170,7 @@ static int shown(const char* typed, const char* fused) {
     long listed = 0;
     while (line_of(table, &line, &room)) {
         unsigned ins;
-        if (sscanf(line, "$%x ,", &ins) != 1) continue;
+        if (sscanf(line, "$%x w,", &ins) != 1) continue;
         listed += !has[ins & 0xffff];
         has[ins & 0xffff] = 1;
     }

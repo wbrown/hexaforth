@@ -94,7 +94,10 @@ multiply.
   counts the CPU with it and without it
 - **`IN==N`** produces a flag as a value, which can be combined with another
   or stored. A conditional jump only asks whether T is zero, so for a jump
-  alone `xor` would do. It is also `0=`, which is `0 =`
+  alone `xor` would do. It is also `0=`, which is `0 =`. With N as its
+  input it compares a cell with itself, which is true whatever the cell
+  is: that is `true`, -1 in one instruction, as `IN^N` with N as its input
+  is `false`
 - **`N<IN`** has to be an operation because the machine keeps no flags. The
   sign of a difference is wrong when the subtraction overflows, and nothing
   records that it did
@@ -125,14 +128,16 @@ count to compute (the target `subtracts` shows where the work subtracts,
 how often, and what).
 
 A literal can only add a non-negative number, so adding one is one
-instruction and subtracting one is three. So loops count up: a loop that
+instruction and subtracting one is two: a -1, which is the cell under the
+top compared with itself, and an add. So loops count up: a loop that
 counts starts at a negative number and counts up to zero.
 
 ## Literals and variables
 
 A literal is twelve bits, a shift of 0, 12 or 24 bits, and a flag that says
 whether it is pushed or added to T. With the flag set, adding any constant
-is one instruction. A negative number is made with `invert`.
+is one instruction. A negative number is made with `invert`; -1 alone is
+one instruction, which has no literal in it (`true`).
 
 The fourth value of the shift field turns the instruction into a variable
 access. The twelve bits select one of the 4,096 cells starting at

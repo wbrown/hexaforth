@@ -146,6 +146,8 @@ create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
 :: rshift            N->IN   IN>>T     ->T     d-1    r+0       alu     ;
 :: lshift            N->IN   IN<<T     ->T     d-1    r+0       alu     ;
 :: exit              T->IN   IN->      ->T     d+0    r-1  RET  alu     ;
+:: true              N->IN   IN==N     ->T     d+1    r+0       alu     ;
+:: false             N->IN   IN^N      ->T     d+1    r+0       alu     ;
 :: 1+             1          imm+                               imm     ;
 :: 2+             2          imm+                               imm     ;
 :: 2*             1                                             imm    
@@ -294,6 +296,8 @@ source: baseword-words
     bw-header rshift
     bw-header lshift
     bw-header exit
+    bw-header true
+    bw-header false
     bw-header 1+
     bw-header 2+
     bw-header 2*

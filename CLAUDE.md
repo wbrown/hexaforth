@@ -183,6 +183,14 @@ a name for one of them.
   given to that one. `util/joins.c` stops the build at a name whose
   instruction is another, and at a phrase whose instruction is not what
   its words do
+- The cell under the top can be both of the ALU's inputs. Compared with
+  itself it is the flag for true, and told apart from itself it is
+  nothing, whatever the cell is: `true` and `false` are those two
+  instructions, and `true` is how -1 is pushed in one. What the compilers
+  and the search for fewer instructions know of the arithmetic is what
+  `vm.c` says beside it, which the step on terms reasons from
+  (`util/fuse.h`, `t_made`) and tries on the arithmetic as it starts: what
+  is so and is not said there, none of them finds
 - Do not propose a new ALU operation or any other change to the machine
   for speed. The operation field is full, the ALU has two inputs, and the
   design is that the fields compose. First show what the existing fields
@@ -191,8 +199,9 @@ a name for one of them.
   cell at a time. Bytes, opcodes and per-element loops are habits from
   other machines
 - A loop goes up, not down. Adding one is one instruction; taking one away
-  is three, since a literal can only add what is not negative. A loop over
-  memory keeps no count: `bounds begin 2dup xor while ... 1+ repeat 2drop`,
+  is two, since a literal can only add what is not negative: a -1 pushed
+  and an add. A loop over memory keeps no count:
+  `bounds begin 2dup xor while ... 1+ repeat 2drop`,
   and a second place is the first plus how far apart they are. A loop
   that only counts starts below nothing and goes up to it:
   `negate begin dup while ... 1+ repeat drop`. What is the same every turn
@@ -765,7 +774,11 @@ no image (`FUSED` names the table an image is built with; it is in
 `build/untabled/`), the table is made of that, and the nucleus is built
 with it. The table is laid after all the image's other data
 (`system.fs`), so that how long it is moves nothing and the two images
-have the same instructions; the test `tables` holds them to it.
+have the same instructions; the test `tables` holds them to it. Its
+fields are sixteen bits each, one after another in cells (`w,`, `hdr,`;
+`ffield`, `see.fs`). An instruction that no four words say has no entry,
+and the decompiler shows it by its number: `fused` says which those are
+as it makes the table.
 
 `basewords.fs` also has what the machine's definitions say of the
 program: the basewords as words with headers, and the names of an

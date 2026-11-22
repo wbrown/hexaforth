@@ -156,6 +156,10 @@ static check CHECKS[] = {
      ": imm? parse-name sfind nip ;  imm? dup  imm? if  ' dup 0=  ' if 0=", 4, {-1, 1, 0, 0}},
     {"a string interpreted",
      "create src 51 c, 32 c, 52 c, 32 c, 43 c, align  src >c 5 evaluate  : ev src >c 5 evaluate 2* ; ev", 2, {7, 14}},
+    // The string here is `blk @`: evaluate keeps blk, which has nothing in
+    // it while the string is read, and is as it was after.
+    {"and blk kept while it is",
+     "create sb 98 c, 108 c, 107 c, 32 c, 64 c, align  7 blk !  sb >c 5 evaluate  blk @  0 blk !", 2, {0, 7}},
 
     // Numbers as they may be typed, and what is typed taken back: a
     // character, a tab that is a space, and a character of two bytes whole.
@@ -184,7 +188,23 @@ static check CHECKS[] = {
     // The kernel's words for cells, for two cells and for characters.
     {"smaller, larger, without the sign and halved", "3 5 min 5 3 min -3 5 max -7 abs 7 abs 7 2/ -8 2/ 5 negate",
      8, {3, 3, 5, 7, 7, 3, -4, -5}},
+    // true is the cell under the top compared with itself and false the
+    // same told apart from itself: an instruction each, which the exit of a
+    // word that is one of them is in.
+    {"true and false, each one instruction", ": t true ; long t  : f false ; long f  t f  true invert  false invert",
+     6, {1, 1, -1, 0, 0, -1}},
+    // Each pushes a number of its own, so where a number is worked out one
+    // of them is a number: 1- is true and an add, and 16 1- is 15, one
+    // instruction and the dup with the exit.  true and an add with no
+    // number before them stay the two: -1 as what is added is no fewer.
+    {"what pushes a number of its own is a number worked out", ": t 16 1- dup ; long t  t  : u true 5 + ; long u  u",
+     5, {2, 15, 15, 2, 4}},
+    {"and -1 by its instruction is added as it is", ": v true + ; long v  5 v", 2, {2, 4}},
     {"the halves of 32 bits", "305419896 hi16 305419896 lo16", 2, {4660, 22136}, NULL, 32},
+    // Sixteen bits laid in the data, and read by the cell they start in
+    // and how many bytes on.
+    {"fields of sixteen bits, laid and read", "create q 4660 w, 22136 w, 4369 w,  q >c uw@  q 2 ifield  q 4 ifield",
+     3, {4660, 22136, 4369}},
     {"three cells turned", "1 2 3 rot  1 2 3 -rot", 6, {2, 3, 1, 3, 1, 2}},
     {"two pairs changed over, and one copied", "1 2 3 4 2swap", 4, {3, 4, 1, 2}},
     {"a pair copied over a pair", "1 2 3 4 2over", 6, {1, 2, 3, 4, 1, 2}},

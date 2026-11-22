@@ -200,25 +200,30 @@ static int immediate(long xt) {
 }
 
 // The decompiler's table (fused.fs), which the cell `fused-at` says the
-// place of (see.fs): cells of the instruction, how many words, and the
-// address of each word's header, to a cell that is nothing.
+// place of (see.fs): fields of sixteen bits one after another in cells, the
+// first of a cell its lowest.  They are the instruction, how many words,
+// and the address of each word's header, to a field that is nothing.
 static void read_fused(void) {
     long at = place_of(WORDS, NWORDS, "fused-at");
     uint64_t told, cells;
     size_t room = LEN / CELL_BYTES;
     if (at < 0 || !pushes_only(at, &told) || told >= room) return;
     cells = cell_of(BYTES, told);
-    if (!cells) return;
-    while (cells + 2 < room && cell_of(BYTES, cells)) {
+    if (!cells || cells >= room) return;
+    const uint8_t* fields = BYTES + cells * CELL_BYTES;
+    const size_t most = (LEN - cells * CELL_BYTES) / sizeof(uint16_t);    // as many as the image has room for from there
+    #define FIELD(k) ((uint16_t)(fields[2 * (k)] | fields[2 * (k) + 1] << 8))
+    for(size_t k=0; k + 2 < most && FIELD(k); ) {
         ONE_MORE(FUSED, NFUSED, FUSED_ROOM);
         fusion* f = &FUSED[NFUSED];
-        f->ins = (uint16_t)cell_of(BYTES, cells);
-        f->n = (int)cell_of(BYTES, cells + 1);
-        if (f->n < 1 || f->n > 4 || cells + 2 + f->n > room) break;
-        for(int k=0; k < f->n; k++) f->head[k] = (long)cell_of(BYTES, cells + 2 + k) * CELL_BYTES;
+        f->ins = FIELD(k);
+        f->n = FIELD(k + 1);
+        if (f->n < 1 || f->n > 4 || k + 2 + f->n > most) break;
+        for(int word=0; word < f->n; word++) f->head[word] = (long)FIELD(k + 2 + word) * CELL_BYTES;
         NFUSED++;
-        cells += 2 + f->n;
+        k += 2 + f->n;
     }
+    #undef FIELD
 }
 
 static const fusion* fused(uint16_t w) {
