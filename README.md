@@ -55,7 +55,7 @@ picture takes 0.7 seconds.
 - The instruction set. An instruction is a control word: where the ALU's
   input comes from, the operation, where the result goes, and how each
   stack moves
-- How little code it takes. The kernel is 3,666 bytes, in a 4,096-byte ROM.
+- How little code it takes. The kernel is 3,564 bytes, in a 4,096-byte ROM.
   The paint program is 2,250 bytes. The whole machine, written in AArch64
   assembler, is 880 bytes
 
@@ -98,7 +98,7 @@ fetches or stores one of 4,096 variables.
 A Forth word is a name for one of these instructions or for a sequence of
 them. Leaving out the ones that read or write a port, the fields give 5,344
 instructions that behave differently; many combinations do the same thing.
-Fifty-six of those have names, and the system uses 381. The rest of the
+Fifty-six of those have names, and the system uses 395. The rest of the
 ones it uses come from the compiler, which replaces a sequence with a single
 instruction wherever one does the same work, and finds out which by asking
 the machine. (The target `profile` counts them, for the 64-bit image.)
@@ -157,7 +157,7 @@ ECP5: 14,989 LUTs and 986 flip-flops, at 30.21 MHz.
 
 | | words | bytes of code |
 |---|---|---|
-| The kernel, in a 4,096-byte ROM | 271 | 3,666 |
+| The kernel, in a 4,096-byte ROM | 270 | 3,564 |
 | All drawing: fills, copying, text | 156 | 5,276 |
 | Regions | 37 | 1,418 |
 | The window manager | 116 | 3,548 |
@@ -168,12 +168,12 @@ ECP5: 14,989 LUTs and 986 flip-flops, at 30.21 MHz.
 | The picture viewer, and its picture kept as gray | 158 | 4,302 |
 | The calculator | 17 | 638 |
 | The paint program | 51 | 2,250 |
-| The decompiler and the Words window | 132 | 4,816 |
+| The decompiler and the Words window | 133 | 4,848 |
 | What the disks have, by label, and the boot's console | 47 | 1,574 |
 | The compiler's peephole, for what is typed | 51 | 1,770 |
-| Everything | 1,561 | 40,510 |
+| Everything | 1,561 | 40,440 |
 
-The dictionary holds 643 names in 6,008 bytes, at five bits per character.
+The dictionary holds 641 names in 5,994 bytes, at five bits per character.
 
 **The machine on another processor** (`size`). `baremetal/hexaforth.S` is
 the whole machine in AArch64 assembler, with a console. It is 880 bytes:
@@ -213,10 +213,11 @@ It has ~270 words, and these have names you can type:
 - **The interpreter**: `source source-id sourceid >in parse parse-name
   isspace? isnotspace? isnotdelim >number base decimal hex state interpret1
   numbered refill evaluate quit execute \ (`
-- **The compiler**: `: ; :noname ] [ immediate create does> variable constant
-  , c, w, s, compile, literal 2literal postpone recurse exit ' ['] inline:
+- **The compiler**: `: :noname ] [ immediate create does> variable constant
+  , c, w, s, compile, literal 2literal postpone recurse exit ' inline:
   join-rules`, and `if else then ahead begin again until while repeat do ?do
-  loop +loop leave`
+  loop +loop leave`. `;` is the peephole's, which is laid straight after
+  the kernel, and so is `[']` on a machine with a display
 - **The dictionary**: `forth sfind >key samename? name> words here allot dp cp`
 - **Errors**: `catch throw -throw`
 - **Tasks**: `up sbase spawn pause`

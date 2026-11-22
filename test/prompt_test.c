@@ -162,10 +162,28 @@ static check CHECKS[] = {
     {"numbers said other ways", "$ff #10 %101 'a' -7 $-ff", 6, {255, 10, 5, 97, -7, -255}},
     {"numbers of two cells", "5. -5. $ff.", 6, {5, 0, -5, -1, 255, 0}},
     {"what is typed taken back", "12\b3  1\t2 +  123\x7f\x7f  9 9\xc3\xa9\b +", 4, {13, 3, 1, 18}},
+    {"and nothing taken back when nothing is typed", "\b\b5 6\b\b\b\b\b7", 1, {7}},
+    // >number stops at a character that is no digit, with what is left of
+    // the text, and at the end of the text, with none of it.
+    {">number stops at what is no digit, and at the end",
+     "create s 49 c, 50 c, 120 c, align  0 0 s >c 3 >number nip  0 0 s >c 2 >number nip", 6, {12, 0, 1, 12, 0, 0}},
+    {"what is a space and what is not",
+     "65 isnotspace? 32 isnotspace? 9 isnotspace? 33 isnotspace? 32 isspace? 33 isspace?", 6, {-1, 0, 0, -1, -1, 0}},
+
+    // What is not there is not found, by ' and by postpone: -13.  A throw
+    // that nothing catches says its number, empties the stacks and starts
+    // the prompt again, interpreting: so the number under each of these is
+    // typed after it.  -1 is thrown by abort, and says nothing.
+    {"a name that is not there", "' ' catch nosuch  ' postpone catch nosuch", 2, {-13, -13}},
+    {"a throw that nothing catches says its number", "5 throw\n12345", 0, {0}, "error: 5"},
+    {"and -1 says nothing", "-1 throw\n12345", 0, {0}, "throw 12345"},
+    {"what is no number is refused", "12x\n12345", 0, {0}, "error: -13"},
+    {"and so is a quote that is no character", "'ab\n12345", 0, {0}, "error: -13"},
+    {"an error while compiling leaves the prompt interpreting", ": bad nosuch\n12345", 0, {0}, "error: -13"},
 
     // The kernel's words for cells, for two cells and for characters.
-    {"smaller, larger, without the sign and halved", "3 5 min 5 3 min -3 5 max -7 abs 7 2/ -8 2/ 5 negate",
-     7, {3, 3, 5, 7, 3, -4, -5}},
+    {"smaller, larger, without the sign and halved", "3 5 min 5 3 min -3 5 max -7 abs 7 abs 7 2/ -8 2/ 5 negate",
+     8, {3, 3, 5, 7, 7, 3, -4, -5}},
     {"the halves of 32 bits", "305419896 hi16 305419896 lo16", 2, {4660, 22136}, NULL, 32},
     {"three cells turned", "1 2 3 rot  1 2 3 -rot", 6, {2, 3, 1, 3, 1, 2}},
     {"two pairs changed over, and one copied", "1 2 3 4 2swap", 4, {3, 4, 1, 2}},

@@ -103,6 +103,7 @@ variable 'ptcode                                \ compiles an instruction throug
 variable cur        false cur !                 \ true while a small word's instructions are being inlined
 variable stays      false stays !               \ true from `in-place` to the call after it
 variable ending     false ending !              \ true while the exit that ends a definition is compiled
+variable pend-one   false pend-one !            \ true if the waiting word waits only for that exit (try-inline)
 variable cur-tcp0                               \ where the word being inlined starts,
 create cur-save 12 cells allot                  \ and the twelve instructions before it
 defer call,     ( body -- )                     \ compile a call to a word
@@ -142,7 +143,15 @@ defer tcode,
     true
 ;
 
-: settle ( -- ) pend @ if false pend !  (backout) then ;
+\ What waits is called after all where a branch lands.  A word
+\ that waits only for the end of the definition stays in place:
+\ this is not that end.
+: settle ( -- )
+    pend @ if
+        false pend !
+        pend-one @ if  false pend-one !  1 inl-map pend-ord @ + c!  else  (backout)  then
+    then
+;
 
 : label     settle  tcp @ tfence ! ;    \ a branch or a call lands here
 
@@ -310,6 +319,11 @@ variable laid-near  false laid-near !           \ true from nearby to nearby-end
 \ tcode, : an instruction, compiled while a small word may be waiting
 :noname ( insn -- )
     pend @ 0= if ptcode, execute exit then
+    pend-one @ if                               \ it waited for the end of the definition: is this it?
+        false pend !  false pend-one !
+        ending @ if (backout) else 1 inl-map pend-ord @ + c! then
+        ptcode, execute  exit
+    then
     dup lkind h# 8000 =  kernel? 0= and  cur @ 0= and  pend-xn @ 3 < and if
         dup pend-x pend-xn @ cells + !  1 pend-xn +!        \ a push: keep waiting, for what uses it
         false pend !  ptcode, execute  true pend !
@@ -1189,8 +1203,37 @@ wordlist constant headers-wordlist          \ where each header is, by name (hdr
     wordstr lst @ write-line throw
 ;
 
+\ ;into NAME ends a definition with no exit: it runs on into the
+\ definition after it, which is to be NAME, by its header's name
+\ or by its own.  The build stops if another definition comes
+\ first, or if code is laid between the two: the word would run
+\ on into that, and nothing else would say so.
+variable into-given  false into-given !     \ true from ;into to the definition it names
+variable into-at                            \ where the word that runs on ended
+create into-name 64 allot                   \ the name it gave, counted
+: into-here ( -- ) \ the definition it named starts: nothing is to be between
+    tcp @ into-at @ <> abort" code is laid between a word and the word it runs on into (;into)"
+    false into-given !
+;
+: into-header ( "name" -- ) \ a header is laid: its name may be the one
+    into-given @ if
+        wordstr into-name count same-name? if into-here then
+    then
+;
+: into-word ( "name" -- ) \ a definition starts: it is to be the one, if its header was not
+    into-given @ if
+        wordstr into-name count same-name? 0=
+        abort" a word runs on into another than the one it says (;into)"
+        into-here
+    then
+;
+: into-none ( -- ) \ a definition with no name starts
+    into-given @ abort" a word runs on into a definition that is not the one it says (;into)"
+;
+
 : (header) ( immediate? "name" -- ) \ a header for the definition that starts here
     ?own-page
+    into-header
     label
     listed
     wordstr said-wordlist search-wordlist if
@@ -1241,6 +1284,21 @@ variable lp  cell-bytes lp !                \ where the next goes, in bytes
 variable wordstart
 variable lastdef    \ body of the most recent target colon definition
 variable indef      \ true from : to ; (and not from :noname)
+variable defstart   0 defstart !    \ where the definition being compiled began, : or :noname
+
+\ Has the definition a conditional branch that was never given
+\ where it goes?  One is laid as a branch to instruction 0, which
+\ no code branches to: an `if` or a `while` whose `then` or
+\ `repeat` took another's place.
+: waiting? ( -- f )
+    false
+    tcp @ defstart @ u> if
+        tcp @ defstart @ do  i t@ h# 2000 = or  2 +loop
+    then
+;
+: none-waiting ( -- )
+    waiting? abort" a branch of this definition was never given where it goes"
+;
 
 \ A small word: no more than four instructions, none a call or a
 \ branch, that returns only at its end and leaves the return
@@ -1261,7 +1319,8 @@ variable in-depth                           \ how many cells it has pushed on th
         dup h# 8000 and 0= if                       \ not a literal:
             dup h# e000 and h# 6000 <> if drop 0 unloop exit then              \ a call or a branch
             dup h# 1000 and  i in-n @ 1- <>  and if drop 0 unloop exit then    \ a return before the end
-            dup h# 0c00 and h# 0c00 =  in-depth @ 0=  and if drop 0 unloop exit then   \ reads R, having pushed none
+            dup h# 0c00 and h# 0c00 =  over h# 1ff3 and h# 0d00 <> and         \ reads R, other than to put it back (2drop),
+            in-depth @ 0=  and if drop 0 unloop exit then                      \ having pushed none
             dup h# 1000 and 0= if
                 dup 3 and  dup 1 = if 1 in-depth +! then    \ r+1
                 dup 3 = if -1 in-depth +! then              \ r-1
@@ -1289,6 +1348,20 @@ variable in-depth                           \ how many cells it has pushed on th
     drop
 ;
 
+\ In the kernel a word that is one instruction and an exit, the
+\ instruction being one that cannot take the return, is no longer
+\ in place than a call of it but where a definition ends: there
+\ it and the exit are two instructions, and a call of it is made
+\ a jump, which is one.  So it waits for that end alone
+\ (pend-one), and anywhere else it stays as it was laid.
+: alone? ( body -- f ) \ is what was just laid that word's one instruction, as the word has it?
+    kernel? 0= if drop false exit then
+    dup 2 cells + @ 2 <>  over 3 cells + @ 2 <>  or if drop false exit then
+    @ 2* t@                                     ( its instruction )
+    dup foldable? if drop false exit then
+    tcp @ cur-tcp0 @ - 2 =  swap tcp @ 2 - t@ =  and
+;
+
 \ a use of a small word, numbered ord: inlined at once if that
 \ cannot be longer than a call, and if not, as a trial (pend)
 : try-inline ( body ord -- )
@@ -1301,7 +1374,9 @@ variable in-depth                           \ how many cells it has pushed on th
     tcp @ cur-tcp0 !  tcp @ cur-save snap  true cur !
     over inline,
     false cur !
-    drop  tcp @ cur-tcp0 @ - 2 > 0=
+    drop
+    dup alone?  stays @ 0= and  dup pend-one !  ( body waits-alone? )
+    0=  tcp @ cur-tcp0 @ - 2 > 0=  and
     stays @ or  false stays !
     if
         drop  1 inl-map r> + c!
@@ -1332,9 +1407,10 @@ variable in-depth                           \ how many cells it has pushed on th
 :: :
     hex
     ?own-page
+    into-word
     named? dup said-header !
     0= labelling and if tcp @ 2/ (label)  listed then
-    tcp @ wordstart !
+    tcp @ wordstart !  tcp @ defstart !
     label
     create  here lastdef !  note-def  codeptr , 0 , 0 , 0 , 0 ,
     true indef !
@@ -1386,7 +1462,8 @@ variable in-depth                           \ how many cells it has pushed on th
 ;
 
 :: :noname
-    false indef !
+    into-none
+    false indef !  tcp @ defstart !
 ;
 
 :: ,
@@ -1749,6 +1826,7 @@ variable nt-at                              \ the cell the block being filled st
 
 :: ;
     stays @ abort" in-place with no call after it"
+    none-waiting
     pend @ if
         true ending !  h# 7403 tcode,  false ending !
         tcp @ 2 - t@ h# 7403 = if 1 retract end-word then
@@ -1762,9 +1840,16 @@ variable nt-at                              \ the cell the block being filled st
     then
 ;
 
-\ ;fallthru ends a definition with no exit: it runs on into the
-\ definition after it.
-:: ;fallthru ;
+\ ;fallthru ends a definition with no exit, where its last word
+\ returns for it (inline;, offered).  A definition that runs on
+\ into the one after it ends with ;into and that one's name.
+:: ;fallthru  none-waiting ;
+:: ;into ( "name" -- )
+    none-waiting  settle
+    parse-name  dup 63 > abort" ;into: the name is longer than a name is"
+    into-name place
+    tcp @ into-at !  true into-given !
+;
 
 \ header X callable X: the baseword X as a word of the kernel as
 \ well.  In the kernel a use of X is that word, called or
@@ -2082,7 +2167,12 @@ both:: M8     disp-left-low if $ff else $ff cell-bits 8 - lshift then literal ;
 
 ( Conditionals                               JCB 13:12 09/03/10)
 
+\ A branch is laid with nowhere to go (`if`, `while`, `else`,
+\ `ahead`), and is given where it goes later.  What is resolved
+\ is to be such a branch: an `if` of what a `then` was meant for
+\ is otherwise an instruction or-ed into another.
 : resolve ( orig -- ) \ the branch at orig lands here
+    dup t@ h# dfff and abort" a then, or the like, of what is not a branch that waits for where it goes"
     label
     tcp @ over tbranches !
     dup t@ here-target or swap tw!
@@ -2121,10 +2211,13 @@ both:: M8     disp-left-low if $ff else $ff cell-bits 8 - lshift then literal ;
 :: until
     2/ >target 0branch
 ;
-:: while
+\ while leaves where the loop began on top, as the standard has
+\ it, so that `until`, `again` or a second `while` may follow as
+\ well as `repeat`, and a `then` ends the first `while`.
+:: while ( dest -- orig dest )
     settle
     0 0branch
-    tcp @ 2 -
+    tcp @ 2 -  swap
 ;
 \ repeat rotates a loop whose test is the one instruction xor or
 \ =.  Instead of a jump back to the test, the test is compiled
@@ -2143,8 +2236,8 @@ both:: M8     disp-left-low if $ff else $ff cell-bits 8 - lshift then literal ;
     last t@ turned 0= abort" a loop is turned with the peephole on, and with it off its test does not end in xor or ="
     tcode,
 ;
-:: repeat ( dest orig -- )
-    call# @  1 call# +!  { dest orig ord }
+:: repeat ( orig dest -- )
+    call# @  1 call# +!  { orig dest ord }
     plain @ if
         inl-map ord + c@ if
             dest orig turned-again

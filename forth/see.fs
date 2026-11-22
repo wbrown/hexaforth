@@ -952,8 +952,19 @@ create hovoy 0 ,
     ['] words-moved 'moved !  ['] hov-overlay 'overlay !
 ;
 
-: wlist ( -- ) \ the words, the one chosen white on black
+\ A word may have more headers than one (1+ and cell+), so the
+\ choice is not found from the word shown while it is a header
+\ of that word: only when it is not, as when a link was followed
+\ or a word defined since.
+: wchosen ( -- ) \ wsel, for the word shown
+    wsel @ dup 0< if drop else
+        nth ?dup if hxt wxt @ = if exit then then
+    then
     wxt @ xt>hdr ?dup if hdr>i else d# -1 then wsel !
+;
+
+: wlist ( -- ) \ the words, the one chosen white on black
+    wchosen
     d# 0 wi !
     wtop @ nth
     begin

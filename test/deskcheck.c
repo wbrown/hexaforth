@@ -78,7 +78,7 @@ static bool sees_label(char* why), data_place(char* why), see_blocks(char* why);
 static bool calc_picked(char* why), words_held(char* why), menu_whole(char* why), menu_away(char* why);
 static bool menu_gone(char* why), forth_closed(char* why), words_reopened(char* why);
 static bool paint_front(char* why), canvas_right(char* why), shape_shown(char* why);
-static bool on_disk(char* why), from_disk(char* why), was_found(char* why);
+static bool on_disk(char* why), from_disk(char* why), was_found(char* why), went_on(char* why);
 static bool as_picked(char* why), picture_marked(char* why), view_on_disk(char* why), outlined(char* why);
 static int picture_title(void), picture_line(const char* name);
 static uint64_t disk_cell(const uint8_t* bytes, size_t n);
@@ -162,6 +162,11 @@ static check CHECKS[] = {
     {"PgDn scrolls it", "pgdn", "10-pgdn", .also = scrolled_down},
     {"and says that more of it is above", "", NULL, .also = words_marked},
     {"and PgUp scrolls it back", "pgup", "10-pgup", .also = box_gone},
+    // A word may have more headers than one: 1+ and cell+ are one body
+    // (nuc.fs).  The one that is clicked is the one chosen, so Down from
+    // it shows the word listed after it, and not the one after the other.
+    {"a word of two names is chosen by the one clicked, and Down goes on from it", "find:cell+ name:cell+ down",
+     "10-two-names", .also = went_on},
     // Two words of the dither, each paged to: dither-row has fused
     // instructions in it, and dither-start a variable that has no header
     // and a plain word that is one instruction.
@@ -1085,14 +1090,33 @@ static void does(const char* said) {
             words_read();
             long top = list_read(), wanted = word_at(of);
             found = false;
-            if (top >= 0 && wanted >= 0) {
+            if (wanted < 0) {                   // a word the dictionary has not is nothing a list is gone through to
+                fprintf(stderr, "deskcheck: find:%s, and the machine's dictionary has no word of that name\n", of);
+                exit(EXIT_FAILURE);
+            }
+            // Where the word is not come to, the check after this fails, and
+            // what the dictionary and the screen said is why: it is said.
+            if (top >= 0) {
                 click(grid_x(g) + 8, grid_y(g) + 8);
                 away();
                 if (wanted >= top + rows) for(long at = top; at < wanted; at += rows) desk_key("right", NULL);
                 for(long at = top; at > wanted; at -= rows) desk_key("left", NULL);
                 look("10-list");
-                list_read();
+                long now = list_read();
                 found = listed(of) >= 0;
+                if (!found) {
+                    long had = nwords;
+                    look("10-not-found");
+                    words_read();
+                    printf("note the list was gone through to %s and has not got it: the dictionary had it at %ld of %ld "
+                           "words, and has %ld words now; the list's first row was word %ld, and is now word %ld\n",
+                           of, wanted, had, nwords, top, now);
+                }
+            } else {
+                printf("note the list was not gone through to %s: its rows are not words of the dictionary one after "
+                       "another. They read:", of);
+                for(int row=0; row < rows; row++) printf(" [%s]", names[row]);
+                printf("\n");
             }
         } else if (!strncmp(word, "name:", 5)) {
             const grid* g = grid_named("names");
@@ -1416,6 +1440,18 @@ static bool told(int row, int col, const char* shot_name, const char* form, char
 static bool fused_told(char* why) {
     snprintf(why, WHY, "nothing in the definition is in bold");
     return(bold_row >= 0 && told(bold_row, bold_col, "10-hover", "^[0-9A-F]{4} [^ ]*->IN [^ ]+ ->[^ ]+", why));
+}
+
+// The definition shown is of the word the dictionary has after cell+,
+// which was chosen and then left by Down.
+static bool went_on(char* why) {
+    char row[COLS + 1];
+    long at = word_at("cell+");
+    const char* next = at >= 0 && at + 1 < nwords ? words[at + 1] : NULL;
+    read_grid("source", 0, row);
+    snprintf(why, WHY, "row 0 of the definition is \"%s\", and the word the dictionary has after cell+ is %s", row,
+             next ? next : "not there");
+    return(next && row[0] == ':' && row[1] == ' ' && !strcmp(row + 2, next));
 }
 
 // The definition as it is, to look in and to see that it is so again; and

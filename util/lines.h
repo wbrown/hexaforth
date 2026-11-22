@@ -35,7 +35,7 @@ typedef struct {
 static const char* const READS_NEXT[] = {
     ":", "::", "header", "header-imm", "create", "variable", "constant", "value",
     "to", "is", "defer", "char", "[char]", "'", "[']", "t'", "postpone",
-    "d#", "h#", "c#", "include", "hdr,", "callable", "in-place", NULL
+    "d#", "h#", "c#", "include", "hdr,", "callable", "in-place", ";into", NULL
 };
 
 static int is_word(const char* line, const piece* p, const char* word) {

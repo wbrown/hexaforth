@@ -20,7 +20,9 @@
 //   and by the word before it running on into it.
 //
 // A word that goes to its own start, as a loop does, is not reached by
-// that.  A word with a header can be typed, whatever else reaches it.
+// that.  A word with a header can be typed, whatever else reaches it:
+// unless a newer header of the same name hides that one, since a search
+// finds the newest (the names an image defines again are in its .shadows).
 //
 
 #ifndef HEXAFORTH_REACH_H
@@ -32,7 +34,7 @@ typedef struct {
     long calls[2], pushed[2];           // from the kernel, and from the other pages
     long cells;                         // cells of data that hold its place
     int into;                           // the word before runs on into it
-    int typed;                          // it has a header
+    int typed;                          // it has a header that no newer one of its name hides
 } reached;
 
 // The word that starts at a place: the one of that place that has the
@@ -67,6 +69,14 @@ static int runs_on(uint16_t w) {
     return(!(ins.alu.op_type == OP_TYPE_ALU && ins.alu.r_eip));
 }
 
+// The word that a call, a jump or a branch comes to from another word: or
+// less than nothing, if it goes to no word's start or is in the word it
+// goes to.
+static int comes_to(const cut_image* m, const item* it) {
+    int to = !it->run && it->to >= 0 ? starting_at(m, it->to) : -1;
+    return(to >= 0 && to != holding(m, it->at) ? to : -1);
+}
+
 // What reaches each word of an image: how[idx] is of its word idx, and
 // there are as many as the image has words.
 static void reach(const cut_image* m, reached* how) {
@@ -79,8 +89,8 @@ static void reach(const cut_image* m, reached* how) {
         const item* it = &m->items[idx];
         int far = it->at / PAGE != 0;
         if (!it->run) {
-            int to = it->to >= 0 ? starting_at(m, it->to) : -1;
-            if (to >= 0 && to != holding(m, it->at)) how[to].calls[far]++;
+            int to = comes_to(m, it);
+            if (to >= 0) how[to].calls[far]++;
             continue;
         }
         const uint16_t* run = m->code + it->at;
@@ -103,13 +113,24 @@ static void reach(const cut_image* m, reached* how) {
     const unsigned char* has_code = m->has_code;
     size_t headers_from, headers_to;
     headers_of(bytes, len, &headers_from, &headers_to);
+    // A header is a way to its word unless a newer header of its name
+    // hides it: the dictionary is gone along as it is searched, and a
+    // search stops at the first header of a name.
+    char (*seen)[NAME_ROOM] = NULL;
+    long nseen = 0, seen_room = 0;
     for(uint32_t head = first_header(bytes, len); head; ) {
         uint64_t xt;
         char name[NAME_ROOM];
+        int hidden = 0;
         head = read_header(bytes, len, head, &xt, name);
+        for(long idx=0; idx < nseen && !hidden; idx++) hidden = !strcmp(seen[idx], name);
+        if (hidden) continue;
+        ONE_MORE(seen, nseen, seen_room);
+        strcpy(seen[nseen++], name);
         int is = xt < (uint64_t)m->instructions ? starting_at(m, (long)xt) : -1;
         if (is >= 0) how[is].typed = 1;
     }
+    free(seen);
     for(size_t at=0; at + CELL_BYTES <= len; at += CELL_BYTES) {
         if (has_code[at / sizeof(instruction) / PAGE] || (at >= headers_from && at < headers_to)) continue;
         uint64_t held = cell_of(bytes, at / CELL_BYTES);

@@ -271,9 +271,12 @@ smaller), and it is asked of the image and not of the source:
 - the driver is the ROM's as much as the nucleus is, and it is what makes
   this one full
 
-The first has been done, together with what the search for fewer
-instructions finds of the ROM's runs (`shorter-virt`):
-`doc/superoptimizations.md` says each, and every word is where it was.
+The first has been done, twice: with what the search for fewer
+instructions finds of the ROM's runs (`shorter-virt`), and then by reading
+the ROM beside its source, which finds what the search does not: a word
+that ends in another, a word that is another's instructions, a header that
+a newer one hides. `doc/superoptimizations.md` says each, and every word
+that was in the ROM and is still called is still there.
 Whether the room that made is enough is known when a change is written.
 The rest have not been looked at for this. A word is on the kernel's page
 to be one instruction from every page, for what the machine compiles

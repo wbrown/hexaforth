@@ -34,15 +34,16 @@ meta #56 vq-cell target constant VQ-FIRST
 meta #128 vq-cell target constant VQ-DEV
 meta #136 cell-bytes / target constant VQ-CELLS
 
+: vstatus ( x -- ) h# 70 ;into v!  \ how far the driver has got
 : v! ( x register -- ) VQ-DEV @ + reg32! ;
-: vstatus ( x -- ) h# 70 v! ;  \ how far the driver has got
 : vq! ( x n -- ) VQB + w! ;    \ 16 bits, n bytes into them
 : vq@ ( n -- x ) VQB + uw@ ;
 
+: also-2 ( f pa -- f' ) reg32@ d# 2 xor or ;  \ and is the register there 2?
 : vdisk? ( pa -- f ) \ is a block device at those registers?
     dup reg32@ h# 74726976 xor          \ "virt"
-    over d# 4 + reg32@ d# 2 xor or      \ version 2
-    swap d# 8 + reg32@ d# 2 xor or      \ a block device
+    over d# 4 + also-2                  \ version 2
+    swap d# 8 + also-2                  \ a block device
     0=
 ;
 
@@ -52,7 +53,7 @@ meta #136 cell-bytes / target constant VQ-CELLS
     d# 3 vstatus                    \ seen, and driven
     d# 1 h# 24 v!  d# 1 h# 20 v!    \ of what it can do, bit 32
     d# 11 vstatus
-;fallthru
+;into vqueue
 
 : vqueue ( -- )
     d# 4 h# 38 v!                   \ four descriptors
@@ -67,6 +68,7 @@ meta #136 cell-bytes / target constant VQ-CELLS
     d# 15 vstatus                   \ and so is the driver
 ;
 
+: vwrite ( a blk -- ) d# 1 ;into vio
 \ type: 0 to read the block to the cells from a, 1 to write it
 : vio ( a blk type -- )
     dup d# 48 vq!
@@ -83,7 +85,6 @@ meta #136 cell-bytes / target constant VQ-CELLS
 ;
 
 : vread  ( a blk -- ) d# 0 vio ;
-: vwrite ( a blk -- ) d# 1 vio ;
 
 : vdisk ( pa -- read write true )
     vstart  ['] vread ['] vwrite true

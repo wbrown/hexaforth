@@ -43,12 +43,13 @@
 // how often it was run: WORK is the work by place that the reference VM
 // that counts leaves (RUN_WORK, bench/counting.c).
 //
-// Each word starts with its name, and its code is laid out as source is
-// written: what is inside an if or a begin is indented, and its branches
-// are said as `if`, `else`, `then`, `begin`, `until`, `again`, `while` and
-// `repeat`, read from where they go as see.fs reads them.  An instruction
-// is a line: where it is, its number, the words for it, and its fields as
-// vm_opcodes.h names them.
+// Each word starts with its name, and with each of its names if it has
+// more headers than one: it is shown for any of them.  Its code is laid
+// out as source is written: what is inside an if or a begin is indented,
+// and its branches are said as `if`, `else`, `then`, `begin`, `until`,
+// `again`, `while` and `repeat`, read from where they go as see.fs reads
+// them.  An instruction is a line: where it is, its number, the words for
+// it, and its fields as vm_opcodes.h names them.
 //
 //   a call            the word it calls, by its header or its label
 //   a number          the word that does nothing but push it (a variable,
@@ -265,6 +266,16 @@ static const char* code_name(long at, int* label) {
     return(NULL);
 }
 
+// Is that a name of the word that starts at a place?  A word may have more
+// headers than one (`1+` and `cell+`, nuc.fs), and each is a name for it:
+// it is found by any of them, and code_name says the first.
+static int is_named(long at, const char* name) {
+    for(long h=0; h < NHEADERS; h++) if (HEADERS[h].xt == at && !strcmp(name_at_head(HEADERS[h].head), name)) return(1);
+    for(int idx=0; idx < NWORDS; idx++) if (WORDS[idx].at == at && !strcmp(WORDS[idx].name, name)) return(1);
+    for(long idx=0; idx < NLISTED; idx++) if (LISTED[idx].at == at && !strcmp(LISTED[idx].name, name)) return(1);
+    return(0);
+}
+
 // ---- what is printed: a line in pieces, each with how it looks
 
 enum { PLAIN_STYLE, DIM, CALL, LABEL, NUMBER, DATA_STYLE, DATA_LABEL, STEER, UNDER, RAW, HEAD, HEAD_LABEL };
@@ -463,6 +474,17 @@ static void show_word(const word* w) {
     putf(DIM, "%ld instructions from %04lx%s%s%s", w->size, from, immediate(from) ? ", immediate" : "",
          file ? ", " : "", file ? file : "");
     line_done();
+    // Its other headers, each a name for the same instructions.
+    for(long h=0, headed=0; h < NHEADERS; h++) {
+        if (HEADERS[h].xt != from || !headed++) continue;
+        put(DIM, "            ");
+        put(STEER, ":");
+        put(PLAIN_STYLE, " ");
+        put(HEAD, name_at_head(HEADERS[h].head));
+        to_column(FIELDS_AT);
+        put(DIM, "the same word");
+        line_done();
+    }
 
     int indent = 1;
     #define START_LINE(at) do { \
@@ -1058,7 +1080,7 @@ int main(int argc, char *argv[]) {
         if (want && typed) {                            // with a file typed and no word named: the words it made
             for(int k=0; k < nwas && want; k++) want = was[k] != w->at;
         }
-        for(int k=0; k < nwanted && name; k++) want |= !strcmp(name, wanted[k]);
+        for(int k=0; k < nwanted && name; k++) want |= is_named(w->at, wanted[k]);
         if (nrange) want |= w->at <= range[1] && w->at + w->size > range[0];
         if (!want) continue;
         if (laid_out) {

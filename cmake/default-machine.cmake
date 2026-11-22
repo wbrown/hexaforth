@@ -167,7 +167,34 @@ add_custom_target(shadowed DEPENDS ${BUILD}/shadowed/shadowed.shadows)
 add_test(NAME shadows COMMAND ${CMAKE_COMMAND} -E compare_files ${BUILD}/shadowed/shadowed.shadows test/shadowed.shadows
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 needs(shadows shadowed)
-on_the_vm(instructions kernel tables fewer shadows)
+
+# What cross.fs makes of the loops that end other ways than by repeat, and
+# what it stops at.  forth/loops.fs is a program of a while ended by until
+# and of a loop with two whiles, which prints what each left.  Each of
+# forth/refused-if.fs, refused-then.fs and refused-into.fs has one thing
+# cross.fs is to refuse, and the test is that it says so: a branch never
+# given where it goes, a then of what is no branch, and a word that runs on
+# into another than the one it says (;into).
+image(${BUILD}/loops
+      SOURCE loops.fs
+      FROM ${CMAKE_SOURCE_DIR}/forth/loops.fs ${CMAKE_SOURCE_DIR}/forth/cross.fs
+      IS "A program of loops that end other ways than by repeat")
+add_custom_target(looped DEPENDS ${BUILD}/loops/loops.hex)
+add_test(NAME loops COMMAND hexaforth build/loops/loops.hex WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(loops PROPERTIES PASS_REGULAR_EXPRESSION "321B0")
+needs(loops looped hexaforth)
+file(MAKE_DIRECTORY ${BUILD}/refused)
+function(refused NAME SAYS)
+    add_test(NAME refused-${NAME}
+             COMMAND ${WITH} BUILD=${BUILD}/refused/ ${RUN_GFORTH} ./cross.fs ./basewords.fs ./refused-${NAME}.fs
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth)
+    set_tests_properties(refused-${NAME} PROPERTIES PASS_REGULAR_EXPRESSION "${SAYS}")
+    needs(refused-${NAME} forth-env)
+endfunction()
+refused(if "never given where it goes")
+refused(then "not a branch that waits")
+refused(into "runs on into another")
+on_the_vm(instructions kernel tables fewer shadows loops refused-if refused-then refused-into)
 
 # The names the system's own source defines again, of every machine's
 # image, each said once (util/again.c): what quick and check show before

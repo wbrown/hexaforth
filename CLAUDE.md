@@ -382,7 +382,9 @@ the tool is extended. What there is to ask:
   peephole does not join it to its neighbours. The top of `nuc.fs` says
   which are and which are not, and why. One that words run all the time
   are made of is not, and which is which is measured
-  (the target `bench-draw`), not judged
+  (the target `bench-draw`), not judged. `2drop` is one instruction, and
+  one that cannot take the return: it is `callable` too, and stays in
+  line but where a definition ends, where the end is a jump to it
 - A shift count is taken modulo 64 whatever the cell, so a shift by the
   width of a cell of 16 or 32 bits gives zero, and a shift by 64 shifts
   by nothing
@@ -505,10 +507,28 @@ virtio disk's driver in it and is the fullest.
   its place pushed as a number or kept in a cell of data, and the word
   before it running into it. `kernel_test`, which the test `kernel`
   runs, fails if a word of the kernel that has no header has nothing that
-  comes to it, and run by hand with `typed` after the image and its names
-  (`build/cmake/kernel_test build/nuc.hex build/nuc.tables typed`) says
-  which words that have one are there only to be typed. Whether one of
-  those stays is not the count's to say
+  comes to it; and a header that a newer header of its name hides is
+  none, since a search finds the newest (`.shadows`). Run by hand after
+  the image and its names, with `typed`
+  (`build/cmake/kernel_test build/nuc.hex build/nuc.tables typed`) it
+  says which words that have a header are there only to be typed, and
+  with `to` and the names of words, what comes to each and from which
+  word. Whether a word that is only typed stays is not the count's to say
+- A word that ends in another is laid straight before it and runs on
+  into it, with no jump and no return of its own: `;into` and the
+  other's name, and `cross.fs` stops if another definition comes between
+  the two. One word can be straight before another: of those that end in
+  it, the one that is run most, and the rest jump. A word is not taken
+  out of the words it is read with to be laid so. `;fallthru` is another
+  thing: it ends a definition that needs no exit, since its last word
+  returns for it (`inline;`, `offered`)
+- Two names that are true of the same instructions are one body with a
+  header for each: a `header` before the other's (`1+` and `cell+`,
+  `nuc.fs`). What finds a name from where a word is then finds one of
+  them: `see` says the first, `disasm_hex` both, and the Words window
+  keeps the one that was chosen. Whatever else goes from a word's place
+  to its header is asked what it does with two before a word is given a
+  second
 - A word that is reached only through another is handed only what that
   one lets through: `pcompile,` stands before the kernel's `(compile,)`,
   and compiles in place itself what is small and no longer so than a
@@ -792,6 +812,14 @@ added says its needs: one that says none stops CMake.
 - `shadows`: each kind of name defined again is noted, and what is not
   one is not: `forth/shadowed.fs` is a program that has one of each
   kind, and `test/shadowed.shadows` is what `cross.fs` is to write of it
+- `loops`: `cross.fs`'s control words as the standard has them:
+  `forth/loops.fs` is a program with a `while` that `until` ends and a
+  loop of two `while`s, run on the VM for what it prints
+- `refused-if`, `refused-then` and `refused-into`: what `cross.fs` is to
+  stop at, each a program (`forth/refused-if.fs` and the like) that it
+  is to refuse, saying why: a branch that is never given where it goes,
+  a `then` of what is no branch, and a word that runs on (`;into`) into
+  another definition than the one it names
 - `fewer_test`: the search for the fewest instructions that do the work
   of a run, and of a turn of a loop (`util/fewer.h`, `util/turns.h`),
   held to runs whose fewest is known, and each answer run on `vm.c`. The
@@ -1039,6 +1067,11 @@ The toolchain and the nucleus, in Forth (`forth/`):
   image's headers are searched in (`headers-ordered`); the names defined
   again (`.shadows`); the peephole and
   the trying of small words in place of calls; the tables of names
+- `loops.fs`, and `refused-if.fs`, `refused-then.fs` and
+  `refused-into.fs`: programs `cross.fs` is tried on, and no part of the
+  system: one of control words it is to lay as the standard has them
+  (the test `loops`), and three it is to refuse (the tests of their
+  names). `shadowed.fs` is another such (the test `shadows`)
 - `nuc.fs`: the nucleus: the kernel on page 0, the interpreter and
   compiler, the dictionary, tasks (`spawn`, `pause`). After the kernel
   it includes `join.fs`, the first thing on page 1, and then

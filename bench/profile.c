@@ -51,7 +51,7 @@ static const struct { const char* name; const char* does; } DONE[] = {
     {"the calculator: keys and buttons", "'12\r34+' click:calc+17+108 click:calc+119+132"},
     {"bringing windows to the front in turn, until it is the Words window", "cycle:words"},
     {"the Words window: finding dither-row, and choosing it",
-     "click:words+10+8 away down find:dither-row,dither-start name:dither-row"},
+     "click:words+10+8 away down find:dither-row name:dither-row"},
     // The Words window's definition starts 112 across its content, 8 by 16
     // a character: the pointer is put on every other character of the
     // definition's second and third lines.
@@ -64,7 +64,7 @@ static const struct { const char* name; const char* does; } DONE[] = {
      "at:words+308+34 at:words+324+34"},
     {"the Words window: choosing a word", "click:words+10+72"},
     {"the Words window: a long definition, a page down and back",
-     "find:tiff-open,tiff-close name:tiff-open pgdn pgup"},
+     "find:tiff-open name:tiff-open pgdn pgup"},
     {"the Words window: six words down, and a page", "down down down down down down right"},
     {"raising the Forth window, and dragging it away and back", "front:forth drag:forth+60+50 drag:forth-60-50"},
     {"raising the editor", "front:editor"},

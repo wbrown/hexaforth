@@ -6,9 +6,9 @@ what it replaced, and why it takes fewer instructions or cycles on this
 machine. How much a change saved is recorded in the commit that made it,
 which is named; the figures are not repeated here.
 
-The last two sections cover what the search for fewer instructions has
-found, each with the code before and after and the stacks after every
-instruction. The search is `bench/shorter.c` (the program `shorter`, of
+The last section is what reading the kernel's ROM found. The two before it
+cover what the search for fewer instructions has found, each with the code
+before and after and the stacks after every instruction. The search is `bench/shorter.c` (the program `shorter`, of
 the machine whose image it is given, run at the end of the target
 `profile`). It
 takes one turn of a loop, puts the words it calls inline, and looks for the
@@ -597,8 +597,8 @@ at the word, along with what the other way would cost or save.
 - `segs,` uses the literal it is building as its own state: adding `h# 1000`
   moves its shift up one step, and ORing in `h# 4000` makes it an add
   (771d2c9)
-- code written twice becomes a word, or falls through into the next word
-  (`;fallthru`, 4bfc710)
+- code written twice becomes a word, or runs on into the next word
+  (`;into`, which was `;fallthru`: 4bfc710)
 
 ## What the search has found
 
@@ -1004,7 +1004,7 @@ of the whole run and then of each part of it; and a run that ends a word is
 looked for with the return in its last instruction. These are from QEMU's
 ROM, which has cells of 64 bits and is the fullest there is. Each entry
 says the run as it was and as found, and the last part of the section says
-how each is in `nuc.fs` now.
+how each is in `nuc.fs` now (781c1a7).
 
 What it does not find:
 
@@ -1421,15 +1421,16 @@ Each of these was the same text twice, and is said once now:
   number printed or compiled, call it.
 
 A word that ends as another does can run on into it, with no return and
-no jump: `;fallthru`, or a `:` before the last definition has ended (Smaller
+no jump: `;into`, or a `:` before the last definition has ended (Smaller
 code, above). Only the word laid straight before can; any other jumps
 there, which is an instruction where it is said and one more when it is
 run. What is the same in the middle of two words is a call.
 
 Not counted among these: `negate` and `2drop`. Each is one word said in
 many places, and is laid in place by `cross.fs`; `nuc.fs` says at its top
-why `negate` is not a call. And `(do)` and `(?do)` begin alike, which
-running on does not share.
+why `negate` is not a call. The next section has what was found of the two
+since. And `(do)` and `(?do)` begin alike, which running on does not
+share.
 
 ### In the source
 
@@ -1465,3 +1466,206 @@ search pushed a 0 and compared.
 
 `examine-16` and the like, and `examine-virt`, say how long each kernel is
 now and what its ROM has left.
+
+## What reading the kernel's ROM found
+
+The search takes a run where it is. Reading the ROM's disassembly
+(`disasm_hex build/virt/nuc.hex 0 0x800`) beside `nuc.fs` finds what it
+does not: what two words have in common, what nothing comes to, and what is
+shorter written another way. Nothing here uses an instruction the kernel
+did not have. `examine-virt` and the like say what the kernel is with it.
+
+### A word that ends in another is laid before it
+
+A word whose last word is another's name ends in a jump there. `c@` is a
+mask and `field@`. As it was (2):
+
+    : c@      255                   ca 255
+              jump field@
+
+Laid straight before `field@`, with no return and no jump of its own, it is
+the mask alone, and the instruction after it is `field@`'s first. As it is
+(1):
+
+    : c@      255                   ca 255
+    : field@  >r                    ca              R: 255
+              ...
+
+That is an instruction less where the word is, and a jump less every time
+it is run. Words run on in a row: `count` into `c@`, `c@` into `field@`,
+and `field@` into `(field)`.
+
+A word laid so says the word it runs into (`;into field@`, `cross.fs`),
+and the build stops if another definition comes between the two. A
+definition that only needs no exit, since its last word returns for it
+(`inline;`), still ends with `;fallthru`.
+
+Only one word can be straight before another. Of the words that end in
+`field@` it is `c@`, which is run most, and `uw@` jumps. Laid so in the
+kernel: `0>` before `>`, `0<>` before `<>`, `space` before `emit`, `hi16`
+before `lo16`, `count`, `c@` and `field@`, `c!` before `field!`, `depth`
+before `-`, `d2*` before `d+`, `samename?` before `same-cells?`, `,` before
+`allot`, `parse-name` before `parsed`, `-throw` before `throw`, `landing`
+before `near`, `mkheader` before `sync`, `:` before `]`, `else` before
+`then`, `loop` before `resolveleaves`, `main` before `quit`; and in the
+virtio disk's driver `vstatus` before `v!` and `vwrite` before `vio`.
+
+Not done: a word is not taken out of the words it is read with to be laid
+so. `i@` before `uw@`, `compile,` before `execute`, `create` and `constant`
+before `exit,`, `source` before `2@`, `unparsed` before `/string`,
+`newpage?` before `-throw`, `if` before `code,`, `adepth` before `1-` and
+`afresh` before `prompting` would each save its jump. `compiling-64` says
+how often each of those words is run.
+
+### A word that is another word's instructions
+
+`negate` is `invert` and one added, and `cell+` is one added. As they were
+(3 and 2):
+
+    : negate  invert
+              1 +
+              ;
+    : cell+   1 +
+              ;
+
+As they are (1 and 2):
+
+    : negate  invert
+    : cell+   1 +
+              ;
+
+`negate`'s body is `invert`, run on into `cell+`. Both are laid in place
+wherever source says them, and `nuc.fs` says at its top why `negate` is
+never a call: these bodies are what a header finds, for the prompt and for
+the nucleus's compiler, which reads a small word's instructions from where
+they are. From `negate`'s place they are what they were.
+
+- `here` is `dp @` and then all of `c>`: it is `dp @`, run on into `c>`.
+- `aligned` ends as `c>` does, and jumps to it.
+- `1+` and `cell+` are the same two instructions, since an address is the
+  number of a cell and the cell after is one more. They are one body with
+  a header for each name. What finds a name from where a word is finds
+  one of them: `see cell+` begins `: 1+`, the first a search by place comes
+  to, and `disasm_hex` says both. The Words window found its choice in the
+  list from the word shown, so `cell+` chosen was `1+` chosen, and the list
+  could not be gone down past it: it keeps the header that was chosen now
+  (`wchosen`, `see.fs`), and the desktop's checks choose `cell+` and go on
+  from it.
+
+### A header that a newer one hides
+
+The kernel had a `;` and a `[']`. `join.fs` defines `;` again, and
+`placement.fs` `[']`; a search finds the newest header of a name, and
+nothing called the kernel's by any other way. So they were instructions the
+ROM carried for nothing, and are gone: `[']` where the machine has a
+display, since a machine without one has only the kernel's.
+
+`.shadows` lists every name that is defined again. `kernel_test` now
+counts a header as a way to its word only if no newer header of its name
+hides it (`util/reach.h`), so a word of the kernel that is hidden and not
+called fails the test `kernel`.
+
+### A loop that tests at its head
+
+`delchar` steps back over the bytes of a character that was typed. It stops
+when it has none left, or at a byte that starts a character. As it was
+(13):
+
+    begin
+      0 over =                      a n f
+      if exit then                  a n             a branch, and a return
+      1-  2dup +  c@                a n c
+      192 and  128 xor              a n f
+    until
+    ;
+
+As it is (11):
+
+    begin
+      dup                           a n n
+    while                           a n             a branch to the return
+      1-  2dup +  c@                a n c
+      192 and  128 xor              a n f
+    until
+    then ;
+
+`dup 0= if exit then` is four instructions: a 0 pushed, the compare, the
+branch and a return of its own. `dup while` is two, and its branch goes to
+the return the word already has.
+
+`>number` leaves its loop at the end of the text and at a character that is
+no digit. The second was `0= if drop exit then`, a call of `0=`, a branch
+and a return. It is a second `while`, whose branch goes past `repeat` to a
+`drop` before the `then`: the call is gone, for every digit of a number.
+`binaries`, which goes down the entries of a disk's index, tested for the
+last with `dup 0= if drop exit then` and is `dup if ... then drop`.
+
+`cross.fs`'s `while` leaves its two addresses as the standard has them. It
+left them the other way round, which only `repeat` took rightly, so a
+`while` ended by `until` or by a second `while` was laid with a branch to
+nowhere and nothing said. A branch that is never given where it goes now
+stops the build.
+
+### More of the same text in two words
+
+- `'` and `postpone` both took a name, looked it up and threw -13 if it was
+  not found. That is a word, `sought`, which leaves the flag `postpone`
+  asks about and `'` drops.
+- `is'c'` asked twice whether a character is a quote and took the answer
+  into what it had: `tick?`.
+- `vdisk?`, in the virtio disk's driver, read two registers and asked of
+  each whether it was 2: `also-2`.
+- `prompting` put nothing in `state`, which is all of `[`.
+- `abs` said `dup 0<`, which is `s>d`.
+- `quit` said its ` ok` a character at a time. `say"`, which `no-disk` has
+  its text from, makes a number of as many characters as a cell holds, and
+  `emits` sends them: one number where a cell is 32 bits or 64.
+
+### What is known where the word is
+
+`throw` asked whether what was thrown is -1 with `dup d# -1 = if`: a 0
+pushed, inverted, and compared. -1 is the cell with every bit set, so its
+`invert` is nothing: `dup invert if`, with the two parts the other way
+round, is one instruction for three.
+
+`afresh` makes the first task the one that runs, and then stored the
+console's word in `'emit`, which is the running task's cell: `up` fetched
+and 6 added. There the task is `main-task`, so the cell is one the image
+is built with, and it is stored as a variable is, in one instruction.
+
+`isnotspace?` was `isspace? 0=`, a call and a jump, six instructions run
+for a character of a name. A character is no space when it is more than 32,
+so it is the 32 pushed, run on into `u>`.
+
+### An ending that is a word is a jump to it
+
+`2drop` writes R to R so as to drop two cells, and so cannot have the
+return in it: `2drop ;` is two instructions. `2drop` is also a word of the
+kernel, those two instructions, and a jump to it is one. As it was, at the
+end of `type` (2):
+
+    2drop                           R->IN IN-> ->R d-2
+    ;
+
+As it is (1):
+
+    jump 2drop
+
+`2drop` is `callable`, as the basewords of two instructions are, and
+`cross.fs` holds a word that is one instruction which cannot take the
+return until it knows what follows (`alone?`): the end of a definition,
+where it is called and the call made a jump, or anything else, where it is
+laid in place as it was. Source says `2drop ;` as before. It is so only on
+the kernel's page, where `callable` is: a jump is an instruction more to
+run, and the kernel is short before it is quick. `type`, `s,`, `(`,
+`interpret`, `by-name` and `ipl` end so.
+
+A number pushed cannot take the return either, and a word that is one
+number is held the same way: `same-cells?` ends `2drop false`, and its
+`false` is a jump to the word `false`.
+
+`kernel_test IMAGE.hex IMAGE.tables to 2drop false` says every place that
+jumps to either, in the ROM and in the rest of the kernel's page.
+
+Not done: `io!` the same way, in `uart-emit` and `reg32!`. Those are run
+for every character sent and every register written.
