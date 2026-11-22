@@ -36,7 +36,7 @@ static long sent;               // the things sent that it has not taken yet
 // what it was at (vm_stopped.h).
 static void stopped_wrong(void) {
     printf("FAIL the machine stopped at 0x%04x (expected 0x%04x)%s%s%s%s%s\n"
-           "  inspect with: build/cmake/disasm_hex-%d %s 0x%04x 0x%04x\n"
+           "  inspect with: build/cmake/disasm_hex %s 0x%04x 0x%04x\n"
            "  screens in:   %s/\n"
            "  console said: %s\n",
            (unsigned)machine.EIP, (unsigned)stopping(),
@@ -45,7 +45,7 @@ static void stopped_wrong(void) {
            desk_checking ? "\"" : "",
            desk_doing && desk_doing[0] ? " while doing: " : "",
            desk_doing && desk_doing[0] ? desk_doing : "",
-           CELL_BITS, image_path ? image_path : "IMAGE.hex",
+           image_path ? image_path : "IMAGE.hex",
            (unsigned)machine.EIP, (unsigned)machine.EIP,
            out_dir ? out_dir : ".", said);
     static const char file[] = "/stopped.memory";

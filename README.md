@@ -55,8 +55,8 @@ picture takes 0.7 seconds.
 - The instruction set. An instruction is a control word: where the ALU's
   input comes from, the operation, where the result goes, and how each
   stack moves
-- How little code it takes. The kernel is 3,326 bytes, in a 4,096-byte ROM.
-  The paint program is 2,270 bytes. The whole machine, written in AArch64
+- How little code it takes. The kernel is 3,726 bytes, in a 4,096-byte ROM.
+  The paint program is 2,250 bytes. The whole machine, written in AArch64
   assembler, is 880 bytes
 
 It is meant to be built from TTL, on an FPGA, or through TinyTapeout.
