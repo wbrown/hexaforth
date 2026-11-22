@@ -23,7 +23,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     int first_gap = -1;
 
     while ((read = getline(&line, &len, hexfile)) != -1) {
-        *(uint32_t*)&(ctx->memory[ctx->HERE]) = (uint32_t)strtol(line, NULL, 16);
+        *(uint32_t*)&(ctx->memory[ctx->HERE]) = (uint32_t)strtoul(line, NULL, 16);
         if (first_gap <= 0 && !*(uint64_t*)&(ctx->memory[ctx->HERE])) {
             first_gap = ctx->HERE;
         }
