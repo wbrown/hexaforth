@@ -8,7 +8,7 @@
 //
 // The benchmarks dither all three, and each is on a disk a machine is
 // given, under a label: the Mandrill on the pictures' disk, as the desktop
-// has it, and these two on a disk of their own (CMakeLists.txt, which has
+// has it, and these two on a disk of their own (cmake/bench.cmake, which has
 // mkdisk --disk make it).  A disk is no more than a floppy holds, which
 // the three together are more than.  bench/pictures.fs, typed at the
 // machine, finds each by its label.

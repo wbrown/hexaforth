@@ -9,8 +9,8 @@ Diagnostics:
   UnusedIncludes: None
 ---
 # The search for fewer instructions is told how long it may take by what
-# compiles it (SEARCH_STATES, which CMakeLists.txt says once), and stops
-# the compiler if it is not told.  Read by itself it is told nothing, and
+# compiles it (SEARCH_STATES, which cmake/default-machine.cmake says once),
+# and stops the compiler if it is not told.  Read by itself it is told nothing, and
 # how long a search takes is nothing to what clangd looks at.
 If:
   PathMatch: util/(fewer|turns)\.h

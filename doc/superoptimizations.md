@@ -6,15 +6,17 @@ what it replaced, and why it takes fewer instructions or cycles on this
 machine. How much a change saved is recorded in the commit that made it,
 which is named; the figures are not repeated here.
 
-The last section covers what the search for fewer instructions has found,
-each with the loop before and after and the stacks after every
+The last two sections cover what the search for fewer instructions has
+found, each with the code before and after and the stacks after every
 instruction. The search is `bench/shorter.c` (the program `shorter`, of
 the machine whose image it is given, run at the end of the target
 `profile`). It
 takes one turn of a loop, puts the words it calls inline, and looks for the
 fewest instructions that leave the same result, wherever the values are
-kept (`util/loops.h`, `util/turns.h`, `util/fewer.h`). Every answer is run
-on `vm.c` before it is reported.
+kept (`util/loops.h`, `util/turns.h`, `util/fewer.h`). Asked of a kernel's
+ROM (`--rom`, the targets `shorter-16` and the like, and `shorter-virt`),
+it takes every run of the ROM's words as well, with everything where it
+is. Every answer is run on `vm.c` before it is reported.
 
 Changes to the Verilog that made the CPU itself faster are not included:
 they are not ways of writing code for the machine.
@@ -992,3 +994,474 @@ pops R in the operation that brings the value back, where the search popped
 it in the test: `r> @` is one instruction (`R->IN [IN] ->T d+1 r-1`), and
 `r> d# 8 rshift` is the 8 pushed and then one (`R->IN IN>>T ->T r-1`).
 `dup 0=` is two, a 0 pushed and `over =`.
+
+## What the search found in the kernel's ROM
+
+Asked of a kernel's ROM, the search takes every run of the ROM's words: the
+instructions between one call, branch or return and the next. It looks for
+fewer that leave what the run leaves, with every value where it is, first
+of the whole run and then of each part of it; and a run that ends a word is
+looked for with the return in its last instruction. These are from QEMU's
+ROM, which has cells of 64 bits and is the fullest there is. Each entry
+says the run as it was and as found, and the last part of the section says
+how each is in `nuc.fs` now.
+
+What it does not find:
+
+- A turn of most of the ROM's loops. A loop that branches inside, or calls
+  a word that does, has no turn the search can take. Of the two it could
+  take, `cells-move` and `cells-fill`, neither can be made shorter.
+- Anything of a run that reads or writes a port. The step says nothing of
+  one.
+- The same text written in two words. That is read for (The same text in
+  two words, below).
+- The instruction after a call of `inline:` or `inline;`. Such a word
+  reads where it returns to, and copies what is there into the code it is
+  compiling: nothing runs it where it is, so it is no part of a run.
+
+What it finds is so of the image it is given, and two of its answers were
+so only of the numbers that image has: in `evaluate` and in `spawn` it made
+a 0 by shifting an address right by itself, which is nothing only while
+the address is what it is. `cross.fs` makes a 0 that way too (`[` is the
+address of `state` and one instruction), and may, since it asks the
+machine again for every image it builds. Written into the source by hand
+it would be wrong as soon as the address moved. Those two are not here.
+
+### A shift up and down by the same count pushes the count once
+
+Found in `sfind`, `name>` and `literal`. Each clears the top bits of a cell
+by shifting it left and then right by the same amount.
+
+`sfind` has found the name, and takes the word's execution token out of
+the cell that has the immediate flag as its top bit (`dup 2* u2/`). `x` is
+that cell, and is wanted again after. As it was (5):
+
+    1                           x 1
+    (N->IN IN<<T ->T d+0)       x x<<1            x kept underneath
+    1 rshift                    x xt              the top bit gone
+    swap                        xt x
+
+As found (4):
+
+    1                           x 1
+    (N->IN IN<<T ->R d+0 r+1)   x 1               x<<1 onto R; the 1 stays
+    (R->IN IN>>T ->T d+0)       x xt              R shifted right by the 1,
+                                                  and written over it
+    (N->IN T<>N,IN-> ->T r-1)   xt x              swapped, and R popped
+
+`name>` takes a cell of a name and clears the bits that are not codes. The
+cell is kept on R, where its top bit is asked about at the end of the
+turn. As it was (6):
+
+    dup @                       a w
+    dup >r                      a w               R: w
+    4 lshift                    a w<<4
+    4 rshift                    a codes
+
+As found (4):
+
+    (T->IN [IN] ->R d+0 r+1)    a                 the cell fetched onto R
+    4                           a 4
+    (R->IN IN<<T ->R d+0 r+1)   a 4               R: w w<<4
+    (R->IN IN>>T ->T d+0 r-1)   a codes           R: w
+
+The count of a shift is its T. A shift whose result goes to T uses the
+count up, and the second shift has to push it again. A shift whose result
+goes to R leaves the count on the data stack, and the second shift takes R
+as its input and the same count as its T. In `name>` the cell is never on
+the data stack at all: it is fetched onto R, shifted from R onto R, and
+shifted from R into place. `literal` keeps the low 36 bits of a number with
+two shifts by 28, and its second shift drops the cell the number was in.
+
+The general rule: two shifts by the same count are one push of the count,
+with the first shift's result on R.
+
+### What is worked out of a value goes to R before the value is used up
+
+Found in `field@`, which is `c@` and `uw@`. It takes the address of a byte
+and gives the field of the cell from that byte up. The address is needed
+twice: for the cell it is in, and for the byte's place in that cell. `ca`
+is the address, and R holds the mask. As it was (10, between `>r` and
+`r> and`):
+
+    3                           ca 3
+    (N->IN IN>>T ->T d+0)       ca c              the cell's address; ca kept
+    @                           ca w
+    swap                        w ca
+    7 and                       w b               the byte's place in the cell
+    3 lshift                    w bits
+    rshift                      w'
+
+As found (9):
+
+    7                           ca 7
+    (T->IN IN&N ->R d-1 r+1)    ca                the byte's place, onto R
+    3                           ca 3
+    (N->IN IN>>T ->T d+0)       ca c
+    (T->IN [IN] ->T d-1)        w                 fetched over ca, which is done
+    3                           w 3
+    (R->IN IN<<T ->T d+0 r-1)   w bits            the place from R, as bits
+    rshift                      w'
+
+As it was, the address was kept under the cell while the cell was fetched,
+and then swapped back up to have its place taken from it. As found, the
+place is taken first and put on R, and the address is then used up by the
+fetch. The shift that makes the place into bits takes it from R.
+
+The general rule: where a value is needed for two things, work out the
+smaller of them first and put it on R, so that the value itself is used up
+by the other and nothing is kept under what follows.
+
+### A number stored twice is pushed once
+
+Found in `pack>`, which starts a cell of packed fields: it puts nothing in
+the cell at `a`, keeps `a` in `pto`, and puts nothing in `psh`. As it was
+(6, after its first two stores):
+
+    0 over !                    a                 nothing stored at a
+    pto !
+    0 psh !
+
+As found (4):
+
+    0                           a 0
+    (T->IN T<>N,IN-> ->[T])     0 a               stored at a, and the two
+                                                  swapped: swap 2dup !
+    pto !                       0
+    psh !
+
+A store uses up its value and its address. One whose operation swaps T and
+N stores at the cell that was under the top, and with the data stack not
+moved it leaves both: the address on top for the next thing, and the
+number under it for the one after.
+
+`pack,` does the same with a number it has not pushed at all. When a cell
+is full it steps `pto` to the next, puts nothing in that cell, and puts
+nothing in `psh`. As it was (8):
+
+    1 pto +!                                      (3: the 1, the address, +!)
+    0 pto @ !                                     (3)
+    0 psh !                                       (2)
+
+As found (7), `p` being the address `pto` holds:
+
+    1 pto                       1 pto
+    ([T]->IN IN+N ->T d+1)      1 pto p+1         pto @ 1+, pushed
+    (T->IN T<>N,IN-> ->[T] d-1) 1 p+1             stored back in pto
+    (N->IN IN^N ->[T] d+0)      1 p+1             1 xor 1 is nothing: stored at
+                                                  p+1
+    (N->IN IN^N ->T d-1)        0                 and again, in place of both
+    psh !
+
+The address that `pto` was given is kept and stored through, where it was
+fetched again; and nothing is made of the 1 that was pushed for the step,
+as the cell under the top combined with itself (`N->IN IN^N`).
+
+`catch` makes the 0 it returns the same way, in the instruction that
+returns (below), and `dnegate` makes its 0 as 1 shifted right by 1.
+
+The general rule: a number that is stored in two places is pushed once and
+kept by the first store. And nothing need not be pushed where there is any
+cell under the top to combine with itself.
+
+### A store that takes its value from R and swaps
+
+Found in `deposit`, which the ROM takes an image from the console with: it
+stores `u` at `a`, steps `a`, and adds `u` to a sum. As it was (7):
+
+    tuck                        a u s u
+    (T->IN IN+N ->R d-2 r+1)    a u               R: s+u
+    over !                      a                 u stored at a
+    1 +                         a+1
+    r>                          a+1 s'
+    exit
+
+As found (5):
+
+    dup >r                      a s u             R: u
+    +                           a s'
+    (R->IN T<>N,IN-> ->[T] r-1) s' a              u stored at a from R, and
+                                                  popped; the two swapped
+    1 +                         s' a+1
+    swap ;                      a+1 s'
+
+As it was, the sum went to R to be out of the way of the store, and came
+back with an instruction of its own and a return of its own. As found, it
+is what is stored that goes to R. The store takes it from there, swapping
+the address up as it does (`swap r> over !`, Overwriting the top of the
+return stack in place, above), and the word ends in a `swap`, which a
+return can be in.
+
+The general rule: of two values, put on R the one that is only stored.
+A store reads R as well as it reads N, and pops it.
+
+### A variable fetched and then stored: its address pushed once
+
+Found in `(do)` and `(?do)`, which begin every counted loop: each keeps
+the limit of the loop before on the return stack, under its own return,
+and makes `rO` the new limit. `ra` is where it returns to. As it was (6):
+
+    r>                          limit start ra
+    rO @                        limit start ra old
+    >r >r                       limit start       R: old ra
+    (N->IN T<>N,IN-> ->T d+1)   start limit limit swap dup
+    rO !                        start limit
+
+As found (5), `rO` being the variable's address pushed as a number:
+
+    (R->IN T<>N,IN-> ->T d+1)   start limit ra    R copied, the two under it
+                                                  swapped
+    rO                          start limit ra rO
+    (T->IN [IN] ->R d+0 r+0)    start limit ra rO the old limit, fetched
+                                                  through the address, written
+                                                  over R's top
+    swap >r                     start limit rO    R: old ra
+    (N->IN IN-> ->[T] d-1)      start limit       the limit stored through
+                                                  the address
+
+`rO @` and `rO !` are one instruction each, and each has the variable in
+it. With its address pushed once, the fetch and the store are each still
+one instruction and need nothing more of their own: the fetch writes over
+the top of R (Overwriting the top of the return stack in place, above),
+which the return address was copied from the instruction before, and the
+store takes its value from under the address.
+
+`i` has the address pushed for another reason: `@ +` with the address on
+top is one instruction, and can drop what is under it. As it was (6):
+
+    r>                          ra
+    r@                          ra c              the count
+    rO @                        ra c limit
+    +                           ra i
+    swap >r                     i                 R: c ra
+    exit
+
+As found (5):
+
+    r>                          ra
+    r@                          ra c
+    over >r                     ra c              R: c ra
+    rO                          ra c rO
+    ([T]->IN IN+N ->T d-2) ;    i                 the limit fetched and added;
+                                                  ra and c dropped; the return
+
+The general rule: a variable in one instruction is the shortest way to
+fetch it or store it once. Where it is fetched and stored, or fetched into
+an operation, push its address: what follows is the same number of
+instructions, and each can do more.
+
+### An instruction that does not use R can still move it
+
+Found in `catch`, when the word it ran has come back. The return stack has
+the loop limit that was kept, the handler before, and the depth of the
+data stack, and `catch` drops the first, puts the second back, and drops
+the third. As it was (6):
+
+    rdrop                                         R: depth handler
+    up @ 4 +                    h                 where the handler is kept
+    (R->IN IN-> ->[T] d-1 r-2)                    put back, and both popped
+    0
+    exit
+
+As found (5), `up` being that variable's address:
+
+    up                          up
+    (T->IN [IN] ->T d+1 r-1)    up task           fetched, and R popped
+    4 +                         up h
+    (R->IN IN-> ->[T] d+0 r-2)  up h              put back, and both popped
+    (N->IN IN^N ->T d-1) ;      0                 up xor up; the return
+
+The `rdrop` is in the fetch, which has nothing to do with R, and the 0 and
+the return are one instruction.
+
+### The other operand on R, not swapped for
+
+Found in `dnegate`, `(+loopnext)` and `2/`.
+
+`dnegate` inverts both cells of a number and adds one. As it was (6,
+before it goes to `d+`):
+
+    invert                      lo ~hi
+    swap                        ~hi lo
+    invert                      ~hi ~lo
+    swap                        ~lo ~hi
+    1 0                         ~lo ~hi 1 0
+
+As found (5):
+
+    dup >r                      lo hi             R: hi
+    (N->IN ~IN ->T d-1)         ~lo               lo inverted, over hi
+    (R->IN ~IN ->T d+1)         ~lo ~hi           hi from R, inverted
+    1                           ~lo ~hi 1
+    (T->IN IN>>T ->T d+1 r-1)   ~lo ~hi 1 0       1 shifted right by 1; R
+                                                  popped
+
+`(+loopnext)` adds the step to the count and says whether the count has
+gone round. As it was (9):
+
+    over 0                      inc c inc 0
+    (T->IN N<IN ->R d-2 r+1)    inc c             R: is the step negative?
+    dup >r                      inc c             R: f c
+    over +                      inc c'
+    (R->IN T->N,IN-> ->T d+1 r-1)
+                                c' c' c           nip dup r>
+    u<                          c' f2             did it go round?
+    r> xor ;                    c' done
+
+As found (7):
+
+    dup >r                      inc c             R: c
+    over +                      inc c'
+    swap 0 <                    c' f              is the step negative?
+    (R->IN Nu<IN ->T d+1 r-1)   c' f f2           c' u< c, c taken from R
+    xor ;                       c' done
+
+`2/` halves a number and keeps its sign. As it was (8):
+
+    0                           n 0
+    (T->IN N<IN ->T d+0)        n f               is n negative?
+    63 lshift                   n s               as the top bit
+    swap                        s n
+    1 rshift                    s n>>1
+    or ;                        n/2
+
+As found (7):
+
+    0                           n 0
+    (T->IN N<IN ->R d+0 r+1)    n 0               the flag onto R
+    1 +                         n 1               the 0 made into the count
+    (N->IN IN>>T ->T d+0)       n n>>1
+    63                          n n>>1 63
+    (R->IN IN<<T ->T d+0 r-1)   n n>>1 s          the flag from R, as the top
+                                                  bit
+    (T->IN IN|N ->T d-2) ;      n/2               n dropped with it
+
+In all three a value was made early and then had to be got past: by two
+swaps, by parking a flag and bringing it back, by a swap. On R it is an
+input of the operation that wants it, and is popped there. In `2/` the
+flag goes to R without the data stack moving, so the 0 it was compared
+with is still there, and adding one to it is the count of the shift.
+
+### Cells that are next to each other, and a cell to a cell
+
+Found in `spawn` and `mkheader`.
+
+`spawn` fills a task's record, whose address is on R. It stores three
+values in three cells of it. As it was (9):
+
+    r@ 1 + !                    xt dbase          the return stack's depth
+    r@ 3 + !                    xt                where its data stack starts
+    r@ 2 + !                                      the word it runs
+
+As found (8), `t` being the record:
+
+    r@ 1 +                      xt dbase rdepth t+1
+    tuck !                      xt dbase t+1      stored, and the address kept
+    (N->IN T->N,IN-> ->R d+0 r+1)
+                                xt t+1 t+1        dbase onto R
+    2 +                         xt t+1 t+3
+    (R->IN IN-> ->[T] d-1 r-1)  xt t+1            dbase stored from R
+    1 +                         xt t+2
+    !
+
+`mkheader` links the header it is making: the header `forth` holds goes in
+its first cell, and the place of its code in the second. As it was (11),
+`h` being the header:
+
+    hdp @                       n h
+    dup lastword !              n h
+    forth @ over !              n h               the link
+    cp @ dup thisxt !           n h xt
+    over 1 + !                  n h               the place of its code
+
+As found (9), `forth` being that variable's address:
+
+    forth hdp @                 n forth h
+    (N->IN T->N,IN-> ->R d+0 r+1)
+                                n h h             forth's address onto R
+    lastword !                  n h
+    (R->IN [IN] ->[T] d+1)      n h h             what forth holds, stored at h:
+                                                  a cell to a cell, through R
+    cp @                        n h h xt
+    (T->IN T<>N,IN-> ->T d+1 r-1)
+                                n h xt h xt       R popped
+    thisxt !                    n h xt h
+    1 + !                       n h
+
+The general rule: an address made from R each time (`r@ 1 +`, `r@ 3 +`)
+is three instructions a store. One address stepped along is two, since
+`tuck !` keeps it and a number is added in one instruction. And a cell is
+moved to a cell in one instruction when the address it comes from is on
+R (`R->IN [IN] ->[T]`), which can push a copy of the address it goes to
+as well.
+
+### The same text in two words
+
+Read for in the ROM and in `nuc.fs`, and not searched for: the search
+takes a run where it is, and does not know that two runs are the same.
+Each of these was the same text twice, and is said once now:
+
+- `throw`, when it starts the prompt again, and `afresh`, when the ROM
+  starts, both put nothing in `state`, `sourceid` and `sbase`. That is a
+  word, `prompting`, which `throw` calls and `afresh` ends in.
+- `cells-move`, `cells-fill` and `cmove` ended alike: they drop the two
+  cells of the loop and what they kept on R. `cells-move` runs on into
+  that ending, which is a word, `cells-done`, and the other two jump to
+  it. It is never called: what it drops from R is the word's that ends in
+  it, and a call would have its own return there.
+- `u/mod`, where the dividend does not fit 16 bits, pushed nothing, took
+  the divisor off R and did all that `um/mod` does. It ends in `um/mod`
+  there.
+- `ifield`, which the ROM reads the disk's index with, ended as `field@`
+  does: a cell shifted right by the byte's place and masked. `field@`
+  runs on into that ending, `(field)`, with the place and the mask on R,
+  and `ifield` puts its own two there and jumps to it.
+- `delchar` said `d# 32 emit`, which is `space`.
+- `dup 0<` is all of `s>d`. `.` and `literal`, which are run once for a
+  number printed or compiled, call it.
+
+A word that ends as another does can run on into it, with no return and
+no jump: `;fallthru`, or a `:` before the last definition has ended (Smaller
+code, above). Only the word laid straight before can; any other jumps
+there, which is an instruction where it is said and one more when it is
+run. What is the same in the middle of two words is a call.
+
+Not counted among these: `negate` and `2drop`. Each is one word said in
+many places, and is laid in place by `cross.fs`; `nuc.fs` says at its top
+why `negate` is not a call. And `(do)` and `(?do)` begin alike, which
+running on does not share.
+
+### In the source
+
+All of this is in `nuc.fs`. What the search found is written in standard
+words, which `cross.fs` makes into the instructions shown: `2dup lshift
+>r` and `r@ swap rshift` are the two shifts in `sfind`, `tuck over !` is
+the store that swaps in `pack>`, `swap r> over !` the one in `deposit`,
+and `up dup rdrop @` the fetch that drops R in `catch`. The decompiler
+says an instruction as such a phrase (`disasm_hex`), which is where the
+words for one are found.
+
+Three instructions are said by their fields, with the words they are in
+a comment beside:
+
+- `N->IN IN^N ->[T]` in `pack,`, and `R->IN [IN] ->[T] d+1` in
+  `mkheader`. No three words make either.
+- `[T]->IN IN+N ->T d-2` in `i`, which is `@ + nip`. Of those words after
+  `over >r`, `cross.fs` makes the add and then `swap >r`, which is the
+  word as it was, with a return of its own.
+
+Of two of them `cross.fs` makes other instructions, as many:
+
+- `(do)` and `(?do)`: it takes the return address off R as it copies it
+  (`swap r>`), and the fetch through the address then pushes the old
+  limit onto R, where the search wrote over R's top.
+- `spawn`: the second of its three cells is stored with `tuck d# 2 + !`,
+  which keeps the address under the value on the data stack, where the
+  search put the value on R.
+
+And `(+loopnext)` is one fewer than the search's. It asks whether the
+step is negative with `0<`, which in the kernel is a call, where the
+search pushed a 0 and compared.
+
+`examine-16` and the like, and `examine-virt`, say how long each kernel is
+now and what its ROM has left.

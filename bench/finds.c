@@ -27,6 +27,11 @@
 //   before them: a header of the image's is found past the headers made
 //   since, and then past those of the image's that are before it
 //
+//   what it would have looked at were the dictionary several chains, a
+//   name's chosen from the first cell of its packed name: for each way of
+//   choosing one (chain_of) and each number of chains, beside what it
+//   would be if names fell evenly among them
+//
 //   a line a name, by the headers looked at for it: how often it was asked
 //   for and found, the headers looked at each time, the share of all that
 //   is, and where its header is among the image's, the first looked at
@@ -73,6 +78,50 @@ static long NOW = -1;           // the name being looked for, or less than nothi
 static long turns;              // how many times round the loop for it
 static uint64_t candidate;      // the cell same-cells? was last given
 
+// Several chains.  Were the dictionary several chains, a name's chosen from
+// the first cell of its packed name, a search would go along one of them:
+// of the headers it looked at, it would look at those of the name's chain,
+// each chain being in the order the one chain is in.  The loop has a
+// header's first name cell against the key's once for each header it looks
+// at (COMPARED), and there the two cells are the machine's to give: which
+// cell of a header that is, nothing here knows.  A header is counted for
+// each way of choosing a chain, and each number of chains, that would have
+// it in the name's: two chains, four, and so on to two to the CHAINS_MOST.
+//
+// A packed name is codes of five bits, the first in the lowest bits of its
+// first cell (nuc.fs).  A chain is chosen by that cell's low bits, which of
+// up to 32 chains is by the first code alone; by its first two codes, one
+// xor the other; by its first three; or by the top bits of the cell
+// multiplied by a number that mixes all of it into them.
+#define CHAINS_MOST 6
+static const char* const CHOSEN[] = { "its low bits", "two codes", "three codes", "multiplied" };
+#define WAYS (int)(sizeof(CHOSEN) / sizeof(CHOSEN[0]))
+static double WOULD[sizeof(CHOSEN) / sizeof(CHOSEN[0])][CHAINS_MOST + 1];
+static double compared;         // how often the loop had a header's first name cell against the key's
+static long COMPARED = -1;      // the instruction that does
+
+static uint64_t chain_of(int way, uint64_t first, int bits) {
+    const uint64_t most = ((uint64_t)1 << bits) - 1;
+    switch (way) {
+        case 0: return(first & most);
+        case 1: return((first ^ first >> 5) & most);
+        case 2: return((first ^ first >> 5 ^ first >> 10) & most);
+        default: {
+            const uint64_t by = CELL_BITS == 64 ? 0x9e3779b97f4a7c15ull : CELL_BITS == 32 ? 0x9e3779b9ull : 0x9e37ull;
+            return(ucell((int64_t)(first * by)) >> (CELL_BITS - bits));
+        }
+    }
+}
+
+static void chained(uint64_t first, uint64_t key) {
+    compared++;
+    for(int way=0; way < WAYS; way++) {
+        for(int bits=1; bits <= CHAINS_MOST; bits++) {
+            if (chain_of(way, first, bits) == chain_of(way, key, bits)) WOULD[way][bits]++;
+        }
+    }
+}
+
 static long asking_of(const char* name) {
     for(long n=0; n < nasked; n++) if (!strcmp(ASKED[n].name, name)) return(n);
     ONE_MORE(ASKED, nasked, asked_room);
@@ -92,7 +141,9 @@ static void watch(context* ctx) {
     FROM = place_of(words, n, "sfind");
     SAME = place_of(words, n, "same-cells?");
     nasked = nheaders = 0;
-    NOW = HEAD = -1;
+    NOW = HEAD = COMPARED = -1;
+    compared = 0;
+    memset(WOULD, 0, sizeof(WOULD));
     for(int idx=0; idx < n; idx++) if (words[idx].at == FROM && words[idx].size) TO = FROM + words[idx].size;
     free(words);
     if (FROM < 0) return;
@@ -102,6 +153,13 @@ static void watch(context* ctx) {
         if (ins.lit.lit_f || ins.jmp.op_type != OP_TYPE_JMP) continue;
         long to = (long)branch(at + 1, ins.jmp.target);
         if (to >= FROM && to < at) HEAD = to;
+    }
+    // and the compare is the instruction of it that fetches the cell at the
+    // address on the stack and says whether it is the cell under that address
+    for(long at=HEAD; HEAD >= 0 && at < TO && COMPARED < 0; at++) {
+        instruction ins = *(instruction*)&ctx->memory[at];
+        if (ins.lit.lit_f || ins.alu.op_type != OP_TYPE_ALU) continue;
+        if (ins.alu.in_mux == INPUT_LOAD_T && ins.alu.alu_op == ALU_EQ) COMPARED = at;
     }
     for(uint32_t head = first_header(image, len); head; ) {
         uint64_t xt;
@@ -142,6 +200,9 @@ static void ran(context* ctx, int64_t at, int sp, int64_t t) {
     }
     if (NOW < 0 || at < FROM || at >= TO) return;
     if (at == HEAD) turns++;
+    if (at == COMPARED && sp >= 2) {                    // ( key name ): the header's first name cell is at name
+        chained(ucell(cell_from(cell_at(ctx, t))), ucell(ctx->DSTACK[sp - 2]));
+    }
     instruction ins = *(instruction*)&ctx->memory[at];
     if (!ins.lit.lit_f && ins.jmp.op_type == OP_TYPE_CALL && (long)branch(at + 1, ins.jmp.target) == SAME) candidate = ucell(t);
     if (ins.lit.lit_f || ins.alu.op_type != OP_TYPE_ALU || !ins.alu.r_eip) return;
@@ -226,6 +287,27 @@ void finds_said(void) {
     fprintf(out, "  were the image's headers in the order of how often each is found, the image's own looked at\n"
                  "  would be %.0f where they are %.0f, and all of them %.0f: %.1f%% of what they are\n\n",
             in_order, of_image, looked - of_image + in_order, 100 * (looked - of_image + in_order) / all);
+
+    // Several chains (chained, above).  What was counted there is of every
+    // header looked at, or it is of something else and is not said.
+    if (COMPARED < 0 || compared != looked) {
+        fprintf(out, "  several chains: the loop had a header's first name cell against the key's %.0f times, where %.0f\n"
+                     "  headers were looked at, so nothing is said of them\n\n", compared, looked);
+    } else {
+        fprintf(out, "  were the dictionary several chains, a name's chosen from the first cell of its packed name, and\n"
+                     "  each in the order the one chain is in, the headers looked at would be these.  A chain is chosen by\n"
+                     "  that cell's low bits; by its first two codes, one xor the other; by its first three; or by the\n"
+                     "  top bits of the cell multiplied.  Even is what they would be if names fell evenly\n");
+        fprintf(out, "  chains        even");
+        for(int way=0; way < WAYS; way++) fprintf(out, "  %19s", CHOSEN[way]);
+        fprintf(out, "\n");
+        for(int bits=1; bits <= CHAINS_MOST; bits++) {
+            fprintf(out, "  %6d  %10.0f", 1 << bits, looked / (1 << bits));
+            for(int way=0; way < WAYS; way++) fprintf(out, "  %11.0f  %5.1f%%", WOULD[way][bits], 100 * WOULD[way][bits] / all);
+            fprintf(out, "\n");
+        }
+        fprintf(out, "\n");
+    }
 
     // The names, by what was looked at for each: those that are a five
     // hundredth of all of it or more a line each, and the rest together.

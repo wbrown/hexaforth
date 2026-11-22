@@ -337,7 +337,7 @@ static check CHECKS[] = {
     // canvas was: from address 0.  The last window, dragged by its title
     // when ^Q closes it, would be moved at address 0 when the button is let
     // go.  The test's machine stops at a store into the kernel (ROM_BYTES,
-    // CMakeLists.txt).
+    // cmake/machines.cmake).
     {"the pencil held down when ^W brings another window in front, and moved",
      "menu pick:paint away tool:0 press:10,10,60,40 ^w point:300,300 release away", "18-held-w"},
     {"the pencil held down when ^Q closes HexaPaint, and moved",

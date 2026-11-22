@@ -166,7 +166,7 @@ picture by its label (`picture-blk`, `view.fs`) and has it from whichever
 disk has it; there is no block kept for a picture on the disk a machine
 starts from, which is its source, the names, the canvas, the masks, the
 viewer's bitmap and gray, and the image. Every machine the desktop is
-shown or checked on is given the two (`pictures`, `CMakeLists.txt`).
+shown or checked on is given the two (`pictures`, `cmake/disks.cmake`).
 
 A disk a machine boots from that is its desktop's too has blocks kept
 for the names of the words its boot compiles, which are each file's own

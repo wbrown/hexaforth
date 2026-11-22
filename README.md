@@ -55,7 +55,7 @@ picture takes 0.7 seconds.
 - The instruction set. An instruction is a control word: where the ALU's
   input comes from, the operation, where the result goes, and how each
   stack moves
-- How little code it takes. The kernel is 3,726 bytes, in a 4,096-byte ROM.
+- How little code it takes. The kernel is 3,666 bytes, in a 4,096-byte ROM.
   The paint program is 2,250 bytes. The whole machine, written in AArch64
   assembler, is 880 bytes
 
@@ -157,7 +157,7 @@ ECP5: 14,989 LUTs and 986 flip-flops, at 30.21 MHz.
 
 | | words | bytes of code |
 |---|---|---|
-| The kernel, in a 4,096-byte ROM | 268 | 3,726 |
+| The kernel, in a 4,096-byte ROM | 271 | 3,666 |
 | All drawing: fills, copying, text | 156 | 5,276 |
 | Regions | 37 | 1,418 |
 | The window manager | 116 | 3,548 |
@@ -171,7 +171,7 @@ ECP5: 14,989 LUTs and 986 flip-flops, at 30.21 MHz.
 | The decompiler and the Words window | 132 | 4,816 |
 | What the disks have, by label, and the boot's console | 47 | 1,574 |
 | The compiler's peephole, for what is typed | 51 | 1,770 |
-| Everything | 1,558 | 40,570 |
+| Everything | 1,561 | 40,510 |
 
 The dictionary holds 643 names in 6,008 bytes, at five bits per character.
 
@@ -234,7 +234,7 @@ You need CMake and either Homebrew or apt. Configuring installs the rest: it
 runs `brew install`, or `apt-get install` as root, for whichever of the
 twenty programs and libraries it needs are missing, QEMU, Verilator, Yosys
 and LLVM among them. With `-DINSTALL_NEEDED=OFF` it only checks and reports
-what is missing. The top of `CMakeLists.txt` lists them all.
+what is missing. `cmake/needs.cmake` lists them all.
 
     cmake -S . -B build/cmake
     cmake --build build/cmake --target demo      # the desktop, on QEMU

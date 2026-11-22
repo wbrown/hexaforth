@@ -19,7 +19,7 @@
 // every word in order of place, with a line where each page starts and
 // ends that says what it has and what it has left, and a line for whatever
 // is between two words, nothing or what is no word's.  The targets
-// listing-64 and the like write it (CMakeLists.txt).  With --near NAME,
+// listing-64 and the like write it (cmake/machines.cmake).  With --near NAME,
 // as often as there are words, it is instead what the calls would be were
 // those words in the kernel's page (show_near, below, says what it
 // prints): asked before a word is moved there.
