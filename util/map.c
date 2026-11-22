@@ -254,14 +254,14 @@ static void rows_of(int state, const layout* m, const char* tables, const uint8_
     long heap_from = himem ? (long)cell_of(m->bytes, himem) : 0, heap_now = (long)NOW(himem);
     long given_to = pushed_named(m, "mem-end");
     if (!given_to) given_to = (long)(MEMORY / CELL_BYTES);
-#if DISP_W
-    long display_end = DISP_BASE + (long)(DISP_BANKS - 1) * DISP_BANK_STEP + (long)DISP_ROWS_PER_BANK * DISP_STRIDE;
-    row_is(state, "the display", (size_t)DISP_BASE * CELL_BYTES, (display_end - DISP_BASE) * CELL_BYTES, -1, NO_UNIT);
-    if (heap_from > display_end) {
-        row_is(state, "data above the display", (size_t)display_end * CELL_BYTES, (heap_from - display_end) * CELL_BYTES, -1,
-               NO_UNIT);
+    if (DISP_W) {
+        long display_end = DISP_BASE + (long)(DISP_BANKS - 1) * DISP_BANK_STEP + (long)DISP_ROWS_PER_BANK * DISP_STRIDE;
+        row_is(state, "the display", (size_t)DISP_BASE * CELL_BYTES, (display_end - DISP_BASE) * CELL_BYTES, -1, NO_UNIT);
+        if (heap_from > display_end) {
+            row_is(state, "data above the display", (size_t)display_end * CELL_BYTES, (heap_from - display_end) * CELL_BYTES,
+                   -1, NO_UNIT);
+        }
     }
-#endif
     if (himem) {
         row_is(state, "the heap", (size_t)heap_from * CELL_BYTES, (heap_now - heap_from) * CELL_BYTES,
                (given_to - heap_now) * CELL_BYTES, CELLS);
@@ -403,10 +403,11 @@ int main(int argc, char *argv[]) {
     part_is((size_t)VAR_BASE * CELL_BYTES, data_now, 0, "the data, to the data pointer: %llu bytes, %llu of them made at run time",
             (unsigned long long)(data_now - VAR_BASE * CELL_BYTES),
             (unsigned long long)(data_now > data_then ? data_now - data_then : 0));
-#if DISP_W
-    uint64_t display_end = DISP_BASE + (uint64_t)(DISP_BANKS - 1) * DISP_BANK_STEP + (uint64_t)DISP_ROWS_PER_BANK * DISP_STRIDE;
-    part_is((size_t)DISP_BASE * CELL_BYTES, display_end * CELL_BYTES, 0, "the display: %d by %d", DISP_W, DISP_H);
-#endif
+    if (DISP_W) {
+        uint64_t display_end = DISP_BASE + (uint64_t)(DISP_BANKS - 1) * DISP_BANK_STEP
+                             + (uint64_t)DISP_ROWS_PER_BANK * DISP_STRIDE;
+        part_is((size_t)DISP_BASE * CELL_BYTES, display_end * CELL_BYTES, 0, "the display: %d by %d", DISP_W, DISP_H);
+    }
     size_t headers_from, headers_to;
     int headers = headers_of(memory, memory_len, &headers_from, &headers_to);
     if (headers_now > headers_to) headers_to = headers_now;

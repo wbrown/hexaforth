@@ -1,7 +1,11 @@
 //
-// check picture PICTURE.tiff own|half|doubled MEMORY CONSOLE TIMED WHAT ON [PIECE ...]
-// check gray PICTURE.tiff SHIFT DSHIFT N AT MEMORY CONSOLE TIMED WHAT ON [PIECE ...]
-// check display MEMORY MEMORY TIMED WHAT ON [PIECE ...]
+// check IMAGE.hex picture PICTURE.tiff own|half|doubled MEMORY CONSOLE TIMED WHAT ON [PIECE ...]
+// check IMAGE.hex gray PICTURE.tiff SHIFT DSHIFT N AT MEMORY CONSOLE TIMED WHAT ON [PIECE ...]
+// check IMAGE.hex display MEMORY MEMORY TIMED WHAT ON [PIECE ...]
+// check table RESULT ...
+//
+// IMAGE.hex is the image the machine ran: the machine whose memory is
+// looked at is the one it is for, which it says beside it (util/image.h).
 //
 // What a benchmark made, looked at, and then what it cost: one that has
 // not been checked has measured nothing, so the figure is printed here and
@@ -44,14 +48,15 @@
 // the benchmarks.  Its status is the benchmarks': it fails if a result
 // says FAIL, and if one says nothing, which is work that was not checked.
 //
-// It is built for the size of machine the memory is of, and for its
-// display, since a bitmap has its pixels as the display has them.
+// It is of the size of machine the memory is of, and of its display, since
+// a bitmap has its pixels as the display has them: both are the image's.
 //
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "../vm_constants.h"
+#include "../util/image.h"
 #include "../test/dither.h"
 #include "../test/gray.h"
 #include "../util/bluenoise.h"
@@ -80,11 +85,8 @@ static char* read_all(const char* path, size_t* len) {
 
 // A number the machine printed, as a cell that is not negative.
 static uint64_t ucell(long long x) {
-#if CELL_BITS == 64
-    return((uint64_t)x);
-#else
-    return((uint64_t)x & ((1ull << CELL_BITS) - 1));
-#endif
+    const int spare = 64 - CELL_BITS;
+    return(((uint64_t)x << spare) >> spare);
 }
 
 // The display in two memories: row y is where vm_constants.h says it is.
@@ -244,13 +246,18 @@ static int table(char** results, int count) {
 
 int main(int argc, char *argv[]) {
     if (argc >= 3 && !strcmp(argv[1], "table")) return(table(argv + 2, argc - 2));
+    const char* self = argv[0];
+    bool told = argc >= 3 && machine_of(argv[1]);       // the machine whose memory this is: the image's
+    if (told) argv++, argc--;
     bool display = argc >= 7 && !strcmp(argv[1], "display"), picture = argc >= 9 && !strcmp(argv[1], "picture");
     bool gray = argc >= 12 && !strcmp(argv[1], "gray");
-    if (!display && !picture && !gray) {
-        fprintf(stderr, "Usage: %s picture PICTURE.tiff own|half|doubled MEMORY CONSOLE TIMED WHAT ON [PIECE ...]\n"
-                        "       %s gray PICTURE.tiff SHIFT DSHIFT N AT MEMORY CONSOLE TIMED WHAT ON [PIECE ...]\n"
-                        "       %s display MEMORY MEMORY TIMED WHAT ON [PIECE ...]\n"
-                        "       %s table RESULT ...\n", argv[0], argv[0], argv[0], argv[0]);
+    if (!told || (!display && !picture && !gray)) {
+        fprintf(stderr, "Usage: %s IMAGE.hex picture PICTURE.tiff own|half|doubled MEMORY CONSOLE TIMED WHAT ON [PIECE ...]\n"
+                        "       %s IMAGE.hex gray PICTURE.tiff SHIFT DSHIFT N AT MEMORY CONSOLE TIMED WHAT ON [PIECE ...]\n"
+                        "       %s IMAGE.hex display MEMORY MEMORY TIMED WHAT ON [PIECE ...]\n"
+                        "       %s table RESULT ...\n"
+                        "IMAGE.hex is the image the machine ran, which says its machine beside it.\n",
+                self, self, self, self);
         return(1);
     }
     int before = display ? 4 : picture ? 6 : 9;         // what is said before TIMED

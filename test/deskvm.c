@@ -51,7 +51,7 @@ static void stopped_wrong(void) {
     static const char file[] = "/stopped.memory";
     char* memory = malloc(strlen(out_dir ? out_dir : ".") + sizeof(file));
     if (memory) sprintf(memory, "%s%s", out_dir ? out_dir : ".", file);
-    post_mortem(stdout, &machine, image_path, memory, CELL_BITS);
+    post_mortem(stdout, &machine, image_path, memory);
     exit(EXIT_FAILURE);
 }
 
@@ -154,7 +154,7 @@ const uint8_t* desk_screen(void) {
 
 const uint8_t* desk_memory(size_t* bytes) {
     taken();
-    *bytes = sizeof(machine.memory);
+    *bytes = MEM_BYTES;
     return((const uint8_t*)machine.memory);
 }
 
@@ -233,7 +233,7 @@ desk deskvm_start(const char* image, const char* disk, const char* pictures, con
     // lists before it is at its prompt (doc/boot.md).
     nucleus_is(image);
     start();
-    if (rom_only) memset((uint8_t*)machine.memory + KROM_BYTES, 0, sizeof(machine.memory) - KROM_BYTES);
+    if (rom_only) memset((uint8_t*)machine.memory + KROM_BYTES, 0, MEM_BYTES - KROM_BYTES);
     // What stops it besides its halt (vm_stopped.h): running where nothing
     // was put, and running on.  A boot that compiles the system takes no
     // key for some hundred million instructions; this is twenty times that.
@@ -250,7 +250,7 @@ desk deskvm_start(const char* image, const char* disk, const char* pictures, con
         }
         if (getenv("BOOTED")) {         // its memory as its boot left it: nothing has been typed at its prompt
             FILE* booted = fopen(getenv("BOOTED"), "wb");
-            if (booted == NULL || fwrite(machine.memory, 1, sizeof(machine.memory), booted) != sizeof(machine.memory)) {
+            if (booted == NULL || fwrite(machine.memory, 1, MEM_BYTES, booted) != MEM_BYTES) {
                 perror(getenv("BOOTED"));
                 exit(EXIT_FAILURE);
             }

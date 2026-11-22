@@ -25,23 +25,6 @@ void stops_put(int64_t cell, int64_t cells) {
 #include "vm_opcodes.h"
 #endif // DEBUG
 
-// Cells are held in 64 bits, sign-extended from CELL_BITS.
-static inline int64_t cell(int64_t x) {
-#if CELL_BITS == 64
-    return x;
-#else
-    return (int64_t)((uint64_t)x << (64 - CELL_BITS)) >> (64 - CELL_BITS);
-#endif
-}
-
-static inline uint64_t ucell(int64_t x) {
-#if CELL_BITS == 64
-    return (uint64_t)x;
-#else
-    return (uint64_t)x & ((1ull << CELL_BITS) - 1);
-#endif
-}
-
 // -DSTRICT turns on every check the Forth system is meant to pass.
 #ifdef STRICT
 #define STRICT_ALIGN
@@ -85,36 +68,12 @@ static inline uint64_t ucell(int64_t x) {
 #ifdef STRICT_ALIGN
 static int64_t strict_pc;
 static uint64_t strict_steps;
-static void strict_at(const char *what, int64_t addr, int far_too) {
-    if (ucell(addr) >> ADDR_BITS && !(far_too && FAR_CELL(addr))) {
-        fprintf(stderr, "\n%s outside memory, at %llx, by the instruction at %llx\n", what,
-                (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
-        exit(3);
-    }
-}
 #define strict(what, addr) strict_at(what, addr, 1)
-#define strict_run(pc) strict_at("execution", (int64_t)((uint64_t)(pc) / (CELL_BYTES / 2)), 0)
+#define strict_run(pc) strict_at("execution", (int64_t)((uint64_t)(pc) >> (BYTE_SHIFT - 1)), 0)
 #else
 #define strict(what, addr)
 #define strict_run(pc) ((void)0)
 #endif
-
-// Where a cell is.  An address is the number of a cell; one outside memory
-// is undefined, and here it wraps, unless the machine has a cell for it.
-static inline uint8_t *cell_at(context *ctx, int64_t addr) {
-    if (ucell(addr) >> ADDR_BITS) {
-        uint8_t *far = FAR_CELL(addr);
-        if (far) return far;
-    }
-    return (uint8_t *)ctx->memory + (ucell(addr) & ((1ull << ADDR_BITS) - 1)) * CELL_BYTES;
-}
-
-static inline int64_t mem_load(context *ctx, int64_t addr) {
-    strict("fetch", addr);
-    int64_t v = 0;
-    memcpy(&v, cell_at(ctx, addr), CELL_BYTES);
-    return cell(v);
-}
 
 // Built with -DROM_BYTES=n, a store below address n stops the VM: that part
 // of the kernel can then be a ROM.  The Forth system keeps every variable
@@ -123,21 +82,11 @@ static inline int64_t mem_load(context *ctx, int64_t addr) {
 #ifndef ROM_FROM
 #define ROM_FROM 0
 #endif
-static inline void mem_store(context *ctx, int64_t addr, int64_t v) {
-    strict("store", addr);
-#ifdef ROM_BYTES
-    if (ucell(addr) >= ROM_FROM / CELL_BYTES && ucell(addr) < ROM_BYTES / CELL_BYTES) {
-        fprintf(stderr, "\nstore to the kernel at %llx by the instruction at %llx\n",
-                (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
-        exit(3);
-    }
-#endif
-    if (STOPS.on) {
-        if (STOPS.put && !(ucell(addr) >> ADDR_BITS)) stops_put((int64_t)ucell(addr), 1);
-        if ((int64_t)ucell(addr) == STOPS.break_store) STOPS.stored = 1;
-    }
-    memcpy(cell_at(ctx, addr), &v, CELL_BYTES);
-}
+
+// What the machine does with a cell (vm_loop.h), with no width said: of a
+// cell of whatever width the machine a program is run for has.  This is
+// what the rest of this file, and what has this file in it, asks of a cell.
+#include "vm_loop.h"
 
 static inline uint8_t clz(uint64_t N) {
     return N ? 64 - __builtin_clzll(N) : -(uint64_t)INFINITY;
@@ -166,12 +115,8 @@ static inline int io_width(uint64_t port) {
 // latch is an offset into the VM memory and port 0xc0 reads as zero.
 static inline uint8_t *io_target(context *ctx, int width) {
     uint8_t *lo = (uint8_t *)ctx->memory;
-#if CELL_BITS == 64
-    uint8_t *p = (uint8_t *)(intptr_t)ctx->IOADDR;
-#else
-    uint8_t *p = lo + ucell(ctx->IOADDR);
-#endif
-    return (p >= lo && p + width <= lo + sizeof(ctx->memory)) ? p : NULL;
+    uint8_t *p = CELL_BITS == 64 ? (uint8_t *)(intptr_t)ctx->IOADDR : lo + ucell(ctx->IOADDR);
+    return (p >= lo && p + width <= lo + MEM_BYTES) ? p : NULL;
 }
 
 // Disks.  This VM can be given files to be them (main.c), each of blocks
@@ -193,7 +138,7 @@ static inline uint8_t *io_target(context *ctx, int width) {
 
 static inline void disk_io(context *ctx, int64_t addr, int write) {
     uint64_t at = ucell(addr) * CELL_BYTES;
-    if (at + DISK_BLOCK > sizeof(ctx->memory)) return;
+    if (at + DISK_BLOCK > MEM_BYTES) return;
     FILE *disk = ctx->DISKS[DISK_DRIVE_OF(ucell(ctx->DISKBLK))];
     uint8_t *p = (uint8_t *)ctx->memory + at;
     if (disk) fseek(disk, (long)DISK_BLOCK_OF(ucell(ctx->DISKBLK)) * DISK_BLOCK, SEEK_SET);
@@ -251,11 +196,7 @@ static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t i
 
 static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
     if (io_addr == IO_ADDR) {
-#if CELL_BITS == 64
-        return (int64_t)(intptr_t)ctx->memory;
-#else
-        return 0;
-#endif
+        return CELL_BITS == 64 ? (int64_t)(intptr_t)ctx->memory : 0;
     }
     if (io_addr == 0xe1) {
         return TRUE;        // key?: reading stdin just blocks until there is one
@@ -292,26 +233,7 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
 }
 #endif
 
-// The arithmetic: what an operation makes of its two inputs, and of nothing
-// else.  Which two they are is the step's to say (vm_step.h).
-static inline int64_t alu(int op, int64_t a, int64_t b) {
-    switch (op) {
-        case ALU_ADD:    return a + b;
-        case ALU_AND:    return a & b;
-        case ALU_OR:     return a | b;
-        case ALU_XOR:    return a ^ b;
-        case ALU_MUL:    return a * b;
-        case ALU_INVERT: return ~a;
-        case ALU_EQ:     return a == b ? TRUE : FALSE;
-        case ALU_GT:     return b < a ? TRUE : FALSE;
-        case ALU_U_GT:   return ucell(b) < ucell(a) ? TRUE : FALSE;
-        case ALU_RSHIFT: return ucell(a) >> (b & 63);       // from the cell width up, the result is 0
-        case ALU_LSHIFT: return ucell(a) << (b & 63);
-        default:         return 0;
-    }
-}
-
-// What is so of the arithmetic whatever its inputs, for what reasons about
+// What is so of the arithmetic (alu, vm_loop.h) whatever its inputs, for what reasons about
 // it and does not run it (util/fuse.h, which also tries each on the
 // machine): the operations whose two inputs may be exchanged; those of
 // which a run may be regrouped as well, since the cell they make is the
@@ -375,99 +297,26 @@ static inline int64_t alu(int op, int64_t a, int64_t b) {
 #define DEPTHS()
 #endif
 
-int vm(context *ctx) {
-    register int64_t EIP = ctx->EIP;        // EIP = execution pointer
-    register int16_t SP = 0;                // SP = data stack pointer
-    register int16_t RSP = 0;               // RSP = return stack pointer
-    register int64_t T = ctx->DSTACK[SP];   // T = Top Of Stack / TOS
-    register int64_t R = ctx->RSTACK[RSP];  // R = Top Of Return Stack / TOR
-    register int64_t IN = 0;                // I = input to ALU
-    register int64_t N;                     // N = Next on Stack / NOS
-    register int64_t OUT = 0;               // OUT - result from ALU
-    register uint64_t cycles = ctx->CYCLES; // how many instructions processed
+// The loop, once for each width a cell has, with the width a constant in
+// it (vm_loop.h): vm_64, vm_32 and vm_16.
+#define CELL_IS 64
+#include "vm_loop.h"
+#undef CELL_IS
+#define CELL_IS 32
+#include "vm_loop.h"
+#undef CELL_IS
+#define CELL_IS 16
+#include "vm_loop.h"
+#undef CELL_IS
 
-    STOPS.reason = STOP_HALT;
-    for (; ctx->memory[EIP] != 0; ++cycles, strict_run(EIP)) {
-#ifdef STRICT_ALIGN
-        if (strict_steps && cycles - ctx->CYCLES >= strict_steps) break;
-#endif
-        if (STOPS.on) {         // what stops it besides a halt (vm_stopped.h)
-            if (STOPS.stored) {
-                STOPS.stored = 0;
-                if (!STOPS.pass) { STOPS.reason = STOP_AT_STORE; break; }
-                STOPS.pass--;
-            }
-            if (EIP == STOPS.break_at) {
-                if (!STOPS.pass) { STOPS.reason = STOP_AT_BREAK; break; }
-                STOPS.pass--;
-            }
-            if (STOPS.budget && ++STOPS.since > STOPS.budget) { STOPS.reason = STOP_RAN_ON; break; }
-            if (STOPS.put && !(STOPS.put[EIP >> 3] & (1 << (EIP & 7)))) { STOPS.reason = STOP_NO_CODE; break; }
-            STOPS.ring[STOPS.ran++ % STOP_RING] = EIP;
-        }
-        // #ifdef DEBUG
-        //    show_registers(T, R, EIP, SP, RSP, ctx);
-        // #endif // DEBUG
-        instruction ins = *(instruction*)&(ctx->memory[EIP]);
-        RUNS(EIP);
-        #ifdef DEBUG
-        print_state(ctx, RSP, SP, EIP, R, T);
-        #endif // DEBUG
-        // increment EIP to the next instruction for next cycle
-        EIP++;
-#ifdef STRICT_ALIGN
-        strict_pc = EIP;
-#endif
-        // A literal (the MSB is set) or an instruction of the ALU: the step.
-        if (ins.lit.lit_f || ins.alu.op_type == OP_TYPE_ALU) {
-#include "vm_step.h"
-            continue;
-        }
-        switch (ins.alu.op_type) {
-            case OP_TYPE_CJMP: {
-                // Conditional jump - jumps if TOS is zero (0branch)
-                SP--;
-                bool RES=(uint64_t)T;
-                T=ctx->DSTACK[SP-1];
-                if (!RES) {
-                    EIP = branch(EIP, ins.jmp.target);
-                }
-                break;
-            }
-            case OP_TYPE_JMP:
-                // Unconditional jump
-                EIP = branch(EIP, ins.jmp.target);
-                break;
-            case OP_TYPE_CALL:
-                // Unconditional call.  The return address is a cell on the
-                // return stack, as everything else there is.
-                ctx->RSTACK[RSP-1] = R;
-                R = cell(EIP);
-                ctx->RSTACK[RSP] = R;
-                RSP++;
-                EIP = branch(EIP, ins.jmp.target);
-                break;
-            default:                // of the ALU, which the step did
-                break;
-        }
-        // print_stack(SP,T, ctx, false);
+// The machine is run by the loop that is of its cell's width, which is
+// looked at here, once, as it starts.
+int vm(context *ctx) {
+    switch (CELL_BITS) {
+        case 64: return vm_64(ctx);
+        case 32: return vm_32(ctx);
+        default: return vm_16(ctx);
     }
-#ifdef DEBUG
-    print_state(ctx, RSP, SP, EIP, R, T);
-#endif
-    // A halt where nothing was ever put is the machine running where there is no code.
-    if (STOPS.on && STOPS.reason == STOP_HALT && STOPS.put && !(STOPS.put[EIP >> 3] & (1 << (EIP & 7)))) {
-        STOPS.reason = STOP_NO_CODE;
-    }
-    STOPS.at = EIP;
-    ctx->CYCLES = cycles;
-    ctx->DSTACK[SP-1] = T;
-    ctx->RSTACK[RSP-1] = R;
-    ctx->SP = SP;
-    ctx->RSP = RSP;
-    ctx->EIP = EIP;
-    fflush(ctx->OUT);
-    return 1;
 }
 
 void stops_from_env(void) {
@@ -506,7 +355,7 @@ const char* stop_reason(void) {
     }
 }
 
-void post_mortem(FILE *to, context *ctx, const char *image, const char *memory_path, int bits) {
+void post_mortem(FILE *to, context *ctx, const char *image, const char *memory_path) {
     fprintf(to, "the machine stopped: %s, at %llx, which is %04x\n", stop_reason(),
             (unsigned long long)ctx->EIP, (unsigned)ctx->memory[ctx->EIP]);
     fprintf(to, "  the data stack, %d deep, the top first:", ctx->SP);
@@ -534,11 +383,11 @@ void post_mortem(FILE *to, context *ctx, const char *image, const char *memory_p
         perror(memory_path);
         return;
     }
-    fwrite(ctx->memory, 1, sizeof(ctx->memory), memory);
+    fwrite(ctx->memory, 1, MEM_BYTES, memory);
     fclose(memory);
     fprintf(to, "  its memory is in %s; a place is named with\n"
-                "    build/cmake/disasm_hex-%d %s --memory %s PLACE PLACE\n",
-            memory_path, bits, image ? image : "IMAGE.hex", memory_path);
+                "    build/cmake/disasm_hex %s --memory %s PLACE PLACE\n",
+            memory_path, image ? image : "IMAGE.hex", memory_path);
 }
 
 // What has the step again, on something else, says these again.

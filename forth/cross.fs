@@ -2558,6 +2558,24 @@ shadows-written
 ;
 needs-written
 
+\ .machine: the machine the image is for, as basewords.fs said it:
+\ a line of its sizes, in the order util/image.c reads them.  A tool
+\ that is given the image is that machine's from it, and is not
+\ built for one machine.
+: size-said ( n f -- ) >r  s>d <# bl hold #s #>  r> write-file throw ;
+: machine-written ( -- )
+    s" machine" out-suffix { f }
+    base @ >r decimal
+    cell-bits f size-said  addr-bits f size-said
+    disp-w f size-said  disp-h f size-said  disp-base f size-said
+    disp-left-low f size-said  disp-ink-black f size-said
+    disp-stride f size-said  disp-banks f size-said  disp-bank-step f size-said
+    r> base !
+    s" " f write-line throw
+    f close-file throw
+;
+machine-written
+
 headers-ordered                         \ an image with no tables of names has not had it done
 link @ var-base tvar!
 plain @ 0= [if]

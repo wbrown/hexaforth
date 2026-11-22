@@ -2,8 +2,8 @@
 // mkdisk OUT.img [SOURCE.fs [NAMES]]
 // mkdisk --pack SOURCE.fs...
 // mkdisk --disk OUT.img FILE...
-// mkdisk --boot BITS IMAGE.hex OUT.img IPL.bin SOURCE.fs...
-// mkdisk --boot-desk BITS IMAGE.hex OUT.img IPL.bin NAMES SOURCE.fs...
+// mkdisk --boot IMAGE.hex OUT.img IPL.bin SOURCE.fs...
+// mkdisk --boot-desk IMAGE.hex OUT.img IPL.bin NAMES SOURCE.fs...
 //
 // A disk is no more than DISK_FLOPPY blocks, what an 8-inch floppy holds,
 // and one that would be more is not made.
@@ -29,8 +29,9 @@
 // name or what is said before = in front of it (LABEL=FILE): a disk a
 // machine has besides the one it starts from (files_disk, below).
 //
-// With --boot it makes a disk that a machine of cells of BITS bits starts
-// from with its ROM alone (doc/boot.md): block 0 is its index
+// With --boot it makes a disk that the machine the image is for (which the
+// image says beside it, util/image.h) starts from with its ROM alone
+// (doc/boot.md): block 0 is its index
 // (doc/disk.md), the sources are from block 1, the first of them being
 // what the machine loads, with each file a source includes after them
 // (with_included, below), and after them is the image's memory above the
@@ -353,10 +354,11 @@ _Static_assert(DISK_VIEW_BLOCK + DISK_VIEW_BLOCKS <= DISK_GRAY_BLOCK, "the viewe
 // and stop where the names start, the desktop's things are where they are
 // on any disk of the desktop's, and the image, which the index says the
 // place of, is after them all.
-int boot_disk(int bits, const char* image_path, const char* out_path, const char* ipl_path,
+int boot_disk(const char* image_path, const char* out_path, const char* ipl_path,
               int desk, const char* names_path, int sources, char* source_paths[]) {
     uint8_t* image;
     size_t image_len = load_image(image_path, &image);
+    const int bits = CELL_BITS;                             // of the image's machine
     uint8_t** texts = calloc(sources, sizeof(uint8_t*));
     size_t* text_lens = calloc(sources, sizeof(size_t));
     long* lines = calloc(sources, sizeof(long));
@@ -579,22 +581,22 @@ static char** with_included(int* sources, char* given[]) {
 int main(int argc, char *argv[]) {
     if (argc > 1 && !strcmp(argv[1], "--pack")) return(pack_only(argc - 2, argv + 2));
     if (argc > 3 && !strcmp(argv[1], "--disk")) return(files_disk(argv[2], argc - 3, argv + 3));
-    if (argc > 6 && !strcmp(argv[1], "--boot")) {
+    if (argc > 5 && !strcmp(argv[1], "--boot")) {
+        int sources = argc - 5;
+        char** paths = with_included(&sources, argv + 5);
+        return(boot_disk(argv[2], argv[3], argv[4], 0, NULL, sources, paths));
+    }
+    if (argc > 6 && !strcmp(argv[1], "--boot-desk")) {
         int sources = argc - 6;
         char** paths = with_included(&sources, argv + 6);
-        return(boot_disk(atoi(argv[2]), argv[3], argv[4], argv[5], 0, NULL, sources, paths));
-    }
-    if (argc > 7 && !strcmp(argv[1], "--boot-desk")) {
-        int sources = argc - 7;
-        char** paths = with_included(&sources, argv + 7);
-        return(boot_disk(atoi(argv[2]), argv[3], argv[4], argv[5], 1, argv[6], sources, paths));
+        return(boot_disk(argv[2], argv[3], argv[4], 1, argv[5], sources, paths));
     }
     if (argc < 2 || argv[1][0] == '-') {
         fprintf(stderr, "Usage: %s OUT.img [SOURCE.fs [NAMES]]\n"
                         "       %s --pack SOURCE.fs...\n"
                         "       %s --disk OUT.img FILE...\n"
-                        "       %s --boot BITS IMAGE.hex OUT.img IPL.bin SOURCE.fs...\n"
-                        "       %s --boot-desk BITS IMAGE.hex OUT.img IPL.bin NAMES SOURCE.fs...\n",
+                        "       %s --boot IMAGE.hex OUT.img IPL.bin SOURCE.fs...\n"
+                        "       %s --boot-desk IMAGE.hex OUT.img IPL.bin NAMES SOURCE.fs...\n",
                 argv[0], argv[0], argv[0], argv[0], argv[0]);
         return(1);
     }

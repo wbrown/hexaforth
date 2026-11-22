@@ -241,7 +241,6 @@ if(NOT CMAKE_BINARY_DIR STREQUAL "${CMAKE_SOURCE_DIR}/build")
                      ${CMAKE_SOURCE_DIR}/build/compile_commands.json SYMBOLIC)
 endif()
 
-set(DEBUG true)
 set(CMAKE_C_STANDARD 99)
 
 # Built as a release unless it is said otherwise: built with no flags, the
@@ -256,9 +255,23 @@ endif()
 set(CMAKE_C_FLAGS_RELEASE "-save-temps=obj -O2 -fverbose-asm -fcommon")
 set(CMAKE_C_FLAGS_DEBUG "-save-temps=obj -g -fverbose-asm -fcommon")
 
-if(DEBUG)
-   add_compile_definitions(DEBUG)
-endif()
+# What is compiled here has the trace of every instruction in it (DEBUG),
+# but for a tool or a test, which is built without (tool).
+add_compile_definitions(DEBUG)
+
+# A tool or a test: built without the trace.  Every one is built by a build
+# of no target, so that after one no tool is older than its source: a tool
+# that is run by hand is then the tool the source says.  One that cannot be
+# built everywhere, or not without fetching what it is made of, is said to
+# be left out of that build where it is defined (left_out).
+function(tool NAME)
+    add_executable(${NAME} ${ARGN})
+    target_compile_options(${NAME} PRIVATE -UDEBUG -w)
+    target_link_libraries(${NAME} m)
+endfunction()
+function(left_out)
+    set_target_properties(${ARGN} PROPERTIES EXCLUDE_FROM_ALL TRUE)
+endfunction()
 
 # cross.fs writes its output to build/, which is not checked in
 set(MAKE_BUILD_DIR ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/build)
@@ -276,7 +289,7 @@ list(FILTER FORTH_SOURCES EXCLUDE REGEX "/test_cases\\.fs$")
 # image is out of date when the machine changes too.  gforth builds that C
 # with libtool; and where gforth is Homebrew's, the compiler has to be told
 # where Homebrew's headers are, gforth's own among them.
-set(MACHINE_SOURCES util/fuse.h util/named.h util/room.h vm.c vm_step.h vm.h vm_opcodes.c
+set(MACHINE_SOURCES util/fuse.h util/named.h util/room.h vm.c vm_loop.h vm_step.h vm.h vm_opcodes.c
                     vm_opcodes.h vm_instruction.h vm_constants.h util/stack.c)
 set(WITH_HEADERS)                   # what is put before a command that has gforth build C
 if(BREW)
@@ -287,6 +300,71 @@ if(BREW)
     set(WITH_HEADERS ${CMAKE_COMMAND} -E env CPATH=${BREW_CPATH})
 endif()
 set(RUN_GFORTH ${WITH_HEADERS} ${GFORTH})
+
+# An image: cross.fs, run by gforth on a program, with what it writes in a
+# directory and what it says in a log there.  Every image is made by this,
+# and it is the one place that says how.
+#
+#   image(DIRECTORY
+#         [SOURCE file]         the program, a file of forth/: nuc.fs if none
+#                               is said
+#         [WORDS file]          the machine cross.fs reads: forth/basewords.fs
+#                               if none is said
+#         [SET name=value...]   what cross.fs is told besides, in its
+#                               environment (BOOT=on, ROM=virt-disk.fs)
+#         [MAKES kind...]       the files it is made for, of those cross.fs
+#                               writes, by what each ends in: hex if none is
+#                               said
+#         [FIRST command]       a command that is run before cross.fs
+#         [FROM file...]        the source it is out of date after: every
+#                               file of forth/ if none is said
+#         [AFTER what...]       what else it is made after, files and targets
+#         [LOG name]            its log: cross.log if none is said
+#         [IS text])            what is said as it is made
+#
+# An image is out of date when the machine changes too (MACHINE_SOURCES).
+# The files it is made for are left in IMAGE_FILES.
+function(image DIRECTORY)
+    cmake_parse_arguments(IT "" "SOURCE;WORDS;LOG;IS" "SET;MAKES;FIRST;FROM;AFTER" ${ARGN})
+    if(NOT IT_SOURCE)
+        set(IT_SOURCE nuc.fs)
+    endif()
+    if(NOT IT_WORDS)
+        set(IT_WORDS ./basewords.fs)
+    endif()
+    if(NOT IT_MAKES)
+        set(IT_MAKES hex)
+    endif()
+    if(NOT IT_FROM)
+        set(IT_FROM ${FORTH_SOURCES})
+    endif()
+    if(NOT IT_LOG)
+        set(IT_LOG cross.log)
+    endif()
+    get_filename_component(STEM ${IT_SOURCE} NAME_WE)
+    set(FILES)
+    foreach(KIND ${IT_MAKES})
+        list(APPEND FILES ${DIRECTORY}/${STEM}.${KIND})
+    endforeach()
+    set(BEFORE)
+    if(IT_FIRST)
+        set(BEFORE COMMAND ${IT_FIRST})
+    endif()
+    set(WORDS_FILE ${IT_WORDS})
+    if(IT_WORDS MATCHES "^\\./")                        # a file of forth/, said from there
+        string(REGEX REPLACE "^\\./" "${CMAKE_SOURCE_DIR}/forth/" WORDS_FILE ${IT_WORDS})
+    endif()
+    add_custom_command(
+            OUTPUT            ${FILES}
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${DIRECTORY}
+            ${BEFORE}
+            COMMAND           ${CMAKE_COMMAND} -E env BUILD=${DIRECTORY}/ ${IT_SET}
+                                ${RUN_GFORTH} ./cross.fs ${IT_WORDS} ./${IT_SOURCE} > ${DIRECTORY}/${IT_LOG} 2>&1
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
+            COMMENT           "${IT_IS} (what cross.fs says is in ${DIRECTORY}/${IT_LOG})"
+            DEPENDS           ${IT_FROM} ${WORDS_FILE} ${MACHINE_SOURCES} ${IT_AFTER})
+    set(IMAGE_FILES ${FILES} PARENT_SCOPE)
+endfunction()
 
 # Two files of Forth are made, and checked in: each is made by a command of
 # its own, from what that command says, and is among the sources of every
@@ -314,17 +392,13 @@ set(FUSED_FS ${CMAKE_SOURCE_DIR}/forth/fused.fs)
 set(UNTABLED ${CMAKE_SOURCE_DIR}/build/untabled)
 set(UNTABLED_SOURCES ${FORTH_SOURCES})
 list(REMOVE_ITEM UNTABLED_SOURCES ${FUSED_FS})
-add_custom_command(
-        OUTPUT            ${UNTABLED}/nuc.hex ${UNTABLED}/nuc.tables
-        COMMAND           ${CMAKE_COMMAND} -E make_directory ${UNTABLED}
-        COMMAND           fused ${UNTABLED}/fused.fs
-        COMMAND           ${CMAKE_COMMAND} -E env BUILD=${UNTABLED}/ FUSED=${UNTABLED}/fused.fs
-                            ${RUN_GFORTH} ./cross.fs ./basewords.fs ./nuc.fs > ${UNTABLED}/cross.log 2>&1
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
-        COMMENT           "The nucleus with the decompiler's table of no image (what cross.fs says is in ${UNTABLED}/cross.log)"
-        DEPENDS           ${UNTABLED_SOURCES}
-                          ${MACHINE_SOURCES}
-                          fused)
+image(${UNTABLED}
+      SET FUSED=${UNTABLED}/fused.fs
+      MAKES hex tables
+      FIRST fused ${UNTABLED}/fused.fs
+      FROM ${UNTABLED_SOURCES}
+      AFTER fused
+      IS "The nucleus with the decompiler's table of no image")
 add_custom_command(
         OUTPUT            ${FUSED_FS}
         COMMAND           fused ${UNTABLED}/nuc.hex ${UNTABLED}/nuc.tables forth/fused.fs
@@ -335,13 +409,7 @@ add_custom_command(
 # The nucleus of the default machine.  Every machine's own nucleus is built
 # after this one (forth-env, in machine), so that the two files above are
 # made in one place.
-add_custom_command(
-        OUTPUT            ${CMAKE_SOURCE_DIR}/build/nuc.hex ${CMAKE_SOURCE_DIR}/build/nuc.tables
-        COMMAND           ${RUN_GFORTH} ./cross.fs ./basewords.fs ./nuc.fs > ../build/cross.log 2>&1
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
-        COMMENT           "The nucleus of the default machine (what cross.fs says is in build/cross.log)"
-        DEPENDS           ${FORTH_SOURCES}
-                          ${MACHINE_SOURCES})
+image(${CMAKE_SOURCE_DIR}/build MAKES hex tables IS "The nucleus of the default machine")
 
 # basewords.fs opcode description for forth environment
 add_custom_command(
@@ -352,6 +420,7 @@ add_custom_command(
 
 add_executable(basewords-fs-gen
         util/baseword_fs_gen.c
+        util/image.c
         vm_opcodes.c
         vm_opcodes.h
         vm.h
@@ -378,37 +447,23 @@ add_custom_command(
         DEPENDS           generate-test-cases
                           test/tests.h)
 
-# Compile test_cases.fs to hex
-add_custom_command(
-        COMMAND           ${MAKE_BUILD_DIR}
-        COMMAND           ${RUN_GFORTH} cross.fs basewords.fs test_cases.fs
-        OUTPUT            ${CMAKE_SOURCE_DIR}/build/test_cases.hex
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
-        DEPENDS           forth/test_cases.fs
-                          forth/basewords.fs
-                          forth/cross.fs
-                          ${MACHINE_SOURCES})
+# Compile test_cases.fs to hex.  It is in build/ with the default machine's
+# nucleus, so its log has a name of its own.
+image(${CMAKE_SOURCE_DIR}/build
+      SOURCE test_cases.fs
+      FROM ${CMAKE_SOURCE_DIR}/forth/test_cases.fs ${CMAKE_SOURCE_DIR}/forth/cross.fs
+      LOG test_cases.log
+      IS "The tests, as cross.fs compiles them")
 
 # kick off our entire forth environment
 add_custom_target(forth-env
         ALL
         DEPENDS           ${CMAKE_SOURCE_DIR}/build/nuc.hex)
 
-# VM itself
-add_library(vm_core
-        vm.c
-        vm_step.h
-        vm.h
-        vm_instruction.h
-        vm_constants.h
-        util/stack.c
-        util/stack.h)
-iF(DEBUG)
-    target_compile_definitions(vm_core PUBLIC DEBUG)
-endif()
-
+# The VM itself, with the trace
 add_library(vm_core_debug
         vm.c
+        vm_loop.h
         vm_step.h
         vm.h
         vm_instruction.h
@@ -418,7 +473,8 @@ add_library(vm_core_debug
         vm_debug.c
         vm_debug.h
         util/stack.c
-        util/stack.h)
+        util/stack.h
+        util/image.c)
 target_compile_definitions(vm_core_debug
         PUBLIC
         DEBUG)
@@ -443,14 +499,7 @@ target_compile_definitions(hexaforth_test
 # What reaches each word of the kernel (util/reach.h): nothing of it is to
 # be there that nothing comes to.  It has the machine in it, and is built
 # without the trace.
-add_executable(kernel_test
-        test/kernel_test.c
-        vm_opcodes.c
-        vm_debug.c
-        util/stack.c
-        util/image.c)
-target_compile_options(kernel_test PRIVATE -UDEBUG -w)
-target_link_libraries(kernel_test m)
+tool(kernel_test test/kernel_test.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
 
 # The search for the fewest instructions that do the work of a run, and of
 # a turn of a loop (util/fewer.h, util/turns.h), held to runs whose fewest
@@ -458,23 +507,13 @@ target_link_libraries(kernel_test m)
 # may take, in what it looks at, is said here and nowhere else: what is
 # looked for, how deep and how long, is the run's or the turn's to say.
 set(SEARCH_STATES 1000000 CACHE STRING "the states a search for fewer instructions looks at before it is given up (util/fewer.h)")
-add_executable(fewer_test
-        test/fewer_test.c
-        util/image.c)
-target_compile_options(fewer_test PRIVATE -UDEBUG -w)
+tool(fewer_test test/fewer_test.c util/image.c)
 target_compile_definitions(fewer_test PRIVATE SEARCH_STATES=${SEARCH_STATES})
-target_link_libraries(fewer_test m)
 
 # What an image is made of: its pages of code, the source files its code is
 # from, and the rest of its memory (util/layout.h).  The target `examine`
 # says it of the nucleus's image.
-add_executable(examine-image
-        util/examine.c
-        vm_opcodes.c
-        vm_debug.c
-        util/image.c)
-target_compile_options(examine-image PRIVATE -UDEBUG -w)
-target_link_libraries(examine-image m)
+tool(examine-image util/examine.c vm_opcodes.c vm_debug.c util/image.c)
 add_custom_target(examine
         COMMAND           ${CMAKE_BINARY_DIR}/examine-image build/nuc.hex build/nuc.tables build/nuc.sizes
                             > build/examine.txt
@@ -484,34 +523,9 @@ add_custom_target(examine
         DEPENDS           examine-image
                           build/nuc.hex)
 
-# (They read build/test_cases.hex and the nucleus's image, from where the
-# source is.)
-add_custom_target(tests
-        ALL
-        COMMAND           ${CMAKE_BINARY_DIR}/hexaforth_test 2> ${CMAKE_BINARY_DIR}/hexaforth_test.debug
-        COMMAND           ${CMAKE_BINARY_DIR}/kernel_test build/nuc.hex build/nuc.tables
-        COMMAND           ${CMAKE_BINARY_DIR}/fewer_test
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        DEPENDS           hexaforth_test
-                          kernel_test
-                          fewer_test
-                          build/test_cases.hex
-                          build/nuc.hex)
-
-# Main executable
-add_executable(hexaforth
-        main.c
-        build/nuc.hex)
-if(DEBUG)
-    target_link_libraries(hexaforth
-            vm_core_debug)
-else()
-    target_link_libraries(hexaforth
-            vm_core)
-endif()
-
-# Debug executable
-if(DEBUG)
+# The reference VM with the trace of every instruction (DEBUG, above).  The
+# reference VM itself is `hexaforth` (machine_tool, below): one program,
+# which is of the machine whose image it is given.
 add_executable(hexaforth-debug
         main.c
         build/nuc.hex)
@@ -520,7 +534,6 @@ target_link_libraries(hexaforth-debug
 target_compile_definitions(hexaforth-debug
         PUBLIC
         DEBUG)
-endif()
 
 #
 # The machines the system is tried on, and everything that is built for one
@@ -530,8 +543,9 @@ endif()
 # directory of build/ that has its name, which is the bits of its cell:
 # the machine's definition for cross.fs (basewords.fs), its nucleus
 # (nuc.hex, and what cross.fs writes beside it), the disks its tests are
-# given, and what the tests leave.  What is compiled for it is named for it
-# too (hexaforth-32, prompt_test-32), and is where CMake builds.
+# given, and what the tests leave.  Nothing is compiled for a machine: a
+# tool or a test is one program, where CMake builds, and is of the machine
+# whose image it is given (machine_tool, stepping_tool).
 #
 # Nothing here is built unless it is asked for: a test builds what it
 # needs before it is run (needs, below), the target `check` runs every
@@ -539,13 +553,6 @@ endif()
 #
 set(BUILD ${CMAKE_SOURCE_DIR}/build)
 enable_testing()
-
-# A tool or a test: built without the trace, as kernel_test is.
-function(tool NAME)
-    add_executable(${NAME} EXCLUDE_FROM_ALL ${ARGN})
-    target_compile_options(${NAME} PRIVATE -UDEBUG -w)
-    target_link_libraries(${NAME} m)
-endfunction()
 
 # What a target measures is kept (util/keep.c): a target that measures
 # writes what it found where it always does, and so over what it found the
@@ -594,6 +601,49 @@ function(needs TEST)
     endforeach()
 endfunction()
 
+# Which target makes a file: said where the file is made, and asked by a
+# report of every file it names (report).
+function(owned TARGET)
+    foreach(FILE ${ARGN})
+        string(MD5 KEY "${FILE}")
+        set_property(GLOBAL PROPERTY OWNER_${KEY} ${TARGET})
+    endforeach()
+endfunction()
+
+# The files cross.fs writes beside an image in a directory, which are all
+# the one target's that makes the image.
+function(image_owned TARGET DIRECTORY)
+    foreach(KIND hex tables lst sizes inline public needs shadows)
+        owned(${TARGET} ${DIRECTORY}/nuc.${KIND})
+    endforeach()
+endfunction()
+
+# A report: a target that runs what it is told and says what was found,
+# said as add_custom_target is.  What it depends on is not said: it is the
+# target that makes each file its commands name, a machine's image or its
+# disks or the pictures (owned), so that each is made, and made in one
+# place, before the report reads it.  Disks said with commas between them
+# are each looked at.  A tool it runs is built first, as CMake has it.
+function(report NAME)
+    add_custom_target(${NAME} ${ARGN})
+    set(OWNERS)
+    foreach(SAID ${ARGN})
+        string(REPLACE "," ";" FILES "${SAID}")
+        foreach(FILE ${FILES})
+            string(MD5 KEY "${FILE}")
+            get_property(OWNER GLOBAL PROPERTY OWNER_${KEY})
+            if(OWNER)
+                list(APPEND OWNERS ${OWNER})
+            endif()
+        endforeach()
+    endforeach()
+    list(REMOVE_DUPLICATES OWNERS)
+    if(NOT OWNERS)
+        message(FATAL_ERROR "the report ${NAME} names nothing that is made: it would be run on whatever was there")
+    endif()
+    add_dependencies(${NAME} ${OWNERS})
+endfunction()
+
 # The tests that need only the reference VM, with no QEMU and no Verilog,
 # have a label, and the target `quick` runs those (at the end of this
 # file).  A test is given it here.
@@ -602,7 +652,9 @@ function(on_the_vm)
     set_property(TEST ${ARGN} APPEND PROPERTY LABELS ${ON_THE_VM})
 endfunction()
 
-# The three that the target `tests` runs are tests like any other.
+# The tests of the default machine: the instructions, compiled two ways and
+# run; the kernel, and what comes to each word of it; and the search for
+# fewer instructions.
 add_custom_target(test-cases DEPENDS ${BUILD}/test_cases.hex)
 add_test(NAME instructions COMMAND hexaforth_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 needs(instructions hexaforth_test test-cases forth-env)
@@ -619,16 +671,11 @@ needs(fewer fewer_test)
 # forth/shadowed.fs is a program that has one of each kind, and two that
 # are not to be noted, and test/shadowed.shadows is what cross.fs is to
 # write of it.
-add_custom_command(
-        OUTPUT            ${BUILD}/shadowed/shadowed.shadows
-        COMMAND           ${CMAKE_COMMAND} -E make_directory ${BUILD}/shadowed
-        COMMAND           ${CMAKE_COMMAND} -E env BUILD=${BUILD}/shadowed/
-                            ${RUN_GFORTH} ./cross.fs ./basewords.fs ./shadowed.fs > ${BUILD}/shadowed/cross.log 2>&1
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
-        DEPENDS           forth/shadowed.fs
-                          forth/basewords.fs
-                          forth/cross.fs
-                          ${MACHINE_SOURCES})
+image(${BUILD}/shadowed
+      SOURCE shadowed.fs
+      MAKES shadows
+      FROM ${CMAKE_SOURCE_DIR}/forth/shadowed.fs ${CMAKE_SOURCE_DIR}/forth/cross.fs
+      IS "A program with a name defined again each way that is noted")
 add_custom_target(shadowed DEPENDS ${BUILD}/shadowed/shadowed.shadows)
 add_test(NAME shadows COMMAND ${CMAKE_COMMAND} -E compare_files ${BUILD}/shadowed/shadowed.shadows test/shadowed.shadows
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
@@ -661,14 +708,20 @@ add_custom_target(wrap
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
         DEPENDS           wrap-source
         VERBATIM)
+# A picture of the USC-SIPI image database is fetched as the database has
+# it, by its number there.
+function(fetched FILE NUMBER)
+    add_custom_command(
+            OUTPUT            ${FILE}
+            COMMAND           ${MAKE_BUILD_DIR}
+            COMMAND           ${CURL} -sSfL --remove-on-error -o ${FILE}
+                                "https://sipi.usc.edu/database/download.php?vol=misc&img=${NUMBER}"
+            VERBATIM)
+endfunction()
 set(PICTURE ${BUILD}/mandrill.tiff)
-add_custom_command(
-        OUTPUT            ${PICTURE}
-        COMMAND           ${MAKE_BUILD_DIR}
-        COMMAND           ${CURL} -sSfL --remove-on-error -o ${PICTURE}
-                            "https://sipi.usc.edu/database/download.php?vol=misc&img=4.2.03"
-        VERBATIM)
+fetched(${PICTURE} 4.2.03)
 add_custom_target(picture DEPENDS ${PICTURE})
+owned(picture ${PICTURE})
 
 # A disk is no more than a floppy holds (DISK_FLOPPY, vm_constants.h), and
 # the pictures are on one of their own: an index and the Mandrill under
@@ -689,6 +742,7 @@ endfunction()
 set(PICTURES ${BUILD}/pictures.img)
 pictures_disk(${PICTURES} ${PICTURE})
 add_custom_target(pictures DEPENDS ${PICTURES})
+owned(pictures ${PICTURES})
 
 # The Mandrill as one-sample gray TIFFs, using the dither's own grays: at
 # full size, and at half size.  bench/grays.c writes them, and the
@@ -716,18 +770,8 @@ endfunction()
 # reads them.
 set(PEPPERS ${BUILD}/peppers.tiff)
 set(AIRPLANE ${BUILD}/airplane.tiff)
-add_custom_command(
-        OUTPUT            ${PEPPERS}
-        COMMAND           ${MAKE_BUILD_DIR}
-        COMMAND           ${CURL} -sSfL --remove-on-error -o ${PEPPERS}
-                            "https://sipi.usc.edu/database/download.php?vol=misc&img=4.2.07"
-        VERBATIM)
-add_custom_command(
-        OUTPUT            ${AIRPLANE}
-        COMMAND           ${MAKE_BUILD_DIR}
-        COMMAND           ${CURL} -sSfL --remove-on-error -o ${AIRPLANE}
-                            "https://sipi.usc.edu/database/download.php?vol=misc&img=4.2.05"
-        VERBATIM)
+fetched(${PEPPERS} 4.2.07)
+fetched(${AIRPLANE} 4.2.05)
 
 # The seeds the tests that try things by chance are each run with.
 set(SEEDS 3 4 CACHE STRING "the seeds the tests that try things by chance are run with")
@@ -736,137 +780,148 @@ set(SEEDS 3 4 CACHE STRING "the seeds the tests that try things by chance are ru
 # (test/nucleus.c), and the desktop on it (test/deskvm.c) with what looks at
 # its screen.
 set(VM_SOURCES vm.c vm_opcodes.c vm_debug.c util/stack.c)
-set(TYPED_SOURCES test/nucleus.c ${VM_SOURCES} util/image.c)
+set(TYPED_SOURCES test/nucleus.c vm.c)
 set(DESK_SOURCES test/deskvm.c test/deskcheck.c test/tables.c test/dither.c bench/tiff.c)
 
-# A machine: its name, and what the C compiler is told for it.  Its
-# definition is made by the generator built for it, and its nucleus by
-# cross.fs from that; and the nucleus again with the peephole off, which
-# reads the calls the first build compiled in place (nuc.inline) and so is
-# made after it, in a directory of its own.
+# A machine is two things.  It is sizes, which the generator is told and
+# makes its definition of (basewords.fs): no tool is built for them, since
+# cross.fs says them beside every image it makes (nuc.machine), and a tool
+# is the machine of the image it is given.  And it is a system: the images
+# cross.fs makes for it and the disks that go with them.  A machine of
+# util/machines is both under one name.  QEMU's has the sizes of one of
+# those and a system of its own, since its ROM has another disk's driver.
 #
-# What is made for a machine is the target machine-NAME's to make, and the
-# nucleus with the peephole off is plain-NAME's.  Whatever else is made
-# from one of those files depends on the file, so that it is made again
-# when the file is, and on the target, so that the file is made in one
-# place and not by two targets at once.  made() says a file is the first
-# target's.
+# What is made for a system is the target machine-NAME's to make.
+# Whatever else is made from one of those files depends on the file, so
+# that it is made again when the file is, and on the target, so that the
+# file is made in one place and not by two targets at once.  made() says a
+# file is that target's.
 function(made NAME)
     set_property(GLOBAL APPEND PROPERTY MADE_FOR_${NAME} ${ARGN})
+    owned(machine-${NAME} ${ARGN})
+endfunction()
+
+# A system: its name, which is its directory of build/ and what its
+# targets are named for, and the machine whose sizes it has.
+#
+#   system(NAME OF
+#          [SET name=value...]  what cross.fs is told for every image of it
+#                               (ROM=virt-disk.fs)
+#          [AFTER what...])     what its nucleus is made after
+#
+# Its nucleus is made after the default machine's (forth-env), which is
+# where the two made files of Forth are made.  A system whose machine has
+# a display has the names that go with its image (nuc.tables), a disk for
+# its desktop, and the image it boots from a disk with (BOOT=on): the
+# system without what forth/apps.fs lists, which the boot compiles from
+# the disk (doc/boot.md).  boot-system-NAME makes that in a directory of
+# its own, with its two disks, after the nucleus, since both write what
+# fuse.h keeps in build/.
+function(system NAME OF)
+    cmake_parse_arguments(IT "" "" "SET;AFTER" ${ARGN})
+    set(AT ${BUILD}/${NAME})
+    set(WORDS ${BUILD}/${OF}/basewords.fs)
+    set(NAMES)
+    if("${SIZES_OF_${OF}}" MATCHES "DISP_W=")
+        set(NAMES tables)                               # the names, which a machine with a display has
+    endif()
+    image(${AT}
+          WORDS ${WORDS}
+          SET ${IT_SET}
+          MAKES hex lst sizes inline ${NAMES}
+          AFTER forth-env ${IT_AFTER}
+          IS "The nucleus for the machine ${NAME}")
+    set(NUCLEUS ${IMAGE_FILES})
+    made(${NAME} ${NUCLEUS})
+    image_owned(machine-${NAME} ${AT})
+    if(NOT NAMES)
+        return()
+    endif()
+
+    # The desktop's disk: block 1 for the editor, and the names that go
+    # with this image.
+    desk_disk(${AT}/disk.img ${AT}/nuc.tables)
+    made(${NAME} ${AT}/disk.img)
+
+    image(${AT}/boot
+          WORDS ${WORDS}
+          SET ${IT_SET} BOOT=on
+          MAKES hex tables
+          AFTER machine-${NAME} ${NUCLEUS}
+          IS "The image the machine ${NAME} boots from a disk with")
+    # Its disk: block 1 is forth/apps.fs, and after it each file it
+    # includes, which the boot compiles from its source (mkdisk follows
+    # the includes, so apps.fs is the one list).
+    add_custom_command(
+            OUTPUT            ${AT}/boot/apps.img ${AT}/boot/apps.ipl
+            COMMAND           mkdisk --boot ${AT}/boot/nuc.hex ${AT}/boot/apps.img ${AT}/boot/apps.ipl
+                                ${CMAKE_SOURCE_DIR}/forth/apps.fs > ${AT}/boot/apps-disk.log 2>&1
+            DEPENDS           mkdisk ${AT}/boot/nuc.hex ${FORTH_SOURCES})
+    # And the disk it starts its desktop from: the same, with the
+    # desktop's own things at their blocks (mkdisk --boot-desk), and the
+    # names that go with that image.
+    add_custom_command(
+            OUTPUT            ${AT}/boot/desk.img ${AT}/boot/desk.ipl
+            COMMAND           mkdisk --boot-desk ${AT}/boot/nuc.hex ${AT}/boot/desk.img ${AT}/boot/desk.ipl
+                                ${AT}/boot/nuc.tables
+                                ${CMAKE_SOURCE_DIR}/forth/apps.fs > ${AT}/boot/desk-disk.log 2>&1
+            DEPENDS           mkdisk ${AT}/boot/nuc.hex ${FORTH_SOURCES})
+    add_custom_target(boot-system-${NAME} DEPENDS ${AT}/boot/nuc.hex ${AT}/boot/apps.img ${AT}/boot/desk.img)
+    image_owned(boot-system-${NAME} ${AT}/boot)
+    owned(boot-system-${NAME} ${AT}/boot/apps.img ${AT}/boot/apps.ipl ${AT}/boot/desk.img ${AT}/boot/desk.ipl)
+endfunction()
+
+# A system's nucleus again with the peephole off (PEEPHOLE=off), which
+# plain-NAME makes in a directory of its own.  It reads the calls the first
+# build compiled in place (nuc.inline), so it is made after it.  It is made
+# of the machine the two builds are compared on, and the reports are of.
+function(plain NAME)
+    set(AT ${BUILD}/${NAME})
+    image(${AT}/plain
+          WORDS ${AT}/basewords.fs
+          SET PEEPHOLE=off
+          MAKES hex tables
+          FIRST ${CMAKE_COMMAND} -E copy ${AT}/nuc.inline ${AT}/plain/nuc.inline
+          AFTER machine-${NAME} ${AT}/nuc.hex ${AT}/nuc.inline
+          IS "The nucleus for the machine ${NAME}, with the peephole off")
+    add_custom_target(plain-${NAME} DEPENDS ${IMAGE_FILES})
+    image_owned(plain-${NAME} ${AT}/plain)
+endfunction()
+
+# A second system: the picture alone (forth/picture.fs), which
+# picture-system-NAME makes in a directory of its own, after the nucleus.
+# It is for the machine of 64K cells, which with the whole desktop has not
+# the memory to dither the picture at its own size (bench_on).
+function(picture_system NAME)
+    set(AT ${BUILD}/${NAME})
+    image(${AT}/picture
+          WORDS ${AT}/basewords.fs
+          SET SYSTEM=picture.fs
+          AFTER machine-${NAME} ${AT}/nuc.hex
+          IS "The system with the picture alone, for the machine ${NAME}")
+    add_custom_target(picture-system-${NAME} DEPENDS ${IMAGE_FILES})
+    image_owned(picture-system-${NAME} ${AT}/picture)
 endfunction()
 
 function(machine NAME)
     set(AT ${BUILD}/${NAME})
-    set(DEFINITIONS_${NAME} ${ARGN} CACHE INTERNAL "what the C compiler is told for the machine ${NAME}")
-    set(CELL ${ARGN})
-    list(FILTER CELL INCLUDE REGEX "^CELL_BITS=")
-    set(CELL_OF_${NAME} ${CELL} CACHE INTERNAL "and of that, its cell")
-    set(SIZES ${ARGN})
-    list(REMOVE_ITEM SIZES STRICT)
-    set(SIZES_OF_${NAME} ${SIZES} CACHE INTERNAL "and all of it that is the machine's sizes")
+    set(SIZES_OF_${NAME} ${ARGN} CACHE INTERNAL "the sizes of the machine ${NAME}, each as the name vm_constants.h has for it and what it is")
 
-    tool(basewords-fs-gen-${NAME} util/baseword_fs_gen.c vm_opcodes.c vm_debug.c)
-    target_compile_definitions(basewords-fs-gen-${NAME} PRIVATE ${ARGN})
+    # Its definition for cross.fs, which the generator makes of the machine
+    # as it is told it: the bits of a cell, the bits of an address and the
+    # display's width, height and first cell, as far as they are said.
+    set(SAID)
+    foreach(SIZE CELL_BITS ADDR_BITS DISP_W DISP_H DISP_BASE)
+        if("${ARGN}" MATCHES "(^|;)${SIZE}=([^;]*)")
+            list(APPEND SAID ${CMAKE_MATCH_2})
+        endif()
+    endforeach()
     add_custom_command(
             OUTPUT            ${AT}/basewords.fs
-            COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}/plain
-            COMMAND           basewords-fs-gen-${NAME} ${AT}/basewords.fs > ${AT}/basewords.log
-            DEPENDS           basewords-fs-gen-${NAME})
-
-    set(NUCLEUS ${AT}/nuc.hex ${AT}/nuc.lst ${AT}/nuc.sizes ${AT}/nuc.inline)
-    set(PLAIN ${AT}/plain/nuc.hex)
-    if("${ARGN}" MATCHES "DISP_W=")
-        list(APPEND NUCLEUS ${AT}/nuc.tables)           # the names, which a machine with a display has
-        list(APPEND PLAIN ${AT}/plain/nuc.tables)
-    endif()
-    add_custom_command(
-            OUTPUT            ${NUCLEUS}
-            COMMAND           ${CMAKE_COMMAND} -E env BUILD=${AT}/
-                                ${RUN_GFORTH} ./cross.fs ${AT}/basewords.fs ./nuc.fs > ${AT}/cross.log 2>&1
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
-            COMMENT           "The nucleus for the machine ${NAME} (what cross.fs says is in ${AT}/cross.log)"
-            DEPENDS           ${AT}/basewords.fs
-                              ${FORTH_SOURCES}
-                              ${MACHINE_SOURCES}
-                              forth-env)
-    made(${NAME} ${NUCLEUS})
-    add_custom_command(
-            OUTPUT            ${PLAIN}
-            COMMAND           ${CMAKE_COMMAND} -E copy ${AT}/nuc.inline ${AT}/plain/nuc.inline
-            COMMAND           ${CMAKE_COMMAND} -E env BUILD=${AT}/plain/ PEEPHOLE=off
-                                ${RUN_GFORTH} ./cross.fs ${AT}/basewords.fs ./nuc.fs > ${AT}/plain/cross.log 2>&1
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
-            COMMENT           "The nucleus for the machine ${NAME}, with the peephole off (${AT}/plain/cross.log)"
-            DEPENDS           machine-${NAME} ${NUCLEUS})
-    add_custom_target(plain-${NAME} DEPENDS ${PLAIN})
-
-    # A machine with a display has a second system too: the picture alone
-    # (forth/picture.fs), which picture-system-NAME makes in a directory of
-    # its own.  It is made after the nucleus, since both write what fuse.h
-    # keeps in build/.
-    if("${ARGN}" MATCHES "DISP_W=")
-        add_custom_command(
-                OUTPUT            ${AT}/picture/nuc.hex
-                COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}/picture
-                COMMAND           ${CMAKE_COMMAND} -E env BUILD=${AT}/picture/ SYSTEM=picture.fs
-                                    ${RUN_GFORTH} ./cross.fs ${AT}/basewords.fs ./nuc.fs > ${AT}/picture/cross.log 2>&1
-                WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
-                COMMENT           "The system with the picture alone, for the machine ${NAME} (${AT}/picture/cross.log)"
-                DEPENDS           machine-${NAME} ${NUCLEUS})
-        add_custom_target(picture-system-${NAME} DEPENDS ${AT}/picture/nuc.hex)
-
-        # The image the machine boots from a disk with (BOOT=on): the system
-        # without what forth/apps.fs lists, which the boot compiles from the
-        # disk (doc/boot.md).  boot-system-NAME makes it in a directory of its
-        # own, after the nucleus for the same reason.
-        add_custom_command(
-                OUTPUT            ${AT}/boot/nuc.hex
-                COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}/boot
-                COMMAND           ${CMAKE_COMMAND} -E env BUILD=${AT}/boot/ BOOT=on
-                                    ${RUN_GFORTH} ./cross.fs ${AT}/basewords.fs ./nuc.fs > ${AT}/boot/cross.log 2>&1
-                WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
-                COMMENT           "The image the machine ${NAME} boots from a disk with (${AT}/boot/cross.log)"
-                DEPENDS           machine-${NAME} ${NUCLEUS})
-        # Its disk: block 1 is forth/apps.fs, and after it each file it
-        # includes, which the boot compiles from its source (mkdisk follows
-        # the includes, so apps.fs is the one list).
-        add_custom_command(
-                OUTPUT            ${AT}/boot/apps.img ${AT}/boot/apps.ipl
-                COMMAND           mkdisk --boot ${NAME} ${AT}/boot/nuc.hex ${AT}/boot/apps.img ${AT}/boot/apps.ipl
-                                    ${CMAKE_SOURCE_DIR}/forth/apps.fs > ${AT}/boot/apps-disk.log 2>&1
-                DEPENDS           mkdisk ${AT}/boot/nuc.hex ${FORTH_SOURCES})
-        # And the disk it starts its desktop from: the same, with the
-        # desktop's own things at their blocks (mkdisk --boot-desk), and the
-        # names that go with that image.
-        add_custom_command(
-                OUTPUT            ${AT}/boot/desk.img ${AT}/boot/desk.ipl
-                COMMAND           mkdisk --boot-desk ${NAME} ${AT}/boot/nuc.hex ${AT}/boot/desk.img ${AT}/boot/desk.ipl
-                                    ${AT}/boot/nuc.tables
-                                    ${CMAKE_SOURCE_DIR}/forth/apps.fs > ${AT}/boot/desk-disk.log 2>&1
-                DEPENDS           mkdisk ${AT}/boot/nuc.hex ${FORTH_SOURCES})
-        add_custom_target(boot-system-${NAME} DEPENDS ${AT}/boot/nuc.hex ${AT}/boot/apps.img ${AT}/boot/desk.img)
-    endif()
-
-    machine_tool(hexaforth ${NAME} main.c ${VM_SOURCES})
-    # An image's code, word by word, as the decompiler shows it, with every
-    # instruction's place, number and fields (util/disasm_hex.c, which says
-    # at its top what it shows): disasm_hex-NAME IMAGE.hex [NAME... | FROM TO].
-    # It has the machine in it, for where a branch goes.
-    machine_tool(disasm_hex ${NAME} util/disasm_hex.c test/nucleus.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
-    # The reference VM of the machine, counting how often the instruction at
-    # each place is run (bench/counting.c): counting-NAME IMAGE.hex
-    # [DISK.img [MEMORY.out]], and the counts written where RUN_COUNTS says.
-    machine_tool(counting ${NAME} bench/counting.c vm_opcodes.c vm_debug.c util/stack.c)
-    # What work counted that way costs (bench/costs.c): costs-NAME; and its
-    # loops, each with the fewest instructions found that do a turn of it
-    # (bench/shorter.c): shorter-NAME.
-    stepping_tool(costs ${NAME} bench/costs.c util/image.c)
-    stepping_tool(shorter ${NAME} bench/shorter.c util/image.c)
-    # Two measurements of the same work, by word (bench/compared.c):
-    # compared-NAME WAS WAS.work IS IS.work, of what is built and of what
-    # was kept (build/kept/, and build/kept/log.txt says what there is).
-    stepping_tool(compared ${NAME} bench/compared.c util/image.c)
-    target_compile_definitions(shorter-${NAME} PRIVATE SEARCH_STATES=${SEARCH_STATES})
+            COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}
+            COMMAND           basewords-fs-gen ${AT}/basewords.fs ${SAID} > ${AT}/basewords.log
+            DEPENDS           basewords-fs-gen)
+    system(${NAME} ${NAME})
 endfunction()
 
 # When all that is made for a machine has been said.
@@ -875,28 +930,60 @@ function(machine_made NAME)
     add_custom_target(machine-${NAME} DEPENDS ${FILES})
 endfunction()
 
-# A tool or a test built for a machine.
-function(machine_tool TOOL NAME)
-    tool(${TOOL}-${NAME} ${ARGN})
-    target_compile_definitions(${TOOL}-${NAME} PRIVATE ${DEFINITIONS_${NAME}})
+# A tool or a test that has the machine in it, or reads a machine's image.
+# It is one program for every machine: the machine is the one whose image it
+# is given, which the image says beside it (util/image.h), and no size of a
+# machine is compiled into it.  Its machine stops at a fetch or a store
+# outside memory (STRICT).  What every such tool has (COMMON_SOURCES: the
+# words, the dictionary, a stack printed, an image read) is compiled once,
+# and a tool says the sources that are its own.
+set(COMMON_SOURCES vm_opcodes.c vm_debug.c util/stack.c util/image.c)
+add_library(common STATIC ${COMMON_SOURCES})
+target_compile_options(common PRIVATE -UDEBUG -w)
+function(machine_tool TOOL)
+    set(OWN ${ARGN})
+    list(REMOVE_ITEM OWN ${COMMON_SOURCES})
+    tool(${TOOL} ${OWN})
+    target_compile_definitions(${TOOL} PRIVATE STRICT)
+    target_link_libraries(${TOOL} common)
 endfunction()
 
-# A tool that has the machine's step in it (util/fuse.h), built for a
-# machine's cell: fuse.h says what the rest of the machine it tries things
-# on is.
-function(stepping_tool TOOL NAME)
-    tool(${TOOL}-${NAME} ${ARGN})
-    target_compile_definitions(${TOOL}-${NAME} PRIVATE ${CELL_OF_${NAME}})
-    target_include_directories(${TOOL}-${NAME} PRIVATE util)
+# A tool that has the machine's step in it (util/fuse.h).  It too is one
+# program for every machine: its cell is that of the image it is given, and
+# fuse.h says what the rest of the machine it tries things on is.
+function(stepping_tool TOOL)
+    tool(${TOOL} ${ARGN})
+    target_include_directories(${TOOL} PRIVATE util)
 endfunction()
+
+# The reference VM (main.c): hexaforth IMAGE.hex [DISK.img [MEMORY.out]].
+machine_tool(hexaforth main.c vm.c)
+# An image's code, word by word, as the decompiler shows it, with every
+# instruction's place, number and fields (util/disasm_hex.c, which says at
+# its top what it shows): disasm_hex IMAGE.hex [NAME... | FROM TO].  It has
+# the machine in it, for where a branch goes.
+machine_tool(disasm_hex util/disasm_hex.c test/nucleus.c)
+# The reference VM, counting how often the instruction at each place is run
+# (bench/counting.c): counting IMAGE.hex [DISK.img [MEMORY.out]], and the
+# counts written where RUN_COUNTS says.
+machine_tool(counting bench/counting.c)
+# What work counted that way costs (bench/costs.c); and its loops, each
+# with the fewest instructions found that do a turn of it (bench/shorter.c).
+stepping_tool(costs bench/costs.c util/image.c)
+stepping_tool(shorter bench/shorter.c util/image.c)
+target_compile_definitions(shorter PRIVATE SEARCH_STATES=${SEARCH_STATES})
+# Two measurements of the same work, by word (bench/compared.c): compared
+# WAS WAS.work IS IS.work, of what is built and of what was kept
+# (build/kept/, and build/kept/log.txt says what there is).
+stepping_tool(compared bench/compared.c util/image.c)
 
 # A test of a machine: what it is called, what is built for it, and what
 # that is run with.  It is run from where the source is.  It needs what is
 # built for it, and what is made for the machine: its image, its disks.  A
 # test that reads more than that says so itself.
 function(machine_test TEST NAME TOOL)
-    add_test(NAME ${TEST} COMMAND ${TOOL}-${NAME} ${ARGN} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    needs(${TEST} ${TOOL}-${NAME} machine-${NAME})
+    add_test(NAME ${TEST} COMMAND ${TOOL} ${ARGN} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    needs(${TEST} ${TOOL} machine-${NAME})
     on_the_vm(${TEST})
 endfunction()
 
@@ -906,18 +993,31 @@ endfunction()
 # dither a pixel at a time; the TIFF reader; and for a machine with a
 # display, the drawing words against a model of them, and the desktop, its
 # windows worked with keys and a pointer and its screen looked at.  The
-# same sources and the same tests on every machine: what is different is
-# the cell.
+# same programs and the same tests on every machine: what is different is
+# the image.  The two that start a machine from its ROM stop at a store
+# into it, where a machine whose kernel is a ROM would go wrong (ROM_BYTES).
+machine_tool(prompt_test test/prompt_test.c ${TYPED_SOURCES})
+machine_tool(source_test test/source_test.c ${TYPED_SOURCES})
+machine_tool(boot_test test/boot_test.c test/tables.c ${TYPED_SOURCES})
+target_compile_definitions(boot_test PRIVATE ROM_BYTES=KROM_BYTES)
+machine_tool(region_test test/region_test.c ${TYPED_SOURCES})
+machine_tool(dither_test test/dither_test.c test/dither.c ${TYPED_SOURCES})
+machine_tool(tiff_test test/tiff_test.c test/dither.c ${TYPED_SOURCES})
+machine_tool(display_test test/display_test.c test/tables.c ${TYPED_SOURCES})
+machine_tool(gray_test test/gray_test.c test/dither.c ${TYPED_SOURCES})
+machine_tool(desktop_test test/desktop_test.c ${DESK_SOURCES} ${TYPED_SOURCES})
+target_compile_definitions(desktop_test PRIVATE ROM_BYTES=KROM_BYTES)
+# What a machine compiled at its boot, beside the same words as cross.fs
+# lays them (bench/booted.c): the target booted-NAME.
+machine_tool(booted_sizes bench/booted.c)
 function(machine_tests NAME)
     set(AT ${BUILD}/${NAME})
     set(NUC ${AT}/nuc.hex)
 
-    machine_tool(prompt_test ${NAME} test/prompt_test.c ${TYPED_SOURCES})
     machine_test(prompt-${NAME} ${NAME} prompt_test ${NUC})
 
     # The block is a file that is there for this, laid down as a disk's
     # source is.
-    machine_tool(source_test ${NAME} test/source_test.c ${TYPED_SOURCES})
     add_custom_command(
             OUTPUT            ${AT}/source.img
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}
@@ -929,18 +1029,14 @@ function(machine_tests NAME)
     # The machine started from its ROM alone, and a disk mkdisk made of the
     # same image, with test/boot.fs as its block 1 and test/boot-more.fs
     # after it (doc/boot.md); or with no disk and what mkdisk wrote for the
-    # console; or with a disk whose block 1 is test/boot-error.fs.  It
-    # stops at a store into the ROM, where a machine whose kernel is one
-    # would go wrong.
-    machine_tool(boot_test ${NAME} test/boot_test.c test/tables.c ${TYPED_SOURCES})
-    target_compile_definitions(boot_test-${NAME} PRIVATE ROM_BYTES=KROM_BYTES)
+    # console; or with a disk whose block 1 is test/boot-error.fs.
     add_custom_command(
             OUTPUT            ${AT}/boot.img ${AT}/boot.ipl ${AT}/boot-error.img ${AT}/boot-error.ipl
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}
-            COMMAND           mkdisk --boot ${NAME} ${NUC} ${AT}/boot.img ${AT}/boot.ipl
+            COMMAND           mkdisk --boot ${NUC} ${AT}/boot.img ${AT}/boot.ipl
                                 ${CMAKE_SOURCE_DIR}/test/boot.fs ${CMAKE_SOURCE_DIR}/test/boot-more.fs
                                 > ${AT}/boot-disk.log 2>&1
-            COMMAND           mkdisk --boot ${NAME} ${NUC} ${AT}/boot-error.img ${AT}/boot-error.ipl
+            COMMAND           mkdisk --boot ${NUC} ${AT}/boot-error.img ${AT}/boot-error.ipl
                                 ${CMAKE_SOURCE_DIR}/test/boot-error.fs >> ${AT}/boot-disk.log 2>&1
             DEPENDS           mkdisk ${NUC} test/boot.fs test/boot-more.fs test/boot-error.fs)
     # A second disk, for the checks that give a machine two: an index and
@@ -960,38 +1056,28 @@ function(machine_tests NAME)
     needs(boot-${NAME} boot-system-${NAME})
     made(${NAME} ${AT}/boot.img ${AT}/boot.ipl ${AT}/boot-error.img)
 
-    machine_tool(region_test ${NAME} test/region_test.c ${TYPED_SOURCES})
-    machine_tool(dither_test ${NAME} test/dither_test.c test/dither.c ${TYPED_SOURCES})
-    machine_tool(tiff_test ${NAME} test/tiff_test.c test/dither.c ${TYPED_SOURCES})
     foreach(SEED ${SEEDS})
         machine_test(regions-${NAME}-${SEED} ${NAME} region_test ${NUC} ${SEED})
         machine_test(dither-${NAME}-${SEED} ${NAME} dither_test ${NUC} ${SEED})
         machine_test(tiff-${NAME}-${SEED} ${NAME} tiff_test ${NUC} ${SEED})
     endforeach()
 
-    if(NOT "${DEFINITIONS_${NAME}}" MATCHES "DISP_W=")
+    if(NOT "${SIZES_OF_${NAME}}" MATCHES "DISP_W=")
         return()
     endif()
 
-    machine_tool(display_test ${NAME} test/display_test.c test/tables.c ${TYPED_SOURCES})
-    machine_tool(gray_test ${NAME} test/gray_test.c test/dither.c ${TYPED_SOURCES})
     foreach(SEED ${SEEDS})
         machine_test(display-${NAME}-${SEED} ${NAME} display_test ${NUC} forth ${SEED})
         machine_test(gray-${NAME}-${SEED} ${NAME} gray_test ${NUC} ${SEED})
     endforeach()
 
-    # The desktop, with a disk made as QEMU's is: block 1 for the editor,
-    # and the names that go with this image; and the pictures' disk as its
-    # second, which has the Mandrill.  The test keeps its screens, and its
-    # copy of the first disk, in a directory of its own.
-    machine_tool(desktop_test ${NAME} test/desktop_test.c ${DESK_SOURCES} ${TYPED_SOURCES})
-    target_compile_definitions(desktop_test-${NAME} PRIVATE ROM_BYTES=KROM_BYTES)
+    # The desktop, with the system's disk for it (system); and the pictures'
+    # disk as its second, which has the Mandrill.  The test keeps its
+    # screens, and its copy of the first disk, in a directory of its own.
     file(MAKE_DIRECTORY ${AT}/desktop)
-    desk_disk(${AT}/disk.img ${AT}/nuc.tables)
     machine_test(desktop-${NAME} ${NAME} desktop_test ${NUC} ${AT}/disk.img ${PICTURES} ${PICTURE} forth
                  ${AT}/desktop names)
     needs(desktop-${NAME} picture pictures)
-    made(${NAME} ${AT}/disk.img)
 
     # The same checks on the machine started from its ROM alone, with a disk
     # it can start from that is the desktop's too (boot-system-NAME): the
@@ -1002,44 +1088,43 @@ function(machine_tests NAME)
                  ${PICTURE} forth ${AT}/booted names rom)
     needs(desktop-booted-${NAME} boot-system-${NAME} picture pictures)
 
-    # What the machine compiled at that boot, beside the same words as
-    # cross.fs lays them (bench/booted.c): the target booted-NAME.
-    machine_tool(booted_sizes ${NAME} bench/booted.c vm_opcodes.c vm_debug.c util/image.c)
-    add_custom_target(booted-${NAME}
+    # What the machine compiled at that boot (booted_sizes).
+    report(booted-${NAME}
             COMMAND           ${CMAKE_COMMAND} -E env BOOTED=${AT}/booted/memory
-                                $<TARGET_FILE:desktop_test-${NAME}> ${AT}/boot/nuc.hex ${AT}/boot/desk.img ${PICTURES}
+                                $<TARGET_FILE:desktop_test> ${AT}/boot/nuc.hex ${AT}/boot/desk.img ${PICTURES}
                                 ${PICTURE} forth ${AT}/booted names rom > ${AT}/booted/checks.txt
-            COMMAND           booted_sizes-${NAME} ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables ${AT}/booted/memory
+            COMMAND           booted_sizes ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables ${AT}/booted/memory
                                 ${AT}/booted/disk.img ${AT}/nuc.hex ${AT}/nuc.tables > ${AT}/booted/sizes.txt
             COMMAND           ${CMAKE_COMMAND} -E echo "what the machine ${NAME} compiled at its boot: ${AT}/booted/sizes.txt"
             COMMAND           ${KEEP} booted ${AT}/boot/nuc.hex ${AT}/booted/sizes.txt
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    add_dependencies(booted-${NAME} desktop_test-${NAME} machine-${NAME} boot-system-${NAME} picture pictures)
 endfunction()
 
 # After any change to a compiler or a peephole: the image against the image
 # built with the peephole off (test/builds_test.c, which says how it
 # compares them).
+stepping_tool(builds_test test/builds_test.c util/image.c)
 function(builds_test NAME)
     set(AT ${BUILD}/${NAME})
-    machine_tool(builds_test ${NAME} test/builds_test.c util/image.c)
-    machine_test(builds ${NAME} builds_test ${AT}/plain/nuc.hex ${AT}/plain/nuc.tables ${AT}/nuc.hex ${AT}/nuc.tables)
-    needs(builds plain-${NAME})
+    add_test(NAME builds
+             COMMAND builds_test ${AT}/plain/nuc.hex ${AT}/plain/nuc.tables ${AT}/nuc.hex ${AT}/nuc.tables
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    needs(builds builds_test machine-${NAME} plain-${NAME})
+    on_the_vm(builds)
 endfunction()
 
-# What a machine's image is made of (util/examine.c, as the target `examine`
-# says it of the image where the source is): the target examine-NAME.  The
-# kernel is to fit in its ROM on every machine, and this is what says how
-# long it is on each.
-function(examined NAME)
+# What a system's image is made of (util/examine.c, as the target `examine`
+# says it of the image where the source is): the target examine-NAME, of the
+# system NAME, by the examiner built for the machine OF whose sizes it has.
+# The kernel is to fit in its ROM on every machine, and this is what says
+# how long it is on each.
+function(examined NAME OF)
     set(AT ${BUILD}/${NAME})
-    machine_tool(examine-image ${NAME} util/examine.c vm_opcodes.c vm_debug.c util/image.c)
-    add_custom_target(examine-${NAME}
-            COMMAND           examine-image-${NAME} ${AT}/nuc.hex ${AT}/nuc.tables ${AT}/nuc.sizes > ${AT}/examine.txt
+    report(examine-${NAME}
+            COMMAND           examine-image ${AT}/nuc.hex ${AT}/nuc.tables ${AT}/nuc.sizes > ${AT}/examine.txt
             COMMAND           ${CMAKE_COMMAND} -E cat ${AT}/examine.txt
             COMMAND           ${KEEP} examine ${AT}/nuc.hex ${AT}/examine.txt
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    add_dependencies(examine-${NAME} machine-${NAME})
 endfunction()
 
 # The whole of a machine's image as it is laid out, to be read for a better
@@ -1051,24 +1136,23 @@ endfunction()
 #
 # The reference VM that counts how often the instruction at each place is
 # run (bench/counting.c), in place of vm.c, is the VM the desktop is worked
-# on; by itself it is counting-NAME, which every machine has (machine).
-set(COUNTED_SOURCES test/nucleus.c bench/counting.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
+# on (profiler); by itself it is `counting`.
+set(COUNTED_SOURCES test/nucleus.c bench/counting.c)
+machine_tool(profiler bench/profile.c ${DESK_SOURCES} ${COUNTED_SOURCES})
+target_compile_definitions(profiler PRIVATE COUNTING_A_TEST)
 function(listed NAME)
     set(AT ${BUILD}/${NAME})
     set(L ${AT}/listing)
-    machine_tool(profile ${NAME} bench/profile.c ${DESK_SOURCES} ${COUNTED_SOURCES})
-    target_compile_definitions(profile-${NAME} PRIVATE COUNTING_A_TEST)
-    add_custom_target(listing-${NAME}
+    report(listing-${NAME}
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${L}
-            COMMAND           profile-${NAME} ${AT}/nuc.hex ${AT}/nuc.tables ${AT}/nuc.sizes ${AT}/disk.img ${PICTURES} ${PICTURE}
+            COMMAND           profiler ${AT}/nuc.hex ${AT}/nuc.tables ${AT}/nuc.sizes ${AT}/disk.img ${PICTURES} ${PICTURE}
                                 forth ${L} > ${L}/profile.txt 2> ${L}/profile.log
-            COMMAND           disasm_hex-${NAME} ${AT}/nuc.hex --no-color --layout --counts ${L}/desktop.counts
+            COMMAND           disasm_hex ${AT}/nuc.hex --no-color --layout --counts ${L}/desktop.counts
                                 > ${AT}/listing.txt 2> ${L}/listing.log
             COMMAND           ${CMAKE_COMMAND} -E echo "the image of the machine ${NAME}, laid out: ${AT}/listing.txt"
             COMMAND           ${KEEP} listing ${AT}/nuc.hex ${AT}/listing.txt ${L}/desktop.counts ${L}/profile.txt
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             COMMENT           "The machine ${NAME}'s image as it is laid out (what went wrong, if anything did, is in ${L})")
-    add_dependencies(listing-${NAME} machine-${NAME} picture pictures)
 endfunction()
 
 # Where a machine's memory goes: memory-map-NAME prints the map (util/map.c)
@@ -1076,36 +1160,36 @@ endfunction()
 # its disk, at its prompt; of the machine that boots from a disk
 # (boot-system-NAME), once its boot has compiled what the disk has; and of
 # the desktop, when its checks are done.  The last three are run on the
-# reference VM that watches the heap (bench/heap.c: heap-NAME by itself,
-# and as the VM in the desktop's test), and after the map of each is what
-# the heap was given out to while it ran.  Each map, what the watch said
-# and the memory they are of are kept in build/NAME/map/.
+# reference VM that watches the heap (bench/heap.c: `heap` by itself, and
+# as the VM in the desktop's test, desktop_test_heap), and after the map of
+# each is what the heap was given out to while it ran.  Each map, what the
+# watch said and the memory they are of are kept in build/NAME/map/.
+set(WATCHED_SOURCES test/nucleus.c bench/heap.c)
+machine_tool(map util/map.c)
+machine_tool(heap bench/heap.c)
+machine_tool(desktop_test_heap test/desktop_test.c ${DESK_SOURCES} ${WATCHED_SOURCES})
+target_compile_definitions(desktop_test_heap PRIVATE WATCHING_A_TEST)
 function(mapped NAME)
     set(AT ${BUILD}/${NAME})
     set(MP ${AT}/map)
-    machine_tool(map ${NAME} util/map.c vm_opcodes.c vm_debug.c util/image.c)
-    set(WATCHED_SOURCES test/nucleus.c bench/heap.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
-    machine_tool(heap ${NAME} bench/heap.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
-    machine_tool(desktop_test_heap ${NAME} test/desktop_test.c ${DESK_SOURCES} ${WATCHED_SOURCES})
-    target_compile_definitions(desktop_test_heap-${NAME} PRIVATE WATCHING_A_TEST)
-    add_custom_target(memory-map-${NAME}
+    report(memory-map-${NAME}
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${MP}/desktop
-            COMMAND           map-${NAME} ${AT}/nuc.hex ${AT}/nuc.tables > ${MP}/image.txt
+            COMMAND           map ${AT}/nuc.hex ${AT}/nuc.tables > ${MP}/image.txt
             COMMAND           ${CMAKE_COMMAND} -E copy ${AT}/disk.img ${MP}/disk.img
             COMMAND           ${CMAKE_COMMAND} -E env HEAP=${MP}/prompt.heap HEAP_NAMES=${AT}/nuc.tables
-                                $<TARGET_FILE:heap-${NAME}> ${AT}/nuc.hex ${MP}/disk.img ${MP}/prompt.mem
+                                $<TARGET_FILE:heap> ${AT}/nuc.hex ${MP}/disk.img ${MP}/prompt.mem
                                 < ${CMAKE_SOURCE_DIR}/bench/idle.fs > ${MP}/prompt.out 2>&1
-            COMMAND           map-${NAME} ${AT}/nuc.hex ${AT}/nuc.tables ${MP}/prompt.mem > ${MP}/prompt.txt
+            COMMAND           map ${AT}/nuc.hex ${AT}/nuc.tables ${MP}/prompt.mem > ${MP}/prompt.txt
             COMMAND           ${CMAKE_COMMAND} -E copy ${AT}/boot/apps.img ${MP}/apps.img
             COMMAND           ${CMAKE_COMMAND} -E env HEAP=${MP}/boot.heap HEAP_NAMES=${AT}/boot/nuc.tables
-                                $<TARGET_FILE:heap-${NAME}> ${AT}/boot/nuc.hex ${MP}/apps.img ${MP}/boot.mem
+                                $<TARGET_FILE:heap> ${AT}/boot/nuc.hex ${MP}/apps.img ${MP}/boot.mem
                                 < ${CMAKE_SOURCE_DIR}/bench/idle.fs > ${MP}/boot.out 2>&1
-            COMMAND           map-${NAME} ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables ${MP}/boot.mem > ${MP}/boot.txt
+            COMMAND           map ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables ${MP}/boot.mem > ${MP}/boot.txt
             COMMAND           ${CMAKE_COMMAND} -E env MEMORY=${MP}/desktop.mem HEAP=${MP}/desktop.heap
                                 HEAP_NAMES=${AT}/nuc.tables
-                                $<TARGET_FILE:desktop_test_heap-${NAME}> ${AT}/nuc.hex ${AT}/disk.img ${PICTURES}
+                                $<TARGET_FILE:desktop_test_heap> ${AT}/nuc.hex ${AT}/disk.img ${PICTURES}
                                 ${PICTURE} forth ${MP}/desktop names > ${MP}/desktop.out 2>&1
-            COMMAND           map-${NAME} ${AT}/nuc.hex ${AT}/nuc.tables ${MP}/desktop.mem > ${MP}/desktop.txt
+            COMMAND           map ${AT}/nuc.hex ${AT}/nuc.tables ${MP}/desktop.mem > ${MP}/desktop.txt
             COMMAND           ${CMAKE_COMMAND} -E cat ${MP}/image.txt ${MP}/prompt.txt ${MP}/prompt.heap
                                 ${MP}/boot.txt ${MP}/boot.heap ${MP}/desktop.txt ${MP}/desktop.heap
             COMMAND           ${KEEP} memory-map ${AT}/nuc.hex ${MP}/image.txt ${MP}/prompt.txt ${MP}/prompt.heap
@@ -1113,8 +1197,6 @@ function(mapped NAME)
             COMMAND           ${KEEP} memory-map ${AT}/boot/nuc.hex ${MP}/boot.txt ${MP}/boot.heap
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             VERBATIM)
-    add_dependencies(memory-map-${NAME} map-${NAME} heap-${NAME} desktop_test_heap-${NAME} machine-${NAME}
-                     boot-system-${NAME} picture pictures)
 
     # The same as a table (map --table): what each part of memory has used
     # and has left, of the system as cross.fs built it and of the machine
@@ -1122,17 +1204,16 @@ function(mapped NAME)
     # disk.  That machine is run to its prompt here, and stopped if it runs
     # on (vm_stopped.h).  memory-table-NAME makes build/NAME/map/table.txt,
     # which quick and check show.
-    add_custom_target(memory-table-${NAME}
+    report(memory-table-${NAME}
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${MP}
             COMMAND           ${CMAKE_COMMAND} -E copy ${AT}/boot/apps.img ${MP}/table.img
             COMMAND           ${CMAKE_COMMAND} -E env STOP_BUDGET=2000000000
-                                $<TARGET_FILE:hexaforth-${NAME}> ${AT}/boot/nuc.hex ${MP}/table.img ${MP}/table.mem
+                                $<TARGET_FILE:hexaforth> ${AT}/boot/nuc.hex ${MP}/table.img ${MP}/table.mem
                                 < ${CMAKE_SOURCE_DIR}/bench/idle.fs > ${MP}/table.out 2>&1
-            COMMAND           map-${NAME} --table ${AT}/nuc.hex ${AT}/nuc.tables ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables
+            COMMAND           map --table ${AT}/nuc.hex ${AT}/nuc.tables ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables
                                 ${MP}/table.mem > ${MP}/table.txt
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             VERBATIM)
-    add_dependencies(memory-table-${NAME} map-${NAME} hexaforth-${NAME} machine-${NAME} boot-system-${NAME})
     set_property(GLOBAL APPEND PROPERTY MEMORY_TABLES ${MP}/table.txt)
     set_property(GLOBAL APPEND PROPERTY MEMORY_TABLED memory-table-${NAME})
 endfunction()
@@ -1144,56 +1225,51 @@ endfunction()
 # and runs to its prompt; then what the work costs is said (bench/costs.c):
 # how many instructions and cycles, each word with all it calls, and the
 # loops.  What the machine said, the work by place and the reports are in
-# build/NAME/compiling/, where `disasm_hex-NAME ... --counts` reads the
-# work to say how often each instruction of a word was run.
+# build/NAME/compiling/, where `disasm_hex ... --counts` reads the work to
+# say how often each instruction of a word was run.  And the reference VM
+# that watches the dictionary searched (bench/finds.c), for finding-NAME.
+machine_tool(finds bench/finds.c)
 function(compiled NAME)
     set(AT ${BUILD}/${NAME})
     set(CP ${AT}/compiling)
-    add_custom_target(compiling-${NAME}
+    report(compiling-${NAME}
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${CP}
             COMMAND           ${CMAKE_COMMAND} -E env RUN_WORK=${CP}/work
-                                $<TARGET_FILE:counting-${NAME}> ${AT}/boot/nuc.hex ${AT}/boot/desk.img,${PICTURES}
+                                $<TARGET_FILE:counting> ${AT}/boot/nuc.hex ${AT}/boot/desk.img,${PICTURES}
                                 < ${CMAKE_SOURCE_DIR}/bench/idle.fs > ${CP}/boot.out 2>&1
-            COMMAND           costs-${NAME} ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables ${AT}/boot/nuc.sizes ${CP}/work ${CP}
+            COMMAND           costs ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables ${AT}/boot/nuc.sizes ${CP}/work ${CP}
                                 > ${CP}/costs.txt 2> ${CP}/costs.log
             COMMAND           ${CMAKE_COMMAND} -E cat ${CP}/boot.out ${CP}/costs.txt
             COMMAND           ${KEEP} compiling ${AT}/boot/nuc.hex ${CP}/work ${CP}/boot.out ${CP}/costs.txt
                                 ${CP}/paths.txt ${CP}/loops.txt ${CP}/vars.txt
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             VERBATIM)
-    add_dependencies(compiling-${NAME} counting-${NAME} costs-${NAME} boot-system-${NAME} picture pictures)
 
     # `finding-64` and the like: what that boot asks the dictionary for.
     # The same machine is run on the reference VM that watches sfind
     # (bench/finds.c): how often it is asked, how many headers it looks at,
     # and each name by what was looked at for it.  It is in
     # build/NAME/compiling/finds.txt.
-    machine_tool(finds ${NAME} bench/finds.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
-    add_custom_target(finding-${NAME}
+    report(finding-${NAME}
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${CP}
             COMMAND           ${CMAKE_COMMAND} -E env FINDS=${CP}/finds.txt FINDS_NAMES=${AT}/boot/nuc.tables
-                                $<TARGET_FILE:finds-${NAME}> ${AT}/boot/nuc.hex ${AT}/boot/desk.img,${PICTURES}
+                                $<TARGET_FILE:finds> ${AT}/boot/nuc.hex ${AT}/boot/desk.img,${PICTURES}
                                 < ${CMAKE_SOURCE_DIR}/bench/idle.fs > ${CP}/finds.out 2>&1
             COMMAND           ${CMAKE_COMMAND} -E cat ${CP}/finds.txt
             COMMAND           ${KEEP} finding ${AT}/boot/nuc.hex ${CP}/finds.txt
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             VERBATIM)
-    add_dependencies(finding-${NAME} finds-${NAME} boot-system-${NAME} picture pictures)
 endfunction()
 
 # What a machine's display shows, from its memory as the reference VM
-# writes it when it has stopped (util/screen.c): screen-NAME, which the
-# target `seen` builds for every machine, with what makes a PNG of one
-# (util/png.c).
-function(shown NAME)
-    machine_tool(screen ${NAME} util/screen.c)
-    set_property(GLOBAL APPEND PROPERTY SEEN screen-${NAME})
-endfunction()
+# writes it when it has stopped (util/screen.c): `screen`, which the target
+# `seen` builds, with what makes a PNG of one (util/png.c).
+machine_tool(screen util/screen.c)
 
 # util/machines, a line a machine: the bits of a cell, the log2 of memory's
-# cells, and the display, across and down and the cell it starts at.  Each
-# stops at a fetch or a store outside memory (STRICT).  The first of them
-# is the one the two builds are compared on, and that the reports are of.
+# cells, and the display, across and down and the cell it starts at.  The
+# first of them is the one the two builds are compared on, and that the
+# reports are of.
 file(STRINGS util/machines MACHINE_LINES REGEX "^[^#]")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS util/machines)
 set(MACHINES)
@@ -1201,27 +1277,30 @@ foreach(LINE ${MACHINE_LINES})
     separate_arguments(SAID UNIX_COMMAND "${LINE}")
     list(GET SAID 0 CELL)
     list(GET SAID 1 ADDR)
-    set(DEFINITIONS CELL_BITS=${CELL} ADDR_BITS=${ADDR} STRICT)
+    set(ITS_SIZES CELL_BITS=${CELL} ADDR_BITS=${ADDR})
     list(LENGTH SAID HOW_MUCH)
     if(HOW_MUCH GREATER 2)
         list(GET SAID 2 ACROSS)
         list(GET SAID 3 DOWN)
         list(GET SAID 4 STARTS)
-        list(APPEND DEFINITIONS DISP_W=${ACROSS} DISP_H=${DOWN} DISP_BASE=${STARTS})
+        list(APPEND ITS_SIZES DISP_W=${ACROSS} DISP_H=${DOWN} DISP_BASE=${STARTS})
     endif()
-    machine(${CELL} ${DEFINITIONS})
+    machine(${CELL} ${ITS_SIZES})
     machine_tests(${CELL})
     machine_made(${CELL})
     if(HOW_MUCH GREATER 2)
-        examined(${CELL})                               # the names it reads are a machine's that has a display
+        examined(${CELL} ${CELL})                       # the names it reads are a machine's that has a display
         listed(${CELL})
         mapped(${CELL})
         compiled(${CELL})
-        shown(${CELL})
+        if(ADDR EQUAL 16)                               # 64K cells
+            picture_system(${CELL})
+        endif()
     endif()
     list(APPEND MACHINES ${CELL})
 endforeach()
 list(GET MACHINES 0 FIRST)
+plain(${FIRST})
 builds_test(${FIRST})
 
 #
@@ -1234,11 +1313,10 @@ set(NUC ${OF}/nuc.hex)
 set(TABLES ${OF}/nuc.tables)
 set(SIZES ${OF}/nuc.sizes)
 
-# The desktop's test on the VM that counts (COUNTED_SOURCES, with listed),
-# and what works the desktop on it, profile-NAME, which every machine with
-# a display has (listed).
-machine_tool(desktop_test_counted ${FIRST} test/desktop_test.c ${DESK_SOURCES} ${COUNTED_SOURCES})
-target_compile_definitions(desktop_test_counted-${FIRST} PRIVATE COUNTING_A_TEST)
+# The desktop's test on the VM that counts (COUNTED_SOURCES, with listed,
+# where what works the desktop on it, profiler, is too).
+machine_tool(desktop_test_counted test/desktop_test.c ${DESK_SOURCES} ${COUNTED_SOURCES})
+target_compile_definitions(desktop_test_counted PRIVATE COUNTING_A_TEST)
 
 # `screenshot`: the desktop with every window open and HexaPaint in front,
 # as the README shows it (doc/desktop.png, which is checked in).  The
@@ -1248,30 +1326,27 @@ target_compile_definitions(desktop_test_counted-${FIRST} PRIVATE COUNTING_A_TEST
 # target makes it again when the desktop looks otherwise.
 set(SHOT ${BUILD}/screenshot)
 tool(png util/png.c)
-get_property(SEEN GLOBAL PROPERTY SEEN)
-add_custom_target(seen DEPENDS ${SEEN} png)
+add_custom_target(seen DEPENDS screen png)
 
 # `hello`: a window made by what is typed at the prompt (doc/hello.fs,
 # which DESKTOP.md is about), on the reference VM of the first machine: what
 # it printed, and its display as a picture (build/hello/hello.png).
 set(HELLO ${BUILD}/hello)
-add_custom_target(hello
+report(hello
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${HELLO}
-        COMMAND           hexaforth-${FIRST} ${NUC} ${OF}/disk.img,${PICTURES} ${HELLO}/memory.out
+        COMMAND           hexaforth ${NUC} ${OF}/disk.img,${PICTURES} ${HELLO}/memory.out
                             < doc/hello.fs > ${HELLO}/hello.txt 2>&1
         COMMAND           ${CMAKE_COMMAND} -E cat ${HELLO}/hello.txt
-        COMMAND           screen-${FIRST} ${HELLO}/memory.out ${HELLO}/hello.pbm
+        COMMAND           screen ${NUC} ${HELLO}/memory.out ${HELLO}/hello.pbm
         COMMAND           png ${HELLO}/hello.pbm ${HELLO}/hello.png
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-add_dependencies(hello machine-${FIRST} picture pictures)
-add_custom_target(screenshot
+report(screenshot
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${SHOT}/desktop
-        COMMAND           $<TARGET_FILE:desktop_test-${FIRST}> ${NUC} ${OF}/disk.img ${PICTURES} ${PICTURE} forth
+        COMMAND           $<TARGET_FILE:desktop_test> ${NUC} ${OF}/disk.img ${PICTURES} ${PICTURE} forth
                             ${SHOT}/desktop names > ${SHOT}/desktop.log 2>&1
         COMMAND           png ${SHOT}/desktop/16-again.pbm doc/desktop.png
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The desktop worked, and its screen with HexaPaint in front (what its test says is in ${SHOT}/desktop.log)")
-add_dependencies(screenshot machine-${FIRST} picture pictures)
 
 # `profile`: where the desktop's instructions go.  The desktop is run on
 # the VM that counts and worked through a few things a person would do
@@ -1285,24 +1360,23 @@ add_dependencies(screenshot machine-${FIRST} picture pictures)
 # (bench/shorter.c).
 set(PROFILE ${BUILD}/profile)
 set(PROFILE_FILES "" CACHE STRING "the source files whose variables the profile says the cost of: all, if none")
-stepping_tool(survey ${FIRST} util/survey.c util/image.c)
-set(PROFILED profile-${FIRST} ${NUC} ${TABLES} ${SIZES} ${OF}/disk.img ${PICTURES} ${PICTURE} forth)    # and where it leaves the work
-add_custom_target(profile
+stepping_tool(survey util/survey.c util/image.c)
+set(PROFILED profiler ${NUC} ${TABLES} ${SIZES} ${OF}/disk.img ${PICTURES} ${PICTURE} forth)    # and where it leaves the work
+report(profile
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${PROFILE}
         COMMAND           ${PROFILED} ${PROFILE}
                             > ${PROFILE}/profile.txt 2> ${PROFILE}/profile.log
         COMMAND           ${CMAKE_COMMAND} -E cat ${PROFILE}/profile.txt
-        COMMAND           costs-${FIRST} ${NUC} ${TABLES} ${SIZES} ${PROFILE}/desktop.counts ${PROFILE} ${PROFILE_FILES}
+        COMMAND           costs ${NUC} ${TABLES} ${SIZES} ${PROFILE}/desktop.counts ${PROFILE} ${PROFILE_FILES}
                             2> ${PROFILE}/costs.log
-        COMMAND           survey-${FIRST} ${NUC} ${TABLES} ${PROFILE}/desktop.counts ${PROFILE}/survey.txt
+        COMMAND           survey ${NUC} ${TABLES} ${PROFILE}/desktop.counts ${PROFILE}/survey.txt
                             2> ${PROFILE}/survey.log
-        COMMAND           shorter-${FIRST} ${NUC} ${TABLES} ${PROFILE}/desktop.counts ${PROFILE}/shorter.txt
+        COMMAND           shorter ${NUC} ${TABLES} ${PROFILE}/desktop.counts ${PROFILE}/shorter.txt
                             2> ${PROFILE}/shorter.log
         COMMAND           ${KEEP} profile ${NUC} ${PROFILE}/profile.txt ${PROFILE}/desktop.counts ${PROFILE}/paths.txt
                             ${PROFILE}/loops.txt ${PROFILE}/vars.txt ${PROFILE}/survey.txt ${PROFILE}/shorter.txt
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The desktop's work, by place (${PROFILE}/profile.log says what went wrong, if anything did)")
-add_dependencies(profile machine-${FIRST} picture pictures)
 
 # `subtracts`: where the desktop's work takes one number from another, how
 # often, and what is taken away (bench/uses.c, which says how it finds a
@@ -1315,21 +1389,20 @@ add_dependencies(profile machine-${FIRST} picture pictures)
 # for an image and kept (build/uses/), and the report is
 # build/uses/subtracts.txt.
 set(USES ${BUILD}/uses)
-stepping_tool(uses ${FIRST} bench/uses.c util/image.c)
+stepping_tool(uses bench/uses.c util/image.c)
 add_custom_command(
         OUTPUT            ${USES}/desktop.counts
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${USES}
         COMMAND           ${PROFILED} ${USES} > ${USES}/profile.txt 2> ${USES}/profile.log
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The desktop's work, counted (${USES}/profile.log says what went wrong, if anything did)"
-        DEPENDS           profile-${FIRST} machine-${FIRST} ${NUC} ${OF}/disk.img picture ${PICTURES})
-add_custom_target(subtracts
-        COMMAND           uses-${FIRST} ${OF}/plain/nuc.hex ${OF}/plain/nuc.tables ${NUC} ${TABLES} ${USES}/desktop.counts
+        DEPENDS           profiler machine-${FIRST} ${NUC} ${OF}/disk.img picture ${PICTURES})
+report(subtracts
+        COMMAND           uses ${OF}/plain/nuc.hex ${OF}/plain/nuc.tables ${NUC} ${TABLES} ${USES}/desktop.counts
                             - 1- negate > ${USES}/subtracts.txt
         COMMAND           ${CMAKE_COMMAND} -E cat ${USES}/subtracts.txt
         COMMAND           ${KEEP} subtracts ${NUC} ${USES}/subtracts.txt ${USES}/desktop.counts
         DEPENDS           ${USES}/desktop.counts)
-add_dependencies(subtracts machine-${FIRST} plain-${FIRST})
 
 # `peephole`: what the nucleus's compiler is worth (forth/join.fs).  The
 # nucleus compiles what is typed and what is read from blocks, and cross.fs
@@ -1352,33 +1425,33 @@ add_dependencies(subtracts machine-${FIRST} plain-${FIRST})
 #   and each instruction it made is looked for in the decompiler's table,
 #     which is made of what cross.fs put in the image (bench/typed.c, shown)
 set(PEEPHOLE ${BUILD}/peephole)
-machine_tool(runs ${FIRST} bench/runs.c vm_opcodes.c vm_debug.c util/stack.c util/image.c)
-machine_tool(typed ${FIRST} bench/typed.c vm_opcodes.c vm_debug.c util/image.c)
+machine_tool(runs bench/runs.c)
+machine_tool(typed bench/typed.c)
 tool(weigh bench/weigh.c vm_opcodes.c vm_debug.c)
-add_custom_target(peephole
+report(peephole
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${PEEPHOLE}/desktop
-        COMMAND           runs-${FIRST} ${OF}/plain/nuc.hex ${OF}/plain/nuc.tables ${NUC} ${TABLES}
+        COMMAND           runs ${OF}/plain/nuc.hex ${OF}/plain/nuc.tables ${NUC} ${TABLES}
                             > ${PEEPHOLE}/runs.txt 2> ${PEEPHOLE}/runs.log
-        COMMAND           typed-${FIRST} type ${PEEPHOLE}/runs.txt ${NUC} ${TABLES}
+        COMMAND           typed type ${PEEPHOLE}/runs.txt ${NUC} ${TABLES}
                             > ${PEEPHOLE}/typed.fs 2> ${PEEPHOLE}/typed.log
-        COMMAND           hexaforth-${FIRST} ${NUC} < ${PEEPHOLE}/typed.fs > ${PEEPHOLE}/typed.out 2>&1
-        COMMAND           typed-${FIRST} read ${PEEPHOLE}/runs.txt ${PEEPHOLE}/typed.out
+        COMMAND           hexaforth ${NUC} < ${PEEPHOLE}/typed.fs > ${PEEPHOLE}/typed.out 2>&1
+        COMMAND           typed read ${PEEPHOLE}/runs.txt ${PEEPHOLE}/typed.out
                             > ${PEEPHOLE}/typed.txt 2> ${PEEPHOLE}/typed.log
         COMMAND           ${CMAKE_COMMAND} -E copy ${OF}/disk.img ${PEEPHOLE}/disk.img
         COMMAND           ${CMAKE_COMMAND} -E rm -f ${PEEPHOLE}/idle.counts ${PEEPHOLE}/draw.counts ${PEEPHOLE}/desktop.counts
         COMMAND           ${CMAKE_COMMAND} -E env RUN_COUNTS=${PEEPHOLE}/idle.counts
-                            $<TARGET_FILE:counting-${FIRST}> ${NUC} ${PEEPHOLE}/disk.img
+                            $<TARGET_FILE:counting> ${NUC} ${PEEPHOLE}/disk.img
                             < bench/idle.fs > ${PEEPHOLE}/idle.log 2>&1
         COMMAND           ${CMAKE_COMMAND} -E env RUN_COUNTS=${PEEPHOLE}/draw.counts RUN_WORK=${PEEPHOLE}/draw.work
-                            $<TARGET_FILE:counting-${FIRST}> ${NUC} ${PEEPHOLE}/disk.img
+                            $<TARGET_FILE:counting> ${NUC} ${PEEPHOLE}/disk.img
                             < bench/draw.fs > ${PEEPHOLE}/draw.log 2>&1
         COMMAND           ${CMAKE_COMMAND} -E env RUN_COUNTS=${PEEPHOLE}/desktop.counts
-                            $<TARGET_FILE:desktop_test_counted-${FIRST}> ${NUC} ${PEEPHOLE}/disk.img ${PICTURES}
+                            $<TARGET_FILE:desktop_test_counted> ${NUC} ${PEEPHOLE}/disk.img ${PICTURES}
                             ${PICTURE} forth ${PEEPHOLE}/desktop names > ${PEEPHOLE}/desktop.log 2>&1
         COMMAND           weigh ${PEEPHOLE}/typed.txt ${SIZES} ${PEEPHOLE} desktop draw
                             > ${PEEPHOLE}/peephole.txt 2> ${PEEPHOLE}/weigh.log
-        COMMAND           pair-rules seen ${PEEPHOLE}/typed.txt > ${PEEPHOLE}/seen.txt 2> ${PEEPHOLE}/seen.log
-        COMMAND           typed-${FIRST} shown ${PEEPHOLE}/typed.txt forth/fused.fs
+        COMMAND           pair-rules seen ${NUC} ${PEEPHOLE}/typed.txt > ${PEEPHOLE}/seen.txt 2> ${PEEPHOLE}/seen.log
+        COMMAND           typed shown ${PEEPHOLE}/typed.txt forth/fused.fs
                             > ${PEEPHOLE}/shown.txt 2> ${PEEPHOLE}/shown.log
         COMMAND           ${CMAKE_COMMAND} -E cat ${PEEPHOLE}/peephole.txt ${PEEPHOLE}/seen.txt ${PEEPHOLE}/shown.txt
         COMMAND           ${KEEP} peephole ${NUC} ${PEEPHOLE}/peephole.txt ${PEEPHOLE}/seen.txt ${PEEPHOLE}/shown.txt
@@ -1386,7 +1459,6 @@ add_custom_target(peephole
                             ${PEEPHOLE}/draw.work ${PEEPHOLE}/desktop.counts
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "The nucleus's compiler, weighed (each step's log is in ${PEEPHOLE})")
-add_dependencies(peephole machine-${FIRST} plain-${FIRST} picture pictures)
 
 # `pairs`: what the nucleus works out two instructions to be together
 # (forth/compose.fs), held to the machine's step for every pair it can
@@ -1394,24 +1466,21 @@ add_dependencies(peephole machine-${FIRST} plain-${FIRST} picture pictures)
 # top what it types and what it prints).  It fails if the nucleus was wrong
 # of any.  What was typed and what the nucleus said are in build/pairs/.
 set(PAIRS ${BUILD}/pairs)
-tool(pair-rules util/pairs.c util/image.c)
-target_include_directories(pair-rules PRIVATE util)
-add_custom_target(pairs
+stepping_tool(pair-rules util/pairs.c util/image.c)
+report(pairs
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${PAIRS}
         COMMAND           pair-rules type ${NUC} ${TABLES} > ${PAIRS}/typed.fs
-        COMMAND           hexaforth-${FIRST} ${NUC} < ${PAIRS}/typed.fs > ${PAIRS}/typed.out 2>&1
-        COMMAND           pair-rules read ${PAIRS}/typed.out
+        COMMAND           hexaforth ${NUC} < ${PAIRS}/typed.fs > ${PAIRS}/typed.out 2>&1
+        COMMAND           pair-rules read ${NUC} ${PAIRS}/typed.out
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT           "What the nucleus works two instructions out to be, held to the step (${PAIRS})")
-add_dependencies(pairs machine-${FIRST})
 
 # `phrases`: the phrase book, what to write to get each instruction
 # (util/phrases.c, which says at its top what it finds and asks).  It is
 # run where the Forth is, since it has cross.fs compile every phrase; the
 # report is build/phrases.txt, and its first part is printed.  LONGEST=4 in
 # the environment is phrases of up to four words, which takes much longer.
-tool(phrase-book util/phrases.c util/image.c)
-target_include_directories(phrase-book PRIVATE util)
+stepping_tool(phrase-book util/phrases.c util/image.c)
 target_compile_definitions(phrase-book PRIVATE GFORTH="${GFORTH}")
 add_custom_target(phrases
         COMMAND           ${MAKE_BUILD_DIR}
@@ -1420,9 +1489,8 @@ add_custom_target(phrases
 
 # What makes forth/folds.fs and forth/fused.fs, which the build of the
 # default machine's nucleus runs (above, at build/nuc.hex).
-tool(joins util/joins.c)
-tool(fused util/fused.c util/image.c)
-target_include_directories(fused PRIVATE util)
+stepping_tool(joins util/joins.c)
+stepping_tool(fused util/fused.c util/image.c)
 target_compile_definitions(fused PRIVATE GFORTH="${GFORTH}")
 
 #
@@ -1494,40 +1562,22 @@ set(CROSS_CLANG ${CLANG} --target=aarch64-none-elf -c ${KERNEL_SIZES})
 # The machine the kernels are: QEMU's virt, which has the sizes of the
 # machine of ${KERNELS_OF} bits and a disk of its own, a virtio block device.  A
 # machine's ROM has the driver of the disk it starts from, so this one's
-# image is not that machine's: it is made with ROM=virt-disk.fs, in
-# build/virt/, and machine-virt makes all of it: the image and the disk
-# the desktop is given with it, whose names are that image's; and, in
-# build/virt/boot/, the image it boots from a disk with and that disk
-# (boot-system-NAME, above, says what those are).  Each is made after the
-# one before, and after the machine of ${KERNELS_OF} bits, since all of them write
-# what fuse.h keeps in build/.
-set(VIRT_WORDS ${BUILD}/${KERNELS_OF}/basewords.fs)
-add_custom_command(
-        OUTPUT            ${OF_KERNEL}/nuc.hex ${OF_KERNEL}/nuc.tables
-        COMMAND           ${CMAKE_COMMAND} -E make_directory ${OF_KERNEL}/boot
-        COMMAND           ${CMAKE_COMMAND} -E env BUILD=${OF_KERNEL}/ ROM=virt-disk.fs
-                            ${RUN_GFORTH} ./cross.fs ${VIRT_WORDS} ./nuc.fs > ${OF_KERNEL}/cross.log 2>&1
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
-        COMMENT           "The nucleus for QEMU's virt (what cross.fs says is in ${OF_KERNEL}/cross.log)"
-        DEPENDS           machine-${KERNELS_OF} ${BUILD}/${KERNELS_OF}/nuc.hex ${FORTH_SOURCES})
-add_custom_command(
-        OUTPUT            ${OF_KERNEL}/boot/nuc.hex ${OF_KERNEL}/boot/nuc.tables
-        COMMAND           ${CMAKE_COMMAND} -E env BUILD=${OF_KERNEL}/boot/ ROM=virt-disk.fs BOOT=on
-                            ${RUN_GFORTH} ./cross.fs ${VIRT_WORDS} ./nuc.fs > ${OF_KERNEL}/boot/cross.log 2>&1
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/forth
-        COMMENT           "The image QEMU's virt boots from a disk with (${OF_KERNEL}/boot/cross.log)"
-        DEPENDS           ${OF_KERNEL}/nuc.hex ${FORTH_SOURCES})
-add_custom_command(
-        OUTPUT            ${OF_KERNEL}/boot/desk.img ${OF_KERNEL}/boot/desk.ipl
-        COMMAND           mkdisk --boot-desk ${KERNELS_OF} ${OF_KERNEL}/boot/nuc.hex
-                            ${OF_KERNEL}/boot/desk.img ${OF_KERNEL}/boot/desk.ipl
-                            ${OF_KERNEL}/boot/nuc.tables
-                            ${CMAKE_SOURCE_DIR}/forth/apps.fs > ${OF_KERNEL}/boot/desk-disk.log 2>&1
-        DEPENDS           mkdisk ${OF_KERNEL}/boot/nuc.hex ${FORTH_SOURCES})
-desk_disk(${OF_KERNEL}/disk.img ${OF_KERNEL}/nuc.tables)
-add_custom_target(machine-virt
-        DEPENDS           ${OF_KERNEL}/nuc.hex ${OF_KERNEL}/disk.img
-                          ${OF_KERNEL}/boot/nuc.hex ${OF_KERNEL}/boot/desk.img)
+# system is not that machine's: it is made with ROM=virt-disk.fs, in
+# build/virt/, as every system is (system).  machine-virt makes its image
+# and the disk the desktop is given with it, whose names are that image's,
+# and boot-system-virt the image it boots from a disk with and that disk:
+# VIRT is the two.  It is made after the machine of ${KERNELS_OF} bits, since all of
+# them write what fuse.h keeps in build/.
+system(virt ${KERNELS_OF}
+       SET ROM=virt-disk.fs
+       AFTER machine-${KERNELS_OF} ${BUILD}/${KERNELS_OF}/nuc.hex)
+machine_made(virt)
+set(VIRT machine-virt boot-system-virt)
+
+# What it is made of: the target examine-virt.  Its ROM has the virtio
+# disk's driver in it and is the fullest there is, so this is where how long
+# its kernel is, and what its ROM has left, is asked.
+examined(virt ${KERNELS_OF})
 
 # A number that may have a fraction, times a whole number, as a whole
 # number: CMake's own arithmetic is of whole numbers.
@@ -1567,7 +1617,7 @@ add_custom_command(
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${KB}
         COMMAND           hex2bin ${OF_KERNEL}/nuc.hex ${KB}/image.bin
         COMMAND           hex2bin --rom ${OF_KERNEL}/boot/nuc.hex ${KB}/rom.bin
-        DEPENDS           hex2bin machine-virt ${OF_KERNEL}/nuc.hex ${OF_KERNEL}/boot/nuc.hex)
+        DEPENDS           hex2bin ${VIRT} ${OF_KERNEL}/nuc.hex ${OF_KERNEL}/boot/nuc.hex)
 function(bridge SCALED)
     set(BRIDGE ${KB}/ramfb.o)
     set(TOLD)
@@ -1607,7 +1657,7 @@ add_custom_target(kernel-parts DEPENDS ${KB}/image.bin ${KB}/rom.bin ${BRIDGES})
 #               machine reads the rest from its disk
 #
 # Each is another file, named for what it is; KERNEL_FILE is its name,
-# which the target kernel-NAME makes: NAME.elf, NAME.bin, which is what
+# which the target KERNEL_TARGET makes: NAME.elf, NAME.bin, which is what
 # QEMU's machine has in memory, and NAME.symbols, where its symbols are.
 function(kernel WHICH)
     cmake_parse_arguments(IS "DISPLAY;PROFILE;STRICT;ROM" "MIPS;SCALE" "" ${ARGN})
@@ -1644,6 +1694,7 @@ function(kernel WHICH)
         string(APPEND NAME -x${IS_SCALE})
     endif()
     set(KERNEL_FILE ${KB}/${NAME} PARENT_SCOPE)
+    set(KERNEL_TARGET kernel-${NAME} PARENT_SCOPE)
     if(TARGET kernel-${NAME})
         return()
     endif()
@@ -1675,12 +1726,13 @@ endfunction()
 # A kernel against vm.c, which is the machine: the cases difftest_dump
 # writes, each with what vm.c left of it, are run on the kernel under
 # Unicorn (baremetal/difftest.c).
-kernel_tool(difftest_dump baremetal/difftest_dump.c ${VM_SOURCES} test/compiler.c test/vm_test.c)
 kernel_tool(difftest baremetal/difftest.c)
 find_library(UNICORN unicorn PATHS ${BREW_PREFIX}/lib)
 if(UNICORN_HEADER AND UNICORN)      # without it difftest does not build, and says what it has not
     target_include_directories(difftest PRIVATE ${UNICORN_HEADER})
     target_link_libraries(difftest ${UNICORN})
+else()
+    left_out(difftest)
 endif()
 add_custom_command(
         OUTPUT            ${KB}/cases.bin
@@ -1732,7 +1784,7 @@ function(qemu_test WHICH)
              WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     set_tests_properties(qemu-${NAME} PROPERTIES TIMEOUT ${QEMU_TEST_SECONDS})
     set_property(GLOBAL APPEND PROPERTY SCREENS ${KB}/screens-${NAME})
-    needs(qemu-${NAME} kernel-${NAME} guitest kernel-tests machine-virt picture pictures)
+    needs(qemu-${NAME} kernel-${NAME} guitest kernel-tests ${VIRT} picture pictures)
 endfunction()
 kernel_test(hexaforth)
 kernel_test(hexaforth-fast)
@@ -1760,89 +1812,73 @@ endif()
 set(QEMU ${QEMU_AARCH64} -M virt -cpu cortex-a53 -nic none)
 
 kernel(${KERNEL} ${SAID})
-get_filename_component(PLAIN_KERNEL ${KERNEL_FILE} NAME)
 add_custom_target(run
         COMMAND           ${QEMU} -nographic -kernel ${KERNEL_FILE}.elf
         USES_TERMINAL)
-add_dependencies(run kernel-${PLAIN_KERNEL})
+add_dependencies(run ${KERNEL_TARGET})
 add_custom_target(size
         COMMAND           kernel_size ${KERNEL_FILE}.symbols ${KERNEL_FILE}.bin > ${KERNEL_FILE}.size.txt
         COMMAND           ${CMAKE_COMMAND} -E cat ${KERNEL_FILE}.size.txt
         COMMAND           ${KEEP} size ${KERNEL_FILE}.bin ${KERNEL_FILE}.size.txt)
-add_dependencies(size kernel-${PLAIN_KERNEL})
+add_dependencies(size ${KERNEL_TARGET})
 
-# The desktop is given a disk of its own, which is made of the machine's
-# when that is made again and is otherwise as the desktop left it.
-add_custom_command(
-        OUTPUT            ${KB}/demo.img
-        COMMAND           ${CMAKE_COMMAND} -E copy ${OF_KERNEL}/disk.img ${KB}/demo.img
-        DEPENDS           machine-virt ${OF_KERNEL}/disk.img)
-kernel(${KERNEL} DISPLAY SCALE ${SCALE} ${SAID})
-get_filename_component(SHOWN_KERNEL ${KERNEL_FILE} NAME)
-# The machine's disks are its block devices in the order of their places
-# (forth/virt-disk.fs), so each is said its place: the disk it is given or
-# starts from in the first, and the pictures' disk, which nothing writes
-# to, in the next.
+# The desktop on QEMU with a display: the target NAME boots the kernel last
+# said (kernel) with a disk, the pictures' disk, a keyboard and a pointer.
+# The disk is its own, a copy of FROM: it is made of that when that is made
+# again, and is otherwise as the desktop left it.  The machine's disks are
+# its block devices in the order of their places (forth/virt-disk.fs), so
+# each is said its place: the disk it is given or starts from in the first,
+# and the pictures' disk, which nothing writes to, in the next.
 set(SLOW_READ)
 if(DISK)
     set(SLOW_READ ",throttling.bps-read=${RATE}")
 endif()
-set(SECOND_DISK -drive "file=${PICTURES},if=none,format=raw,id=hd1,readonly=on${SLOW_READ}"
-                -device virtio-blk-device,drive=hd1,bus=virtio-mmio-bus.1)
-add_custom_target(demo
-        COMMAND           ${QEMU} -m 256 -serial mon:stdio -device ramfb -global virtio-mmio.force-legacy=false
-                            -drive "file=${KB}/demo.img,if=none,format=raw,id=hd0${SLOW}"
-                            -device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0
-                            ${SECOND_DISK}
-                            -device virtio-keyboard-device -device virtio-tablet-device
-                            -kernel ${KERNEL_FILE}.elf
-        DEPENDS           ${KB}/demo.img
-        USES_TERMINAL
-        VERBATIM)
-add_dependencies(demo kernel-${SHOWN_KERNEL} machine-virt pictures)
+function(desktop_shown NAME FROM)                       # and what makes FROM
+    add_custom_command(
+            OUTPUT            ${KB}/${NAME}.img
+            COMMAND           ${CMAKE_COMMAND} -E copy ${FROM} ${KB}/${NAME}.img
+            DEPENDS           ${ARGN} ${FROM})
+    add_custom_target(${NAME}
+            COMMAND           ${QEMU} -m 256 -serial mon:stdio -device ramfb -global virtio-mmio.force-legacy=false
+                                -drive "file=${KB}/${NAME}.img,if=none,format=raw,id=hd0${SLOW}"
+                                -device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0
+                                -drive "file=${PICTURES},if=none,format=raw,id=hd1,readonly=on${SLOW_READ}"
+                                -device virtio-blk-device,drive=hd1,bus=virtio-mmio-bus.1
+                                -device virtio-keyboard-device -device virtio-tablet-device
+                                -kernel ${KERNEL_FILE}.elf
+            DEPENDS           ${KB}/${NAME}.img
+            USES_TERMINAL
+            VERBATIM)
+    add_dependencies(${NAME} ${KERNEL_TARGET} ${ARGN} pictures)
+endfunction()
+kernel(${KERNEL} DISPLAY SCALE ${SCALE} ${SAID})
+desktop_shown(demo ${OF_KERNEL}/disk.img machine-virt)
 
 # demo-boot is the same machine with nothing in its memory but the kernel's
 # ROM: it reads its image from the disk, compiles the applications and the
 # desktop from their source there, saying on the screen what it is at, and
-# opens the desktop (doc/boot.md).  Its disk is a copy too.
-add_custom_command(
-        OUTPUT            ${KB}/demo-boot.img
-        COMMAND           ${CMAKE_COMMAND} -E copy ${OF_KERNEL}/boot/desk.img ${KB}/demo-boot.img
-        DEPENDS           machine-virt ${OF_KERNEL}/boot/desk.img)
+# opens the desktop (doc/boot.md).
 kernel(${KERNEL} DISPLAY SCALE ${SCALE} ROM ${SAID})
-get_filename_component(BOOTED_KERNEL ${KERNEL_FILE} NAME)
-add_custom_target(demo-boot
-        COMMAND           ${QEMU} -m 256 -serial mon:stdio -device ramfb -global virtio-mmio.force-legacy=false
-                            -drive "file=${KB}/demo-boot.img,if=none,format=raw,id=hd0${SLOW}"
-                            -device virtio-blk-device,drive=hd0,bus=virtio-mmio-bus.0
-                            ${SECOND_DISK}
-                            -device virtio-keyboard-device -device virtio-tablet-device
-                            -kernel ${KERNEL_FILE}.elf
-        DEPENDS           ${KB}/demo-boot.img
-        USES_TERMINAL
-        VERBATIM)
-add_dependencies(demo-boot kernel-${BOOTED_KERNEL} machine-virt pictures)
+desktop_shown(demo-boot ${OF_KERNEL}/boot/desk.img ${VIRT})
 
 set(STRICTLY)
 if(STRICT)
     set(STRICTLY STRICT)
 endif()
 kernel(${KERNEL} DISPLAY SCALE ${SCALE} ${STRICTLY})
-get_filename_component(TESTED_KERNEL ${KERNEL_FILE} NAME)
 add_custom_target(demo-test
         COMMAND           ${CMAKE_COMMAND} -E make_directory ${KB}/screens
         COMMAND           ${CMAKE_COMMAND} -E env --unset=DISK SCALE=${SCALE}
                             $<TARGET_FILE:guitest> ${KERNEL_FILE}.elf ${OF_KERNEL}/disk.img ${PICTURES} ${PICTURE} forth
                             ${KB}/screens
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-add_dependencies(demo-test kernel-${TESTED_KERNEL} machine-virt pictures)
+add_dependencies(demo-test ${KERNEL_TARGET} machine-virt pictures)
 
 set(HELD)
 if(MIPS)
     set(HELD MIPS ${MIPS})
 endif()
 kernel(${KERNEL} DISPLAY ${HELD})
-get_filename_component(TIMED_KERNEL ${KERNEL_FILE} NAME)
 # demo-time runs three times, with a different picture on the disk each
 # time: the Mandrill, its grays, and its grays at half size.  The gray
 # files are smaller to read, and dither to the same bitmaps as the Mandrill
@@ -1872,7 +1908,7 @@ endforeach()
 add_custom_target(demo-time ${TIMES}
         DEPENDS           ${TIMED_DISKS}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-add_dependencies(demo-time kernel-${TIMED_KERNEL} machine-virt pictures)
+add_dependencies(demo-time ${KERNEL_TARGET} machine-virt pictures)
 
 # The kernel that counts: nothing reads its counts, and it is still built.
 kernel(hexaforth PROFILE)
@@ -1936,13 +1972,14 @@ function(cells_of RESULT BYTES_LOG2 CELL)
 endfunction()
 
 # What makes an image into what the Verilog's memory is loaded from, and
-# the kernel's ROM, for a cell and so much memory (util/memimage.c).
-function(memimage CELL ADDR)
-    if(NOT TARGET memimage-${CELL}-${ADDR})
-        tool(memimage-${CELL}-${ADDR} util/memimage.c util/image.c)
-        target_compile_definitions(memimage-${CELL}-${ADDR} PRIVATE CELL_BITS=${CELL} ADDR_BITS=${ADDR})
-    endif()
-endfunction()
+# the kernel's ROM (util/memimage.c): memimage IMAGE.hex OUTDIR ADDR_BITS,
+# the cell being the image's machine's and the memory as much as is said.
+tool(memimage util/memimage.c util/image.c)
+
+# The cases the kernels and the Verilog are run against, each with what
+# vm.c left of it (baremetal/difftest_dump.c): difftest_dump CASES.bin
+# [CELL], of a machine of that cell.
+tool(difftest_dump baremetal/difftest_dump.c ${VM_SOURCES} util/image.c test/compiler.c test/vm_test.c)
 
 # The CPU with a plain memory and its test bench, in a directory (tb): of
 # a cell, the log2 of its memory's cells, and LAT.
@@ -1965,18 +2002,16 @@ function(verilog_cell CELL)
     set(M default-${CELL})
     machine(${M} CELL_BITS=${CELL})
     machine_made(${M})
-    tool(difftest_dump-${CELL} baremetal/difftest_dump.c ${VM_SOURCES} test/compiler.c test/vm_test.c)
-    target_compile_definitions(difftest_dump-${CELL} PRIVATE CELL_BITS=${CELL})
     add_custom_command(
             OUTPUT            ${RB}/cases-${CELL}.bin
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${RB}
-            COMMAND           difftest_dump-${CELL} ${RB}/cases-${CELL}.bin
-            DEPENDS           difftest_dump-${CELL})
+            COMMAND           difftest_dump ${RB}/cases-${CELL}.bin ${CELL}
+            DEPENDS           difftest_dump)
     add_custom_command(
             OUTPUT            ${RB}/session-${CELL}.out
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${RB}
-            COMMAND           hexaforth-${M} ${BUILD}/${M}/nuc.hex < ${RTL}/session.fs > ${RB}/session-${CELL}.out
-            DEPENDS           hexaforth-${M} machine-${M} ${BUILD}/${M}/nuc.hex rtl/session.fs)
+            COMMAND           hexaforth ${BUILD}/${M}/nuc.hex < ${RTL}/session.fs > ${RB}/session-${CELL}.out
+            DEPENDS           hexaforth machine-${M} ${BUILD}/${M}/nuc.hex rtl/session.fs)
     add_custom_target(verilog-${CELL} DEPENDS ${RB}/cases-${CELL}.bin ${RB}/session-${CELL}.out)
     add_dependencies(verilog-${CELL} machine-${M})
 endfunction()
@@ -1996,21 +2031,20 @@ function(verilog CELL LAT)                              # and KROM, if the kerne
     set(M default-${CELL})
     set(NUC ${BUILD}/${M}/nuc.hex)
     cells_of(ADDR ${RTL_MEMORY} ${CELL})
-    memimage(${CELL} ${ADDR})
     set(TOLD -CFLAGS "-DW=${CELL} -DAB=${ADDR} -DLAT=${LAT}")
 
     verilog_cpu(${B} ${CELL} ${ADDR} ${LAT})
     add_custom_command(
             OUTPUT            ${B}/tb_soc ${B}/mem.hex
             COMMAND           ${CMAKE_COMMAND} -E make_directory ${B}
-            COMMAND           memimage-${CELL}-${ADDR} ${NUC} ${B}
+            COMMAND           memimage ${NUC} ${B} ${ADDR}
             COMMAND           ${VERILATED} ${TOLD} --cc soc.v hexaforth.v hf_mem.v --top-module soc
                                 -GW=${CELL} -GAB=${ADDR} -GLAT=${LAT} "-GINIT=\"${B}/mem.hex\"" ${KROM}
                                 --exe ${RTL}/tb_soc.cpp --Mdir ${B}/soc -o ../tb_soc --build -j 4 > ${B}/tb_soc.log 2>&1
             WORKING_DIRECTORY ${RTL}
             COMMENT           "The Verilog system ${NAME} (what Verilator says is in ${B}/tb_soc.log)"
             DEPENDS           rtl/soc.v rtl/hexaforth.v rtl/hf_mem.v rtl/tb_soc.cpp
-                              memimage-${CELL}-${ADDR} verilog-${CELL} ${NUC}
+                              memimage verilog-${CELL} ${NUC}
             VERBATIM)
     add_custom_command(
             OUTPUT            ${B}/cpu.out ${B}/cpu.err
@@ -2076,8 +2110,7 @@ set(SYNTH_READ read_verilog)
 set(SYNTH_IS 0)
 if(SYNTH_KROM)
     string(APPEND S -krom)
-    memimage(${SYNTH_CELL} ${SYNTH_AB})
-    set(SYNTH_ROM COMMAND memimage-${SYNTH_CELL}-${SYNTH_AB} ${BUILD}/default-${SYNTH_CELL}/nuc.hex ${S})
+    set(SYNTH_ROM COMMAND memimage ${BUILD}/default-${SYNTH_CELL}/nuc.hex ${S} ${SYNTH_AB})
     set(SYNTH_READ read_verilog -DHF_KROM -I${S})
     set(SYNTH_IS 1)
 endif()
@@ -2240,71 +2273,52 @@ add_custom_target(cell-patterns
         COMMAND           ${CMAKE_COMMAND} -E cat ${BB}/patterns-own.txt ${BB}/patterns-half.txt
         DEPENDS           patterns picture ${PICTURE})
 
-# What a picture would be stored as a codebook of tiles and a tile's number
-# for each place, drawn as a font is (bench/tiles.c): the target
-# tiles-report prints how small and how near the dither each is, for the
-# Mandrill, Peppers and the F-16 at their own size and at half, and leaves
-# each as a picture in build/bench/tiles/NAME-SIZE/.
-tool(tiles bench/tiles.c bench/tiff.c test/dither.c)
-set(TILED)
-foreach(SOURCE ${PICTURE} ${PEPPERS} ${AIRPLANE})
-    get_filename_component(PIC ${SOURCE} NAME_WE)
-    foreach(SIZE own half)
-        set(T ${BB}/tiles/${PIC}-${SIZE})
-        add_custom_command(
-                OUTPUT            ${T}.txt
-                COMMAND           ${CMAKE_COMMAND} -E make_directory ${T}
-                COMMAND           tiles ${SOURCE} ${SIZE} ${T} > ${T}.txt
-                DEPENDS           tiles ${SOURCE})
-        list(APPEND TILED ${T}.txt)
+# Three ways a picture could be stored are tried on the Mandrill, Peppers
+# and the F-16, each by a tool of bench/ named as its target is: the target
+# NAME-report prints what the tool says of each picture, at each size where
+# it takes one, and each is left as pictures in build/bench/NAME/, in a
+# directory named for the picture and the size.
+#
+#   tiles-report    as a codebook of tiles and a tile's number for each
+#                   place, drawn as a font is (bench/tiles.c): how small,
+#                   and how near the dither, at its own size and at half
+#   masks-report    kept as gray, in few bits and at less than its size,
+#                   and drawn black and white through a threshold mask
+#                   (bench/masks.c): how small, at the same two sizes
+#   quads-report    one byte per 2 by 2 block, expanded back to full size
+#                   and dithered (bench/quads.c): each way's size, and how
+#                   far it is from the picture's grays
+function(pictures_report NAME)                          # and the sizes its tool takes, if it takes one
+    tool(${NAME} bench/${NAME}.c bench/tiff.c test/dither.c)
+    set(EACH ${ARGN})
+    if(NOT EACH)
+        set(EACH whole)
+    endif()
+    set(SAID)
+    foreach(SOURCE ${PICTURE} ${PEPPERS} ${AIRPLANE})
+        get_filename_component(PIC ${SOURCE} NAME_WE)
+        foreach(SIZE ${EACH})
+            set(AT ${BB}/${NAME}/${PIC})
+            set(OF)
+            if(ARGN)
+                set(AT ${AT}-${SIZE})
+                set(OF ${SIZE})
+            endif()
+            add_custom_command(
+                    OUTPUT            ${AT}.txt
+                    COMMAND           ${CMAKE_COMMAND} -E make_directory ${AT}
+                    COMMAND           ${NAME} ${SOURCE} ${OF} ${AT} > ${AT}.txt
+                    DEPENDS           ${NAME} ${SOURCE})
+            list(APPEND SAID ${AT}.txt)
+        endforeach()
     endforeach()
-endforeach()
-add_custom_target(tiles-report
-        COMMAND           ${CMAKE_COMMAND} -E cat ${TILED}
-        DEPENDS           ${TILED})
-
-# What a picture would be kept as gray, in few bits and at less than its
-# size, and drawn black and white through a threshold mask (bench/masks.c):
-# the target masks-report prints how small each is, for the same pictures,
-# and leaves each as a picture in build/bench/masks/NAME-SIZE/.
-tool(masks bench/masks.c bench/tiff.c test/dither.c)
-set(MASKED)
-foreach(SOURCE ${PICTURE} ${PEPPERS} ${AIRPLANE})
-    get_filename_component(PIC ${SOURCE} NAME_WE)
-    foreach(SIZE own half)
-        set(T ${BB}/masks/${PIC}-${SIZE})
-        add_custom_command(
-                OUTPUT            ${T}.txt
-                COMMAND           ${CMAKE_COMMAND} -E make_directory ${T}
-                COMMAND           masks ${SOURCE} ${SIZE} ${T} > ${T}.txt
-                DEPENDS           masks ${SOURCE})
-        list(APPEND MASKED ${T}.txt)
-    endforeach()
-endforeach()
-add_custom_target(masks-report
-        COMMAND           ${CMAKE_COMMAND} -E cat ${MASKED}
-        DEPENDS           ${MASKED})
-
-# Ways to store one byte per 2 by 2 block of a picture, each expanded back
-# to full size and dithered (bench/quads.c).  The target quads-report
-# prints each one's size and how far it is from the picture's grays, for
-# the same three pictures, and writes each dither as a PNG in
-# build/bench/quads/NAME/.
-tool(quads bench/quads.c bench/tiff.c test/dither.c)
-set(QUADS)
-foreach(SOURCE ${PICTURE} ${PEPPERS} ${AIRPLANE})
-    get_filename_component(PIC ${SOURCE} NAME_WE)
-    set(Q ${BB}/quads/${PIC})
-    add_custom_command(
-            OUTPUT            ${Q}.txt
-            COMMAND           ${CMAKE_COMMAND} -E make_directory ${Q}
-            COMMAND           quads ${SOURCE} ${Q} > ${Q}.txt
-            DEPENDS           quads ${SOURCE})
-    list(APPEND QUADS ${Q}.txt)
-endforeach()
-add_custom_target(quads-report
-        COMMAND           ${CMAKE_COMMAND} -E cat ${QUADS}
-        DEPENDS           ${QUADS})
+    add_custom_target(${NAME}-report
+            COMMAND           ${CMAKE_COMMAND} -E cat ${SAID}
+            DEPENDS           ${SAID})
+endfunction()
+pictures_report(tiles own half)
+pictures_report(masks own half)
+pictures_report(quads)
 
 # The dithers that are timed, each as PICTURE:SIZE:CHECKED.  PICTURE is
 # one of the pictures in blocks.fs, SIZE is the size it is dithered at, and
@@ -2343,30 +2357,30 @@ file(WRITE ${BB}/asks-gray.fs
      "b @ . b 1+ @ .\nbye\n")
 
 # The work on a machine: its nucleus, the reference VM, the Verilog CPU
-# with as much memory, and what checks a bitmap of its kind.
+# with as much memory, and what checks a bitmap of its kind (bench_check).
+machine_tool(bench_check bench/check.c bench/tiff.c test/dither.c)
 function(bench_on NAME)
     string(REGEX MATCH "CELL_BITS=([0-9]+)" HAS "${SIZES_OF_${NAME}}")
     set(CELL ${CMAKE_MATCH_1})
     string(REGEX MATCH "ADDR_BITS=([0-9]+)" HAS "${SIZES_OF_${NAME}}")
     set(ADDR ${CMAKE_MATCH_1})
     set(NUC ${BUILD}/${NAME}/nuc.hex)
-    machine_tool(check ${NAME} bench/check.c bench/tiff.c test/dither.c)
     foreach(LAT 1 2)
         set(T ${BB}/tb-${NAME}-${LAT})
         verilog_cpu(${T} ${CELL} ${ADDR} ${LAT})
         set_property(GLOBAL APPEND PROPERTY BENCH_PARTS ${T}/tb)
         set(ON "${CELL} bits LAT=${LAT}")
-        set(WANTS bench-parts ${T}/tb ${BENCH_DISK_FILES} machine-${NAME} ${NUC} check-${NAME})
+        set(WANTS bench-parts ${T}/tb ${BENCH_DISK_FILES} machine-${NAME} ${NUC} bench_check)
 
         set(J ${BB}/draw-${NAME}-${LAT})
         add_custom_command(
                 OUTPUT            ${J}.txt
                 COMMAND           ${T}/tb run ${NUC} ${BENCH_DISKS} ${J}.mem < ${BENCH}/draw.fs > ${J}.out 2> ${J}.err
-                COMMAND           hexaforth-${NAME} ${NUC} ${BENCH_DISKS} ${J}.vm < ${BENCH}/draw.fs > ${J}.vm.out 2>&1
-                COMMAND           check-${NAME} display ${J}.vm ${J}.mem ${J}.err draw "${ON}" text fills scrolls
+                COMMAND           hexaforth ${NUC} ${BENCH_DISKS} ${J}.vm < ${BENCH}/draw.fs > ${J}.vm.out 2>&1
+                COMMAND           bench_check ${NUC} display ${J}.vm ${J}.mem ${J}.err draw "${ON}" text fills scrolls
                                     > ${J}.txt 2> ${J}.check
                 COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem ${J}.vm
-                DEPENDS           ${WANTS} hexaforth-${NAME} bench/draw.fs
+                DEPENDS           ${WANTS} hexaforth bench/draw.fs
                 VERBATIM)
         set_property(GLOBAL APPEND PROPERTY DRAW_FIGURES ${J}.txt)
         set_property(GLOBAL APPEND PROPERTY DRAW_KEPT
@@ -2395,7 +2409,7 @@ function(bench_on NAME)
                     COMMAND           ${CMAKE_COMMAND} -E cat ${BENCH}/tb-disk.fs ${BENCH}/pictures.fs ${BENCH}/dither.fs
                                         ${BB}/asks-${PIC}-${SIZE}.fs > ${J}.fs
                     COMMAND           ${T}/tb run ${SYSTEM_IMAGE} ${BENCH_DISKS} ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
-                    COMMAND           check-${NAME} picture ${PICTURE} ${MADE} ${J}.mem ${J}.out ${J}.err
+                    COMMAND           bench_check ${SYSTEM_IMAGE} picture ${PICTURE} ${MADE} ${J}.mem ${J}.out ${J}.err
                                         "dither ${PIC} ${SIZE}" "${SAYS}" > ${J}.txt 2> ${J}.check
                     COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem
                     DEPENDS           ${WANTS} ${SYSTEM_WANTS} bench/pictures.fs bench/tb-disk.fs bench/dither.fs
@@ -2412,7 +2426,7 @@ function(bench_on NAME)
                 COMMAND           ${CMAKE_COMMAND} -E cat ${BENCH}/tb-disk.fs ${BENCH}/pictures.fs ${BENCH}/gray.fs
                                     ${BB}/asks-gray.fs > ${J}.fs
                 COMMAND           ${T}/tb run ${NUC} ${BENCH_DISKS} ${J}.mem < ${J}.fs > ${J}.out 2> ${J}.err
-                COMMAND           check-${NAME} gray ${PICTURE} ${GRAY_KEEP} ${GRAY_DRAW} ${GRAY_MASK} ${GRAY_AT}
+                COMMAND           bench_check ${NUC} gray ${PICTURE} ${GRAY_KEEP} ${GRAY_DRAW} ${GRAY_MASK} ${GRAY_AT}
                                     ${J}.mem ${J}.out ${J}.err "gray colour" "${ON}" keep mask draw copy
                                     > ${J}.txt 2> ${J}.check
                 COMMAND           ${CMAKE_COMMAND} -E rm -f ${J}.mem
@@ -2441,19 +2455,19 @@ function(bench_on NAME)
                 COMMAND           ${CMAKE_COMMAND} -E cat ${BENCH}/pictures.fs ${BENCH}/dither.fs
                                     ${BB}/asks-${PIC}-half.fs > ${K}/typed.fs
                 COMMAND           ${CMAKE_COMMAND} -E env RUN_WORK=${K}/work
-                                    $<TARGET_FILE:counting-${NAME}> ${NUC} ${BENCH_DISKS} < ${K}/typed.fs > ${K}/typed.out 2>&1
-                DEPENDS           counting-${NAME} machine-${NAME} ${NUC} ${BENCH_DISK_FILES} bench/pictures.fs
+                                    $<TARGET_FILE:counting> ${NUC} ${BENCH_DISKS} < ${K}/typed.fs > ${K}/typed.out 2>&1
+                DEPENDS           counting machine-${NAME} ${NUC} ${BENCH_DISK_FILES} bench/pictures.fs
                                   bench/dither.fs picture ${PICTURE}
                 VERBATIM)
         list(APPEND WORKS ${K}/work)
         list(APPEND COSTED COMMAND ${CMAKE_COMMAND} -E echo "dither ${PIC} half, cells of ${CELL} bits:"
-                           COMMAND costs-${NAME} ${NUC} ${BUILD}/${NAME}/nuc.tables ${BUILD}/${NAME}/nuc.sizes ${K}/work ${K}
-                           COMMAND shorter-${NAME} ${NUC} ${BUILD}/${NAME}/nuc.tables ${K}/work ${K}/shorter.txt
+                           COMMAND costs ${NUC} ${BUILD}/${NAME}/nuc.tables ${BUILD}/${NAME}/nuc.sizes ${K}/work ${K}
+                           COMMAND shorter ${NUC} ${BUILD}/${NAME}/nuc.tables ${K}/work ${K}/shorter.txt
                            COMMAND ${KEEP} dither-costs-${PIC} ${NUC} ${K}/work ${K}/typed.fs ${K}/paths.txt
                                      ${K}/loops.txt ${K}/vars.txt ${K}/shorter.txt)
     endforeach()
     add_custom_target(dither-costs-${NAME} ${COSTED} DEPENDS ${WORKS} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    add_dependencies(dither-costs-${NAME} costs-${NAME} shorter-${NAME} keep)
+    add_dependencies(dither-costs-${NAME} costs shorter keep)
 
     # The same for the gray (gray-costs-NAME): bench/gray.fs's work typed at
     # the counting VM, then the cost of each word, loop and variable, in
@@ -2465,17 +2479,17 @@ function(bench_on NAME)
             COMMAND           ${CMAKE_COMMAND} -E cat ${BENCH}/pictures.fs ${BENCH}/gray.fs
                                 ${BB}/asks-gray.fs > ${K}/typed.fs
             COMMAND           ${CMAKE_COMMAND} -E env RUN_WORK=${K}/work
-                                $<TARGET_FILE:counting-${NAME}> ${NUC} ${BENCH_DISKS} < ${K}/typed.fs > ${K}/typed.out 2>&1
-            DEPENDS           counting-${NAME} machine-${NAME} ${NUC} ${BENCH_DISK_FILES} bench/pictures.fs
+                                $<TARGET_FILE:counting> ${NUC} ${BENCH_DISKS} < ${K}/typed.fs > ${K}/typed.out 2>&1
+            DEPENDS           counting machine-${NAME} ${NUC} ${BENCH_DISK_FILES} bench/pictures.fs
                               bench/gray.fs picture ${PICTURE}
             VERBATIM)
     add_custom_target(gray-costs-${NAME}
             COMMAND           ${CMAKE_COMMAND} -E echo "the gray, cells of ${CELL} bits:"
-            COMMAND           costs-${NAME} ${NUC} ${BUILD}/${NAME}/nuc.tables ${BUILD}/${NAME}/nuc.sizes ${K}/work ${K}
+            COMMAND           costs ${NUC} ${BUILD}/${NAME}/nuc.tables ${BUILD}/${NAME}/nuc.sizes ${K}/work ${K}
             COMMAND           ${KEEP} gray-costs ${NUC} ${K}/work ${K}/typed.fs ${K}/paths.txt ${K}/loops.txt ${K}/vars.txt
             DEPENDS           ${K}/work
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    add_dependencies(gray-costs-${NAME} costs-${NAME} keep)
+    add_dependencies(gray-costs-${NAME} costs keep)
 endfunction()
 foreach(NAME ${MACHINES})
     bench_on(${NAME})
@@ -2512,6 +2526,7 @@ if(M68K_AS)
                 ${MUSASHI}/m68kcpu.c ${MB}/m68kops.c ${MUSASHI}/softfloat/softfloat.c)
     target_include_directories(run68k PRIVATE ${MUSASHI} ${MB})
     add_dependencies(run68k musashi)
+    left_out(m68kmake run68k)                           # they are made of what is fetched
 
     set(M68K_ASSEMBLED ${M68K_AS} -m68000 --register-prefix-optional)
     foreach(PART atk gray)
@@ -2521,8 +2536,10 @@ if(M68K_AS)
                 COMMAND           ${M68K_ASSEMBLED} -o ${MB}/${PART}.o ${BENCH}/m68k/${PART}.s
                 DEPENDS           bench/m68k/${PART}.s)
     endforeach()
-    foreach(PIC ${PICTURES})
-        foreach(SIZE ${PICTURE_SIZES})
+    # What the 68000 dithers: the Mandrill and its grays, each at its own
+    # size and at half.
+    foreach(PIC gray colour)
+        foreach(SIZE own half)
             set(J ${MB}/${PIC}-${SIZE})
             set(SAMPLES 3)
             if(PIC STREQUAL gray)
@@ -2571,10 +2588,13 @@ function(figures TARGET)                                # and the kinds it print
     set(PRINTED)
     set(KEPT_SO)
     foreach(KIND ${ARGN})
+        if(NOT ${KIND}_FIGURES)                         # a kind that has nothing to print was not said: it is not left out
+            message(FATAL_ERROR "the target ${TARGET} has no figure of the kind ${KIND} to print")
+        endif()
         list(APPEND PRINTED ${${KIND}_FIGURES})
         list(APPEND KEPT_SO ${${KIND}_KEPT})
     endforeach()
-    add_custom_target(${TARGET} COMMAND check-${FIRST} table ${PRINTED} ${KEPT_SO})
+    add_custom_target(${TARGET} COMMAND bench_check table ${PRINTED} ${KEPT_SO})
     foreach(KIND ${ARGN})
         string(TOLOWER ${KIND} OF)
         add_dependencies(${TARGET} ${OF}-figures)

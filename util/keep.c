@@ -24,8 +24,9 @@
 // another time, beside the last.
 //
 // KEPT/IMAGE-AS-IT-IS/image/ has the image itself and what was written
-// beside it (its .tables, .sizes and .lst), so that counts by place can be
-// said by word long after build/ has another image in it.  What is
+// beside it (its .tables, .sizes, .lst and .machine), so that counts by
+// place can be said by word long after build/ has another image in it, by
+// a tool that is the machine the image says (util/image.h).  What is
 // measured need not be an image (a kernel, the CPU's Verilog): a file that
 // is not a .hex is what was measured all the same, and is kept there by
 // itself.
@@ -129,7 +130,7 @@ static void copied(const char* from, const char* dir) {
 // The image, and what was written beside it, kept the first time anything
 // is kept of it.
 static void image_kept(const char* image, const char* of_image) {
-    static const char* const beside[] = { ".hex", ".tables", ".sizes", ".lst" };
+    static const char* const beside[] = { ".hex", ".tables", ".sizes", ".lst", ".machine" };
     char* dir = NULL;
     text_more(&dir, "%s/image", of_image);
     if (there(dir)) { free(dir); return; }

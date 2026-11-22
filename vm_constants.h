@@ -12,13 +12,35 @@
 // number of a cell, and memory is 2^ADDR_BITS cells; ADDR_BITS cannot exceed
 // CELL_BITS, since an address is a cell.  Both reach the Forth toolchain
 // through the generated basewords.fs.  See MODEL.md.
+//
+// They are values, and not constants of the program: a program has the
+// machine it is run on in THIS_MACHINE (below), and each of these names
+// reads it there, so one program serves a machine of any size.
+// THIS_MACHINE starts as what the compiler was told (-DCELL_BITS and the
+// rest), or as the machine of 64 bits where it was told nothing.  No cell
+// is wider than CELL_MOST bits, which is what has room for a cell has room
+// for.
+#define CELL_MOST 64
+//
+// What has a machine of its own in it, with a memory of a size it says
+// itself (util/fuse.h), says ADDR_BITS, DISP_W and MEM_MOST again after
+// this, as constants: its cell is still THIS_MACHINE's.
+//
+// What is not said of a machine is what a cell of its size has when
+// nothing is said (ADDR_BITS_OF, DISP_W_OF, DISP_H_OF): of a machine said
+// to the compiler, and of one said to a program when it runs
+// (machine_said, util/image.h).
+#define ADDR_BITS_OF(cell)  ((cell) == 64 ? 22 : (cell) == 32 ? 17 : 16)
+#define DISP_W_OF(cell)     ((cell) == 64 ? 768 : 0)
+#define DISP_H_OF(cell)     ((cell) == 64 ? 576 : 0)
 #ifndef CELL_BITS
 #define CELL_BITS 64
 #endif
 #ifndef ADDR_BITS
-#define ADDR_BITS (CELL_BITS == 64 ? 22 : CELL_BITS == 32 ? 17 : 16)
+#define ADDR_BITS ADDR_BITS_OF(CELL_BITS)
 #endif
 #define CELL_BYTES (CELL_BITS / 8)
+#define BYTE_SHIFT (CELL_BITS == 64 ? 3 : CELL_BITS == 32 ? 2 : 1)     // a cell's address shifted by this is its byte
 #define MEM_BYTES ((uint64_t)CELL_BYTES << ADDR_BITS)
 
 // Where variables are.  A literal instruction whose shift field is 3 is not
@@ -131,10 +153,10 @@
 // The machine with 64-bit cells has a display by default; smaller ones do
 // not unless they are given one.
 #ifndef DISP_W
-#define DISP_W (CELL_BITS == 64 ? 768 : 0)
+#define DISP_W DISP_W_OF(CELL_BITS)
 #endif
 #ifndef DISP_H
-#define DISP_H (CELL_BITS == 64 ? 576 : 0)
+#define DISP_H DISP_H_OF(CELL_BITS)
 #endif
 #ifndef DISP_BASE
 #define DISP_BASE 0x4000
@@ -163,6 +185,8 @@
 #define DISP_ONE_LITERAL(a) ((a) != 0 && \
     ((((a) & 0xfff) == 0 && ((a) >> 12) < 4096) || \
      (((a) & 0xffffff) == 0 && ((a) >> 24) < 4096)))
+_Static_assert(CELL_BITS == 64 || CELL_BITS == 32 || CELL_BITS == 16,
+               "a cell is 64, 32 or 16 bits: the machine's loop is compiled for each (vm_loop.h)");
 _Static_assert(DISP_W == 0 || DISP_W % CELL_BITS == 0,
                "display: the width is not a whole number of cells");
 _Static_assert(DISP_W == 0 || DISP_STRIDE * CELL_BITS >= DISP_W,
@@ -174,6 +198,45 @@ _Static_assert(DISP_W == 0 || DISP_BANKS == 1 || DISP_BANK_STEP >= DISP_ROWS_PER
 _Static_assert(DISP_W == 0 || DISP_ONE_LITERAL((unsigned long long)DISP_BASE),
                "display: the base is not a single shifted literal");
 
+// The machine a program is run on: the sizes above, as values.  Every file
+// of a program says it, and they are one (weak): they all start it as the
+// same machine.  From here on each name reads it.  The most memory a
+// machine has is MEM_MOST bytes, and the largest display DISP_W_MOST by
+// DISP_H_MOST pixels: that is what a program has room for.
+#define MEM_MOST ((uint64_t)8 << 22)
+#define DISP_W_MOST 1024
+#define DISP_H_MOST 1024
+typedef struct {
+    int       cell_bits, addr_bits;
+    int       disp_w, disp_h;
+    long long disp_base;
+    int       disp_left_low, disp_ink_black, disp_stride, disp_banks, disp_bank_step;
+} machine_sizes;
+__attribute__((weak)) machine_sizes THIS_MACHINE = {
+    CELL_BITS, ADDR_BITS, DISP_W, DISP_H, DISP_BASE,
+    DISP_LEFT_LOW, DISP_INK_BLACK, DISP_STRIDE, DISP_BANKS, DISP_BANK_STEP
+};
+#undef CELL_BITS
+#undef ADDR_BITS
+#undef DISP_W
+#undef DISP_H
+#undef DISP_BASE
+#undef DISP_LEFT_LOW
+#undef DISP_INK_BLACK
+#undef DISP_STRIDE
+#undef DISP_BANKS
+#undef DISP_BANK_STEP
+#define CELL_BITS       (THIS_MACHINE.cell_bits)
+#define ADDR_BITS       (THIS_MACHINE.addr_bits)
+#define DISP_W          (THIS_MACHINE.disp_w)
+#define DISP_H          (THIS_MACHINE.disp_h)
+#define DISP_BASE       (THIS_MACHINE.disp_base)
+#define DISP_LEFT_LOW   (THIS_MACHINE.disp_left_low)
+#define DISP_INK_BLACK  (THIS_MACHINE.disp_ink_black)
+#define DISP_STRIDE     (THIS_MACHINE.disp_stride)
+#define DISP_BANKS      (THIS_MACHINE.disp_banks)
+#define DISP_BANK_STEP  (THIS_MACHINE.disp_bank_step)
+
 #define HX      "$"
 #define BYTE    uint8_t
 #define SBYTE   int8_t
@@ -183,12 +246,12 @@ _Static_assert(DISP_W == 0 || DISP_ONE_LITERAL((unsigned long long)DISP_BASE),
 #define TRUE    0xffffffffffffffff
 #define FALSE   0x0000000000000000
 
-static const CELL CELL_SZ = CELL_BITS;
+#define CELL_SZ ((CELL)CELL_BITS)
 static const WORD UART_D = 0x1000;
 static const WORD UART_STATUS = 0x2000;
 static const CELL LIT_BITS = 12;
-static const CELL LIT_UBITS = CELL_SZ - LIT_BITS;
+#define LIT_UBITS (CELL_SZ - LIT_BITS)
 static const CELL LIT_MASK = 0xffffffffffffffff << LIT_BITS;
-static const CELL LIT_UMASK = 0xffffffffffffffff >> (CELL_SZ - LIT_BITS);
+#define LIT_UMASK ((CELL)(0xffffffffffffffff >> (CELL_SZ - LIT_BITS)))
 
 #endif //HEXAFORTH_VM_CONSTANTS_H

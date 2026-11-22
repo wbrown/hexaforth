@@ -62,7 +62,7 @@ int main(int argc, char *argv[]) {
             perror(getenv("MEMORY"));
             return(1);
         }
-        fwrite(machine.memory, 1, sizeof(machine.memory), out);
+        fwrite(machine.memory, 1, MEM_BYTES, out);
         fclose(out);
     }
 #ifdef COUNTING_A_TEST

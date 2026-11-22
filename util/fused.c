@@ -323,6 +323,7 @@ int main(int argc, char *argv[]) {
     }
     const int of_image = argc != 2;
     const char* table = argv[of_image ? 3 : 1];
+    if (of_image) machine_from(argv[1]);        // the cell is the image's, before anything is asked of it
     get_ready();
     memset(want_at, -1, sizeof(want_at));
     int needed_four = of_image ? find_words(argv[1], argv[2], table) : 0;

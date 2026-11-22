@@ -127,7 +127,7 @@ static void watch(context* ctx) {
     MACHINE = ctx;
     if (!WORDS) {
         const char* tables = getenv("HEAP_NAMES");
-        NWORDS = words_of((const uint8_t*)ctx->memory, sizeof(ctx->memory), tables, &WORDS);
+        NWORDS = words_of((const uint8_t*)ctx->memory, MEM_BYTES, tables, &WORDS);
         HIMEM = variable(tables, "himem");
         HOLE = variable(tables, "hole");
         HALLOC = word_called("halloc");
@@ -168,7 +168,7 @@ static void let_go(long which, uint64_t keeping) {
 // Is the instruction before a place a call?  Then the place is where one
 // returns to.
 static int returns_to(context* ctx, uint64_t at) {
-    if (!at || at > sizeof(ctx->memory) / sizeof(instruction)) return(0);
+    if (!at || at > MEM_BYTES / sizeof(instruction)) return(0);
     instruction ins = *(instruction*)&ctx->memory[at - 1];
     return(!ins.lit.lit_f && ins.jmp.op_type == OP_TYPE_CALL);
 }

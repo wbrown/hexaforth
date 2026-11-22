@@ -86,7 +86,7 @@ static long asking_of(const char* name) {
 static void watch(context* ctx) {
     MACHINE = ctx;
     const uint8_t* image = (const uint8_t*)ctx->memory;
-    const size_t len = sizeof(ctx->memory);
+    const size_t len = MEM_BYTES;
     word* words;
     int n = words_of(image, len, getenv("FINDS_NAMES"), &words);
     FROM = place_of(words, n, "sfind");
@@ -131,7 +131,7 @@ static void ran(context* ctx, int64_t at, int sp, int64_t t) {
         char name[NAME_ROOM];
         size_t len = 0;
         const uint8_t* bytes = (const uint8_t*)ctx->memory;
-        for(uint64_t idx=0; idx < count && len + 1 < NAME_ROOM && from + idx < sizeof(ctx->memory); idx++) {
+        for(uint64_t idx=0; idx < count && len + 1 < NAME_ROOM && from + idx < MEM_BYTES; idx++) {
             name[len++] = (char)tolower(bytes[from + idx]);
         }
         name[len] = '\0';

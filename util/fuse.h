@@ -62,16 +62,18 @@
 // Not asked: what does IO, of which nothing is said; and a sequence that
 // returns before its last instruction, which does not run the rest.
 //
-// It is built for the cell the image is for (CELL_BITS).  cross.fs has it
-// through gforth's C interface.
+// Its cell is the cell of the machine a program is run for (THIS_MACHINE,
+// vm_constants.h): the machine of the image a tool is given, or the one
+// the compiler was told, which is how cross.fs has it through gforth's C
+// interface.  It is made ready once, for the cell there is then.
 //
 
 #ifndef HEXAFORTH_FUSE_H
 #define HEXAFORTH_FUSE_H
 
-// The machine that is in this is of sizes said here.  What has the machine
-// as it is otherwise (vm.h) before this would have one of the two for
-// both.
+// The machine that is in this has a memory of sizes said here, and no
+// display, whatever the machine its cell is of.  What has the machine as it
+// is otherwise (vm.h) before this would have one of the two for both.
 #ifdef HEXAFORTH_VM_H
 #error "fuse.h has the machine in it, of its own sizes: it is had before anything else that has vm.h"
 #endif
@@ -82,10 +84,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../vm_constants.h"
 #undef ADDR_BITS
 #define ADDR_BITS   8
 #undef DISP_W
 #define DISP_W      0                               // no display
+#undef MEM_MOST
+#define MEM_MOST    ((CELL_MOST / 8) << ADDR_BITS)  // its memory, of the widest cell there is
 // The cells from nothing up to LOW and from DATA up are data: the first are
 // what a flag or a small number is the address of, and the rest are what
 // the states call addresses.  The cells between are the ROM, and the code
@@ -100,6 +105,8 @@
 #define FIRST_CELL  (LOW + 2 * LEADS)                   // and after them the two, which have the rest of it,
 #define SEQ_CELLS   ((DATA - FIRST_CELL) / 2)           // so many cells each
 #define LAID        (SEQ_CELLS * (CELL_BYTES / 2) - 1)  // the most instructions in one: one that does nothing is after it
+#define LAID_LEAST  (SEQ_CELLS - 1)                     // which is this where a cell is one instruction,
+#define LAID_MOST   (SEQ_CELLS * (CELL_MOST / 16) - 1)  // and this where it is the widest there is
 #define AT(which)   ((FIRST_CELL + SEQ_CELLS * (which)) * (CELL_BYTES / 2))     // as an instruction
 #define LEAD(which) ((LOW + LEADS * (which)) * (CELL_BYTES / 2))    // where what leads to each starts
 #define DEPTH       8               // of each stack, when the sequence starts
@@ -270,7 +277,7 @@ static void lay_leads(void) {
 }
 
 // Put a sequence in memory, as the first or the second.
-_Static_assert(LAID >= RUN, "fuse.h: a run cross.fs asks about is longer than there is room to lay it");
+_Static_assert(LAID_LEAST >= RUN, "fuse.h: a run cross.fs asks about is longer than there is room to lay it");
 static int after[2];                // the instruction after each
 static void lay(int which, const uint16_t* seq, int len) {
     uint16_t* code = machine.memory + AT(which);
@@ -303,10 +310,8 @@ static uint64_t mix(uint64_t h, uint64_t x) {
 static int run(int which, int len, const state* from) {
     memcpy(machine.DSTACK, from->dstack, sizeof(from->dstack));
     memcpy(machine.RSTACK, from->rstack, sizeof(from->rstack));
-    for(int idx=0; idx < DATA_CELLS; idx++) {
-        memcpy(cell_at(&machine, WHERE(idx)), &from->data[idx], CELL_BYTES);
-    }
-    for(int idx=0; idx < far.n; idx++) memcpy(far.cell[idx], &from->far[idx], CELL_BYTES);
+    for(int idx=0; idx < DATA_CELLS; idx++) cell_to(cell_at(&machine, WHERE(idx)), from->data[idx]);
+    for(int idx=0; idx < far.n; idx++) cell_to(far.cell[idx], from->far[idx]);
     machine.EIP = LEAD(which);
     strict_steps = lead + len;
     if (setjmp(stopped)) return(0);
@@ -482,7 +487,7 @@ static int same_from(int alen, int blen, const state* from) {
 typedef struct {
     int sp, rsp, next;
     int64_t dstack[FILLED], rstack[FILLED];
-    uint8_t low[LOW_BYTES], high[HIGH_BYTES];
+    uint8_t low[LOW * (CELL_MOST / 8)], high[(DATA_CELLS - LOW) * (CELL_MOST / 8)];    // room for the widest cell
     uint8_t far[FARS][8];
 } leavings;
 
@@ -537,7 +542,7 @@ static int same_from_few(int alen, int blen) {
         for(int idx=0; idx < 5; idx++, w /= NUMBERS) with.dstack[DEPTH - 1 - idx] = number[w % NUMBERS];
         for(int idx=0; idx < 2; idx++, w /= NUMBERS) with.rstack[DEPTH - 1 - idx] = number[w % NUMBERS];
         for(int idx=0; idx < 2; idx++, w /= NUMBERS) {
-            memcpy(data.low + idx * CELL_BYTES, &number[w % NUMBERS], CELL_BYTES);
+            cell_to(data.low + idx * CELL_BYTES, number[w % NUMBERS]);
         }
         int ran = run_few(0, alen, &with, &data);
         if (ran) keep_left(&first);
@@ -1078,7 +1083,7 @@ static int find(uint64_t names) {
 // another file.  A line is the sequence, with a bit to say whether one
 // instruction was asked for or two, and what was found, or nothing.
 static const char* TEXTS[] = {
-    "fuse.h", "named.h", "room.h", "stack.c", "../vm.c", "../vm_step.h", "../vm.h", "../vm_opcodes.c",
+    "fuse.h", "named.h", "room.h", "stack.c", "../vm.c", "../vm_loop.h", "../vm_step.h", "../vm.h", "../vm_opcodes.c",
     "../vm_opcodes.h", "../vm_instruction.h", "../vm_constants.h",
 };
 static uint64_t written;            // the number for the texts,
@@ -1221,8 +1226,16 @@ static long keep(uint64_t was_asked, long found) {
 static void learn_literals(void);
 static void list_tried(void);
 
-static int ready = 0;
+// It is made ready once: its states and what it lists are of the cell
+// there is then, and a program that has another machine after that is
+// stopped.
+static int ready = 0;               // the bits of the cell it was made ready for
 static void get_ready(void) {
+    if (ready == CELL_BITS) return;
+    if (ready) {
+        fprintf(stderr, "fuse.h: it was made ready for cells of %d bits, and is asked of cells of %d\n", ready, CELL_BITS);
+        exit(EXIT_FAILURE);
+    }
     init_opcodes(FORTH_WORDS);
     nowhere = fopen("/dev/null", "w");
     make_states();
@@ -1235,7 +1248,7 @@ static void get_ready(void) {
     list_tried();
     read_texts();
     read_kept();
-    ready = 1;
+    ready = CELL_BITS;
 }
 
 // Is a sequence one that is asked about?
@@ -1250,7 +1263,7 @@ static int asked(const uint16_t* seq, int len) {
 // The instruction that does the work of a sequence of two or three (the
 // first is nothing for two), or nothing if none is known to.
 long fuse_one(long first, long second, long third) {
-    if (!ready) get_ready();
+    get_ready();
     uint16_t seq[SEQ];
     int len = 0;
     if (first) seq[len++] = first;
@@ -1328,7 +1341,7 @@ static long look_for_two(const uint16_t* seq);
 // The two instructions that do the work of three, the first in the upper
 // sixteen bits, or nothing if none are known to.
 long fuse_two(long first, long second, long third) {
-    if (!ready) get_ready();
+    get_ready();
     uint16_t seq[SEQ] = { first, second, third };
     if (!asked(seq, SEQ)) return(0);
     uint64_t was_asked = (uint64_t)seq[0] << 32 | (uint64_t)seq[1] << 16 | seq[2];
@@ -1385,7 +1398,7 @@ static long look_for_two(const uint16_t* seq) {
 // variable.  Yes is said only of two that leave the same terms, and they
 // are then run on the machine as every answer is.
 long fuse_same(const uint16_t* a, long alen, const uint16_t* b, long blen) {
-    if (!ready) get_ready();
+    get_ready();
     if (alen > RUN || blen > RUN) return(0);
     named first, second;
     forget();
@@ -1688,7 +1701,7 @@ static void orders(const uint16_t* things[], const int* lens, int count, int alu
 static void look_for_run(const uint16_t* run, int len);
 
 long fuse_lit(const uint16_t* run, long len, long branch, uint16_t* out) {
-    if (!ready) get_ready();
+    get_ready();
     if (len < 1 || len > RUN - 4) return(-1);
     uint16_t whole[RUN], tried_run[RUN];
     memcpy(whole, run, len * 2);

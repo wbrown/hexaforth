@@ -18,8 +18,13 @@ CompileFlags:
   Add: [-DSEARCH_STATES=0]
 ---
 # The machine's step is the middle of a function, which vm.c and
-# util/fuse.h each have in their own: by itself it is not C.
+# util/fuse.h each have in their own; and its loop is what vm.c has once
+# for each width of cell, with the width said before it.  By itself
+# neither is C.  Nor is it to stop at how many things it finds wrong in
+# one, which it says as a thing wrong too.
 If:
-  PathMatch: vm_step\.h
+  PathMatch: vm_(step|loop)\.h
+CompileFlags:
+  Add: [-ferror-limit=0]
 Diagnostics:
   Suppress: '*'

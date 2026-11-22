@@ -315,7 +315,7 @@ static int times_said(const char* what) {
 static void run(const check* test) {
     start();
     if (test->rom_only) {
-        memset((uint8_t*)machine.memory + KROM_BYTES, 0, sizeof(machine.memory) - KROM_BYTES);
+        memset((uint8_t*)machine.memory + KROM_BYTES, 0, MEM_BYTES - KROM_BYTES);
     }
     FILE* disk = test->disk == NO_DISK ? NULL : disk_of(disks[test->disk]);
     machine.DISKS[0] = disk;

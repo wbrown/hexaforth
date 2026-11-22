@@ -57,8 +57,8 @@ void stops_put(int64_t cell, int64_t cells);// cells were put in memory
 const char* stop_reason(void);
 
 // What the machine was at.  Its memory is written to memory_path, or if
-// that is NULL to the file STOP_MEMORY says, and image and bits make the
-// command that names what is there.
-void post_mortem(FILE *to, context *ctx, const char *image, const char *memory_path, int bits);
+// that is NULL to the file STOP_MEMORY says, and image is in the command
+// that names what is there.
+void post_mortem(FILE *to, context *ctx, const char *image, const char *memory_path);
 
 #endif

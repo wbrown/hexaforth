@@ -5,6 +5,7 @@
 #include "vm.h"
 #include "vm_stopped.h"
 #include "vm_debug.h"
+#include "util/image.h"
 
 void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     printf("Loading %s\n", filepath);
@@ -122,7 +123,7 @@ static void stop_it(int signal) {
     if (stopped_to) {
         FILE* memory = fopen(stopped_to, "wb");
         if (memory) {
-            fwrite(stopped->memory, 1, sizeof(stopped->memory), memory);
+            fwrite(stopped->memory, 1, MEM_BYTES, memory);
             fclose(memory);
         }
     }
@@ -142,6 +143,7 @@ int main(int argc, char *argv[]) {
 #ifdef DEBUG
     init_opcodes(ctx->words);
 #endif
+    machine_from(argv[1]);              // the machine is the image's (util/image.h)
     load_hex(argv[1], NULL, ctx);
     // What the machine says is written a line at a time, so that a machine
     // that is stopped from outside has said what it said until then.
@@ -177,7 +179,7 @@ int main(int argc, char *argv[]) {
     vm(ctx);
     printf("\n[%lld instructions executed]\n", ctx->CYCLES);
     if (STOPS.on && STOPS.reason != STOP_HALT) {
-        post_mortem(stderr, ctx, argv[1], argc > 3 ? argv[3] : NULL, CELL_BITS);
+        post_mortem(stderr, ctx, argv[1], argc > 3 ? argv[3] : NULL);
     }
     // A third argument is a file to write the machine's memory to when it
     // has stopped, as rtl/tb.cpp does: the two are then compared (bench/).
@@ -187,7 +189,7 @@ int main(int argc, char *argv[]) {
             perror(argv[3]);
             exit(EXIT_FAILURE);
         }
-        fwrite(ctx->memory, 1, sizeof(ctx->memory), memory);
+        fwrite(ctx->memory, 1, MEM_BYTES, memory);
         fclose(memory);
     }
 

@@ -597,6 +597,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Usage: %s IMAGE.hex IMAGE.tables IMAGE.sizes COUNTS OUT [FILE.fs ...]\n", argv[0]);
         return(1);
     }
+    machine_from(argv[1]);              // the cell is the image's, before anything is asked of it
     get_ready();
     list_kinds();
     load(argv[1], argv[2], argv[3], argv[4]);

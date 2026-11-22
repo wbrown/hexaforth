@@ -14,7 +14,7 @@ typedef struct { int EIP;
     int        SP;
     int        RSP;
     int        DBGP;
-    uint16_t   memory[MEM_BYTES / 2];
+    uint16_t   memory[MEM_MOST / 2];        // room for the largest machine: MEM_BYTES of it is this one's
     int64_t    DSTACK_park;
     int64_t    DSTACK[STACK_CELLS];
     int64_t    RSTACK_park;

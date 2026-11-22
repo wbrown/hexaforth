@@ -53,7 +53,11 @@ typedef struct {
     picture b;                  // another, dithered a row in turn with the first, if it has a width
 } dither_test;
 
-static dither_test TESTS[] = {
+// The tests are of the machine's cell, which is known when this runs: so
+// they are said then (tests_said).
+static dither_test TESTS[64];
+static void tests_said(void) {
+  const dither_test now[] = {
     // Whole, at their own size.
     {.label = "three samples, eight pixels to three cells", .a = {64, 10, 3}},
     {.label = "three samples, a width that is whole cells", .a = {40, 9, 3}},
@@ -105,6 +109,9 @@ static dither_test TESTS[] = {
      .a = {6 * BITS, 9, 1}, .half = true, .px = BITS, .py = 1, .pw = BITS + BYTES, .ph = 3},
     {.label = "at half its size, one sample, a row over", .a = {2 * BITS + 2 * BYTES, 7, 1}, .half = true},
     {.label = ""}};
+  _Static_assert(sizeof(now) <= sizeof(TESTS), "dither_test.c: there are more tests than TESTS has room for");
+  memcpy(TESTS, now, sizeof(now));
+}
 
 static uint64_t room;           // the cell the machine gives out first
 
@@ -248,6 +255,7 @@ int main(int argc, char *argv[]) {
     alarm(600);                 // a machine that does not stop is stopped
 
     nucleus_is(argv[1]);
+    tests_said();
 
     // What the machine gives out first is where it puts a picture, and is
     // the same every time it is started.

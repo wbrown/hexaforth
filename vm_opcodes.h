@@ -314,7 +314,7 @@ bool init_opcodes(word_node opcodes[]);
 // A name is read as far as NAME_MOST characters.  What it is read into has
 // room for those, for what the cell they end in may add, and for its end.
 #define NAME_MOST 128
-#define NAME_ROOM (NAME_MOST + CELL_BITS + 1)
+#define NAME_ROOM (NAME_MOST + CELL_MOST + 1)
 
 int decode_name(const uint8_t* cells, size_t room, char* out);
 uint32_t first_header(const uint8_t* image, size_t len);

@@ -44,6 +44,8 @@
 #define ROWS    16              // the rows of a window's text, and of a glyph
 #define COLS    64              // the most columns a window's text has
 #define MOST_LINES (H / ROWS)   // the most lines of text a window can show: as many as the screen
+#define SCREEN_ROOM ((size_t)DISP_W_MOST * DISP_H_MOST)     // room for the screen of any machine,
+#define LINES_ROOM  (DISP_H_MOST / ROWS)                    // and for its lines
 
 typedef struct {
     const char* grid;           // where: a window's text (GRIDS, below)
@@ -842,7 +844,7 @@ static int canvas_wrong(const uint8_t* should, bool but, int but_x, int but_y, i
 
 // ---- what is done
 
-static char names[MOST_LINES][COLS + 1];        // the Words window's list, when it was last looked for names in
+static char names[LINES_ROOM][COLS + 1];        // the Words window's list, when it was last looked for names in
 static bool found;                              // and whether the name looked for was then in it
 
 static int listed(const char* name) {   // the row a name is on, or -1
@@ -909,7 +911,7 @@ static int numbers(const char* at, int* out, int most) {
 
 // A window being dragged (grab:): which, where the pointer pressed on its
 // title, how far it was moved, and the screen just before the press.
-static struct { int w, x, y, dx, dy; uint8_t before[SCREEN]; } grabbed;
+static struct { int w, x, y, dx, dy; uint8_t before[SCREEN_ROOM]; } grabbed;
 
 // What a check does, a word at a time:
 //
@@ -1418,7 +1420,7 @@ static bool fused_told(char* why) {
 
 // The definition as it is, to look in and to see that it is so again; and
 // the screen as it is, to see what of it changes.
-static char source[MOST_LINES][COLS + 1];
+static char source[LINES_ROOM][COLS + 1];
 static bool remember(char* why) {
     (void)why;
     for(int row=0; row < grid_rows(grid_named("source")); row++) read_grid("source", row, source[row]);

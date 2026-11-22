@@ -366,7 +366,7 @@ prompt, and no disk.
 
 What the ROM has left on each machine is what `examine` says of its
 image. Where it is not enough, these are the words nothing in the boot
-uses (`disasm_hex-64` says how long each is):
+uses (`disasm_hex` says how long each is):
 
 | What | Words |
 |---|---|
