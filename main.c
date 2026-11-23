@@ -30,24 +30,25 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
         ctx->HERE+=2;
     }
 
-    // Where the code ends, in instructions.  A line of the image is two of
-    // them, and the gap is the first line that is nothing: the code ends
-    // there, or an instruction before if the line before has only its first.
+    // Find where the code ends, as an instruction address.  A line of the
+    // image holds two instructions, and `first_gap` is the first line that
+    // is zero.  The code ends there, or one instruction earlier if the
+    // line before it has only its first instruction.
     int code_end = first_gap;
     if (code_end > 0 && !ctx->memory[code_end - 1]) code_end--;
 
-    // The words of the image's dictionary, from the first that is looked at
-    // (read_header in vm_opcodes.c), each noted at the instruction its code
-    // starts at.
+    // Walk the image's dictionary in search order (read_header,
+    // vm_opcodes.c), and record each word's name at the address of its
+    // code.
     const uint8_t *bytes = (const uint8_t *)ctx->memory;
     size_t image_len = (size_t)ctx->HERE * 2;
     uint32_t head = first_header(bytes, image_len);
     char word[256];
     dprintf("WORDS:\n");
 
-    // Where the headers start and where they end, in instructions: the
-    // first of them in memory and the last, which are not the first and the
-    // last of the chain (read_header).
+    // DP0 and DP1 are where the headers start and end in memory, as
+    // instruction addresses.  They are the lowest and the highest header
+    // in memory, not the first and the last in the chain (read_header).
     uint32_t DP0 = code_end;
     uint32_t DP1 = DP0;
     uint16_t WORDCT=0;
@@ -112,10 +113,10 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx) {
     fflush(stdout);
 }
 
-// A machine that does not stop is stopped, if STOP_AFTER in the environment
-// says after how many seconds, and its memory is written where it was to
-// be written when it stopped: so what it was at can be looked at
-// (disasm_hex --memory, memory-map).
+// If STOP_AFTER is set in the environment, a machine still running after
+// that many seconds is stopped, and its memory is written to the file it
+// would have been written to at a normal stop.  The memory can then be
+// examined (disasm_hex --memory, memory-map).
 static context* stopped;
 static const char* stopped_to;
 static void stop_it(int signal) {
@@ -143,16 +144,16 @@ int main(int argc, char *argv[]) {
 #ifdef DEBUG
     init_opcodes(ctx->words);
 #endif
-    machine_from(argv[1]);              // the machine is the image's (util/image.h)
+    machine_from(argv[1]);              // use the machine the image was built for (util/image.h)
     load_hex(argv[1], NULL, ctx);
-    // What the machine says is written a line at a time, so that a machine
-    // that is stopped from outside has said what it said until then.
+    // Line-buffer the machine's output, so that everything it printed is
+    // already written if it is stopped from outside.
     setvbuf(stdout, NULL, _IOLBF, 0);
     ctx->OUT=stdout;
     ctx->IN=stdin;
-    // A second argument is a file to be the disk (vm.c), or several with
-    // commas between them to be disk 0, disk 1 and so on: each one that
-    // can be written, if it can be opened so.
+    // The second argument is a file to use as the disk (vm.c), or several
+    // files separated by commas, for disk 0, disk 1 and so on.  Each is
+    // opened for writing if that is possible, and read-only otherwise.
     if (argc > 2) {
         char* files = strdup(argv[2]);
         int drive = 0;
@@ -173,16 +174,17 @@ int main(int argc, char *argv[]) {
         }
         free(files);
     }
-    // What the environment says to stop it at (vm_stopped.h); stopped
-    // for one of those, it says what it was at.
+    // Take the stop conditions from the environment (vm_stopped.h).  If
+    // the machine stops for one of them, print the report of where it was.
     stops_from_env();
     vm(ctx);
     printf("\n[%lld instructions executed]\n", ctx->CYCLES);
     if (STOPS.on && STOPS.reason != STOP_HALT) {
         post_mortem(stderr, ctx, argv[1], argc > 3 ? argv[3] : NULL);
     }
-    // A third argument is a file to write the machine's memory to when it
-    // has stopped, as rtl/tb.cpp does: the two are then compared (bench/).
+    // The third argument is a file to write the machine's memory to once
+    // it has stopped.  rtl/tb.cpp writes the same file, and the benchmarks
+    // compare the two (bench/).
     if (argc > 3) {
         FILE* memory = fopen(argv[3], "wb");
         if (!memory) {

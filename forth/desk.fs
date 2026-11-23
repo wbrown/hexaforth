@@ -71,7 +71,7 @@ header windows
     no-windows
     find-disks
     back-window  disk-windows  tool-windows
-    wm-regions  picture-start   \ last: its memory is given back
+    wm-regions  picture-start
     t-up >c count type cr
     event-loop
 ;

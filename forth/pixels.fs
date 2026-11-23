@@ -25,10 +25,9 @@ create pc-row  0 ,     \ the row of this piece that is next
 
 : pc-done ( -- ) pc-buf @ pc-cells hgive  d# 0 pc-buf ! ;
 
-\ What is not a picture is given up, and throws -24: a word of
-\ these with no picture[ before it or a second picture[, a
-\ piece with no rows or whose rows differ, a pixel that is not
-\ # or ., and a row that is not whole 64s of pixels.
+\ What is not a picture throws -24: no picture[ or a second, a
+\ piece with no rows or rows that differ, a pixel that is not #
+\ or ., a row that is not whole 64s of pixels.
 : ?pc ( f -- )
     if  pc-buf @ if pc-done then  d# -24 throw  then ;
 

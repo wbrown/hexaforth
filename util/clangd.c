@@ -1,26 +1,28 @@
 //
 // clangd_said LOG...
 //
-// What clangd says of the C, from what it printed when it was asked of a
-// file at a time (clangd --check=FILE: the target `clangd`, which
-// cmake/clangd.cmake says).  A language server says what it finds wrong with a
-// file each time the file is changed.  What it says of the tree as it is
-// would be said again after every change, of what was not changed: so
-// there is to be none of it.
+// Reports what clangd finds wrong with the C, from the output of checking
+// one file at a time (clangd --check=FILE: the target `clangd`, defined in
+// cmake/clangd.cmake).  A language server reports its findings for a file
+// every time the file changes.  Findings in files that were not changed
+// would be repeated after every edit, so the tree is kept free of them.
 //
-// Each LOG is what clangd printed of one file: the file it read, how it
-// took the file to be compiled, a line that begins with E for each thing
-// it finds wrong, and that it finished.  This prints each of those lines
-// after the file's name, and then how many files there were.  It fails if
-// anything was said of a file; if how a file is compiled was not had from
-// what CMake wrote (compile_commands.json), since then clangd read some
-// other file than the one that is compiled; if clangd did not finish; and
-// if there were no files.
+// Each LOG is clangd's output for one file: the file it read, the compile
+// command it used, a line starting with E for each problem, and a line
+// when it finished.  This prints each problem line after the file's name,
+// and then the number of files.  It fails if:
 //
-// A header is not compiled by itself, so CMake does not say how it is:
-// clangd takes it to be compiled as a file near it is, and reads it by
-// itself, which is how it reads one in a session.  So a header is to
-// include what it needs.
+//   clangd reported a problem in any file
+//   a file's compile command did not come from what CMake wrote
+//     (compile_commands.json), because clangd then checked something other
+//     than what is compiled
+//   clangd did not finish
+//   there were no files
+//
+// A header is not compiled on its own, so CMake has no compile command for
+// it.  clangd checks it alone, using the command of a nearby file, which
+// is also how it treats a header in an editing session.  So a header must
+// include everything it needs.
 //
 
 #include <stdio.h>
@@ -29,13 +31,15 @@
 #include <unistd.h>
 #include "room.h"
 
-// What clangd says of itself as it goes, after the time it says it at
+// The messages clangd prints about its own progress.  Each follows a
+// timestamp.
 #define READS    "Testing on source file "
 #define COMPILED "Compile command from CDB is: "
 #define AS_NEAR  "Compile command inferred from "
 #define FINISHED "All checks completed"
 
-// A line clangd begins is a letter for its kind and the time: "E[11:16:13.342] "
+// Returns 1 if a line starts a clangd message: a letter for its kind, then
+// the time, as in "E[11:16:13.342] ".
 static int begins(const char* line) {
     return(line[0] && line[1] == '[');
 }
@@ -44,8 +48,9 @@ static int says(const char* text, const char* what) {
     return(!strncmp(text, what, strlen(what)));
 }
 
-// What clangd said of one file, each line of it printed after the file's
-// name: how many things.  A file under `here` is named from there.
+// Prints the problems clangd reported for one file, each after the file's
+// name, and returns how many there were.  A file under the directory
+// `here` is named relative to it.
 static long said_of(const char* log, const char* here) {
     FILE* in = fopen(log, "r");
     if (in == NULL) {
@@ -55,12 +60,12 @@ static long said_of(const char* log, const char* here) {
     char* line = NULL;
     long room = 0;
     char* file = NULL;
-    text_more(&file, "%s", log);                // until it says what it read
+    text_more(&file, "%s", log);                // the log's name stands in until clangd names the file it read
     int compiled = 0, finished = 0, wrong = 0;
     long said = 0;
     while (line_of(in, &line, &room)) {
         line[strcspn(line, "\n")] = '\0';
-        if (!begins(line)) {                    // more of the line before
+        if (!begins(line)) {                    // a continuation of the previous message
             if (wrong) printf("%s:     %s\n", file, line);
             continue;
         }

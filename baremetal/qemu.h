@@ -1,19 +1,21 @@
 //
-// The desktop's machine under QEMU, for what drives it or watches it.
+// The desktop's machine under QEMU, for the programs that drive it or
+// watch it.
 //
-// QEMU's virt machine with a display, a disk, a keyboard and a tablet,
-// running a kernel.  Keys and the pointer are sent through QMP, QEMU's own
-// way of being told things, and the screen is what QEMU dumps of it.  It
-// is what test/deskcheck.h says a machine is (qemu.c has those), and what
-// is here besides.
+// It is QEMU's virt machine with a display, two disks, a keyboard and a
+// tablet, running a kernel.  Keys and pointer movements are sent through
+// QMP, QEMU's control protocol, and the screen is read from QEMU's screen
+// dumps.  qemu.c implements the machine that test/deskcheck.h declares,
+// and the functions declared below.
 //
-// QEMU runs in its own time, so the desktop is given time and not turns:
-// a turn that is asked for is a wait.
+// QEMU runs in real time, so the desktop is given time and not turns: a
+// request for turns is a wait.
 //
-// With SCALE in the environment the bridge that shows the display draws
-// each pixel that many across and down, and the screen is looked at
-// through that: it is exact if every pixel is a whole block.  DISK is the
-// thousand bytes a second the disk gives and takes, if it is to be slow.
+// If SCALE is set in the environment, the bridge that shows the display
+// draws each pixel SCALE pixels across and down, and the screen is read
+// back through that scaling.  The reading is exact if every pixel is a
+// whole block.  DISK, if it is set, slows the disk to that many thousand
+// bytes a second, for reading and for writing.
 //
 
 #ifndef HEXAFORTH_QEMU_H
@@ -22,38 +24,41 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// Start QEMU on a kernel, with a copy of a disk that is made in a
-// directory (disk.img), and the pictures' disk as its second, which is
-// not written to.  Each is a device of its own, the first in the first
-// place for one and the second in the next: the machine's disks are its
-// block devices in the order of their places (forth/virt-disk.fs).  It is
-// stopped when the program ends.
+// Starts QEMU on a kernel.  The machine's first disk is a copy of `disk`,
+// which is made in the directory `out` (disk.img).  Its second disk is the
+// pictures' disk, which is not written to.  Each disk is a device of its
+// own: the first is on the first virtio bus slot and the second is on the
+// next.  The machine numbers its disks by the order of their block
+// devices' slots (forth/virt-disk.fs).  QEMU is stopped when the program
+// ends.
 void qemu_start(const char* elf, const char* disk, const char* pictures, const char* out);
 
-// All the console has said so far, however much: it does not wait for
-// more.  The text is where it is only until this is next asked.
+// Returns everything the console has printed so far, without waiting for
+// more.  The text is valid only until the next call.
 const char* qemu_said(void);
 
-// Eight bytes of the machine's memory, at an address of the machine's.
+// Returns eight bytes of the guest's memory at a guest address.
 uint64_t qemu_cell(uint64_t address);
 
-// As many bytes of its memory as are said, from an address of the
-// machine's, written to a file.
+// Writes `bytes` bytes of the guest's memory, starting at a guest address,
+// to a file.
 void qemu_memory(uint64_t address, uint64_t bytes, const char* to);
 
-// Where the kernel has the Forth machine's cell 0, which its symbols say
-// (image): what asks for the Forth machine's memory (desk_memory) says it
-// first.
+// Sets the guest address of the Forth machine's cell 0, which the kernel's
+// symbol `image` gives.  A program that reads the Forth machine's memory
+// (desk_memory) must call this first.
 void qemu_image(uint64_t address);
 
-// With SCALE: how many each pixel is across and down, the screens taken,
-// and those that were not in whole blocks.
+// With SCALE: the number of screen pixels each pixel of the display covers
+// across and down, the number of screens read, and the number of those
+// that were not in whole blocks.
 extern int qemu_scale, qemu_shots, qemu_inexact;
 
-// A machine that compiles its system from its disk says each file as it
-// starts, and its screen is to show that while it does.  While the desktop
-// was waited for (desk_boot): whether the console said a file, and whether
-// the screen then had text on it, black on white, before the desktop came.
+// A machine that compiles its system from its disk prints each file as it
+// starts it, and its screen should show that text while it does.  These
+// record what happened while desk_boot() waited for the desktop: whether
+// the console printed a file, and whether the screen then had text on it,
+// black on white, before the desktop appeared.
 extern int qemu_boot_said, qemu_boot_shown;
 
 #endif //HEXAFORTH_QEMU_H

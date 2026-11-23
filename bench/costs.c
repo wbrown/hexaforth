@@ -1,48 +1,53 @@
 //
 // costs IMAGE.hex IMAGE.tables IMAGE.sizes COUNTS OUT [FILE.fs ...]
 //
-// What a program's work costs, three ways, from how often each of its
-// instructions ran.  COUNTS is what bench/profile.c leaves
-// (desktop.counts): for each place, the work of what the desktop was put
-// through.  Each report is a file in OUT, and its first lines are printed.
+// Reports what a program's work costs, in three ways, from the number of
+// times each of its instructions ran.  COUNTS is the file bench/profile.c
+// writes (desktop.counts): for each address, the number of times its
+// instruction ran in the work the desktop was driven through.  Each
+// report is a file in the directory OUT, and its first lines are also
+// printed.
 //
-//   paths.txt   What each word costs, with all that it calls.  The counts
-//               say what a word did itself, but not whose work it was: a
-//               fill is a dozen words, none of which looks like much.  Here
-//               each word is charged with the work of what it calls: a
-//               call that ran c times is charged c times what the word
-//               called costs each time it is entered.  So a word's figure
-//               is what would be saved if it were never called.  What a
-//               call costs is taken to be the same whoever makes it; and a
-//               word reached by `execute` of what is not a number in the
-//               code (a vector, a window's draw routine, a task) has a
-//               caller that cannot be seen, and is listed at the end.
-//               Read this before saying what a change will save.
+//   paths.txt   The cost of each word together with everything it calls.
+//               The counts give what a word did itself, but not whose
+//               work that was: a fill is a dozen words, and none of them
+//               looks expensive alone.  Here each word is charged for the
+//               work of the words it calls.  A call that ran c times is
+//               charged c times the cost of one entry to the called word.
+//               So a word's figure is what would be saved if the word were
+//               never called.  The cost of one entry is assumed to be the
+//               same for every caller.  A word reached by `execute` of a
+//               value that is not a number in the code (a vector, a
+//               window's draw routine, a task) has a caller this program
+//               cannot find, and those words are listed at the end.  Read
+//               this report before saying what a change will save.
 //
-//   loops.txt   Where the instructions go round.  A loop is the
-//               instructions from where a branch goes back to, up to the
-//               branch.  For every loop that ran: the word it is in, how
-//               often it went round, the instructions and the cycles a
-//               turn took, and how much of all the work was spent in it;
-//               then the loop itself.  A call in a loop is one
-//               instruction: what the word called costs is that word's.
+//   loops.txt   The loops.  A loop is the instructions from the target of
+//               a backward branch up to the branch.  For every loop that
+//               ran, the report gives the word the loop is in, the number
+//               of turns, the instructions and the cycles one turn took,
+//               and the loop's share of all the work.  Then it lists each
+//               loop's instructions.  A call inside a loop counts as one
+//               instruction: the cost of the called word is charged to
+//               that word.
 //
-//   vars.txt    What the variables cost: fetches and stores, by where and
-//               of what, for the code of the files named (all of it if
-//               none is).  A variable looks as cheap as a cell of a stack
-//               and is not: a store is an instruction that a value left on
-//               a stack would not need, a fetch reads memory, and what is
-//               fetched is on top of the stack, where the next instruction
-//               has to take it from.  It says too which words keep what
-//               they are working on in variables, and so can be in use
-//               only once.
+//   vars.txt    The cost of the variables: the fetches and the stores, by
+//               word and by variable, for the code of the files named (or
+//               of every file if none is named).  A variable looks as
+//               cheap as a stack cell, and it is not.  A store is an
+//               instruction that a value left on a stack would not need.
+//               A fetch reads memory, and the fetched value is on top of
+//               the stack, where the next instruction has to take it from.
+//               The report also lists the words that keep their working
+//               values in variables.  Such a word cannot be in use twice
+//               at the same time.
 //
-// Cycles are the Verilog CPU's, as cycles.h has them.  What an instruction
-// with a number in it does (pushes it, adds it, fetches or stores the
-// variable at it) is asked of the machine's step (kinds.h).
+// Cycles are the Verilog CPU's (cycles.h).  The machine's step tells what
+// an instruction with a number in it does: push the number, add it, or
+// fetch or store the variable at that address (kinds.h).
 //
-// Nothing here has room for only so many of anything: what there is is
-// counted, and room is made for that.
+// No list here has a fixed size.  Each one is allocated for the number of
+// entries found.
 //
 
 #include <stdarg.h>
@@ -54,21 +59,21 @@
 #include "files.h"
 #include "work.h"
 
-static cut_image IMAGE;         // the image, cut into its runs: its instructions, its words, and where its loops are
-static const uint16_t* code;    // its instructions,
-static long places;             // and how many of them the work is of
-static double* work;            // how often each ran
-static const word* WORDS;       // the words, in order of where they are
+static cut_image IMAGE;         // the image, cut into its straight-line runs: its instructions, its words, and where its loops are
+static const uint16_t* code;    // the image's instructions
+static long places;             // the number of addresses that have both an instruction and a count
+static double* work;            // the number of times each instruction ran
+static const word* WORDS;       // the words, in order of address
 static int words;
-static int* in_word;            // the word each place is in, or less than nothing
-static span* SPANS;             // the files the code is of (files.h)
+static int* in_word;            // the index of the word each address is in, or -1
+static span* SPANS;             // the source files, and the code each one has (files.h)
 static int spans;
 static double all_work, all_cycles;
-static FILE* out;               // the report being written,
-static int shown, lines;        // how many of its lines are printed too, and how many it has
+static FILE* out;               // the report being written
+static int shown, lines;        // the number of its first lines that are also printed, and the number of lines written so far
 
-// A line of the report, however long: it is written to the report, and
-// printed too if it is one of the first.
+// Writes one line to the report, and also prints it if it is one of the
+// first `shown` lines.  The line can be any length.
 static void say(const char* format, ...) {
     va_list args, again;
     va_start(args, format);
@@ -83,6 +88,8 @@ static void say(const char* format, ...) {
     va_end(again);
 }
 
+// Opens a report file in `dir`, and closes the report before it.  The
+// first `print` lines written to the new report are also printed.
 static void report(const char* dir, const char* name, int print) {
     char* path = NULL;
     text_more(&path, "%s/%s", dir, name);
@@ -98,21 +105,22 @@ static void report(const char* dir, const char* name, int print) {
 
 static const char* name_of(int w) { return(w < 0 ? "(before any word)" : WORDS[w].name); }
 
-// The cycles the instruction at a place takes.
+// Returns the cycles the instruction at an address takes.
 static int cycles_at(long at) { return(cycles_of(ins_of(code[at]), NUMBER_IN[code[at]].does == FETCHES_AT_IT)); }
 
-// The source file a place's code is of; and what no file of the system's
-// has is the nucleus's own.
+// Returns the source file the code at an address came from.  Code that is
+// in none of the system's files is the nucleus's own (nuc.fs).
 static const char* file_of(long at) {
     const char* is = file_at(SPANS, spans, at);
     return(is ? is : "nuc.fs");
 }
 
-// Is a place the start of a word?
+// Returns true if a word starts at the address.
 static bool starts_word(long at) {
     return(at >= 0 && at < places && in_word[at] >= 0 && WORDS[in_word[at]].at == at);
 }
 
+// Reads the image, its words, its source files and the counts.
 static void load(const char* hex, const char* tables, const char* sizes, const char* counts) {
     cut(&IMAGE, hex, tables);
     long counted = work_read(counts, &work, NULL);
@@ -125,32 +133,34 @@ static void load(const char* hex, const char* tables, const char* sizes, const c
     int w = -1;
     for(long at=0; at < places; at++) {
         while (w + 1 < words && WORDS[w + 1].at <= at) w++;
-        int first = w;                          // of the names for the same code, the first
+        int first = w;                          // when several words name the same code, use the first
         while (first > 0 && WORDS[first - 1].at == WORDS[w].at) first--;
         in_word[at] = w < 0 ? -1 : first;
     }
     spans = files_of(sizes, &SPANS);
     for(long at=0; at < places; at++) {
-        if (!code[at]) work[at] = 0;            // nothing is there: what ran was put there at the prompt
+        if (!code[at]) work[at] = 0;            // the image has no instruction here: code that ran here was compiled at the prompt
         all_work += work[at];
         all_cycles += work[at] * cycles_at(at);
     }
 }
 
-// ---- each word, with all it calls
+// ---- each word, with everything it calls
 
-typedef struct { int from, to; double times; } call;
-static call* CALLS;                     // as many as there are, and room for more as they are found (room.h)
+typedef struct { int from, to; double times; } call;    // the calls from one word to another, and the number of times they ran
+static call* CALLS;                     // one entry for each pair of words; the list grows as pairs are found (room.h)
 static long calls, calls_room;
-static double (*own)[2];                // by word.  What each did itself: instructions, and cycles
-static double* called;
-static double* entered;
-static bool* comes_round;               // it goes back to its own start, which is then no measure of how often it is entered
-static double (*whole_of)[2];
-static char* worked_out;                // 0 not worked out, 1 being worked out, 2 worked out
-static int* order;
+// The arrays below have one entry for each word.
+static double (*own)[2];                // what the word's own instructions ran: instructions [0] and cycles [1]
+static double* called;                  // the number of times the calls that were found went to the word
+static double* entered;                 // the number of times the word was entered
+static bool* comes_round;               // the word goes back to its own first instruction, so that instruction's count is not the number of entries
+static double (*whole_of)[2];           // the word with everything it calls: instructions [0] and cycles [1]
+static char* worked_out;                // 0: whole_of is not computed; 1: it is being computed; 2: it is computed
+static int* order;                      // the words to report, sorted by cost
 
-// The call from one word to another, which is made if it is not there.
+// Returns the record of the calls from one word to another, creating it
+// if there is none.
 static call* call_from(int from, int to) {
     for(long n=0; n < calls; n++) if (CALLS[n].from == from && CALLS[n].to == to) return(&CALLS[n]);
     ONE_MORE(CALLS, calls, calls_room);
@@ -158,9 +168,10 @@ static call* call_from(int from, int to) {
     return(&CALLS[calls++]);
 }
 
-// The number the instructions before a place push, if they are a push of
-// one and what is added to it: the execution token of a call to another
-// page.  Less than nothing if they are not.
+// Returns the number that the instructions before an address push, if
+// they are a literal that pushes a number and then literals that add to
+// it.  That number is the execution token of a call to another page.
+// Returns -1 if the instructions are not of that form.
 static long pushed(long at) {
     long value = 0;
     for(long k=at - 1; k >= 0; k--) {
@@ -172,8 +183,10 @@ static long pushed(long at) {
     return(-1);
 }
 
-// A word and all it calls: instructions, and cycles.  A word that comes
-// round to itself is its own, once.
+// Returns the cost of a word with everything it calls: instructions [0]
+// and cycles [1].  If the word is reached again while its cost is being
+// computed, because it calls itself directly or through other words, that
+// inner use is charged only the word's own instructions.
 static const double* whole(int w) {
     if (worked_out[w] == 2) return(whole_of[w]);
     if (worked_out[w] == 1) return(own[w]);
@@ -195,15 +208,16 @@ static int by_whole(const void* a, const void* b) {
     return(x < y ? 1 : x > y ? -1 : 0);
 }
 
-typedef struct { double much; char* what; } charge;     // and what it is of, as text that is as long as it is
+typedef struct { double much; char* what; } charge;     // an amount, and allocated text that says what it was charged for
 static int by_much(const void* a, const void* b) {
     double x = ((const charge*)a)->much, y = ((const charge*)b)->much;
     return(x < y ? 1 : x > y ? -1 : 0);
 }
 
+// Writes paths.txt.
 static void paths(const char* hex) {
     long execute = place_of(WORDS, words, "execute");
-    double unseen = 0;                  // calls by execute of what is not a number
+    double unseen = 0;                  // the number of times execute ran with a token that is not a number in the code
     own = room_for(words, sizeof(*own));
     called = room_for(words, sizeof(double));
     entered = room_for(words, sizeof(double));
@@ -231,7 +245,7 @@ static void paths(const char* hex) {
         if (to == WORDS[w].at) {
             comes_round[w] = true;
         } else if (!branch && starts_word(to)) {
-            call_from(w, in_word[to])->times += work[at];   // a call, or a jump to another word, which is one
+            call_from(w, in_word[to])->times += work[at];   // a call, or a jump to another word, which counts as a call
         }
     }
     for(int n=0; n < calls; n++) called[CALLS[n].to] += CALLS[n].times;
@@ -268,7 +282,7 @@ static void paths(const char* hex) {
     say("Where it goes, for the words that cost most: what the word did itself, and what");
     say("each word it calls was charged to it.");
     say("");
-    charge* parts = room_for(calls + 1, sizeof(charge));        // a word's own, and one for each call
+    charge* parts = room_for(calls + 1, sizeof(charge));        // one for the word's own instructions, and one for each word it calls
     for(int r=0; r < rows && r < 60; r++) {
         int w = order[r], n = 0;
         parts[n].much = own[w][0];
@@ -323,8 +337,9 @@ static int by_cycles(const void* a, const void* b) {
     return(x < y ? 1 : x > y ? -1 : 0);
 }
 
+// Writes loops.txt.
 static void the_loops(const char* hex) {
-    loop* back;                         // the image's loops (loops.h), of which those that ran are kept
+    loop* back;                         // the image's loops (loops.h); only those that ran are reported
     int backs = loops_of(&IMAGE, &back), loops = 0;
     ran_loop* LOOPS = room_for(backs, sizeof(ran_loop));
     for(int b=0; b < backs; b++) {
@@ -379,18 +394,25 @@ static void the_loops(const char* hex) {
 
 // ---- the variables
 
-// Each of these has as many as there are, and room for more as they are
-// found (room.h).
-static word* LABELS;            // the names of cells: of each label for data, and of each word that only pushes one
+// Each of these lists grows as entries are found (room.h).
+static word* LABELS;            // the names of cells: each label for data, and each word that only pushes a number, which names the cell at that address
 static long labels, labels_room;
-typedef struct { const char* name; double fetched, stored; int users, user; } variable;
-static variable* VARS;          // those that are fetched or stored
+typedef struct {
+    const char* name;
+    double fetched, stored;     // the number of times it was fetched, and stored
+    int users;                  // the number of words that use it
+    int user;                   // the word that uses it if there is one, -2 if there are several, and -1 if there is none yet
+    int last;                   // the last word seen using it, or -1
+} variable;
+static variable* VARS;          // the variables that are fetched or stored
 static long vars, vars_room;
 static const char unnamed_is[] = "cell ";
-typedef struct { long cell; char name[sizeof(unnamed_is) + 2 * sizeof(long)]; } unnamed;   // and its number in hex
-static unnamed** UNNAMED;       // the cells that have no name, each said by its number
+typedef struct { long cell; char name[sizeof(unnamed_is) + 2 * sizeof(long)]; } unnamed;   // the name has room for the cell's address in hex
+static unnamed** UNNAMED;       // the cells that have no name, each named by its address
 static long unnameds, unnameds_room;
 
+// Returns the name of a cell: its label, or "cell" and its address in hex
+// if it has no label.
 static const char* cell_name(long cell) {
     for(long n=0; n < labels; n++) if (LABELS[n].at == cell) return(LABELS[n].name);
     for(long n=0; n < unnameds; n++) if (UNNAMED[n]->cell == cell) return(UNNAMED[n]->name);
@@ -401,15 +423,21 @@ static const char* cell_name(long cell) {
     return(UNNAMED[unnameds++]->name);
 }
 
+// Returns the index of the variable with that name, adding it if it is
+// new.
 static long var_of(const char* name) {
     for(long n=0; n < vars; n++) if (!strcmp(VARS[n].name, name)) return(n);
     ONE_MORE(VARS, vars, vars_room);
-    VARS[vars] = (variable){ name, 0, 0, 0, -1 };
+    VARS[vars] = (variable){ name, 0, 0, 0, -1, -1 };
     return(vars++);
 }
 
+// Records that word w uses a variable.  The uses are recorded in order of
+// address, so all the uses in one word come together, and comparing with
+// the last word seen counts each word once.
 static void used_by(variable* v, int w) {
-    if (v->user == w) return;
+    if (v->last == w) return;
+    v->last = w;
     if (v->users++ == 0) v->user = w; else v->user = -2;
 }
 
@@ -420,38 +448,46 @@ static int by_use(const void* a, const void* b) {
     return(p < q ? 1 : p > q ? -1 : 0);
 }
 
-// What an instruction does with a variable, as the step says (kinds.h);
-// and which variable it is of, as where the one that stores to it is among
-// those that store, or less than nothing if it is of none.
+// is_fetch() and is_store() return true if the instruction fetches or
+// stores a variable, according to the machine's step (kinds.h).
 static bool is_fetch(uint16_t w) { return(NUMBER_IN[w].does == FETCHES_AT_IT); }
 static bool is_store(uint16_t w) { return(NUMBER_IN[w].does == STORES_AT_IT); }
 
+// Returns the index of the variable an instruction fetches or stores.
+// The index is the position of the instruction that stores to that
+// variable in the list of the instructions that store to a variable.
+// Returns -1 if the instruction does neither, or if no instruction stores
+// to that variable.
 static int variable_at(uint16_t w) {
     const numbered* stores = is_fetch(w) || is_store(w) ? numbered_as(STORES_AT_IT, NUMBER_IN[w].number) : NULL;
     return(stores ? (int)(stores - NUMBERED[STORES_AT_IT]) : -1);
 }
 
+// Returns true if the code at an address is from one of the files named,
+// or if no file was named.
 static bool in_files(long at, char** files, int count) {
     for(int n=0; n < count; n++) if (!strcmp(file_of(at), files[n])) return(true);
     return(!count);
 }
 
-// A name more in what a word keeps things in, if it is not there.
+// Adds a name to the text that lists the variables a word keeps values
+// in, unless the text already has it.
 static void also_in(char** kept_in, const char* name) {
     if (*kept_in && strstr(*kept_in, name)) return;
     text_more(kept_in, " %s", name);
 }
 
-// How long a name is before an ending, if it has one before that ending;
-// or nothing.
+// Returns the length of the name before `ending`, if the name ends with
+// it and has at least one character before it.  Returns 0 otherwise.
 static size_t ends_in(const char* name, const char* ending) {
     size_t len = strlen(name), end = strlen(ending);
     return(len > end && !strcmp(name + len - end, ending) ? len - end : 0);
 }
 
+// Writes vars.txt.
 static void variables(const char* hex, const char* tables, char** files, int count) {
-    // A label for data is the name of its cell; and a word that only
-    // pushes a number is a name for the cell of that number.
+    // A label for data names its cell.  A word that only pushes a number
+    // names the cell at that address.
     uint16_t leaves = ins_named("exit");
     if (!leaves) {
         fprintf(stderr, "costs: exit is not one instruction\n");
@@ -459,7 +495,7 @@ static void variables(const char* hex, const char* tables, char** files, int cou
     }
     labels = data_of(tables, &LABELS, &labels_room);
     long port = (long)data_called(tables, "gstate"), port_end = -1;
-    for(long n=0; n < labels && port; n++) {    // the port's cells are from there to the next label
+    for(long n=0; n < labels && port; n++) {    // the port's cells run from `gstate` to the next label
         if (LABELS[n].at > port && (port_end < 0 || LABELS[n].at < port_end)) port_end = LABELS[n].at;
     }
     for(int w=0; w < words; w++) {
@@ -471,7 +507,7 @@ static void variables(const char* hex, const char* tables, char** files, int cou
         ONE_MORE(LABELS, labels, labels_room);
         LABELS[labels] = WORDS[w], LABELS[labels++].at = value;
     }
-    struct { long from, to; }* aside = NULL;    // from a word named ...-state up to the one named ...-end
+    struct { long from, to; }* aside = NULL;    // the cells from a label named ...-state up to the label named ...-end
     long asides = 0, asides_room = 0;
     for(long n=0; n < labels; n++) {
         size_t stem = ends_in(LABELS[n].name, "-state");
@@ -484,14 +520,18 @@ static void variables(const char* hex, const char* tables, char** files, int cou
         }
     }
 
-    // Which words can be in use more than once.  A word that keeps what it
-    // is working on in a variable cannot.  The port is not that: it is
-    // what drawing is told to draw with.  Nor are the variables that one
-    // word has in hand in one run of memory, which it sets aside if it is
-    // run while it is running (draw-text, copy-bits), nor the ...-busy
-    // that says it is running.  A cell nothing here stores to is a number,
-    // not something kept.  This is of the code as it is, not of what ran.
-    bool* written = room_for(numbers[STORES_AT_IT], sizeof(bool));     // of each variable an instruction stores to
+    // Find the words that can be in use more than once at the same time.
+    // A word that keeps its working values in a variable cannot be.  Some
+    // variables do not count against a word:
+    //   - the port's cells, which are the settings drawing is done with
+    //   - the variables a word keeps together between ...-state and
+    //     ...-end, which the word saves if it is run while it is already
+    //     running (draw-text, copy-bits)
+    //   - the ...-busy flag that says the word is running
+    //   - a cell that no instruction in these files stores to, which is a
+    //     constant
+    // This part reads all the code, whether it ran or not.
+    bool* written = room_for(numbers[STORES_AT_IT], sizeof(bool));     // for each variable: true if an instruction in these files stores to it
     bool* keeps = room_for(words, sizeof(bool));
     bool* counted = room_for(words, sizeof(bool));
     char** kept_in = room_for(words, sizeof(char*));
@@ -513,7 +553,7 @@ static void variables(const char* hex, const char* tables, char** files, int cou
         also_in(&kept_in[w], name);
     }
 
-    // What ran.
+    // Count the fetches and the stores that ran.
     double* word_all = room_for(words, sizeof(double));
     double* word_fetched = room_for(words, sizeof(double));
     double* word_stored = room_for(words, sizeof(double));
@@ -531,9 +571,11 @@ static void variables(const char* hex, const char* tables, char** files, int cou
             continue;
         }
         fetched += work[at], VARS[v].fetched += work[at], word_fetched[w] += work[at];
-        // An operation on what was fetched and the cell under it, that
-        // leaves one result: T->IN, an operation of two, to T, the data
-        // stack one shorter, and no return.
+        // Count a fetch whose next instruction combines the fetched value
+        // with the cell under it and leaves one result.  That instruction
+        // takes T as its input, has an operation with two operands, puts
+        // the result in T, makes the data stack one shorter, leaves the
+        // return stack alone and does not return.
         instruction next = ins_of(at + 1 < places ? code[at + 1] : 0);
         if (!next.lit.lit_f && next.alu.op_type == OP_TYPE_ALU && next.alu.in_mux == INPUT_T &&
             next.alu.out_mux == OUTPUT_T && next.alu.dstack == -1 && next.alu.rstack == 0 && !next.alu.r_eip &&
@@ -571,7 +613,7 @@ static void variables(const char* hex, const char* tables, char** files, int cou
     int* by = room_for(words, sizeof(int));
     int spenders = 0;
     for(int w=0; w < words; w++) if (word_fetched[w] + word_stored[w] > 0) by[spenders++] = w;
-    for(int a=0; a < spenders; a++) {           // the most first: there are few
+    for(int a=0; a < spenders; a++) {           // sort the largest first; there are few enough for a simple sort
         for(int b=a + 1; b < spenders; b++) {
             if (word_fetched[by[b]] + word_stored[by[b]] > word_fetched[by[a]] + word_stored[by[a]]) {
                 int swap = by[a];
@@ -597,7 +639,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Usage: %s IMAGE.hex IMAGE.tables IMAGE.sizes COUNTS OUT [FILE.fs ...]\n", argv[0]);
         return(1);
     }
-    machine_from(argv[1]);              // the cell is the image's, before anything is asked of it
+    machine_from(argv[1]);              // take the cell size from the image before the step is used
     get_ready();
     list_kinds();
     load(argv[1], argv[2], argv[3], argv[4]);

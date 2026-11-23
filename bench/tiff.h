@@ -1,8 +1,8 @@
 //
-// A picture read whole from a TIFF, for the benchmarks' own programs: one
-// that is not compressed, of one sample or three of eight bits, in either
-// byte order and any number of strips.  The machine's reader is
-// forth/tiff.fs, and this is not made from it.
+// Reads a whole picture from a TIFF, for the benchmarks' own programs.  It
+// reads an uncompressed file with one or three 8-bit samples per pixel, in
+// either byte order, with any number of strips.  The machine's reader is
+// forth/tiff.fs, and this code was not derived from it.
 //
 
 #ifndef HEXAFORTH_BENCH_TIFF_H
@@ -12,17 +12,17 @@
 #include <stdint.h>
 
 typedef struct {
-    int w, h;                   // pixels across and down
-    int samples;                // of a pixel: one, or three
-    uint8_t* bytes;             // the samples, a row after another
+    int w, h;                   // width and height in pixels
+    int samples;                // samples per pixel: one or three
+    uint8_t* bytes;             // the samples, row after row
 } tiff;
 
-// Read a picture, or say why not and stop.
+// Reads a picture.  If it cannot, it prints the reason and exits.
 tiff read_tiff(const char* path);
 
-// Write a picture of one sample as a TIFF, black being nothing: a block of
-// 1,024 bytes that says what it is, and then its grays.  Returns the bytes
-// of the file, which are the caller's to free, and how many in *len.
+// Returns a one-sample picture as a TIFF file in memory, in which 0 is
+// black.  The file is a header block of 1,024 bytes followed by the grays.
+// The caller frees the result, and `*len` receives its length.
 uint8_t* gray_tiff(const uint8_t* grays, int w, int h, size_t* len);
 
 #endif //HEXAFORTH_BENCH_TIFF_H

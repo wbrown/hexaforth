@@ -1,17 +1,18 @@
 //
 // runs PLAIN.hex PLAIN.tables IMAGE.hex IMAGE.tables
 //
-// The system's code as it is typed, beside what cross.fs makes of it.
+// Prints the system's code as it was written, beside what cross.fs
+// compiled it to.
 //
-// An image built with the peephole off (PLAIN) is the words as they were
-// typed, an instruction for each, with the same calls compiled in place as
-// the image built with it on (cross.fs, the .inline file).  Both are cut
-// into straight-line runs and the instructions that leave a run (cut.h,
-// which says what those are).  The two images are the same runs and the
-// same calls in the same order, and this stops if they are not.
+// An image built with the peephole off (PLAIN) has the words as they were
+// written, one instruction for each, with the same calls inlined as in the
+// image built with the peephole on (cross.fs, the .inline file).  Both
+// images are cut into straight-line runs and the instructions that leave a
+// run (cut.h defines these).  The two images must have the same runs and
+// the same calls in the same order, and the program stops if they do not.
 //
-// Prints a line a run: the word it is in and where it is in IMAGE
-// (word@place), the run's instructions in PLAIN, a bar, and its
+// It prints one line for each run: the word the run is in and its address
+// in IMAGE (word@address), the run's instructions in PLAIN, a bar, and its
 // instructions in IMAGE.
 //
 

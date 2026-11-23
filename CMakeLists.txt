@@ -57,7 +57,7 @@ set(CMAKE_C_FLAGS_RELEASE "-save-temps=obj -O2 -fverbose-asm -fcommon")
 set(CMAKE_C_FLAGS_DEBUG "-save-temps=obj -g -fverbose-asm -fcommon")
 
 include(cmake/kinds.cmake)              # the kinds of thing that are made, each said once
-include(cmake/default-machine.cmake)    # the Forth that is made, the default machine's nucleus, and the tests of it
+include(cmake/default-machine.cmake)    # the generated Forth, the default machine's tests, and the tests that need no image
 include(cmake/disks.cmake)              # what makes a disk, the source that goes on one, and the pictures
 include(cmake/machines.cmake)           # the machines of util/machines: the images, disks, tests and reports of each
 include(cmake/reports.cmake)            # the reports of the first machine

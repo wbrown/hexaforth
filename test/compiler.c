@@ -270,8 +270,9 @@ bool compile(context *ctx, const char *input) {
   char *word = buffer;
   // Are we scanning a string literal?
   bool string = false;
-  // The words of the input, in the buffer, and which are string literals:
-  // no more of them than the input has characters.
+  // The words of the input, as pointers into the buffer, and a flag for
+  // each that says whether it is a string literal.  The input has fewer
+  // words than characters, so input_len entries are enough.
   char **words = malloc(input_len * sizeof(char *));
   bool *quoted = malloc(input_len * sizeof(bool));
   int count = 0;
@@ -302,10 +303,10 @@ bool compile(context *ctx, const char *input) {
     }
   }
 
-  // Words that are a phrase of the table are the phrase's one instruction
-  // (vm_opcodes.h): `dup >r` is written as two words, and is one.  What
-  // generates the same tests for cross.fs finds them the same way
-  // (generate_test_cases.c).
+  // Consecutive words that form a phrase in vm_opcodes.h compile to the
+  // phrase's single instruction: `dup >r` is written as two words and is
+  // one instruction.  generate_test_cases.c, which writes the same tests
+  // for cross.fs, finds phrases the same way.
   for (int at = 0; at < count;) {
     if (quoted[at]) {
       insert_string_literal(ctx, words[at++]);

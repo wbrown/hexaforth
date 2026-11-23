@@ -1,20 +1,22 @@
 //
 // counting IMAGE.hex [DISK.img [MEMORY.out]]
 //
-// The reference VM, counting how often the instruction at each place is
-// run.  It is main.c and vm.c as they are, with what vm.c tells of an
-// instruction about to be run (RUNS) taken up here.
+// The reference VM, with a count of how many times the instruction at
+// each address runs.  It is main.c and vm.c unchanged.  vm.c calls
+// RUNS(at) before it runs the instruction at an address, and this file
+// defines RUNS to count it.
 //
-// When the machine stops, the counts are written to the file that the
-// environment's RUN_COUNTS names: a count of 64 bits for each place, up
-// to one past the highest that was run.  Whoever reads them has how many
-// there are from how long the file is.  RUN_WORK names a file for the
-// same counts as the work of a profile (work.h), which what says what work
-// costs reads (costs.c): it is all work, and an idle turn runs nothing.
+// When the machine stops, the counts are written to the file named by
+// RUN_COUNTS in the environment: one 64-bit count for each address, up to
+// one past the highest address that ran.  A reader gets the number of
+// counts from the file's length.  RUN_WORK names a file that receives the
+// same counts in the format of a profile's work (work.h), which the tool
+// that reports costs reads (costs.c).  In that file everything counts as
+// work, and an idle turn runs nothing.
 //
-// A test that has the VM in it is built with this in place of vm.c, and
-// with COUNTING_A_TEST said: then this is the VM alone, and the test has
-// the counts written when it is done (counts_written).
+// A test that includes the VM can be built with this file in place of
+// vm.c, with COUNTING_A_TEST defined.  This file is then only the VM, and
+// the test calls counts_written() when it is done.
 //
 
 #include <stdint.h>
@@ -28,8 +30,8 @@ uint64_t* RAN;
 long RAN_TO;
 static long ran_room;
 
-// The instruction at a place is about to be run: there is a count for it,
-// whatever place it is.
+// Counts the instruction at an address, which is about to run.  The array
+// grows to cover any address.
 static inline void counted(int64_t at) {
     if (at < 0) return;
     if (at >= RAN_TO) {
@@ -54,7 +56,7 @@ void counts_written(void) {
     path = getenv("RUN_WORK");
     if (path) {
         double* work = room_for(RAN_TO, sizeof(double));
-        double* idle = room_for(RAN_TO, sizeof(double));       // nothing
+        double* idle = room_for(RAN_TO, sizeof(double));       // all zeros: an idle turn runs nothing
         for(long at=0; at < RAN_TO; at++) work[at] = (double)RAN[at];
         if (!work_written(path, work, idle, RAN_TO)) exit(EXIT_FAILURE);
         free(work);

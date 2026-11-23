@@ -9,12 +9,12 @@ way (with the memory for its two stacks left out). When drawing, it takes
 1.06 to 1.36 clocks per instruction, so at 1.2 MHz it runs 0.88 to 1.13
 million instructions a second.
 
-1.2 MHz is the lowest clock it is held to, to show how little it needs, not
-the most it can do. In a single instruction it takes its input from a
-stack, the return stack or memory, does an operation, sends the result to a
-stack or to memory, and moves both stacks. That is one clock, plus one for a
-memory read or a shift. A 68000 instruction takes at least four clocks, and
-often twelve or more.
+The 1.2 MHz clock is chosen to show how little the machine needs. It is not
+the machine's top speed. In a single instruction the machine takes its input
+from a stack, the return stack or memory, does an operation, sends the
+result to a stack or to memory, and moves both stacks. That is one clock,
+plus one for a memory read or a shift. A 68000 instruction takes at least
+four clocks, and often twelve or more.
 
 The same step of the same dither shows the difference. A pixel's value is
 compared with a threshold, and an eighth of the error is kept to pass on. On
@@ -55,8 +55,8 @@ picture takes 0.7 seconds.
 - The instruction set. An instruction is a control word: where the ALU's
   input comes from, the operation, where the result goes, and how each
   stack moves
-- How little code it takes. The kernel is 3,666 bytes, in a 4,096-byte ROM.
-  The paint program is 2,250 bytes. The whole machine, written in AArch64
+- How little code it takes. The kernel is 3,518 bytes, in a 4,096-byte ROM.
+  The paint program is 2,232 bytes. The whole machine, written in AArch64
   assembler, is 880 bytes
 
 It is meant to be built from TTL, on an FPGA, or through TinyTapeout.
@@ -96,9 +96,9 @@ literal that is either pushed or added to the top of the stack, or that
 fetches or stores one of 4,096 variables.
 
 A Forth word is a name for one of these instructions or for a sequence of
-them. Leaving out the ones that read or write a port, the fields give 5,344
+them. Leaving out the ones that read or write a port, the fields give 4,960
 instructions that behave differently; many combinations do the same thing.
-Fifty-six of those have names, and the system uses 381. The rest of the
+Fifty-eight of those have names, and the system uses 416. The rest of the
 ones it uses come from the compiler, which replaces a sequence with a single
 instruction wherever one does the same work, and finds out which by asking
 the machine. (The target `profile` counts them, for the 64-bit image.)
@@ -140,7 +140,7 @@ before its figure is printed. In millions of clocks:
 |---|---|---|---|---|
 | colour, full size | 63.2 | 21.5 | 31.5 | 30.5 * |
 | colour, half size | 40.3 | 11.7 | 17.4 | 17.4 |
-| grayscale, full size | 31.7 | 14.8 | 21.2 | 21.5 * |
+| grayscale, full size | 31.7 | 14.8 | 21.2 | 21.4 * |
 | grayscale, half size | 13.3 | 4.4 | 6.7 | 7.6 |
 
 \* Run on a smaller system, `forth/picture.fs`: the windowing system, the
@@ -157,23 +157,23 @@ ECP5: 14,989 LUTs and 986 flip-flops, at 30.21 MHz.
 
 | | words | bytes of code |
 |---|---|---|
-| The kernel, in a 4,096-byte ROM | 271 | 3,666 |
-| All drawing: fills, copying, text | 156 | 5,276 |
-| Regions | 37 | 1,418 |
-| The window manager | 116 | 3,548 |
-| The TIFF reader and the dither | 121 | 3,946 |
-| Text kept as lines, which two windows scroll | 44 | 1,158 |
-| The Forth window | 22 | 696 |
-| The block editor | 9 | 394 |
-| The picture viewer, and its picture kept as gray | 158 | 4,302 |
-| The calculator | 17 | 638 |
-| The paint program | 51 | 2,250 |
-| The decompiler and the Words window | 132 | 4,816 |
-| What the disks have, by label, and the boot's console | 47 | 1,574 |
-| The compiler's peephole, for what is typed | 51 | 1,770 |
-| Everything | 1,561 | 40,510 |
+| The kernel, in a 4,096-byte ROM | 267 | 3,518 |
+| All drawing: fills, copying, text | 156 | 5,242 |
+| Regions | 37 | 1,406 |
+| The window manager | 116 | 3,536 |
+| The TIFF reader and the dither | 121 | 3,912 |
+| Text kept as lines, which two windows scroll | 44 | 1,144 |
+| The Forth window | 22 | 692 |
+| The block editor | 9 | 386 |
+| The picture viewer, and its picture kept as gray | 158 | 4,272 |
+| The calculator | 17 | 634 |
+| The paint program | 51 | 2,232 |
+| The decompiler and the Words window | 134 | 4,784 |
+| Files on the disks, found by label, and the boot's console | 47 | 1,540 |
+| The compiler's peephole, for typed code | 108 | 3,546 |
+| Everything | 1,570 | 40,572 |
 
-The dictionary holds 643 names in 6,008 bytes, at five bits per character.
+The dictionary holds 640 names in 5,984 bytes, at five bits per character.
 
 **The machine on another processor** (`size`). `baremetal/hexaforth.S` is
 the whole machine in AArch64 assembler, with a console. It is 880 bytes:
@@ -205,28 +205,30 @@ It has ~270 words, and these have names you can type:
 - **Bits**: `and or xor invert lshift rshift`
 - **Comparison**: `= <> < > u< u> 0= 0<> 0< 0> true false`
 - **Double-cell numbers**: `d+ dnegate s>d d2* 2@ 2!`
-- **Memory**: `@ ! +! or! and! xor! *! not! c@ c! uw@ w! field@ field! >c
-  c> hi32 lo32 hi16 lo16 count cell+ cells aligned align cmove cells-move
-  cells-fill /string bounds i@ i!`
+- **Memory**: `@ ! +! or! and! xor! *! not! c@ c! uw@ w! field@ field!
+  ifield >c c> hi32 lo32 hi16 lo16 count cell+ cells aligned align cmove
+  cells-move cells-fill /string bounds i@ i!`
 - **The console and the ports**: `key key? emit uart-emit 'emit 'console cr
   space bl type . .x .x2 hex1 accept io@ io!`
 - **The interpreter**: `source source-id sourceid >in parse parse-name
   isspace? isnotspace? isnotdelim >number base decimal hex state interpret1
   numbered refill evaluate quit execute \ (`
-- **The compiler**: `: ; :noname ] [ immediate create does> variable constant
-  , c, w, s, compile, literal 2literal postpone recurse exit ' ['] inline:
+- **The compiler**: `: :noname ] [ immediate create does> variable constant
+  , c, w, s, compile, literal 2literal postpone recurse exit ' inline:
   join-rules`, and `if else then ahead begin again until while repeat do ?do
-  loop +loop leave`
+  loop +loop leave`. `;` belongs to the peephole, which comes straight
+  after the kernel, and so does `[']` on a machine with a display
 - **The dictionary**: `forth sfind >key samename? name> words here allot dp cp`
 - **Errors**: `catch throw -throw`
 - **Tasks**: `up sbase spawn pause`
 - **Blocks**: `blk 'blk-read 'blk-write`
 
 Twelve more words of the nucleus are in the other half of the kernel's
-page and not in the ROM, since nothing needs them before the system is in
-memory: `2rot`, `fill`, `cmove>`, and the double-cell `dabs d>s d= d< du<
-d- d0< d0= d2/`. That left room in the ROM for the driver of the disk a
-machine starts from, which is a file of its own for each kind of machine.
+page, outside the ROM, because the machine does not use them until the
+system is in memory: `2rot`, `fill`, `cmove>`, and the double-cell `dabs
+d>s d= d< du< d- d0< d0= d2/`. That left room in the ROM for the driver of
+the disk a machine starts from. Each kind of machine has its own driver
+file.
 
 ## Running it
 
@@ -293,17 +295,17 @@ the kernel, which is the part in ROM, plus the system that file includes.
 The tests, tools and benchmarks are in C. All of it, at 64, 32 and 16-bit
 cells, is built by CMake.
 
-**The cross-compiler** (`forth/cross.fs`) runs on gforth and lays down the
+**The cross-compiler** (`forth/cross.fs`) runs on gforth and builds the
 image. Code is split into pages: a branch is relative to its page, and a
 call to another page goes through an execution token. Its peephole
 optimizer replaces a sequence of instructions with a single one wherever
-one does the same work, and it has no table of which sequences those are:
-it asks the machine. `util/fuse.h`, which gforth builds and calls, finds
-each answer by stepping the machine on symbols instead of numbers
-(`vm_step.h`, the same step `vm.c` runs on real values), and each answer is
-then run on `vm.c` before it is used. A word without a dictionary header
-keeps its name as a label, for the tools and the decompiler, and a small
-word is compiled inline where that is no longer than a call to it.
+one does the same work. It has no table of those sequences: it asks the
+machine. `util/fuse.h`, which gforth builds and calls, finds each answer by
+stepping the machine on symbols instead of numbers (`vm_step.h`, the same
+step `vm.c` runs on real values), and each answer is then run on `vm.c`
+before it is used. A word without a dictionary header keeps its name as a
+label, for the tools and the decompiler. A small word is compiled inline
+where the inline code is at most as long as a call to it.
 
 **The nucleus** is a Forth system at its prompt: an interpreter and a
 compiler, `create` and `does>`, `catch` and `throw`, comments, blocks loaded
@@ -339,8 +341,9 @@ which a jump costs no extra cycle.
 
 runs every test and prints a line for each:
 
-- each instruction test compiled by a C compiler and by `cross.fs`, the two
-  compared instruction for instruction, then run
+- each instruction test is compiled by a small Forth compiler written in C
+  and by `cross.fs`. The two results are compared instruction for
+  instruction, and then the test is run
 - the image built with the peephole optimizer against the image built
   without it: every straight-line sequence must leave the same result, and
   every call, jump and branch must go to the same place
@@ -350,18 +353,18 @@ runs every test and prints a line for each:
   reader against a reference dither, and the desktop driven with keys and a
   pointer and its screen checked
 - each AArch64 kernel against `vm.c` on eight thousand cases; the desktop on
-  QEMU with the small kernel, its screens checked; and with each kernel
-  again with nothing in the machine's memory but its ROM, which reads the
-  system from the disk and compiles the desktop from source
+  QEMU with the small kernel, its screens checked; and the desktop again
+  with each kernel started with only its ROM in memory, where the machine
+  reads the system from the disk and compiles the desktop from source
 - the Verilog against `vm.c` at every cell size, with one-cycle and two-cycle
   memory, and with the kernel in ROM: on the same cases, and on a session
   typed at the nucleus
-- that the kernel contains nothing that can never be reached
+- that every word in the kernel can be reached
 
-`vm.c` is the definition of the machine, and everything else is held to it.
-The reports show where the work goes and what a change costs: `profile`,
-`peephole`, `phrases`, `subtracts`, `examine` and `hits`. `CLAUDE.md`
-describes each one.
+`vm.c` is the definition of the machine, and everything else is checked
+against it. The reports show where the work goes and what a change costs:
+`profile`, `peephole`, `pairs`, `phrases`, `subtracts` and `examine`.
+`CLAUDE.md` describes each one.
 
 ## Status
 

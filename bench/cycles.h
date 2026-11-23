@@ -1,11 +1,12 @@
 //
-// The cycles the Verilog CPU takes for an instruction (rtl/hexaforth.v says
-// so at its top, and is where it is so): one, another for each read of
-// memory and for a shift, and two more for a multiply.  A fetch of a
-// variable reads memory.
+// The number of cycles the Verilog CPU takes for an instruction.
+// rtl/hexaforth.v defines this, and states it at its top: one cycle, plus
+// one for each memory read, plus one for a shift, plus two for a multiply.
+// A fetch of a variable reads memory.
 //
-// This is for what weighs a profile by them.  What a piece of work takes
-// in cycles is measured, on the CPU itself: the target `bench`.
+// Tools use this to weight a profile by cycles.  The cycles a piece of
+// work actually takes are measured on the CPU itself, by the target
+// `bench`.
 //
 
 #ifndef HEXAFORTH_CYCLES_H
@@ -13,9 +14,9 @@
 
 #include "../vm_instruction.h"
 
-// An instruction with a number in it reads memory if it fetches a
-// variable, which whoever asks says: what such an instruction does is the
-// machine's step's to say (util/kinds.h), and not its fields'.
+// A literal instruction reads memory if it fetches a variable.  The caller
+// says whether it does, because what a literal instruction does comes from
+// the machine's step (util/kinds.h), not from its fields.
 static int cycles_of(instruction ins, int fetches_a_variable) {
     if (ins.lit.lit_f) return(fetches_a_variable ? 2 : 1);
     if (ins.alu.op_type != OP_TYPE_ALU) return(1);

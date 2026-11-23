@@ -1,33 +1,36 @@
 //
 // desktime KERNEL.elf KERNEL.symbols DISK.img PICTURES.img PICTURE.tiff FORTH NAMES.tables OUT [SECONDS]
 //
+// Reports when the desktop is ready and when its picture is finished.
+//
 // PICTURES.img is the machine's second disk, which has PICTURE.tiff under
 // the picture's label (mkdisk --disk).
 //
-// When the desktop is ready, and when its picture is made.
+// It boots the desktop on QEMU as guitest does (qemu.h) and watches it
+// without sending it anything.  It records five times: when the console
+// says the desktop is up; when the Forth window has its prompt on the
+// screen; and when the first row of the picture, half its rows, and all
+// its rows have been made.  The times are in seconds from the start of the
+// machine.  On a kernel held to a speed (the target `demo-time`, with
+// MIPS), they are what a person would wait on a machine of that speed.
+// With the disk held to a speed as well (DISK=40 in the environment), they
+// are what a person would wait on such a machine with a floppy disk.
+// These are the times to measure before and after a change to how the
+// picture is read, dithered or shown.  The program gives up after SECONDS,
+// or after 600 seconds if SECONDS is not given.  The copy of the disk that
+// the machine is given is kept in the directory OUT.
 //
-// Boots the desktop on QEMU as guitest does (qemu.h) and watches it,
-// without touching it: when the console says the desktop is up, when the
-// Forth window has its prompt on the screen, and when the first row of
-// the picture, half its rows and all of them have been made.  The times
-// are in seconds from when the machine was started.  On a kernel held to
-// a speed (the target `demo-time`, with MIPS) they are what a machine of
-// that speed is like to wait for, and with the disk held to one as well
-// (DISK=40, from the environment) one with a floppy.  They are what to
-// measure before and after a change to how the picture is read, dithered
-// or shown.  It gives up after SECONDS, 600 if none is given.  The copy of
-// the disk the machine is given is kept in OUT.
-//
-// The screen is looked at for the prompt, as the desktop's checks read it
-// (test/deskcheck.h), once the console has said the desktop is up, as
-// guitest does: until the kernel has told QEMU's display how big it is,
-// QEMU has a screen of its own size, and the prompt cannot be on the
-// screen before the desktop is.  How many rows of the picture are made is read out
-// of the machine's memory, which is in QEMU's where the kernel's symbol
-// `image` is (symbols.h): `vw` in view.fs is the viewer in hand, and the
-// third cell of a viewer's record is the rows of its bitmap that are made
-// (`bmh`).  If either changes, so must this; it stops and says so if the
-// names that go with the image have no `vw`.
+// The screen is searched for the prompt the way the desktop's checks read
+// the screen (test/deskcheck.h), and only after the console has said the
+// desktop is up, as in guitest.  Until the kernel has told QEMU's display
+// its size, QEMU's screen has a size of its own, and the prompt cannot be
+// on the screen before the desktop is.  The number of rows of the picture
+// that are made is read from the machine's memory, which is in QEMU's
+// memory at the kernel's symbol `image` (symbols.h).  `vw` in view.fs
+// holds the viewer in use, and the third cell of a viewer's record is the
+// number of rows of its bitmap that are made (`bmh`).  If either of those
+// changes, this program must change too.  It stops with a message if the
+// image's names have no `vw`.
 //
 
 #include <stdio.h>
@@ -41,9 +44,11 @@
 #include "qemu.h"
 #include "symbols.h"
 
-#define ROWS_MADE 2             // bmh: where it is in a viewer's record (view.fs)
+#define ROWS_MADE 2             // the offset of bmh in a viewer's record, in cells (view.fs)
 
 static struct timespec started;
+
+// Returns the seconds since the machine was started.
 static double now(void) {
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);
@@ -51,7 +56,9 @@ static double now(void) {
 }
 
 enum { UP, PROMPT, FIRST, HALF, ALL, TIMES };
-static double when[TIMES];      // when each was first so, or less than nothing
+static double when[TIMES];      // the time each event first happened, or -1 if it has not happened
+
+// Records the time of an event, the first time it happens.
 static void note(int what) {
     if (when[what] < 0) when[what] = now();
 }
@@ -65,7 +72,7 @@ int main(int argc, char *argv[]) {
     double limit = argc > 9 ? atof(argv[9]) : 600;
     int height = read_tiff(argv[5]).h;
     uint64_t vw = data_called(argv[7], "vw");
-    uint64_t memory = symbol_at(argv[2], "image");      // where the machine's cell 0 is
+    uint64_t memory = symbol_at(argv[2], "image");      // the address of the machine's cell 0 in QEMU's memory
     if (!vw) {
         fprintf(stderr, "%s has no label vw: view.fs has changed, and this must change with it\n", argv[7]);
         return(1);
@@ -89,7 +96,7 @@ int main(int argc, char *argv[]) {
     }
 
     static const char half_is[] = "half its %d rows are made";
-    char half[sizeof(half_is) + 3 * sizeof(int)];       // and the number, which is no more digits than three a byte
+    char half[sizeof(half_is) + 3 * sizeof(int)];       // room for the text and the number: an int prints as at most three digits for each of its bytes
     snprintf(half, sizeof(half), half_is, height);
     const char* what[TIMES] = { "the console says the desktop is up", "the Forth window has its prompt",
                                 "the first row of the picture is made", half, "the picture is finished" };

@@ -24,8 +24,9 @@ typedef struct {
             bool    lit_f: 1;       // literal?:    {true, false}
         } lit;
         // A jump, a conditional jump or a call.  The target is 13 bits:
-        // twelve, and one that says whether they are an address in page 0
-        // or an offset in the page the instruction is in (MODEL.md).
+        // twelve bits, and one bit that says whether they are an address
+        // in page 0 or an offset within the instruction's own page
+        // (MODEL.md).
         struct {
             WORD    target: 13;     //              4,096 instructions either way
             BYTE    op_type: 2;     // OP_TYPE:     {jump, 0jump, call, alu}
@@ -58,9 +59,9 @@ enum OP_TYPE {
 // absolute address in the kernel, reachable from anywhere; with bit 12 set
 // it is an offset within the page the branch itself is in.  Return
 // addresses and execution tokens are full program counters, so `exit` and
-// `execute` cross pages with no extra state.  It is here, with the field
-// it is the meaning of, so that what reads an image's code has it as the
-// machine does (vm.c, util/cut.h).
+// `execute` cross pages with no extra state.  This function is defined
+// here, beside the field it interprets, so that tools that read an image's
+// code decode a target exactly as the machine does (vm.c, util/cut.h).
 static inline int64_t branch(int64_t next_pc, uint16_t target) {
     if (target & 0x1000) {
         return ((next_pc - 1) & ~(int64_t)0xfff) | (target & 0xfff);

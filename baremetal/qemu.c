@@ -1,5 +1,5 @@
 //
-// The desktop's machine under QEMU: qemu.h says what this is for.
+// The desktop's machine under QEMU.  qemu.h describes it.
 //
 
 #include <errno.h>
@@ -22,14 +22,16 @@
 
 #define W       DISP_W
 #define H       DISP_H
-// How long things are waited for was chosen, and is not the machine's.
-#define TURN    150             // the thousandths of a second a turn is given
-#define STARTS  10000           // and QEMU to start,
-#define BOOTS   120000          // and the desktop to come up
-#define STEP    50              // how often it is asked
+// The waiting times below are choices, not properties of the machine.
+// They are in milliseconds.
+#define TURN    150             // the time one turn is given
+#define STARTS  10000           // the longest wait for QEMU to start
+#define BOOTS   120000          // the longest wait for the desktop to come up
+#define STEP    50              // the interval between checks while waiting
 
-// The keys of a keyboard as QEMU names them, where the name is not the
-// character; and the characters that are a key with Shift held.
+// NAMED gives QEMU's name for each key whose name is not its character.
+// SHIFTED lists the characters that are typed with Shift held, and
+// UNSHIFTED has the key for each of them at the same position.
 static const struct { char c; const char* key; } NAMED[] = {
     {' ', "spc"}, {'\r', "ret"}, {'.', "dot"}, {',', "comma"}, {'/', "slash"}, {'-', "minus"}, {'=', "equal"},
     {';', "semicolon"}, {'\'', "apostrophe"}, {'[', "bracket_left"}, {']', "bracket_right"},
@@ -40,39 +42,43 @@ static const char UNSHIFTED[] = "1234567890-=;',./[]\\`";
 int qemu_scale = 1, qemu_shots, qemu_inexact;
 int qemu_boot_said, qemu_boot_shown;
 
-static pid_t qemu;              // QEMU,
-static int serial;              // what its console says,
-static int qmp;                 // and where it is told things
-static char tmp[] = "/tmp/hexaforth-qemu-XXXXXX";       // a place for its socket and for what it dumps
-static const char* disk;
-static uint8_t* screen;
+static pid_t qemu;              // QEMU's process
+static int serial;              // the pipe that QEMU's console output is read from
+static int qmp;                 // the socket that QMP commands are sent on
+static char tmp[] = "/tmp/hexaforth-qemu-XXXXXX";       // a directory for QEMU's socket and for the files it dumps
+static const char* disk;        // the path of the copy of the disk that QEMU was given
+static uint8_t* screen;         // the last screen read: one byte per pixel, 1 for black
 
+// Waits for a number of milliseconds.
 static void wait_ms(int ms) {
     struct timespec t = { ms / 1000, (ms % 1000) * 1000000L };
     nanosleep(&t, NULL);
 }
 
+// Kills QEMU.  It is registered to run when the program exits.
 static void stop(void) {
     if (qemu > 0) kill(qemu, SIGKILL);
 }
 
+// Prints what failed, with the system's error text, and exits.
 static void fail(const char* what) {
     fprintf(stderr, "QEMU: %s: %s\n", what, strerror(errno));
     exit(EXIT_FAILURE);
 }
 
-// Text made as printf makes it, as long as it comes to: it is made here,
-// and is whoever asked's to free.
+// Returns text formatted as printf formats it, of any length.  The text is
+// allocated, and the caller frees it.
 static char* text_of(const char* format, va_list args) {
     va_list again;
     va_copy(again, args);
     int len = vsnprintf(NULL, 0, format, args);
-    char* text = room_for((size_t)len + 2, 1);          // and room for a line's end after it
+    char* text = room_for((size_t)len + 2, 1);          // one byte more, so that the caller can add a newline
     vsnprintf(text, (size_t)len + 1, format, again);
     va_end(again);
     return(text);
 }
 
+// The same, with its arguments given as printf's are.
 static char* text(const char* format, ...) {
     va_list args;
     va_start(args, format);
@@ -81,7 +87,8 @@ static char* text(const char* format, ...) {
     return(is);
 }
 
-// A line of what QEMU answers, however long: it is there until the next.
+// Reads one line of QEMU's answer from the QMP socket, of any length.  The
+// line is valid until the next call.
 static const char* answer(void) {
     static char* line;
     static long room;
@@ -98,7 +105,8 @@ static const char* answer(void) {
     return(line);
 }
 
-// QEMU is told something, and has done it when it answers so.
+// Sends QEMU a QMP command, and waits until QEMU answers with a result or
+// an error.
 static void command(const char* format, ...) {
     va_list args;
     va_start(args, format);
@@ -111,9 +119,9 @@ static void command(const char* format, ...) {
     for(const char* said = answer(); !strstr(said, "\"return\"") && !strstr(said, "\"error\""); said = answer());
 }
 
-// A copy of a disk, in a directory, which is what QEMU is given: the
-// machine writes to its disk, and the disk that was made is left as it was
-// made.
+// Copies a disk into a directory and returns the copy's path.  QEMU is
+// given the copy, because the machine writes to its disk and the disk the
+// build made must stay unchanged.
 static const char* copy_of(const char* from, const char* in) {
     unsigned char* bytes;
     size_t len = file_bytes(from, &bytes);
@@ -137,7 +145,7 @@ void qemu_start(const char* elf, const char* on, const char* pictures, const cha
     if (!mkdtemp(tmp)) fail(tmp);
     char* sock = text("%s/qmp", tmp);
     char* qmp_is = text("unix:%s,server,nowait", sock);
-    char* drive = rate          // QEMU holds the drive to it, as it does for the target `demo`
+    char* drive = rate          // QEMU throttles the drive to that rate, as it does for the target `demo`
         ? text("file=%s,if=none,format=raw,id=hd0,throttling.bps-read=%d,throttling.bps-write=%d", disk, rate, rate)
         : text("file=%s,if=none,format=raw,id=hd0", disk);
     char* second = rate
@@ -154,7 +162,7 @@ void qemu_start(const char* elf, const char* on, const char* pictures, const cha
         int nothing = open("/dev/null", O_RDWR);
         dup2(nothing, 0);
         dup2(nothing, 2);
-        // (QEMU_AARCH64 is where QEMU is, which the build says.)
+        // QEMU_AARCH64 is the path of the QEMU program, which the build defines.
         execlp(QEMU_AARCH64, QEMU_AARCH64, "-M", "virt", "-cpu", "cortex-a53", "-m", "256",
                "-display", "none", "-serial", "stdio", "-nic", "none", "-qmp", qmp_is, "-device", "ramfb",
                "-global", "virtio-mmio.force-legacy=false",
@@ -170,7 +178,7 @@ void qemu_start(const char* elf, const char* on, const char* pictures, const cha
     fcntl(serial, F_SETFL, fcntl(serial, F_GETFL) | O_NONBLOCK);
 
     struct sockaddr_un at = { .sun_family = AF_UNIX };
-    if (strlen(sock) >= sizeof(at.sun_path)) {          // which is as long as the system lets a socket's name be
+    if (strlen(sock) >= sizeof(at.sun_path)) {          // sun_path is the longest name the system allows a socket
         fprintf(stderr, "QEMU: %s is too long a name for a socket\n", sock);
         exit(EXIT_FAILURE);
     }
@@ -180,7 +188,7 @@ void qemu_start(const char* elf, const char* on, const char* pictures, const cha
         if (waited > STARTS || waitpid(qemu, NULL, WNOHANG) == qemu) fail("it did not start");
         wait_ms(STEP);
     }
-    answer();                                           // its greeting
+    answer();                                           // read QMP's greeting
     command("{\"execute\": \"qmp_capabilities\"}");
     free(sock);
     free(qmp_is);
@@ -194,7 +202,7 @@ const char* qemu_said(void) {
     for(;;) {
         AS_MANY(said, have + BUFSIZ + 1, room);
         ssize_t got = read(serial, said + have, BUFSIZ);
-        if (got <= 0) break;                            // there is no more of it yet
+        if (got <= 0) break;                            // no more output is available yet
         have += got;
     }
     said[have] = '\0';
@@ -218,6 +226,7 @@ uint64_t qemu_cell(uint64_t address) {
     return(cell);
 }
 
+// Sends input events to the machine through QMP, and then waits one STEP.
 static void event(const char* format, ...) {
     va_list args;
     va_start(args, format);
@@ -228,12 +237,14 @@ static void event(const char* format, ...) {
     wait_ms(STEP);
 }
 
+// Presses or releases the key that QEMU calls `name`.
 static void key(const char* name, bool down) {
     event("{\"type\": \"key\", \"data\": {\"down\": %s, \"key\": {\"type\": \"qcode\", \"data\": \"%s\"}}}",
           down ? "true" : "false", name);
 }
 
-// The key a character is on, as QEMU names it, and whether Shift is held.
+// Returns QEMU's name for the key a character is on, and sets `*shift` to
+// whether Shift must be held.  The name is valid until the next call.
 static const char* key_of(char c, bool* shift) {
     static char name[2];
     const char* at = c ? strchr(SHIFTED, c) : NULL;
@@ -247,13 +258,13 @@ static const char* key_of(char c, bool* shift) {
     return(name);
 }
 
-// ---- what test/deskcheck.h says a machine does
+// ---- the machine that test/deskcheck.h declares
 
 const uint8_t* desk_screen(void);
 
-// Has the screen text on it: pixels that are black, and pixels that are
-// not?  A screen nothing has been copied to yet is all black, and one that
-// is only cleared is all white.
+// Returns true if the screen has text on it: some pixels that are black,
+// and some that are not.  A screen that nothing has been copied to yet is
+// all black, and a screen that has only been cleared is all white.
 static bool text_on_screen(void) {
     const uint8_t* is = desk_screen();
     long black = 0;
@@ -261,10 +272,11 @@ static bool text_on_screen(void) {
     return(black && black < (long)W * H);
 }
 
-// While the desktop is waited for, a machine that compiles its system from
-// its disk says each file as it starts (blocks.fs, include): its label, a
-// space, and how many blocks it is.  Once it has said one, its screen is
-// looked at until it has text on it or the desktop is up.
+// Waits for the desktop to come up, and returns what the console has
+// printed.  A machine that compiles its system from its disk prints each
+// file as it starts it (files.fs, include): the file's label, a space, and
+// its number of blocks.  Once the console has printed a file, the screen
+// is checked for text until it has some or the desktop is up.
 const char* desk_boot(void) {
     const char* said = qemu_said();
     for(int waited=0; !strstr(said, "desktop") && waited < BOOTS; waited += STEP) {
@@ -278,8 +290,8 @@ const char* desk_boot(void) {
     return(said);
 }
 
-// (The name of a key is kept: what key_of gives is there only until it is
-// next asked.)
+// The name of each key is copied before it is used, because the name
+// key_of() returns is valid only until the next call.
 void desk_type(const char* typed) {
     for(; *typed; typed++) {
         bool shift;
@@ -316,14 +328,16 @@ void desk_turns(int turns) {
     wait_ms(turns * TURN);
 }
 
-static bool lit_at(const uint8_t* samples, int w, int x, int y) {      // has a pixel of the dump any light in it?
+// Returns true if a pixel of the dump has any light in it.
+static bool lit_at(const uint8_t* samples, int w, int x, int y) {
     const uint8_t* p = samples + ((size_t)y * w + x) * 3;
     return((299 * p[0] + 587 * p[1] + 114 * p[2]) / 1000 != 0);
 }
 
-// The screen, as QEMU dumps it: a picture of three samples to a pixel, of
-// which a pixel is black if it has no light in it.  Of a block that is one
-// pixel of the display it is the pixel in the middle that is taken.
+// Reads the screen from a dump that QEMU makes.  The dump has three
+// samples for each pixel, and a pixel is black if it has no light in it.
+// With SCALE, one pixel of the display is a block of the dump's pixels,
+// and the pixel in the middle of the block is the one used.
 const uint8_t* desk_screen(void) {
     char* path = text("%s/screen.ppm", tmp);
     int scale = qemu_scale;
@@ -356,8 +370,9 @@ const uint8_t* desk_screen(void) {
     return(screen);
 }
 
-// The machine's memory is QEMU's from where the kernel has the image
-// (qemu_image): all of it is saved to a file, and read.
+// The Forth machine's memory is in the guest's memory, starting at the
+// address the kernel has the image at (qemu_image()).  desk_memory() has
+// QEMU save all of it to a file, and reads the file.
 static uint64_t image_at;
 
 void qemu_image(uint64_t address) {

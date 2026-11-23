@@ -1,41 +1,43 @@
 //
 // display_test IMAGE.hex FORTH [SEED]
 //
-// The drawing words of forth/display.fs, against the same drawing done a
-// pixel at a time.
+// Tests the drawing words in forth/display.fs against the same drawing
+// done one pixel at a time.
 //
-// It is a contrastive test.  What is typed at the machine is read here
-// too, a word at a time, and drawn on a screen that is a byte to a pixel:
-// a pixel is drawn if the clip rectangle and the clip region have it, a
-// fill is the pattern's bit for that pixel put through the mode, text is
-// each glyph's pixels with its style, and a copy and a scroll take each
-// pixel from where it was.  The machine draws a cell at a time, with masks
-// and shifts.  Nothing is built from what is here.
+// It is a contrastive test.  The text typed at the machine is also read
+// here, a word at a time, and drawn on a model of the screen that has one
+// byte per pixel.  In the model a pixel is drawn only if both the clip
+// rectangle and the clip region contain it; a fill takes the pattern's bit
+// for each pixel and applies the mode; text is each glyph's pixels with
+// the style applied; and a copy or a scroll takes each pixel from where it
+// was.  The machine draws a cell at a time, with masks and shifts.
+// Nothing is built from the model.
 //
-// FORTH is where the system's source is.  The fonts and the patterns are
-// tables there (mono.fs, sans.fs, display.fs), written as source to be read, and
-// they are read from there: the test has no glyph and no pattern of its
-// own.
+// FORTH is the directory of the system's source.  The fonts and the
+// patterns are tables there (mono.fs, sans.fs, display.fs), written as
+// readable source, and the test reads them from there.  It has no glyph
+// and no pattern of its own.
 //
-// The machine is the nucleus on vm.c, typed at (nucleus.h).  A check is a
-// label and what is typed, from a display just started.  When it has been
-// typed every pixel of the display is read out of the machine's memory and
-// compared, and the machine is to have left nothing on its stack.
+// The machine is the nucleus on vm.c (nucleus.h).  A check is a label and
+// the text to type, starting from a freshly initialized display.  After
+// the text is typed, every pixel of the display is read out of the
+// machine's memory and compared, and the machine must have left nothing on
+// its stack.
 //
-// After the checks that are said there are steps by chance, the same every
-// time for a seed, each typed at the machine as the step before left it:
-// fills, text, copies and scrolls, between changes of the origin, the clip
-// rectangle and region, the pattern, the mode, the font and the style.
-// The display is compared after every step.
+// After the listed checks come random steps, the same every time for a
+// given seed.  Each step is typed at the machine in the state the previous
+// step left.  The steps are fills, text, copies and scrolls, mixed with
+// changes to the origin, the clip rectangle and region, the pattern, the
+// mode, the font and the style.  The display is compared after every step.
 //
-// A picture that the source draws (icons.fs) is typed at the machine too,
-// and what the machine lays of it compared with what the source draws
-// (picture_laid, below).
+// A picture drawn in the source (icons.fs) is also typed at the machine,
+// and the bits the machine compiles for it are compared with what the
+// source draws (picture_laid(), below).
 //
-// It says how many checks and steps it made and how many pixels it
-// compared, and of the steps that draw how many changed what can be seen.
-// It fails if for any of the four drawing words that is none: then it
-// found nothing to test.
+// It prints how many checks and steps it made and how many pixels it
+// compared.  It also prints, for each of the four drawing words, how many
+// steps changed something visible.  It fails if that number is 0 for any
+// of them, because then that word was not tested.
 //
 
 #include <ctype.h>
@@ -51,16 +53,17 @@
 #define W       DISP_W
 #define H       DISP_H
 #define SCREEN  ((size_t)W * H)
-#define STEPS   300             // how many are taken by chance
-#define UNDER   12345           // what is under what a check leaves
+#define STEPS   300             // the number of random steps
+#define UNDER   12345           // the number pushed under whatever a check leaves
 
 typedef struct {
     const char* label;
     const char* typed;
 } check;
 
-// Something to draw over, and the two regions most of the checks clip to:
-// rc is a frame, and re is two rectangles that share a corner, less a bar.
+// Text that sets up a background to draw over, and the two regions most
+// of the checks clip to.  rc is a frame.  re is two rectangles that
+// overlap at a corner, with a bar removed.
 #define GROUND  "p-gray pattern !  0 0 400 200 pat-rect  p-black pattern !\n"
 #define FRAME   "40 30 200 100 ra rect-rgn  90 60 80 30 rb rect-rgn  ra rb rc rgn-diff\n"
 #define CORNERS "20 20 120 80 ra rect-rgn  100 60 150 90 rb rect-rgn  ra rb rc rgn-or\n" \
@@ -190,7 +193,7 @@ static check SAID[] = {
 
 // ---- the system's patterns and fonts, read from its source (tables.h)
 
-#define THERE(names) ((int)(sizeof(names) / sizeof((names)[0])) - 1)    // how many a list has, before what ends it
+#define THERE(names) ((int)(sizeof(names) / sizeof((names)[0])) - 1)    // the number of entries in a list, not counting its NULL terminator
 static const char* PATTERNS[] = { "p-white", "p-black", "p-gray", "p-ltgray", "p-dkgray", NULL };
 static pattern patterns[THERE(PATTERNS)];
 static const char* FONTS[] = { "mono", "sans", NULL };
@@ -202,18 +205,18 @@ static void tables(const char* dir) {
     for(int n=0; FONTS[n]; n++) fonts[n] = font_named(FONTS[n]);
 }
 
-// ---- the screen a pixel at a time
+// ---- the model of the screen, one pixel at a time
 
 #define REGIONS 5               // ra to re
-static uint8_t* px;             // the screen: a byte a pixel, 1 if it is black
-static uint8_t* before;         // the screen as it was, for what takes pixels from it
-static uint8_t* rgn[REGIONS];   // a region's pixels, of those on the screen: 1 if it is in the region
-static int clip_x0, clip_y0, clip_x1, clip_y1;  // the clip rectangle, on the screen
-static int clip_rgn;            // the clip region, or -1
-static int ox, oy;              // where the port's coordinates start
-static int filled, mode, type_face;     // the pattern, the mode and the font, each as which it is
+static uint8_t* px;             // the screen: one byte per pixel, 1 for black
+static uint8_t* before;         // a copy of the screen, for operations that read pixels from it
+static uint8_t* rgn[REGIONS];   // each region's pixels on the screen: 1 if the pixel is in the region
+static int clip_x0, clip_y0, clip_x1, clip_y1;  // the clip rectangle, in screen coordinates
+static int clip_rgn;            // the index of the clip region, or -1 for none
+static int ox, oy;              // the port's origin on the screen
+static int filled, mode, type_face;     // the current pattern, mode and font, each as an index
 static bool bold, italic, inverse, text_or;
-static char text[64];           // the text buffer, tb
+static char text[64];           // the model of the text buffer, tb
 
 enum { COPY, OR, XOR, BIC };
 
@@ -223,19 +226,21 @@ static void screen_start(void) {
     clip_x0 = clip_y0 = 0, clip_x1 = W, clip_y1 = H;
     clip_rgn = -1;
     ox = oy = 0;
-    filled = 1, mode = COPY, type_face = 0;         // black, copying, plain text in mono
+    filled = 1, mode = COPY, type_face = 0;         // the defaults: black, copy mode, plain text in mono
     bold = italic = inverse = text_or = false;
     memset(text, 0, sizeof(text));
 }
 
 static bool on_screen(int x, int y) { return(x >= 0 && x < W && y >= 0 && y < H); }
 
-// Can the pixel be drawn?
+// Returns true if a pixel can be drawn: the clip rectangle and the clip
+// region both contain it.
 static bool visible(int x, int y) {
     return(x >= clip_x0 && x < clip_x1 && y >= clip_y0 && y < clip_y1 &&
            (clip_rgn < 0 || rgn[clip_rgn][(size_t)y * W + x]));
 }
 
+// Returns the pixel that results from drawing `is` over `was` in a mode.
 static int through(int how, int was, int is) {
     return(how == COPY ? is : how == OR ? was | is : how == XOR ? was ^ is : was & !is);
 }
@@ -243,6 +248,7 @@ static int through(int how, int was, int is) {
 static int low(int a, int b) { return(a < b ? a : b); }
 static int high(int a, int b) { return(a > b ? a : b); }
 
+// Fills a rectangle with the current pattern, through the current mode.
 static void pat_rect(int x, int y, int w, int h) {
     x += ox, y += oy;
     for(int yy=high(y, 0); yy < low(y + h, H); yy++) {
@@ -255,13 +261,14 @@ static void pat_rect(int x, int y, int w, int h) {
     }
 }
 
-// Text: each character's glyph, or a space's if the font has not the
-// character.  A character is not drawn if it is all left of the clip
-// rectangle, if it starts left of the screen, or if it starts right of the
-// clip rectangle.  In italic the top half of a glyph is a pixel to the
-// right; bold is each pixel and the one to its left; inverse is the
-// glyph's black for white.  Text is copied, or with text-or only its black
-// is added, unless it is inverse.
+// Draws text: each character's glyph, or the space's glyph for a character
+// the font lacks.  A character is skipped if it lies entirely left of the
+// clip rectangle, if it starts left of the screen, or if it starts at or
+// past the right edge of the clip rectangle.  In italic, the top half of a
+// glyph is shifted one pixel right.  In bold, a pixel is black if the
+// glyph is black there or one pixel to the left.  In inverse, the glyph's
+// black and white are swapped.  Text overwrites what is under it, except
+// that with text-or set and inverse off, only its black pixels are added.
 static void draw_text(const char* chars, int count, int x, int y) {
     const font* f = &fonts[type_face];
     int pen = x + ox;
@@ -271,7 +278,7 @@ static void draw_text(const char* chars, int count, int x, int y) {
         if (!(pen + width <= clip_x0 || pen < 0 || pen >= clip_x1)) {
             for(int row=0; row < f->rows; row++) {
                 for(int k=0; k < width; k++) {
-                    int from = italic && row < f->rows / 2 ? k - 1 : k;     // the pixel of the glyph that is here
+                    int from = italic && row < f->rows / 2 ? k - 1 : k;     // the glyph column drawn at this position
                     bool is = from >= 0 && strike_pixel(f, start + from, row);
                     if (bold && from >= 1 && strike_pixel(f, start + from - 1, row)) is = true;
                     if (inverse) is = !is;
@@ -285,6 +292,8 @@ static void draw_text(const char* chars, int count, int x, int y) {
     }
 }
 
+// Copies a rectangle of the screen to another position, through the
+// current mode.
 static void copy_bits(int sx, int sy, int dx, int dy, int w, int h) {
     sx += ox, sy += oy, dx += ox, dy += oy;
     if (w > 0 && h > 0 && (!on_screen(sx, sy) || !on_screen(sx + w - 1, sy + h - 1))) {
@@ -301,10 +310,10 @@ static void copy_bits(int sx, int sy, int dx, int dy, int w, int h) {
     }
 }
 
-// A pixel moves to a place if the place and where it comes from can both
-// be drawn in and are both in the rectangle; a place that can be drawn in
-// and has nothing to come to it is made white.  The pattern is left white
-// and the mode a copy.
+// Scrolls a rectangle.  A pixel moves to a position if both that position
+// and the position it comes from can be drawn and are inside the
+// rectangle.  A position that can be drawn and has no pixel moving into it
+// becomes white.  The scroll leaves the pattern white and the mode copy.
 static int sc_x, sc_y, sc_w, sc_h;
 static bool moves(int x, int y) {
     return(x >= sc_x && x < sc_x + sc_w && y >= sc_y && y < sc_y + sc_h && on_screen(x, y) && visible(x, y));
@@ -322,12 +331,12 @@ static void scroll_rect(int x, int y, int w, int h, int dx, int dy) {
     filled = 0;
 }
 
-// ---- what is typed, drawn here
+// ---- applying the typed text to the model
 
-// What a word leaves for the next: a number, or what a name is.
+// A value on the model's stack: a number, or the thing a name refers to.
 typedef struct {
-    char is;                    // n a number; p a pattern; f a font; r a region; v a variable;
-    long n;                     // t the text buffer; q text from the line; s the screen
+    char is;                    // its kind: n a number; p a pattern; f a font; r a region; v a variable;
+    long n;                     // t the text buffer; q text quoted on the line; s the screen
     const char* chars;
 } value;
 
@@ -341,15 +350,17 @@ static int among(const char* names[], const char* word) {
     return(-1);
 }
 
-static const char* reading;     // what is typed, for when it cannot be read
+static const char* reading;     // the text being applied, for error messages
+// Reports text the model cannot apply, and exits.
 static void cannot(const char* word, const char* why) {
     fprintf(stderr, "display_test: %s %s, in:\n%s\n", word, why, reading);
     exit(EXIT_FAILURE);
 }
 
-// A word at a time.  A word is a number, a name, or a word of the
-// display's, which takes what that word takes; t" is the test's, and is
-// the text up to the next " of the line.
+// Applies typed text to the model, one word at a time.  A word is a
+// number, a name, or one of the display's words, which takes the same
+// arguments here as on the machine.  t" is the test's own word: it gives
+// the text up to the next " on the line.
 static void pixels_do(const char* typed) {
     value stack[16];
     int sp = 0;
@@ -364,7 +375,7 @@ static void pixels_do(const char* typed) {
         word[len] = '\0';
         at += len;
 
-        // What leaves something.
+        // Words that push a value.
         char* end;
         long n = strtol(word, &end, 10);
         value v = { 0 };
@@ -383,7 +394,7 @@ static void pixels_do(const char* typed) {
             continue;
         }
         if (!strcmp(word, "t\"")) {
-            if (*at == ' ') at++;                   // the space that ends the word is not text
+            if (*at == ' ') at++;                   // skip the space after the word, which is not part of the text
             const char* close = strchr(at, '"');
             if (!close || sp > 14) cannot(word, "has no text after it");
             stack[sp++] = (value){ 'q', 0, at };
@@ -392,7 +403,8 @@ static void pixels_do(const char* typed) {
             continue;
         }
 
-        // What takes something: every word here takes numbers, but where it says.
+        // Words that take arguments.  The arguments are numbers, except
+        // where a check below requires another kind.
         int takes = !strcmp(word, "pat-rect") || !strcmp(word, "clip!") || !strcmp(word, "clip-to") ||
                     !strcmp(word, "draw-text") ? 4 :
                     !strcmp(word, "copy-bits") ? 7 :
@@ -411,7 +423,7 @@ static void pixels_do(const char* typed) {
         for(int idx=0; idx < takes; idx++) a[idx] = s[idx].n;
 
         if (!strcmp(word, "@")) {
-            stack[sp++] = s[0];                     // fb-w and fb-h are said as what is in them
+            stack[sp++] = s[0];                     // fb-w and fb-h were pushed as their contents, so @ changes nothing
         } else if (!strcmp(word, "+")) {
             stack[sp++] = (value){ 'n', a[0] + a[1] };
         } else if (!strcmp(word, "pat-rect")) {
@@ -479,11 +491,11 @@ static void pixels_do(const char* typed) {
 // ---- the machine
 
 static int checks, steps, compared, drew, failed;
-static uint8_t* last;           // the screen as it was when it was last compared
+static uint8_t* last;           // the screen at the previous comparison
 
-// The machine started, with its display, and what the test types besides
-// the display's words: a buffer for text and what puts a character in it,
-// text from the line, and five regions.
+// Starts the machine and its display, and defines the words the test uses
+// besides the display's own: a text buffer, a word that stores a character
+// in it, a word that quotes text from the line, and five regions.
 static void display_start(void) {
     start();
     line("display-init");
@@ -499,7 +511,7 @@ static void display_start(void) {
     memset(last, 0, SCREEN);
 }
 
-// A pixel of the display, as the machine has it: 1 if it is black.
+// Returns 1 if a pixel of the machine's display is black.
 static int machine_pixel(int x, int y) {
     uint64_t cell = fetch(DISP_ROW(y) + x / CELL_BITS);
     int bit = x % CELL_BITS;
@@ -507,13 +519,13 @@ static int machine_pixel(int x, int y) {
     return(DISP_INK_BLACK ? set : !set);
 }
 
-// What is typed, typed at the machine as it was left, which has been
-// drawn here.  Every pixel is then compared, and the machine is to have
-// left nothing.  Returns whether all of it was as it should be, and says
-// what was not if it is told to.
+// Types text at the machine in the state it was left in.  The text has
+// already been applied to the model.  Every pixel is then compared, and
+// the machine must have left nothing on its stack.  Returns true if
+// everything matched.  With `say`, it prints each mismatch.
 static bool typed_leaves(const char* label, const char* typed, bool say) {
     for(const char* row = typed; row; row = strchr(row, '\n') ? strchr(row, '\n') + 1 : NULL) {
-        if (strcspn(row, "\n") > 120) {             // the machine takes a line of no more
+        if (strcspn(row, "\n") > 120) {             // the machine accepts lines of at most this length
             fprintf(stderr, "display_test: %s: a line is too long to type:\n%s\n", label, row);
             exit(EXIT_FAILURE);
         }
@@ -547,21 +559,22 @@ static bool typed_leaves(const char* label, const char* typed, bool say) {
     return(kept && !differ);
 }
 
-// ---- chance
+// ---- random numbers
 
 static uint64_t seed;
-static int below(int n) {       // a number that is not negative and is less than n
+static int below(int n) {       // returns a random number from 0 to n - 1
     seed ^= seed << 13;
     seed ^= seed >> 7;
     seed ^= seed << 17;
     return((int)((seed >> 32) % (uint64_t)n));
 }
-static int between(int low, int past) { return(low + below(past - low)); }      // from low up to past
+static int between(int low, int past) { return(low + below(past - low)); }      // returns a random number from low to past - 1
 #define ONE_OF(...) ((int[]){ __VA_ARGS__ })[below(sizeof((int[]){ __VA_ARGS__ }) / sizeof(int))]
 
-static char* typed;             // what a step types: all of it, however much
+static char* typed;             // the text a step types, in a buffer that grows as needed
 static size_t typed_len, typed_room;
 
+// Makes room for `more` more characters of typed text.
 static void room_to_type(size_t more) {
     if (typed_len + more + 1 <= typed_room) return;
     typed_room = 2 * (typed_len + more + 1);
@@ -572,31 +585,35 @@ static void room_to_type(size_t more) {
     }
 }
 
+// Empties the typed text.
 static void nothing_typed(void) {
     typed_len = 0;
     room_to_type(0);
     typed[0] = '\0';
 }
 
+// Appends formatted text to the typed text.
 static void more(const char* format, ...) {
     va_list args, again;
     va_start(args, format);
     va_copy(again, args);
-    int len = vsnprintf(NULL, 0, format, args);     // how long it is, and then it is written
+    int len = vsnprintf(NULL, 0, format, args);     // measure the text first, then format it
     va_end(args);
     room_to_type(len);
     typed_len += vsnprintf(typed + typed_len, len + 1, format, again);
     va_end(again);
 }
 
-// A rectangle for a region to be: on the screen or partly off it.
+// Appends text that sets a region to a random rectangle, on the screen or
+// partly off it.
 static void region_rect(char name) {
     more("%d %d %d %d r%c rect-rgn\n", between(-30, W - 19), between(-30, H - 19),
          between(1, 501), between(1, 401), name);
 }
 
-// A pixel that can be drawn in, on the screen, if chance finds one: it is
-// in the clip rectangle, and the region may have it.
+// Looks for a random pixel on the screen that can be drawn: one inside
+// the clip rectangle that the clip region also contains.  Returns false if
+// it finds none in a fixed number of tries.
 static bool can_be_seen(int* x, int* y) {
     if (clip_x1 <= clip_x0 || clip_y1 <= clip_y0) return(false);
     for(int n=0; n < 64; n++) {
@@ -606,10 +623,10 @@ static bool can_be_seen(int* x, int* y) {
     return(false);
 }
 
-// Somewhere to draw, on the screen: anywhere on it or a little off it; or,
-// more often, a little up and left of a pixel that can be drawn in, so
-// that what is drawn is not mostly what the clip rectangle and the region
-// hide.
+// Chooses a position to draw at.  It is anywhere on the screen or a
+// little off it; or, more often, a little up and left of a pixel that can
+// be drawn, so that most of what is drawn is not hidden by the clip
+// rectangle and the region.
 static void somewhere(int* x, int* y) {
     if (below(4) && can_be_seen(x, y)) {
         *x -= below(30), *y -= below(12);
@@ -618,8 +635,8 @@ static void somewhere(int* x, int* y) {
     }
 }
 
-// A step: something is drawn, or how things are drawn is changed.  Fills
-// and text are the most of it.
+// Builds one random step, which draws something or changes a drawing
+// setting.  Fills and text are the most common.
 static const char* step(void) {
     static const char* does[] = { "rect", "rect", "rect", "rect", "text", "text", "text", "text", "copy",
                                   "scroll", "clip", "noclip", "mode", "origin", "font", "region", "region",
@@ -629,20 +646,20 @@ static const char* step(void) {
     int x, y;
     somewhere(&x, &y);
     if (!strcmp(what, "rect")) {
-        if (below(2)) more("%s pattern !  ", PATTERNS[below(THERE(PATTERNS))]);     // or with the pattern there is
+        if (below(2)) more("%s pattern !  ", PATTERNS[below(THERE(PATTERNS))]);     // half the time; otherwise the current pattern is used
         more("%d %d %d %d pat-rect", x - ox, y - oy, ONE_OF(1, 7, 64, 130, 300), ONE_OF(1, 3, 16, 60));
     } else if (!strcmp(what, "text")) {
         int count = ONE_OF(1, 2, 9, 20);
         for(int n=0; n < count; n++) more("%d %d ch\n", between(33, 127), n);
         more("tb %d %d %d draw-text", count, x - ox, y - oy);
     } else if (!strcmp(what, "copy")) {
-        // From anywhere on the screen, to somewhere or to near where it is from.
+        // Copy from anywhere on the screen, to a random position or to a position near the source.
         int w = between(1, 201), h = between(1, 81);
         int sx = between(0, W - w + 1), sy = between(0, H - h + 1);
         if (below(2)) x = sx + between(-9, 10), y = sy + between(-3, 4);
         more("screen %d %d %d %d %d %d copy-bits", sx - ox, sy - oy, x - ox, y - oy, w, h);
     } else if (!strcmp(what, "scroll")) {
-        // A rectangle on the screen: anywhere, or more often round a pixel that can be drawn in.
+        // Scroll a rectangle on the screen: anywhere, or more often around a pixel that can be drawn.
         int w = between(10, 301), h = between(10, 121);
         if (below(4) && can_be_seen(&x, &y)) {
             x = low(high(x - below(w), 0), W - w), y = low(high(y - below(h), 0), H - h);
@@ -663,8 +680,9 @@ static const char* step(void) {
     } else if (!strcmp(what, "font")) {
         more("%s font !", FONTS[below(THERE(FONTS))]);
     } else if (!strcmp(what, "region")) {
-        // Two or three rectangles, combined.  The region that is clipped to
-        // is not to be made while it is: so nothing is clipped to first.
+        // Combine two or three rectangles.  The current clip region must
+        // not be rebuilt while it is in use, so the clip region is removed
+        // first.
         static const char* how[] = { "and", "or", "diff", "diff" };
         more("0 rgn-clip!\n");
         region_rect('a');
@@ -690,15 +708,15 @@ static const char* step(void) {
     return(typed);
 }
 
-// ---- a picture drawn in the source, as the machine lays it
+// ---- a picture drawn in the source, as the machine compiles it
 
-// A picture is rows of # and . in the source, and cross.fs lays it in the
-// image.  The nucleus lays one too, when it compiles such a file from a
-// disk (picture[, pixels.fs): the lines of the picture a table of the
-// source is are typed at it here, and every pixel it laid is compared with
-// the pixel the source has, as tables.h reads it.  The memory it keeps the
-// rows in while they are typed is to be given back.  Returns whether all
-// of it was so.
+// A picture is rows of # and . in the source, and cross.fs compiles it
+// into the image.  The nucleus compiles one too, when it compiles such a
+// file from a disk (picture[, pixels.fs).  This types the source lines of
+// one picture table at the nucleus, and compares every pixel the nucleus
+// compiled with the pixel in the source, as tables.h reads it.  The memory
+// the nucleus uses for the rows while they are typed must be freed
+// afterwards.  Returns true if all of that held.
 static bool picture_laid(const char* dir, const char* file, const char* name) {
     int64_t* drawn;
     int count = table(file, name, &drawn, 0);
@@ -761,8 +779,8 @@ int main(int argc, char *argv[]) {
     }
     int given = argc > 3 ? atoi(argv[3]) : 1;
     seed = 0x9e3779b97f4a7c15ull * (uint64_t)(given + 1);
-    if (!seed) seed = 1;        // nothing comes of nothing
-    alarm(1200);                // a machine that does not stop is stopped
+    if (!seed) seed = 1;        // a zero seed would produce only zeros
+    alarm(1200);                // kill the test if the machine never stops
 
     nucleus_is(argv[1]);
     tables(argv[2]);
@@ -782,8 +800,9 @@ int main(int argc, char *argv[]) {
         printf("%s %s: %d pixels are black\n", right ? "ok  " : "FAIL", test->label, black);
     }
 
-    // A picture the source draws, laid by the machine: the tools', which is
-    // pieces side by side and wider than 64 pixels.
+    // A picture drawn in the source, compiled by the machine: the picture
+    // of the tools, which is drawn in pieces side by side and is wider than
+    // 64 pixels.
     static const char* PICTURES[][2] = { { "icons.fs", "icon-bits" } };
     for(size_t n=0; n < sizeof(PICTURES) / sizeof(PICTURES[0]); n++) {
         bool right = picture_laid(argv[2], PICTURES[n][0], PICTURES[n][1]);
@@ -793,11 +812,12 @@ int main(int argc, char *argv[]) {
                right ? "ok  " : "FAIL", PICTURES[n][1], PICTURES[n][0]);
     }
 
-    // The steps, and of those that draw how many drew what can be seen.
+    // The random steps.  For each drawing word, count how many steps used
+    // it and how many of those changed something visible.
     static const char* DRAWS[] = { "pat-rect", "draw-text", "copy-bits", "scroll-rect", NULL };
-    // They start from a screen with something all over it, so that what a
-    // step copies, scrolls or fills is not mostly white: gray, and rows of
-    // text across it.
+    // The steps start from a screen that is covered: gray, with rows of
+    // text across it.  So the area a step copies, scrolls or fills is not
+    // mostly white.
     int wrong = 0, tried[THERE(DRAWS)] = { 0 }, seen[THERE(DRAWS)] = { 0 };
     display_start();
     for(int y=-24; y < H; y += 24) {

@@ -49,26 +49,75 @@ endfunction()
 #                               (ROM=virt-disk.fs)
 #          [AFTER what...])     what its nucleus is made after
 #
-# Its nucleus is made after the default machine's (forth-env), which is
-# where the two made files of Forth are made.  A system whose machine has
-# a display has the names that go with its image (nuc.tables), a disk for
-# its desktop, and the image it boots from a disk with (BOOT=on): the
-# system without what forth/apps.fs lists, which the boot compiles from
-# the disk (doc/boot.md).  boot-system-NAME makes that in a directory of
-# its own, with its two disks, after the nucleus, since both write what
-# fuse.h keeps in build/.
+# Its nucleus depends on forth-env, which makes the two generated Forth
+# files.  A system whose machine has a display also has:
+#
+#   the names that go with its image (nuc.tables)
+#   the decompiler, and a table for it made from the system's own image
+#     (tabled, cmake/default-machine.cmake); the test tables-NAME checks
+#     the table against the image
+#   a disk for its desktop
+#   its boot image (BOOT=on): the system without what forth/apps.fs lists,
+#     which the boot compiles from the disk (doc/boot.md).
+#     boot-system-NAME makes it in its own directory, with its two disks.
+#     It is built after the nucleus because both builds write the answers
+#     fuse.h keeps in build/
+#
+# system() keeps the settings every image of the system is built with
+# (TOLD_NAME) and the system's table (TABLE_OF_NAME).
+#
+# The default machine's system uses forth/fused.fs as its table.  That file
+# is checked in, cross.fs reads it when FUSED is not set, and forth-env
+# makes it from this system's images.  Every other system has its table in
+# its own directory.
+#
+# A system whose NAME differs from OF, such as QEMU's, has the sizes of the
+# machine OF and a disk the reference VM cannot boot from.  Its table takes
+# the instructions of a boot from that machine's boot (BOOTED_BY_NAME): the
+# same compiler, source and sizes.  Its test tables-NAME is left out of
+# on_the_vm, so only check runs it.
 function(system NAME OF)
     cmake_parse_arguments(IT "" "" "SET;AFTER" ${ARGN})
     set(AT ${BUILD}/${NAME})
-    set(WORDS ${BUILD}/${OF}/basewords.fs)
+    set(WORDS ${WORDS_OF_${OF}})
+    get_property(DEFAULT GLOBAL PROPERTY DEFAULT_MACHINE)
     set(NAMES)
+    set(TOLD ${IT_SET})
+    set(SOURCES ${FORTH_SOURCES})
+    set(TABLE)
     if("${SIZES_OF_${OF}}" MATCHES "DISP_W=")
         set(NAMES tables)                               # the names, which a machine with a display has
+        if(NAME STREQUAL "${DEFAULT}")
+            set(TABLE ${FUSED_FS})
+            tabled(${AT} ${TABLE}
+                   OF "the machine ${NAME}"
+                   WORDS ${WORDS}
+                   SET ${IT_SET}
+                   AFTER ${IT_AFTER})
+        else()
+            set(TABLE ${AT}/fused.fs)
+            set(ELSEWHERE)
+            if(NOT NAME STREQUAL OF)
+                set(ELSEWHERE BOOTED ${BOOTED_BY_${OF}})
+            endif()
+            tabled(${AT} ${TABLE}
+                   OF "the machine ${NAME}"
+                   WORDS ${WORDS}
+                   SET ${IT_SET}
+                   AFTER forth-env ${IT_AFTER}
+                   ${ELSEWHERE})
+            list(APPEND TOLD FUSED=${TABLE})
+            set(SOURCES ${SOURCES_BUT_TABLE} ${TABLE})
+        endif()
+        set(BOOTED_BY_${NAME} ${BOOTED_FOR} CACHE INTERNAL "the four files of the booted machine that fused takes for the system ${NAME}")
     endif()
+    set(TOLD_${NAME} ${TOLD} CACHE INTERNAL "the settings every image of the system ${NAME} is built with")
+    set(TABLE_OF_${NAME} "${TABLE}" CACHE INTERNAL "the decompiler's table the system ${NAME} is built with")
     image(${AT}
           WORDS ${WORDS}
-          SET ${IT_SET}
+          SET ${TOLD}
           MAKES hex lst sizes inline ${NAMES}
+          FROM ${SOURCES}
           AFTER forth-env ${IT_AFTER}
           IS "The nucleus for the machine ${NAME}")
     set(NUCLEUS ${IMAGE_FILES})
@@ -76,6 +125,11 @@ function(system NAME OF)
     image_owned(machine-${NAME} ${AT})
     if(NOT NAMES)
         return()
+    endif()
+    made(${NAME} ${TABLE})
+    table_test(tables-${NAME} ${AT} ${TABLE} MADE ${NUCLEUS_MADE} NEEDS machine-${NAME})
+    if(NAME STREQUAL OF)
+        on_the_vm(tables-${NAME})
     endif()
 
     # The desktop's disk: block 1 for the editor, and the names that go
@@ -85,8 +139,9 @@ function(system NAME OF)
 
     image(${AT}/boot
           WORDS ${WORDS}
-          SET ${IT_SET} BOOT=on
+          SET ${TOLD} BOOT=on
           MAKES hex tables
+          FROM ${SOURCES}
           AFTER machine-${NAME} ${NUCLEUS}
           IS "The image the machine ${NAME} boots from a disk with")
     # Its disk: block 1 is forth/apps.fs, and after it each file it
@@ -118,8 +173,8 @@ endfunction()
 function(plain NAME)
     set(AT ${BUILD}/${NAME})
     image(${AT}/plain
-          WORDS ${AT}/basewords.fs
-          SET PEEPHOLE=off
+          WORDS ${WORDS_OF_${NAME}}
+          SET ${TOLD_${NAME}} PEEPHOLE=off
           MAKES hex tables
           FIRST ${COPY} ${AT}/nuc.inline ${AT}/plain/nuc.inline
           AFTER machine-${NAME} ${AT}/nuc.hex ${AT}/nuc.inline
@@ -135,7 +190,7 @@ endfunction()
 function(picture_system NAME)
     set(AT ${BUILD}/${NAME})
     image(${AT}/picture
-          WORDS ${AT}/basewords.fs
+          WORDS ${WORDS_OF_${NAME}}
           SET SYSTEM=picture.fs
           AFTER machine-${NAME} ${AT}/nuc.hex
           IS "The system with the picture alone, for the machine ${NAME}")
@@ -143,6 +198,15 @@ function(picture_system NAME)
     image_owned(picture-system-${NAME} ${AT}/picture)
 endfunction()
 
+# machine(NAME SIZE=value...) builds a machine.  Each size is named as
+# vm_constants.h names it.
+#
+# The default machine is the first machine in util/machines (the property
+# DEFAULT_MACHINE).  It is built with the checked-in definition,
+# forth/basewords.fs, and it is the only build of those sizes.  machine()
+# still generates a definition from the sizes in util/machines, and passes
+# it to default_machine_is() (cmake/default-machine.cmake), whose test
+# compares it with forth/basewords.fs.
 function(machine NAME)
     set(AT ${BUILD}/${NAME})
     set(SIZES_OF_${NAME} ${ARGN} CACHE INTERNAL "the sizes of the machine ${NAME}, each as the name vm_constants.h has for it and what it is")
@@ -161,7 +225,17 @@ function(machine NAME)
             COMMAND           ${MKDIR} ${AT}
             COMMAND           basewords-fs-gen ${AT}/basewords.fs ${SAID} > ${AT}/basewords.log
             DEPENDS           basewords-fs-gen)
+    get_property(DEFAULT GLOBAL PROPERTY DEFAULT_MACHINE)
+    if(NAME STREQUAL "${DEFAULT}")
+        set(WORDS_OF_${NAME} ./basewords.fs CACHE INTERNAL "the definition the machine ${NAME} is built with")
+    else()
+        set(WORDS_OF_${NAME} ${AT}/basewords.fs CACHE INTERNAL "the definition the machine ${NAME} is built with")
+    endif()
     system(${NAME} ${NAME})
+    if(NAME STREQUAL "${DEFAULT}")
+        made(${NAME} ${AT}/basewords.fs)
+        default_machine_is(${NAME} ${AT}/basewords.fs)
+    endif()
 endfunction()
 
 # When all that is made for a machine has been said.
@@ -170,8 +244,27 @@ function(machine_made NAME)
     add_custom_target(machine-${NAME} DEPENDS ${FILES})
 endfunction()
 
-# The reference VM (main.c): hexaforth IMAGE.hex [DISK.img [MEMORY.out]].
-machine_tool(hexaforth main.c vm.c)
+# default_machine(RESULT CELL) sets RESULT to the name of the machine that
+# vm_constants.h describes for a cell of CELL bits when no other size is
+# given.  For the default machine's cell size that is the default machine.
+# For any other it is default-CELL, which is created on first use.
+function(default_machine RESULT CELL)
+    get_property(DEFAULT GLOBAL PROPERTY DEFAULT_MACHINE)
+    if("${SIZES_OF_${DEFAULT}}" MATCHES "(^|;)CELL_BITS=${CELL}(;|$)")
+        set(${RESULT} ${DEFAULT} PARENT_SCOPE)
+        return()
+    endif()
+    set(NAME default-${CELL})
+    get_property(MADE GLOBAL PROPERTY MACHINE_MADE_${NAME})
+    if(NOT MADE)
+        set_property(GLOBAL PROPERTY MACHINE_MADE_${NAME} TRUE)
+        machine(${NAME} CELL_BITS=${CELL})
+        machine_made(${NAME})
+    endif()
+    set(${RESULT} ${NAME} PARENT_SCOPE)
+endfunction()
+
+# The reference VM is `hexaforth` (cmake/default-machine.cmake).
 # An image's code, word by word, as the decompiler shows it, with every
 # instruction's place, number and fields (util/disasm_hex.c, which says at
 # its top what it shows): disasm_hex IMAGE.hex [NAME... | FROM TO].  It has
@@ -431,7 +524,9 @@ endfunction()
 # disk and compile from source there what its image is without.  The
 # reference VM that counts (bench/counting.c) is started with the boot's
 # image in memory, the disk the desktop boots from and the pictures' disk,
-# and runs to its prompt; then what the work costs is said (bench/costs.c):
+# and runs to its prompt.  It boots from a copy of the disk: a boot writes
+# to its disk (the names it keeps, forth/files.fs), and the tests use the
+# original.  Then what the work costs is said (bench/costs.c):
 # how many instructions and cycles, each word with all it calls, and the
 # loops.  What the machine said, the work by place and the reports are in
 # build/NAME/compiling/, where `disasm_hex ... --counts` reads the work to
@@ -443,8 +538,9 @@ function(compiled NAME)
     set(CP ${AT}/compiling)
     report(compiling-${NAME}
             COMMAND           ${MKDIR} ${CP}
+            COMMAND           ${COPY} ${AT}/boot/desk.img ${CP}/desk.img
             COMMAND           ${WITH} RUN_WORK=${CP}/work
-                                $<TARGET_FILE:counting> ${AT}/boot/nuc.hex ${AT}/boot/desk.img,${PICTURES}
+                                $<TARGET_FILE:counting> ${AT}/boot/nuc.hex ${CP}/desk.img,${PICTURES}
                                 < ${CMAKE_SOURCE_DIR}/bench/idle.fs > ${CP}/boot.out 2>&1
             COMMAND           costs ${AT}/boot/nuc.hex ${AT}/boot/nuc.tables ${AT}/boot/nuc.sizes ${CP}/work ${CP}
                                 > ${CP}/costs.txt 2> ${CP}/costs.log
@@ -461,8 +557,9 @@ function(compiled NAME)
     # build/NAME/compiling/finds.txt.
     report(finding-${NAME}
             COMMAND           ${MKDIR} ${CP}
+            COMMAND           ${COPY} ${AT}/boot/desk.img ${CP}/desk.img
             COMMAND           ${WITH} FINDS=${CP}/finds.txt FINDS_NAMES=${AT}/boot/nuc.tables
-                                $<TARGET_FILE:finds> ${AT}/boot/nuc.hex ${AT}/boot/desk.img,${PICTURES}
+                                $<TARGET_FILE:finds> ${AT}/boot/nuc.hex ${CP}/desk.img,${PICTURES}
                                 < ${CMAKE_SOURCE_DIR}/bench/idle.fs > ${CP}/finds.out 2>&1
             COMMAND           ${CAT} ${CP}/finds.txt
             COMMAND           ${KEEP} finding ${AT}/boot/nuc.hex ${CP}/finds.txt
@@ -471,8 +568,8 @@ endfunction()
 
 # util/machines, a line a machine: the bits of a cell, the log2 of memory's
 # cells, and the display, across and down and the cell it starts at.  The
-# first of them is the one the two builds are compared on, and that the
-# reports are of.
+# first of them is the default machine, the one the two builds are compared
+# on, and that the reports are of.
 file(STRINGS util/machines MACHINE_LINES REGEX "^[^#]")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS util/machines)
 set(MACHINES)
@@ -480,6 +577,9 @@ foreach(LINE ${MACHINE_LINES})
     separate_arguments(SAID UNIX_COMMAND "${LINE}")
     list(GET SAID 0 CELL)
     list(GET SAID 1 ADDR)
+    if(NOT MACHINES)
+        set_property(GLOBAL PROPERTY DEFAULT_MACHINE ${CELL})
+    endif()
     set(ITS_SIZES CELL_BITS=${CELL} ADDR_BITS=${ADDR})
     list(LENGTH SAID HOW_MUCH)
     if(HOW_MUCH GREATER 2)

@@ -6,34 +6,38 @@
 //   tb run IMAGE.hex [DISK.img [MEMORY.out]]
 //                          boot an image; stdin is the UART; prints what it
 //                          sends, then cycle and instruction counts.
-//                          DISK.img is a file to be a disk, or several with
-//                          commas between them to be disk 0, disk 1 and so
-//                          on, and MEMORY.out is where memory is written
-//                          when it has stopped
+//                          DISK.img is a file that serves as the disk, or
+//                          several files separated by commas that serve as
+//                          disk 0, disk 1 and so on.  MEMORY.out is the
+//                          file the memory is written to when the machine
+//                          has stopped
 //
-// The memory here is a plain array with the timing the CPU expects:
-// one read port, whose address is sampled on the clock edge and whose data
-// is back in the next cycle, and one write port.  rtl/hf_mem.v, the real memory, is checked against the same model
-// by tb_mem.cpp.
+// The memory here is a plain array with the timing the CPU expects: one
+// read port, whose address is sampled on the clock edge and whose data
+// comes back in the next cycle (or the one after, where LAT is 2), and one
+// write port.  rtl/hf_mem.v, the real memory, is checked against the same
+// model by tb_mem.cpp.
 //
-// "run" is also how a piece of work is timed (bench/).  Each time the
-// machine sends the character MARK, the cycles and instructions so far are
-// noted, and what passed between each two is printed, with what the
-// memory was asked for meanwhile: instructions fetched, cells read, cells
-// stored.  So
+// "run" is also used to time a piece of work (bench/).  Each time the
+// machine sends the character MARK, the test bench records the cycles and
+// instructions so far.  At the end it prints the cycles and instructions
+// between each mark and the next, with the memory accesses made in that
+// time: instructions fetched, cells read, and cells stored.  So
 //     30 emit  the work  30 emit
 // times the work.
 //
-// The CPU has no port for a disk, and the system reads a file a block at a
-// time as it is wanted.  So the disk is on the console's line: a word
-// given to 'blk-read sends the character ASK and then eight more, the
-// block's number and the cell it is to go to, four each with the lowest
-// first, and when the eighth has come the block's bytes are in memory from
-// that cell, as the reference VM's disk puts them there.  It costs the CPU
-// what sending nine characters does, and the disk is as fast as it likes.
-// Neither character is printed.  A block's number says which disk it is of,
-// as it does to any driver (MODEL.md): the top four bits of its sixteen are
-// the disk, and a block of a disk that is not there is nothing.
+// The CPU has no port for a disk, and the system reads a file one block at
+// a time, as each block is needed.  So the disk is reached over the
+// console's line.  A word that is put in the vector 'blk-read sends the
+// character ASK and then eight more bytes: the block's number and the
+// address of the cell the block goes to, four bytes each, lowest byte
+// first.  When the eighth byte has arrived, the test bench puts the
+// block's bytes in memory starting at that cell, as the reference VM's
+// disk does.  A read costs the CPU what sending nine characters costs, and
+// the disk itself takes no time.  MARK, ASK and the eight bytes after ASK
+// are not printed.  A block's number says which disk the block is on, as
+// it does for any driver (MODEL.md): the top four of its sixteen bits are
+// the disk, and a block of a disk that is not present reads as zeros.
 
 #include "Vhexaforth.h"
 #include "Vhexaforth___024root.h"
@@ -55,11 +59,11 @@ static const size_t CELLS = (size_t)1 << AB;
 static const size_t MEM = CELLS * (W / 8);
 static const uint64_t CELL_MASK = W == 64 ? ~0ull : (1ull << W) - 1;
 
-#define MARK        30      // the character that says: note where the machine has got to
-#define ASK         29      // and the one that asks the disk for a block,
-#define DISK_BLOCK  1024    // which is this many bytes
-#define DISK_BLOCK_BITS 12  // of a block's number, the bits that are the block: the four above are the disk
-                            // (vm_constants.h, whose these two are)
+#define MARK        30      // the character that tells the test bench to record a mark
+#define ASK         29      // the character that asks the disk for a block
+#define DISK_BLOCK  1024    // the number of bytes in a block
+#define DISK_BLOCK_BITS 12  // the bits of a block's number that are the block; the four bits above them are the disk.
+                            // DISK_BLOCK and DISK_BLOCK_BITS repeat the values in vm_constants.h
 
 struct Mark { uint64_t cycles, executed, fetches, reads, writes; };
 
@@ -70,18 +74,20 @@ struct Machine {
     size_t in_at = 0;
     uint64_t rdata = 0, rnext = 0;
     uint64_t cycles = 0, executed = 0;
-    // What the memory was asked for: an instruction (the CPU's k1 says the
-    // read it made was for one), a cell of data (it wanted a or b, and the
-    // read was a real one), or a store.
+    // Counts of memory accesses, by kind: an instruction fetched (the
+    // CPU's k1 says the read it made was for an instruction), a cell of
+    // data read (the CPU wanted `a`, or it wanted `b` and the read really
+    // happened), and a cell stored.
     uint64_t fetches = 0, reads = 0, writes = 0;
-    bool timing = false;            // "run": marks are noted, and the disk answers
+    bool timing = false;            // true for "run": marks are recorded, and the disk answers
     std::vector<Mark> marks;
     std::vector<std::vector<uint8_t>> disks;
-    int asked = -1;                 // how many of the eight characters have come, or -1
+    int asked = -1;                 // the number of the eight bytes after ASK that have arrived, or -1 when no request is under way
     uint8_t ask[8];
 
-    // A character the machine sent: true if it was a mark or the disk's,
-    // and so not the console's.
+    // Handles a character the machine sent.  Returns true if it was a mark
+    // or part of a request to the disk, which means it is not console
+    // output.
     bool taken(uint8_t c) {
         if (!timing) return false;
         if (asked < 0) {
@@ -108,7 +114,9 @@ struct Machine {
         return true;
     }
 
-    // The cell at an address, with the instruction asked for in its low 16 bits.
+    // Returns the cell at an address.  If `slot` is not 0, the cell's low
+    // 16 bits are replaced by the instruction in that 16-bit slot of the
+    // cell.
     uint64_t read(uint64_t a, int slot) {
         uint64_t v = 0;
         memcpy(&v, &mem[(a % CELLS) * (W / 8)], W / 8);
@@ -163,8 +171,9 @@ struct Machine {
         return top.halted;
     }
 
-    // Cell i from the bottom of a stack.  The top cells are in registers
-    // and the rest are in the stack memories, at index i.
+    // dcell() returns cell i of the data stack and rcell() cell i of the
+    // return stack, counted from the bottom.  The top cells are in
+    // registers, and the rest are in the stack memories at index i.
     int64_t dcell(int i) {
         int sp = top.dbg_dsp;
         if (i == sp - 1) return top.dbg_t;
@@ -250,7 +259,7 @@ static int run_image(const char *path, const char *disk, const char *memory) {
         memcpy(&m->mem[at], &v, 4);
     }
     fclose(f);
-    for (std::string rest = disk ? disk : ""; !rest.empty();) {     // each disk, a comma between them
+    for (std::string rest = disk ? disk : ""; !rest.empty();) {     // load each disk; the files are separated by commas
         size_t comma = rest.find(',');
         std::string one = rest.substr(0, comma);
         rest = comma == std::string::npos ? "" : rest.substr(comma + 1);

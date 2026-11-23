@@ -263,7 +263,7 @@ header inval-window : inval-window ( win -- ) \ frame and all
     cw @ content origin!
     uclip  d# 0 d# 0 cw.w d# 2 - cw.h d# 20 - clip-to
     rpaint @ rgn-clip!
-    true text-or !        \ it has just been made white
+    true text-or !
     cw @ dup c# 5 + @ execute
     screen-port @ port!
 ;
@@ -290,7 +290,7 @@ create bt 0 , 0 ,  \ the title being drawn: its x, and its width
 \ ---- the disk lights, at the right of the bar: a floppy a
 \ disk, and an arrow by the one in use, up for a read
 
-\ one light's width and height (test/deskcheck.c reads it here)
+\ one light's width and height
 create disk-corner
     #28 , #19 ,
 create disk-seen 0 ,  \ blk-moved when the loop last looked

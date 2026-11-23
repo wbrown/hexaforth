@@ -5,8 +5,9 @@
 #include "image.h"
 #include "../vm_constants.h"
 
-// What vm_constants.h holds the machine it is compiled for to, of the
-// machine a program is told when it runs.
+// Applies the checks vm_constants.h makes on a machine at compile time to
+// a machine given at run time.  Returns a message for the first check that
+// fails, or NULL if the machine is valid.
 static const char* unfit(const machine_sizes* m) {
     if (m->cell_bits != 16 && m->cell_bits != 32 && m->cell_bits != 64) return("a cell is 16, 32 or 64 bits");
     if (m->addr_bits < 1 || m->addr_bits > m->cell_bits) return("an address is a cell");
@@ -23,8 +24,8 @@ static const char* unfit(const machine_sizes* m) {
     return(NULL);
 }
 
-static int is_said;                 // whether the machine has been said, by an image or to the program
-static char* said_by;               // the image that said it, if one did
+static int is_said;                 // set once the machine has been given, by an image or by machine_said()
+static char* said_by;               // the image that gave it, or NULL
 
 static int same_machine(const machine_sizes* a, const machine_sizes* b) {
     return(a->cell_bits == b->cell_bits && a->addr_bits == b->addr_bits && a->disp_w == b->disp_w &&

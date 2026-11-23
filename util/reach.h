@@ -1,26 +1,31 @@
 //
-// reach.h - what reaches each word of an image, for the tools and the tests
-// that have this in them.  It has in it cut.h, which cuts an image into
-// its straight-line runs and the instructions that leave a run.
+// reach.h - finds what reaches each word of an image, for the tools and
+// tests that include it.  It includes cut.h, which cuts an image into
+// straight-line runs and the instructions that leave a run.
 //
-// A word is reached
+// A word can be reached in four ways:
 //
-//   by a call, a jump or a branch from another word that goes to where it
-//   starts: a call to a word on another page, which is the word's place
-//   pushed and a call of execute, is a call of that word (cut.h);
+//   A call, a jump or a branch in another word targets its first
+//   instruction.  A call to a word on another page, which is a push of the
+//   word's address and a call of `execute`, counts as a call of that word
+//   (cut.h).
 //
-//   by its place being pushed as a number, which is how its execution token
-//   is said.  A number that only happens to be a word's place is counted
-//   too: nothing here can tell the two apart, which is why this is kept
-//   apart from the calls;
+//   Its address is pushed as a number, which is how an execution token is
+//   written.  A number that only happens to equal a word's address is
+//   counted too, because nothing here can tell the two apart.  That is why
+//   pushes are counted separately from calls.
 //
-//   by its place being in a cell of data, as a vector's is and a table of
-//   words'.  The same goes for a cell that only happens to hold the number;
+//   Its address is in a cell of data, as a vector's is, or an entry of a
+//   table of words.  A cell that only happens to hold that number is
+//   counted too.
 //
-//   and by the word before it running on into it.
+//   The word before it falls through into it.
 //
-// A word that goes to its own start, as a loop does, is not reached by
-// that.  A word with a header can be typed, whatever else reaches it.
+// A word that jumps to its own start, as a loop does, is not reached by
+// that jump.  A word with a header can also be typed, whatever else
+// reaches it, unless a newer header with the same name shadows it: a
+// search finds the newest.  An image's .shadows file lists the names it
+// defines more than once.
 //
 
 #ifndef HEXAFORTH_REACH_H
@@ -29,14 +34,15 @@
 #include "cut.h"
 
 typedef struct {
-    long calls[2], pushed[2];           // from the kernel, and from the other pages
-    long cells;                         // cells of data that hold its place
-    int into;                           // the word before runs on into it
-    int typed;                          // it has a header
+    long calls[2], pushed[2];           // [0] from the kernel, [1] from the other pages
+    long cells;                         // the number of data cells that hold its address
+    int into;                           // 1 if the word before it falls through into it
+    int typed;                          // 1 if it has a header that no newer header of the same name shadows
 } reached;
 
-// The word that starts at a place: the one of that place that has the
-// instructions, where a place has more names than one.  Or less than nothing.
+// Returns the index of the word that starts at an address, or -1.  Where
+// several names share the address, it is the one that has the
+// instructions.
 static int starting_at(const cut_image* m, long at) {
     int lo = 0, hi = m->n;
     while (lo < hi) {
@@ -46,9 +52,10 @@ static int starting_at(const cut_image* m, long at) {
     return(lo < m->n && m->words[lo].at == at && m->words[lo].size ? lo : -1);
 }
 
-// The word that the instruction at a place is in, or less than nothing.
+// Returns the index of the word that contains the instruction at an
+// address, or -1.
 static int holding(const cut_image* m, long at) {
-    int lo = 0, hi = m->n;              // the first word that starts after it
+    int lo = 0, hi = m->n;              // binary search for the first word that starts after it
     while (lo < hi) {
         int mid = (lo + hi) / 2;
         if (m->words[mid].at <= at) lo = mid + 1; else hi = mid;
@@ -58,8 +65,9 @@ static int holding(const cut_image* m, long at) {
     return(in >= 0 && at < m->words[in].at + m->words[in].size ? in : -1);
 }
 
-// Does an instruction go on to the one after it?  A jump does not, and
-// nor does one with the return in it.
+// Returns 1 if execution continues from an instruction to the one after
+// it.  It does not after a jump, or after an instruction with the return
+// in it.
 static int runs_on(uint16_t w) {
     instruction ins = ins_of(w);
     if (ins.lit.lit_f) return(1);
@@ -67,20 +75,29 @@ static int runs_on(uint16_t w) {
     return(!(ins.alu.op_type == OP_TYPE_ALU && ins.alu.r_eip));
 }
 
-// What reaches each word of an image: how[idx] is of its word idx, and
-// there are as many as the image has words.
+// Returns the index of the word that a call, a jump or a branch targets
+// from another word.  Returns -1 if the target is not the start of a word,
+// or if the instruction is inside the word it targets.
+static int comes_to(const cut_image* m, const item* it) {
+    int to = !it->run && it->to >= 0 ? starting_at(m, it->to) : -1;
+    return(to >= 0 && to != holding(m, it->at) ? to : -1);
+}
+
+// Finds what reaches each word of an image.  `how` must have one entry for
+// each of the image's words: how[idx] describes word idx.
 static void reach(const cut_image* m, reached* how) {
     const uint8_t* bytes = (const uint8_t*)m->code;
     size_t len = (size_t)m->instructions * sizeof(instruction);
     memset(how, 0, m->n * sizeof(reached));
 
-    // Calls, jumps and branches from another word; and numbers pushed.
+    // Count calls, jumps and branches from other words, and pushed
+    // numbers.
     for(long idx=0; idx < m->count; idx++) {
         const item* it = &m->items[idx];
         int far = it->at / PAGE != 0;
         if (!it->run) {
-            int to = it->to >= 0 ? starting_at(m, it->to) : -1;
-            if (to >= 0 && to != holding(m, it->at)) how[to].calls[far]++;
+            int to = comes_to(m, it);
+            if (to >= 0) how[to].calls[far]++;
             continue;
         }
         const uint16_t* run = m->code + it->at;
@@ -97,19 +114,30 @@ static void reach(const cut_image* m, reached* how) {
         }
     }
 
-    // Cells of data: those of the pages that have no code (cut.h says
-    // which have), but for the dictionary, where every header has its
-    // word's place.
+    // Count data cells that hold a word's address.  Data is every page
+    // with no code (cut.h records which pages have code), except the
+    // dictionary, where every header holds its word's address.
     const unsigned char* has_code = m->has_code;
     size_t headers_from, headers_to;
     headers_of(bytes, len, &headers_from, &headers_to);
+    // A header makes its word reachable by typing, unless a newer header
+    // with the same name shadows it.  The dictionary is walked in search
+    // order, and a search stops at the first header with a name.
+    char (*seen)[NAME_ROOM] = NULL;
+    long nseen = 0, seen_room = 0;
     for(uint32_t head = first_header(bytes, len); head; ) {
         uint64_t xt;
         char name[NAME_ROOM];
+        int hidden = 0;
         head = read_header(bytes, len, head, &xt, name);
+        for(long idx=0; idx < nseen && !hidden; idx++) hidden = !strcmp(seen[idx], name);
+        if (hidden) continue;
+        ONE_MORE(seen, nseen, seen_room);
+        strcpy(seen[nseen++], name);
         int is = xt < (uint64_t)m->instructions ? starting_at(m, (long)xt) : -1;
         if (is >= 0) how[is].typed = 1;
     }
+    free(seen);
     for(size_t at=0; at + CELL_BYTES <= len; at += CELL_BYTES) {
         if (has_code[at / sizeof(instruction) / PAGE] || (at >= headers_from && at < headers_to)) continue;
         uint64_t held = cell_of(bytes, at / CELL_BYTES);
@@ -117,7 +145,7 @@ static void reach(const cut_image* m, reached* how) {
         if (to >= 0) how[to].cells++;
     }
 
-    // The word before running on into it.
+    // Record whether the word before each word falls through into it.
     for(int idx=0; idx < m->n; idx++) {
         long at = m->words[idx].at;
         if (!m->words[idx].size || at % PAGE == 0 || at >= m->instructions) continue;
@@ -125,7 +153,7 @@ static void reach(const cut_image* m, reached* how) {
     }
 }
 
-// Does anything come to a word, other than its being typed?
+// Returns 1 if anything reaches a word other than typing its name.
 static int is_reached(const reached* how) {
     return(how->calls[0] || how->calls[1] || how->pushed[0] || how->pushed[1] || how->cells || how->into);
 }

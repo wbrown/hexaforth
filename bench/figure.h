@@ -1,9 +1,9 @@
 //
-// figure.h - a line of what the benchmarks print, for the tools that have
-// this in them: what was done, on which machine, and what it came to.
+// figure.h - prints one line of the benchmarks' output: what was done, on
+// which machine, and the result.  The benchmark tools include this file.
 //
-// A figure is printed by what checked the work it is of, and is not
-// printed for work that was not checked.
+// A figure is printed only by the code that checked the work it measures.
+// No figure is printed for work that was not checked.
 //
 
 #ifndef HEXAFORTH_FIGURE_H
@@ -14,8 +14,8 @@
 #include <string.h>
 #include "../util/room.h"
 
-// A line: the work, and a piece of it if it is one of several; the
-// machine; and the figure.
+// Prints one line: the work, with the name of the piece if the work has
+// several; the machine; and the figure.
 static void figure(const char* what, const char* piece, const char* on, const char* is) {
     char* work = NULL;
     text_more(&work, piece && piece[0] ? "%s %s" : "%s", what, piece);
@@ -24,10 +24,10 @@ static void figure(const char* what, const char* piece, const char* on, const ch
     free(work);
 }
 
-// What the Verilog's test bench said passed between a mark the machine
-// made and the next (rtl/tb.cpp): the cycles, and the rest.  The marks
-// are counted from one.  The text is made here; nothing, if the test
-// bench said nothing of that mark.
+// Returns what the Verilog test bench reported between one mark the
+// machine made and the next (rtl/tb.cpp): the cycles, and the rest of the
+// line.  Marks are numbered from one.  The text is allocated.  Returns
+// NULL if the test bench reported nothing for that mark.
 static char* between(const char* timed, int mark) {
     FILE* in = fopen(timed, "r");
     if (in == NULL) {

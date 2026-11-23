@@ -1,12 +1,13 @@
 //
 // hex2bin [--rom] IMAGE.hex IMAGE.bin
 //
-// An image as its bytes, for a kernel that is assembled round one: up to
-// the last byte that is not zero, and then to the end of that cell.
+// Converts an image to a file of its bytes, which an AArch64 kernel
+// includes when it is assembled.  The file ends at the last non-zero byte,
+// padded to the end of that cell.
 //
-// With --rom it is the kernel's ROM alone, the first KROM_BYTES of the
-// image: what a machine has in memory when it starts with nothing else,
-// and reads the rest from its disk (doc/boot.md).
+// With --rom, the file is the kernel's ROM only: the first KROM_BYTES of
+// the image.  That is all a machine has in memory when it starts from its
+// ROM and reads the rest from its disk (doc/boot.md).
 //
 
 #include <stdio.h>

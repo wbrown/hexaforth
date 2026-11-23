@@ -269,9 +269,8 @@ header header
 
 \ ---- a file's own words that only push a number
 
-\ Such a word is the number in place wherever it is said
-\ (join.fs), so its code goes to the scratch: not that of a name
-\ that stays, nor of a number join.fs does not lay in place.
+\ The code of one goes to the scratch, unless its name stays or
+\ join.fs does not compile the number inline.
 
 : staying? ( -- f ) \ does a name that stays have the next code?
     stay-xt @ dup if @ cp @ = then ;

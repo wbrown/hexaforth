@@ -1,15 +1,17 @@
 //
 // synth_said NEXTPNR.log [WHAT]
 //
-// What placing and routing the system came to, from what nextpnr said of
-// it: the LUTs, the flip-flops, and how fast its clock can go.
+// Reports the result of placing and routing the system, from nextpnr's
+// log: the number of LUTs, the number of flip-flops, and the highest clock
+// frequency.
 //
-// nextpnr says how many of each kind of cell the design has, each with how
-// many the FPGA has after a /, and the most its clock can be: the last
-// time it says each is the one that is so, since it says the clock again
-// when it has routed.  It prints what it found on one line, after WHAT,
-// which says what was synthesised; and fails if any of the three was not
-// said: then nothing was placed.
+// nextpnr prints the number of cells of each kind the design uses, each
+// followed by a / and the number the FPGA has, and the highest frequency
+// the clock can run at.  It prints the frequency again after routing, so
+// the last line with each figure is the one that counts.  This program
+// prints the three figures on one line, after WHAT, which names what was
+// synthesised.  It fails if any of the three is missing from the log,
+// which means nothing was placed.
 //
 
 #include <stdio.h>
@@ -17,9 +19,9 @@
 #include <string.h>
 #include "../util/room.h"
 
-// The number that follows some text, in the last line of a file that says
-// a thing and has the text; or the number before the text, if that is
-// where it is.  Less than nothing, if no line has them.
+// Returns a number from the last line of a file that contains both `says`
+// and `text`.  The number is the one after `text`, or the one before
+// `text` if `before` is not 0.  Returns -1 if no line contains both.
 static double number_by(const char* path, const char* says, const char* text, int before) {
     FILE* in = fopen(path, "r");
     if (in == NULL) {

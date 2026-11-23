@@ -227,7 +227,7 @@ create vondisk 0 ,  \ the viewer whose bitmap is on disk, or 0
 header view-load
 : view-load ( blk# w h -- viewer ) \ the TIFF at a block
     vparts @ 0= d# 8 -throw
-    blk-need    \ before anything that is freed
+    blk-need
     VIEW-CELLS >c halloc  dup vw !
     d# 0 swap VIEW-CELLS cells-fill
     rot dup vblk ! tiff-open  vsize  vkeep  vbitmap

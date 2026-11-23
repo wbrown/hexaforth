@@ -1,33 +1,37 @@
 //
 // profile IMAGE.hex IMAGE.tables IMAGE.sizes DISK.img PICTURES.img PICTURE.tiff FORTH OUT
 //
-// Where the desktop's instructions go.
+// Reports where the desktop's instructions go.
 //
-// The machine has two disks, as the desktop's test gives it (test/deskvm.h):
-// DISK.img, and PICTURES.img, which has PICTURE.tiff under its label.
+// The machine has two disks, as it has in the desktop's test
+// (test/deskvm.h): DISK.img, and PICTURES.img, which has PICTURE.tiff
+// under its label.
 //
-// The desktop is run on the reference VM that counts how often the
-// instruction at each place is run (counting.c), and worked through a few
-// things a person would do (DONE, below), each said in the words the
-// desktop's checks say what they do in (test/deskcheck.c).  After each,
-// the counts are read, and what they have grown by is that activity's.
+// The desktop runs on the reference VM that counts how many times the
+// instruction at each address runs (counting.c).  It is driven through a
+// few things a person would do (DONE, below).  Each is written in the
+// notation the desktop's checks use for their actions (test/deskcheck.c).
+// After each one the counts are read, and the increase since the reading
+// before is that activity's.
 //
-// The desktop never stops: its event loop goes round whether anything is
-// happening or not.  So one reading is taken with nothing happening, to
-// learn what a turn of the loop costs, and that much is taken off each
-// activity for every turn made while it ran.  What is left is the work
-// the activity caused.  On this machine a turn is exact: the loop takes
-// one for each thing it is sent (test/deskvm.h).
+// The desktop never stops: its event loop keeps turning whether or not
+// anything is happening.  So one reading is taken while nothing happens,
+// to learn what one turn of the loop costs.  That cost is subtracted from
+// each activity once for every turn the loop made while the activity ran.
+// The remainder is the work the activity caused.  On this machine the
+// number of turns is exact: the loop makes one turn for each thing it is
+// sent (test/deskvm.h).
 //
-// For each activity it prints the work, and where it went: by source
-// file, by word, and by kind of instruction.  With DETAIL in the
-// environment, an activity whose name has that in it has each of its
-// words printed: its instructions, how often it was called, and the
-// instructions to a call.  Then, of each stack, the cells that were ever
-// used: every task has a part of each.
+// For each activity it prints the work and where the work went: by source
+// file, by word, and by kind of instruction.  If the environment variable
+// DETAIL is set, each activity whose name contains DETAIL's value also has
+// its words listed: each word's instructions, the number of times it was
+// called, and the instructions per call.  At the end it prints the cells
+// of each stack that were ever used: every task has a part of each stack.
 //
-// It leaves OUT/desktop.counts: the work of all the activities by place,
-// and what a turn with nothing happening runs (work.h says the file).
+// It writes OUT/desktop.counts: the work of all the activities by address,
+// and what one turn of the loop runs when nothing is happening (work.h
+// describes the file).
 //
 
 #include <stdio.h>
@@ -51,10 +55,11 @@ static const struct { const char* name; const char* does; } DONE[] = {
     {"the calculator: keys and buttons", "'12\r34+' click:calc+17+108 click:calc+119+132"},
     {"bringing windows to the front in turn, until it is the Words window", "cycle:words"},
     {"the Words window: finding dither-row, and choosing it",
-     "click:words+10+8 away down find:dither-row,dither-start name:dither-row"},
-    // The Words window's definition starts 112 across its content, 8 by 16
-    // a character: the pointer is put on every other character of the
-    // definition's second and third lines.
+     "click:words+10+8 away down find:dither-row name:dither-row"},
+    // The Words window's definition starts 112 pixels from the left of the
+    // window's content, and a character is 8 by 16 pixels.  The pointer is
+    // put on every other character of the definition's second and third
+    // lines.
     {"the Words window: the pointer over the definition, from one word to the next",
      "at:words+116+18 at:words+132+18 at:words+148+18 at:words+164+18 at:words+180+18 at:words+196+18 "
      "at:words+212+18 at:words+228+18 at:words+244+18 at:words+260+18 at:words+276+18 at:words+292+18 "
@@ -64,7 +69,7 @@ static const struct { const char* name; const char* does; } DONE[] = {
      "at:words+308+34 at:words+324+34"},
     {"the Words window: choosing a word", "click:words+10+72"},
     {"the Words window: a long definition, a page down and back",
-     "find:tiff-open,tiff-close name:tiff-open pgdn pgup"},
+     "find:tiff-open name:tiff-open pgdn pgup"},
     {"the Words window: six words down, and a page", "down down down down down down right"},
     {"raising the Forth window, and dragging it away and back", "front:forth drag:forth+60+50 drag:forth-60-50"},
     {"raising the editor", "front:editor"},
@@ -75,31 +80,34 @@ static const struct { const char* name; const char* does; } DONE[] = {
      "point:660,216"},
     {NULL}};
 
-// ---- what a place is in
+// ---- the word, the file and the kind of an address
 
 static word* WORDS;             // the image's words (words.h)
 static int words;
-static long image_places;       // the instructions the image was built with
-static span* SPANS;             // the files its code is of (files.h)
+static long image_places;       // the number of instructions in the image as it was built
+static span* SPANS;             // the source files, and the code each one has (files.h)
 static int spans;
 
-// The word a place is in; or that it is in what was defined at the
-// prompt, which is past what the image was built with.
+// Returns the name of the word an address is in.  An address past the end
+// of the image as it was built is in code that was defined at the prompt,
+// and the text returned says so.
 static const char* word_of(long at) {
     if (at >= image_places) return("(defined at the prompt)");
     return(word_at(WORDS, words, at));
 }
 
-// The source file a place's code is of.  A file that includes others has
-// their code in its own, so it is the smallest file's that has the place;
-// and what no file of the system's has is the nucleus's own.
+// Returns the source file the code at an address came from.  A file that
+// includes other files has their code inside its own, so the file is the
+// smallest one that has the address.  Code that is in none of the system's
+// files is the nucleus's own (nuc.fs).
 static const char* file_of(long at) {
     const char* is = file_at(SPANS, spans, at);
     return(is ? is : at >= image_places ? "(defined at the prompt)" : "nuc.fs");
 }
 
-// The kind of instruction at a place.  One with a number in it is of a
-// variable if its shift is the one vm_opcodes.h names so.
+// Returns the kind of the instruction at an address.  A literal fetches or
+// stores a variable if its shift field has the value that vm_opcodes.h
+// names "var".
 static const char* kind_of(long at) {
     instruction ins = *(instruction*)&machine.memory[at];
     bool variable = ins.lit.lit_f && !strcmp(LIT_SHIFT_REPR[ins.lit.lit_shifts], "var");
@@ -108,12 +116,14 @@ static const char* kind_of(long at) {
            ins.jmp.op_type == OP_TYPE_CALL ? "call" : "ALU");
 }
 
-// ---- what is counted, by what it is of
+// ---- the counts, totalled by file, word or kind
 
-typedef struct { const char* of; double much, calls; } share;
-static share* SHARES;           // as many as there are, and room for more as they are found (room.h)
+typedef struct { const char* of; double much, calls; } share;  // a name, the instructions charged to it, and its calls
+static share* SHARES;           // the list grows as names are found (room.h)
 static long shares, shares_room;
 
+// Adds instructions and calls to the share with that name, creating the
+// share if there is none.
 static void shared(const char* of, double much, double calls) {
     long n = 0;
     while (n < shares && strcmp(SHARES[n].of, of)) n++;
@@ -128,9 +138,12 @@ static int by_most(const void* a, const void* b) {
     return(x < y ? 1 : x > y ? -1 : 0);
 }
 
-// The places' counts by file, word or kind, and the most of them printed.
-static long places;             // the places the counts are of: as many as have been run (counting.h)
+static long places;             // the number of addresses that have counts: RAN_TO, which grows as more code runs (counting.h)
 
+// Totals the counts by file, word or kind, whichever `of` returns for an
+// address, and prints the `most` largest totals.  If `each` is not 0, a
+// total is printed divided by `each`.  Otherwise it is printed as a
+// percentage of `whole`.
 static void by(const char* what, const double* counts, const char* (*of)(long), int most, double whole, double each) {
     shares = 0;
     for(long at=0; at < places; at++) {
@@ -147,19 +160,21 @@ static void by(const char* what, const double* counts, const char* (*of)(long), 
 
 // ---- the readings
 
-// Each is of a place, and has room for as many places as have been run:
-// more are run as the work goes on, and what is new is nothing.
-static uint64_t* last;          // the counts as they were at the last reading,
-static uint64_t* counts;        // what has been run since,
-static double* net;             // that without what the turns it took run with nothing happening,
-static double* work;            // all of that so far,
-static double* a_turn;          // and what a turn with nothing happening runs
-static long last_turns;
+// Each array below has one entry for each address that has counts.  More
+// addresses run as the work goes on, and AS_MANY() extends the arrays with
+// zeros.
+static uint64_t* last;          // the counts at the last reading
+static uint64_t* counts;        // the increase in the counts since the last reading
+static double* net;             // that increase, less what the loop's turns would have run with nothing happening
+static double* work;            // the sum of `net` over all the activities so far
+static double* a_turn;          // what one turn of the loop runs when nothing is happening
+static long last_turns;         // the number of turns the loop had made at the last reading
 
-// What has been run since the last reading, and the turns the loop took.
+// Takes a reading.  It sets `counts` to the increase since the last
+// reading, and returns the number of turns the loop made in that time.
 static long reading(void) {
     static long room[5];
-    desk_screen();                      // the machine takes everything that was sent
+    desk_screen();                      // let the machine take everything that was sent to it
     places = RAN_TO;
     AS_MANY(last, places, room[0]);
     AS_MANY(counts, places, room[1]);
@@ -172,10 +187,10 @@ static long reading(void) {
     return(turns);
 }
 
-// The cells of a stack that were ever used.  The machine starts with
-// nothing in them and nothing clears a cell that is dropped, so a cell
-// that is not nothing was used; two that are nothing among them are not
-// the end of a run.
+// Prints the cells of a stack that were ever used.  The machine starts
+// with every stack cell 0, and it does not clear a cell when the cell is
+// dropped, so a cell that is not 0 was used.  One or two cells of 0
+// between such cells do not end a range.
 static void used(const char* stack, const int64_t* cells) {
     printf("  the %s stack:", stack);
     for(int at=0; at < STACK_CELLS; at++) {
@@ -194,7 +209,7 @@ int main(int argc, char *argv[]) {
                 argv[0]);
         return(1);
     }
-    alarm(1800);                // a machine that does not stop is stopped
+    alarm(1800);                // kill the program if the machine never stops
     uint8_t* image;
     size_t len = load_image(argv[1], &image);
     image_places = len / 2;
@@ -212,7 +227,7 @@ int main(int argc, char *argv[]) {
     for(long at=0; at < places; at++) all += counts[at];
     printf("booting, with the picture dithered: %.0f instructions, %ld turns of the loop\n", all, turns);
 
-    // Nothing happening: what a turn of the loop runs.
+    // Measure what one turn of the loop runs when nothing is happening.
     desk_turns(200);
     turns = reading();
     all = 0;
@@ -238,7 +253,7 @@ int main(int argc, char *argv[]) {
         by("by file: ", net, file_of, 6, total, 0);
         by("by word: ", net, word_of, 9, total, 0);
         by("by kind: ", net, kind_of, 9, total, 0);
-        if (detail && strstr(DONE[n].name, detail)) {   // each word: its instructions, and its calls
+        if (detail && strstr(DONE[n].name, detail)) {   // list each word with its instructions and its calls
             shares = 0;
             for(long at=0; at < places; at++) {
                 bool first = at < image_places && place_of(WORDS, words, word_of(at)) == at;

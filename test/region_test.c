@@ -1,37 +1,38 @@
 //
 // region_test IMAGE.hex [SEED]
 //
-// Regions (forth/region.fs), against their pixels.
+// Tests regions (forth/region.fs) against their pixels.
 //
-// A set of pixels has one form as a region: a count of the cells that
-// follow, a band that ends at its top, a band for each run of rows whose
-// crossings are the same, and a last band that ends at NEVER.  So a region
-// the machine has made is right if every cell of it is that form of the
-// pixels it should hold, and wrong if any is not.
+// A set of pixels has exactly one form as a region: a count of the cells
+// that follow, a band that ends at the region's top, one band for each run
+// of rows with the same crossings, and a last band that ends at NEVER.  So
+// a region the machine made is correct if every cell of it matches that
+// form of the pixels it should contain, and wrong if any cell differs.
 //
-// It is a contrastive test.  What is typed at the machine is read here
-// too, a word at a time, and done to pixels: a region is a plane of them,
-// a rectangle is each of its pixels set, and what is in both of two
-// regions is each pixel that is in both.  Nothing is built from that, and
-// nothing in it is a band or a crossing until the form is made of the
-// pixels to be compared.
+// It is a contrastive test.  The text typed at the machine is also read
+// here, a word at a time, and applied to pixels: a region is a plane of
+// pixels, a rectangle sets each of its pixels, and the intersection of two
+// regions is each pixel that is in both.  Nothing is built from this
+// model, and it has no bands or crossings in it until the pixels are
+// converted to a region's form for the comparison.
 //
-// The machine is the nucleus on vm.c, typed at (nucleus.h).  A check is a
-// label and what is typed: rectangles made of the regions r0 to r7,
-// combined, moved and copied.  When it has been typed every one of the
-// eight regions is read out of the machine's memory and compared with the
-// form of its pixels, and the region that was last made is asked whether
-// it is empty (rgn-empty?) and for the rectangle around it (rgn-box).
+// The machine is the nucleus on vm.c (nucleus.h).  A check is a label and
+// the text to type: rectangles made in the regions r0 to r7, then
+// combined, moved and copied.  After the text is typed, each of the eight
+// regions is read out of the machine's memory and compared with the form
+// of its pixels.  The last region made is also tested for emptiness
+// (rgn-empty?) and for its bounding rectangle (rgn-box).
 //
-// After the checks that are said there are steps by chance, the same every
-// time for a seed, each typed at the machine as the step before left it:
-// so regions are made of regions that were made of regions, as the windows
-// make them.  A region that would not fit where the machine keeps one is
-// made nothing instead: nothing in the machine checks that one fits.
+// After the listed checks come random steps, the same every time for a
+// given seed.  Each step is typed at the machine in the state the previous
+// step left, so regions are built from regions that were built from
+// regions, the way the windows build them.  A region that would not fit in
+// the space the machine gives a region is emptied instead, because nothing
+// in the machine checks that a region fits.
 //
-// It says how many checks and steps it made, and how many regions and
-// cells it compared.  It fails if that is none: then it found nothing to
-// test.
+// It prints how many checks and steps it made, and how many regions and
+// cells it compared.  It fails if it compared none, because then it tested
+// nothing.
 //
 
 #include <ctype.h>
@@ -44,19 +45,20 @@
 #include "nucleus.h"
 
 #define REGIONS 8               // r0 to r7
-#define FROM    (-512)          // the plane the pixels are on: from here, across and down,
-#define ACROSS  2048            // and this many
+#define FROM    (-512)          // the first coordinate of the pixel plane, both across and down
+#define ACROSS  2048            // the plane's size in pixels, both across and down
 #define PLANE   ((size_t)ACROSS * ACROSS)
-#define STEPS   400             // how many are taken by chance
-#define UNDER   12345           // what is under what a check leaves
+#define STEPS   400             // the number of random steps
+#define UNDER   12345           // the number pushed under whatever a check leaves
 
 typedef struct {
     const char* label;
     const char* typed;
 } check;
 
-// Two rectangles, as r0 and r1; a frame, which is r2; four rectangles side
-// by side, which are r2; and four down a diagonal, which are r2.
+// Text that sets up the shapes the checks use: two rectangles, in r0 and
+// r1; a frame, in r2; four rectangles side by side, in r2; and four
+// rectangles down a diagonal, in r2.
 #define CORNER  "0 0 20 20 r0 rect-rgn  10 10 20 20 r1 rect-rgn\n"
 #define APART   "0 0 20 20 r0 rect-rgn  50 60 20 20 r1 rect-rgn\n"
 #define BESIDE  "0 0 20 20 r0 rect-rgn  50 0 20 20 r1 rect-rgn\n"
@@ -73,7 +75,7 @@ typedef struct {
                 "10 10 10 10 r0 rect-rgn  r2 r0 r3 rgn-or  15 15 10 10 r0 rect-rgn  r3 r0 r2 rgn-or\n"
 
 static check SAID[] = {
-    // A rectangle, and nothing.
+    // A rectangle, and an empty region.
     {"a rectangle", "10 20 30 40 r0 rect-rgn"},
     {"a rectangle of one pixel", "7 9 1 1 r0 rect-rgn"},
     {"a rectangle with no width is nothing", "10 20 0 40 r0 rect-rgn"},
@@ -90,7 +92,7 @@ static check SAID[] = {
     {"a rectangle moved left of nothing and above it", ONE "-100 -200 r0 rgn-offset"},
     {"nothing moved", "10 20 r0 rgn-offset"},
 
-    // Two rectangles: most of what is asked of them looks at no band.
+    // Two rectangles.  Most of these operations never examine a band.
     {"what two rectangles share", CORNER "r0 r1 r2 rgn-and"},
     {"what is in either of two rectangles", CORNER "r0 r1 r2 rgn-or"},
     {"what is in one rectangle and not in another", CORNER "r0 r1 r2 rgn-diff"},
@@ -119,18 +121,18 @@ static check SAID[] = {
     {"a rectangle and itself, joined", ONE "r0 r0 r2 rgn-or"},
     {"a rectangle less itself is nothing", ONE "r0 r0 r2 rgn-diff"},
 
-    // Nothing, and something.
-    {"what a rectangle and nothing share", ONE "r0 r1 r2 rgn-and"},
-    {"what nothing and a rectangle share", ONE "r1 r0 r2 rgn-and"},
-    {"a rectangle and nothing, joined", ONE "r0 r1 r2 rgn-or"},
-    {"nothing and a rectangle, joined", ONE "r1 r0 r2 rgn-or"},
-    {"a rectangle less nothing", ONE "r0 r1 r2 rgn-diff"},
-    {"nothing less a rectangle", ONE "r1 r0 r2 rgn-diff"},
-    {"what nothing and nothing share, over a rectangle", ONE "r1 r2 r0 rgn-and"},
-    {"nothing and nothing joined, over a rectangle", ONE "r1 r2 r0 rgn-or"},
-    {"nothing less nothing, over a rectangle", ONE "r1 r2 r0 rgn-diff"},
+    // An empty region combined with one that is not empty.
+    {"a rectangle and an empty region, intersected", ONE "r0 r1 r2 rgn-and"},
+    {"an empty region and a rectangle, intersected", ONE "r1 r0 r2 rgn-and"},
+    {"a rectangle and an empty region, joined", ONE "r0 r1 r2 rgn-or"},
+    {"an empty region and a rectangle, joined", ONE "r1 r0 r2 rgn-or"},
+    {"a rectangle minus an empty region", ONE "r0 r1 r2 rgn-diff"},
+    {"an empty region minus a rectangle", ONE "r1 r0 r2 rgn-diff"},
+    {"two empty regions intersected, over a rectangle", ONE "r1 r2 r0 rgn-and"},
+    {"two empty regions joined, over a rectangle", ONE "r1 r2 r0 rgn-or"},
+    {"an empty region minus an empty region, over a rectangle", ONE "r1 r2 r0 rgn-diff"},
 
-    // What is not a rectangle: its bands are looked at.
+    // Regions that are not rectangles, whose bands are examined.
     {"a frame and a bar across its hole, joined", FRAME BAR "r2 r3 r4 rgn-or"},
     {"a bar and a frame, joined", FRAME BAR "r3 r2 r4 rgn-or"},
     {"what a frame and a bar across its hole share", FRAME BAR "r2 r3 r4 rgn-and"},
@@ -164,7 +166,7 @@ static check SAID[] = {
     {"two rectangles joined, less what they share",
      CORNER "r0 r1 r2 rgn-or  r0 r1 r3 rgn-and  r2 r3 r4 rgn-diff"},
 
-    // Many crossings to a band, and many bands.
+    // Regions with many crossings in a band, and with many bands.
     {"four rectangles side by side", TEETH "r2 r4 rgn-copy"},
     {"four rectangles side by side and a bar under them: a comb", TEETH "0 30 35 5 r0 rect-rgn  r2 r0 r4 rgn-or"},
     {"four rectangles side by side and a bar across them", TEETH "-5 10 50 5 r0 rect-rgn  r2 r0 r4 rgn-or"},
@@ -193,11 +195,11 @@ static check SAID[] = {
 
 // ---- the pixels
 
-static uint8_t* plane[REGIONS]; // a region's pixels: one for each of the plane, 1 if it is in the region
-static uint8_t* moved;          // and a plane to move one into
+static uint8_t* plane[REGIONS]; // each region's pixels: one byte per pixel of the plane, 1 if the pixel is in the region
+static uint8_t* moved;          // a spare plane, which a region is moved into
 
-// A pixel of a plane.  One that is not on the plane is this test's own
-// mistake, and it stops.
+// Returns a pointer to a pixel of a plane.  A pixel outside the plane is
+// a bug in this test, which then exits.
 static uint8_t* pixel(uint8_t* p, int x, int y) {
     if (x < FROM || x >= FROM + ACROSS || y < FROM || y >= FROM + ACROSS) {
         fprintf(stderr, "region_test: the pixel at %d, %d is not on the plane\n", x, y);
@@ -206,6 +208,7 @@ static uint8_t* pixel(uint8_t* p, int x, int y) {
     return(p + (size_t)(y - FROM) * ACROSS + (x - FROM));
 }
 
+// Sets region r's pixels to a rectangle.
 static void rectangle(int x, int y, int w, int h, int r) {
     memset(plane[r], 0, PLANE);
     for(int yy=y; yy < y + h; yy++) {
@@ -213,7 +216,8 @@ static void rectangle(int x, int y, int w, int h, int r) {
     }
 }
 
-// What is in both, in either, or in the one and not the other.
+// Sets region `to` to the intersection, the union or the difference of
+// regions a and b, according to `how`.
 static void combined(int a, int b, int to, const char* how) {
     for(size_t idx=0; idx < PLANE; idx++) {
         bool in_a = plane[a][idx], in_b = plane[b][idx];
@@ -222,6 +226,7 @@ static void combined(int a, int b, int to, const char* how) {
     }
 }
 
+// Moves region r's pixels by dx, dy.
 static void move(int dx, int dy, int r) {
     memset(moved, 0, PLANE);
     for(int y=FROM; y < FROM + ACROSS; y++) {
@@ -234,25 +239,25 @@ static void move(int dx, int dy, int r) {
     moved = was;
 }
 
-// ---- the one form of a region's pixels
+// ---- the form of a region's pixels
 
-static int64_t AS_END;          // what a row is added to, to be the end of a band,
-static int64_t NEVER;           // and where the last band ends: as the machine has them
-static uint64_t room;           // the cells the machine gives a region
+static int64_t AS_END;          // the value added to a row number to mark the end of a band, read from the machine
+static int64_t NEVER;           // the end of the last band, read from the machine
+static uint64_t room;           // the number of cells the machine gives a region
 
 typedef struct {
-    int64_t* cells;             // the count, and the bands: as many cells as the region is,
-    int count, cells_room;      // how many that is, the count one of them, and how many there is room for
-    int widest;                 // the most crossings a band of it has
-    bool empty;                 // nothing is in it; or the rectangle around it is
+    int64_t* cells;             // the region's cells: the count, and then the bands
+    int count, cells_room;      // the number of cells, including the count cell, and the allocated size
+    int widest;                 // the most crossings in any of its bands
+    bool empty;                 // true if it has no pixels; otherwise x, y, w, h are its bounding rectangle
     int x, y, w, h;
 } form;
 
-static form forms[REGIONS];     // of each region's pixels
-static bool stale[REGIONS];     // the pixels have changed since it was made
+static form forms[REGIONS];     // the form of each region's pixels
+static bool stale[REGIONS];     // true if the pixels have changed since the form was computed
 
-// Room for a form to have so many cells: twice as many as it has room for,
-// if that is more.
+// Makes room in a form for `count` cells.  The allocation at least doubles
+// each time it grows.
 static void cells_for(form* f, int count) {
     if (count <= f->cells_room) return;
     f->cells_room = count > 2 * f->cells_room ? count : 2 * f->cells_room;
@@ -263,11 +268,13 @@ static void cells_for(form* f, int count) {
     }
 }
 
+// Appends a cell to a form.
 static void cell(form* f, int64_t x) {
     cells_for(f, f->count + 1);
     f->cells[f->count++] = x;
 }
 
+// Computes the form of region r's pixels.
 static void form_of(int r) {
     static int cross[ACROSS + 1], last[ACROSS + 1];
     form* f = &forms[r];
@@ -280,7 +287,7 @@ static void form_of(int r) {
         }
     }
     cells_for(f, 1);
-    f->count = 1;               // the count is the first cell, and is known last
+    f->count = 1;               // the first cell is the count, which is filled in last
     f->widest = 0;
     f->empty = top == INT_MAX;
     if (!f->empty) {
@@ -288,7 +295,8 @@ static void form_of(int r) {
         cell(f, top + AS_END);
         int last_n = -1;
         for(int y=top; y < bottom; y++) {
-            // Where along the row it goes from outside to inside and back.
+            // Find the row's crossings: the x positions where it goes from
+            // outside the region to inside, or back.
             const uint8_t* row = p + (size_t)(y - FROM) * ACROSS;
             int n = 0;
             bool was = false;
@@ -298,7 +306,7 @@ static void form_of(int r) {
             }
             if (was) cross[n++] = FROM + ACROSS;
             if (n == last_n && !memcmp(cross, last, n * sizeof(int))) {
-                f->cells[f->count - 1] = y + 1 + AS_END;    // the band above goes on down
+                f->cells[f->count - 1] = y + 1 + AS_END;    // the same crossings: extend the band above by one row
                 continue;
             }
             cell(f, n);
@@ -321,12 +329,13 @@ static void form_of(int r) {
     stale[r] = false;
 }
 
-// ---- what is typed, done to the pixels
+// ---- applying the typed text to the pixels
 
-static int made;                // the region the last word was done to
+static int made;                // the region the last operation wrote
 
-// A word at a time: a number, a region, or one of region.fs's words, which
-// takes what that word takes.
+// Applies typed text to the pixels, one word at a time.  A word is a
+// number, a region (r0 to r7), or one of region.fs's words, which takes
+// the same arguments here as it does on the machine.
 static void pixels_do(const char* typed) {
     int64_t stack[16];
     int sp = 0;
@@ -377,10 +386,10 @@ static void pixels_do(const char* typed) {
 
 // ---- the machine
 
-static uint64_t where[REGIONS]; // where the machine has each region
+static uint64_t where[REGIONS]; // the address of each region in the machine
 static int checks, steps, regions, compared, boxes, failed;
 
-// The machine started, with eight regions of nothing, and their pixels.
+// Starts the machine with eight empty regions, and clears their pixels.
 static void regions_start(void) {
     start();
     for(int r=0; r < REGIONS; r++) line("new-rgn constant r%d", r);
@@ -397,11 +406,11 @@ static void regions_start(void) {
     }
 }
 
-// What is typed, typed at the machine as it was left, which has been done
-// to the pixels.  Every region is then compared with the form of its
-// pixels, and the region last made is asked whether it is empty and for
-// the rectangle around it.  Returns whether all of it was as it should be,
-// and says what was not if it is told to.
+// Types text at the machine in the state it was left in.  The text has
+// already been applied to the pixels.  Every region is then compared with
+// the form of its pixels, and the last region made is tested for emptiness
+// and for its bounding rectangle.  Returns true if everything matched.
+// With `say`, it prints each mismatch.
 static bool typed_leaves(const char* label, const char* typed, bool say) {
     const form* f = &forms[made];
     line("%s", typed);
@@ -458,40 +467,42 @@ static bool typed_leaves(const char* label, const char* typed, bool say) {
     return(right);
 }
 
-// ---- chance
+// ---- random numbers
 
 static uint64_t seed;
-static int below(int n) {       // a number that is not negative and is less than n
+static int below(int n) {       // returns a random number from 0 to n - 1
     seed ^= seed << 13;
     seed ^= seed >> 7;
     seed ^= seed << 17;
     return((int)((seed >> 32) % (uint64_t)n));
 }
 static int between(int low, int high) { return(low + below(high - low)); }
-static int grid(int x) { return((x < 0 ? x - 49 : x) / 50 * 50); }      // the fifty it is in
+static int grid(int x) { return((x < 0 ? x - 49 : x) / 50 * 50); }      // rounds x down to a multiple of fifty
 
-// Would the region fit where the machine keeps one?  A band that is the
-// same as the one above it is written before it is known to be, so while
-// a region is made it can be a band longer than it is to be.
+// Returns true if a region would fit in the space the machine gives one.
+// The machine writes a band before it knows whether the band repeats the
+// one above it.  So while a region is being built it can be one band
+// longer than its final form.
 static bool fits(const form* f) {
     return((uint64_t)(f->count + f->widest + 2) <= room);
 }
 
-// A step: a rectangle made, two regions combined, a region moved or one
-// copied.  Regions are joined more often than anything else is done, so
-// that there is something in them to be shared and taken away.
+// Performs one random step: it makes a rectangle, combines two regions,
+// moves a region or copies one.  Unions are chosen more often than any
+// other operation, so that the regions contain enough for intersections
+// and differences to work on.
 static const char* step(int n, int* wrong) {
     static const char* how[] = { "rect-rgn", "rect-rgn", "rect-rgn", "rgn-or", "rgn-or", "rgn-or", "rgn-or",
                                  "rgn-or", "rgn-diff", "rgn-diff", "rgn-diff", "rgn-and", "rgn-and",
                                  "rgn-offset", "rgn-copy" };
-    static char typed[80];      // what the step typed, which is what it returns
+    static char typed[80];      // the text the step typed, which is returned
     int to = below(REGIONS), a, b;
     do a = below(REGIONS); while (a == to);
     do b = below(REGIONS); while (b == to);
     const char* does = how[below(sizeof(how) / sizeof(how[0]))];
     if (!strcmp(does, "rect-rgn")) {
         int x = between(-40, 800), y = between(-40, 600), w = between(-2, 300), h = between(-2, 200);
-        if (below(10) < 3) {            // edges that others have, so that crossings meet
+        if (below(10) < 3) {            // snap to a grid, so that rectangles share edges and crossings coincide
             x = grid(x), y = grid(y), w = grid(w), h = grid(h);
         }
         snprintf(typed, sizeof(typed), "%d %d %d %d r%d rect-rgn", x, y, w, h, to);
@@ -500,7 +511,7 @@ static const char* step(int n, int* wrong) {
         const form* f = &forms[to];
         if (!f->empty && (f->x + dx < FROM || f->x + f->w + dx > FROM + ACROSS ||
                           f->y + dy < FROM || f->y + f->h + dy > FROM + ACROSS)) {
-            dx = dy = 0;                // it would leave the plane: it is moved by nothing
+            dx = dy = 0;                // the move would leave the plane, so move by 0 instead
         }
         snprintf(typed, sizeof(typed), "%d %d r%d rgn-offset", dx, dy, to);
     } else if (!strcmp(does, "rgn-copy")) {
@@ -527,17 +538,18 @@ int main(int argc, char *argv[]) {
     }
     int given = argc > 2 ? atoi(argv[2]) : 1;
     seed = 0x9e3779b97f4a7c15ull * (uint64_t)(given + 1);
-    if (!seed) seed = 1;        // nothing comes of nothing
-    alarm(900);                 // a machine that does not stop is stopped
+    if (!seed) seed = 1;        // a zero seed would produce only zeros
+    alarm(900);                 // kill the test if the machine never stops
 
     nucleus_is(argv[1]);
     for(int r=0; r < REGIONS; r++) plane[r] = malloc(PLANE);
     moved = malloc(PLANE);
 
-    // The machine is asked what the end of a band is and how many cells it
-    // gives a region.  A rectangle of one pixel at row nothing is 0 and
-    // its top, which is AS-END by itself; 2 and its sides; its bottom; and
-    // 0 and NEVER.  A second region is where the first one's cells end.
+    // Read from the machine the value that marks the end of a band, and
+    // the number of cells it gives a region.  A rectangle of one pixel at
+    // row 0 has these cells after its count: 0 and its top, which at row 0
+    // is AS-END alone; 2 and its two sides; its bottom; and 0 and NEVER.
+    // A second region starts where the first region's cells end.
     start();
     line("new-rgn constant r0  0 0 1 1 r0 rect-rgn  r0 new-rgn");
     type();
@@ -559,8 +571,8 @@ int main(int argc, char *argv[]) {
         printf("%s %s: r%d is %d cells\n", right ? "ok  " : "FAIL", test->label, made, forms[made].count);
     }
 
-    // A rectangle is nine cells, the count one of them.  The steps are to
-    // make regions that are more than that, or they tried little.
+    // A rectangle is nine cells, including the count.  The steps must
+    // produce regions larger than that, or they tested little.
     int wrong = 0, most = 0, more = 0, started = 0;
     regions_start();
     for(int n=0; n < STEPS; n++) {

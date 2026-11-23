@@ -7,10 +7,11 @@
 #include "../vm_opcodes.h"
 #include "image.h"
 
-// The machine's sizes and what is where on its disk, from vm_constants.h:
-// a constant each for cross.fs, and (sizes-words, below) a word each for
-// the nucleus.  A name with no value ends a group.  The sizes are the
-// machine's this is run for, so the table is made when it runs.
+// The machine's sizes and its disk layout, from vm_constants.h.  Each
+// entry becomes a constant for cross.fs and a word for the nucleus (the
+// bw-size lines, below).  An entry whose name starts with a backslash is a
+// comment that heads a group.  The sizes belong to the machine the program
+// is run for, so the table is filled in at run time.
 typedef struct { const char* name; long value; } size_said;
 static size_said SIZES[64];
 static void sizes_said(void) {
@@ -38,17 +39,18 @@ static void sizes_said(void) {
   memcpy(SIZES, now, sizeof(now));
 }
 
-// The names of a field's values, in the order of the values, as a table of
-// the nucleus's (`create`, and a counted string each): they are the words
-// of vm_opcodes.h, under the field's heading there, that are that field
-// with a value and nothing else.  They go on over lines a block's line
-// long, each under the first.  Each table has a header, since the file
-// that reads them (see.fs) may be compiled on the machine, from a disk,
-// where a name with no header is not found.
+// Writes a table of the names of a field's values, in value order, as
+// source for the nucleus: `create` followed by one counted string per
+// name.  A value's name is the word of vm_opcodes.h, under the field's
+// heading there, whose instruction is that field with that value and
+// nothing else.  The table is wrapped to lines at most as long as a
+// block's line, with continuation lines indented under the first name.  Each table
+// gets a header, because the file that reads it (see.fs) may be compiled
+// on the machine from a disk, where a name without a header is not found.
 static void field_names(FILE* out, const char* table, const char* heading, int values, uint16_t (*with)(int)) {
     fprintf(out, "    header %s\n", table);
-    int len = fprintf(out, "    create %-5s ", table);  // and a space before each name
-    const int indent = len;                             // where the space before each line's first name is
+    int len = fprintf(out, "    create %-5s ", table);  // each name is written with a space before it
+    const int indent = len;                             // the column where continuation lines start
     for(int value=0; value < values; value++) {
         const char* name = NULL;
         int under = 0;
@@ -82,8 +84,9 @@ void generate_basewords_fs(const char* path) {
         else fprintf(out, "#%ld constant %s\n", SIZES[n].value, SIZES[n].name);
     }
 
-    // The characters of a name that are not letters, a lot to a table: the
-    // characters as their numbers, and how many there are.
+    // The characters of a name that are not letters: one table per group,
+    // giving each character as its code, and a constant for the group's
+    // size.
     static const char* name_tables[] = { "n-direct", "n-page1", "n-page2" };
     fprintf(out, "\n\\ the codes of a name, from vm_opcodes.h\n");
     for(int lot=0; lot < 3; lot++) {
@@ -112,8 +115,8 @@ void generate_basewords_fs(const char* path) {
     }
     fprintf(out, "\n\\ words\n");
 
-    // A phrase is not a word (vm_opcodes.h): cross.fs has none for it, and
-    // nor has the nucleus.
+    // A phrase is not a word (vm_opcodes.h), so neither cross.fs nor the
+    // nucleus gets a word for it.
     word_node* curr_word = &FORTH_WORDS[0];
     while(curr_word->repr && strlen(curr_word->repr)) {
         if (is_phrase(curr_word->repr)) {
@@ -137,30 +140,32 @@ void generate_basewords_fs(const char* path) {
         curr_word++;
     }
 
-    // What follows is the program's to lay, and is read where the program
-    // says its name: source, as it would be written there (cross.fs,
-    // source:).
+    // The rest of the file is source for the program, kept as text in
+    // named macros (cross.fs, source:).  The program compiles each one
+    // where it uses the macro's name.
     //
-    // Every baseword as a word of the nucleus too, so that source the
-    // nucleus compiles can say it: a header of its name on a word that is
-    // the baseword, which the nucleus compiles in place.  cross.fs lets no
-    // word of the program take a macro's name, so the word is bw- and the
-    // name, and the header is given the name (forth/names.fs runs this).
+    // First, every baseword as a word of the nucleus, so that source the
+    // nucleus compiles can use it.  Each gets a header with the baseword's
+    // name on a word that is the baseword, which the nucleus compiles
+    // inline.  cross.fs does not let a program's word take a macro's name,
+    // so the word is named bw- plus the name, and only the header has the
+    // real name (forth/names.fs uses this macro).
     fprintf(out, "\n\\ the words as the nucleus's\nsource: baseword-words\n");
     for(curr_word = &FORTH_WORDS[0]; curr_word->repr && strlen(curr_word->repr); curr_word++) {
         if (is_phrase(curr_word->repr)) continue;
         fprintf(out, "    bw-header %s\n", curr_word->repr);
     }
-    // and the sizes, each what cross.fs has (HOST)
+    // then the sizes, each with the value cross.fs has for it
     for(int n=0; SIZES[n].name; n++) {
         if (SIZES[n].name[0] == '\\') continue;
         fprintf(out, "    bw-size %s\n", SIZES[n].name);
     }
     fprintf(out, ";source\n");
 
-    // The names of an instruction's fields, for the decompiler (see.fs):
-    // where the ALU's input is from, the operation, and where the result
-    // goes.  Each is counted strings laid end to end: text, so bulk.
+    // The names of an instruction's field values, for the decompiler
+    // (see.fs): the ALU's input, the operation, and the output.  Each
+    // table is counted strings end to end.  They are text, so they go in
+    // bulk.
     fprintf(out, "\n\\ the names of an instruction's fields, as the nucleus's tables\nsource: field-names\n"
                  "    bulk\n");
     field_names(out, "f-in", "input_mux", VALUES(INPUT_MUX_REPR), with_in);
@@ -172,10 +177,11 @@ void generate_basewords_fs(const char* path) {
 
 // basewords-fs-gen FILE [CELL [ADDR [W H BASE]]]
 //
-// The machine is said as util/machines says one: the bits of its cell, the
-// bits of an address, and its display's width, height and first cell.
-// What is not said is what vm_constants.h gives a cell of that size; with
-// no machine said it is the machine vm_constants.h gives when nothing is.
+// The machine is given as util/machines lists one: its cell size in bits,
+// its address size in bits, and its display's width, height and first
+// cell.  A size that is not given takes vm_constants.h's default for that
+// cell size.  With no arguments after FILE, the machine is the one
+// vm_constants.h describes by default.
 int main(int argc, char *argv[]) {
     if (argc < 2 || argc == 5 || argc == 6 || argc > 7) {
         fprintf(stderr, "usage: %s FILE [CELL [ADDR [W H BASE]]]\n", argv[0]);

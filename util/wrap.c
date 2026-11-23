@@ -1,33 +1,34 @@
 //
 // wrap-source FILE...
 //
-// Lays Forth source out as doc/formatting.md says, where a line of it is
-// longer than a block's: the rules are there, and this does what they
-// say and no more.  A line that already fits is left as it is written.
-// Each file is written again if anything in it changed, and what could
-// not be done is said.  What it changed is read in git's diff before it
-// is kept.
+// Reformats Forth source to fit the lines of a block, following
+// doc/formatting.md.  The rules are in that document, and this program
+// applies them and does nothing else.  It changes only lines that are too
+// long: a line that already fits stays as it was written.  It rewrites a
+// file only if something in it changed, and reports each thing it could
+// not fit.  Read the changes in git's diff before keeping them.
 //
-// How it reads the rules, where they leave it something to decide:
+// Where the rules leave a choice, it does this:
 //
-// - The comments after code that are at one column on lines one after
-//   another, with the lines under them that go on with them, are a
-//   group, and move left together as far as the code allows.
-// - A comment goes on under itself (its column, ROOM characters beside
-//   the code at least) when it is a narrative comment, or a field's in a
-//   record of several.  A definition's own comment is its purpose
-//   comment, and goes where doc/formatting.md has a purpose comment go.
-// - A line of code is cut only where a phrase ends.  A line with no such
-//   place is said and left: what its words do together is not known
-//   here, and it is cut by hand.
-// - A run of lines longer than a block is cut with a line of nothing,
-//   where one thing ends and the next starts, or failing that between a
-//   comment and the code after it.  A definition longer than a block
-//   cannot be cut, and is said: it is factored by hand.
+// - Comments after code that start in the same column on consecutive
+//   lines, together with their continuation lines, are a group.  A group
+//   moves left as one, as far as the code allows.
+// - A comment continues under itself, in its own column (which must leave
+//   it at least ROOM characters beside the code), if it is a narrative
+//   comment, or one of several field comments in a record.  A comment on
+//   a definition's own line is its purpose comment, and goes where
+//   doc/formatting.md puts a purpose comment.
+// - A line of code is broken only where a phrase ends.  A line with no
+//   such place is reported and left alone.  This program does not know
+//   what the words do together, so that line is broken by hand.
+// - A run of lines longer than a block gets a blank line where one thing
+//   ends and the next starts, or failing that, between a comment and the
+//   code after it.  A definition longer than a block cannot be split that
+//   way.  It is reported, and is factored by hand.
 //
-// It changes no word of the source.  A comment's words are filled again,
-// and code is cut and indented; nothing is added but spaces, \ before a
-// comment's lines, and lines of nothing.
+// It changes no word of the source.  It refills the words of a comment,
+// and breaks and indents code.  It adds only spaces, the \ that starts
+// each line of a comment, and blank lines.
 //
 
 #include <stdio.h>
@@ -38,17 +39,17 @@
 
 #define WIDTH DISK_LINE
 #define LINES (DISK_BLOCK / DISK_LINE)
-#define ROOM 24         // the fewest characters a comment beside code is to have on a line
+#define ROOM 24         // the least width, in characters, of a comment beside code
 
 typedef struct {
     char** at;
     long n, room;
 } text;
 
-static const char* file;        // the file being fitted, for what is said of it
-static int left;                // lines it could not fit
-static int trying;              // a way of cutting is being tried, and what it cannot do is not said
-static int at_top;              // the line being fitted is not inside a definition or a table
+static const char* file;        // the file being reformatted, for messages
+static int left;                // the number of lines it could not fit
+static int trying;              // nonzero while a trial layout is made, whose failures are not reported
+static int at_top;              // 1 if the current line is outside every definition and table
 
 static void add_line(text* t, const char* from, int len) {
     ONE_MORE(t->at, t->n, t->room);
@@ -69,8 +70,9 @@ static int indent_of(const char* line) {
     return(at);
 }
 
-// A line left too long, said with how it starts: its number is not yet
-// known, since lines of nothing may be put in before it.
+// Counts the last output line as left too long, and reports it with the
+// reason `why` and its first characters.  Its line number is not printed,
+// because blank lines may still be inserted before it.
 static void too_long(const text* out, const char* why) {
     left++;
     if (trying) return;
@@ -82,7 +84,7 @@ static void too_long(const text* out, const char* why) {
 
 typedef struct {
     const char* at;
-    int len, after;             // and the spaces after it, when a word comes after it on its line
+    int len, after;             // `after` is the number of spaces that follow it when another word comes after it on the line
 } said;
 
 typedef struct {
@@ -96,9 +98,9 @@ static int ends_sentence(const char* word, int len) {
     return(strchr(".?!", last) != NULL);
 }
 
-// The words of a comment, after those there are.  The spaces after a word
-// are kept, one or two; a word at the end of a line has two after it if it
-// ends a sentence.
+// Appends the words of some comment text to `s`.  The spacing after each
+// word is kept as one space or two.  A word at the end of the text gets
+// two spaces after it if it ends a sentence, and one otherwise.
 static void words_of(saying* s, const char* from, int len) {
     int idx = 0;
     while (idx < len) {
@@ -116,23 +118,24 @@ static void words_of(saying* s, const char* from, int len) {
     }
 }
 
-// How long words a to b of a comment are on a line, after `start`
-// characters and the \.
+// Returns the length of a line that has `start` characters, then a \ and
+// a space, then words a to b-1 of a comment.
 static int said_span(const saying* s, long a, long b, int start) {
     int len = start + 2;
     for(long k=a; k < b; k++) len += (k > a ? s->at[k - 1].after : 0) + s->at[k].len;
     return(len);
 }
 
-// A comment's words filled to the width, each line a \ and words.  The
-// first line starts with `head`, if there is one, and the rest at the
-// indent.  Each line has as many words as fit, but that the last is not
-// one word by itself when the line before can spare it another.
+// Writes a comment's words as lines no wider than WIDTH, each line a \ and
+// then words.  The first line starts with the text `head`, if there is
+// one, and the other lines start at `indent`.  Each line takes as many
+// words as fit, except that the last line is not left with a single word
+// when the line before it can give up a word.
 static void fill_after(text* out, const char* head, int head_len, int indent, const saying* s) {
-    long* first = room_for(s->n + 2, sizeof(long));     // the word each line starts with
+    long* first = room_for(s->n + 2, sizeof(long));     // the index of the first word of each line
     long lines = 0;
     for(long k=0; k < s->n; k++) {
-        int start = lines == 1 && head ? head_len : indent;     // where the line it would go on starts
+        int start = lines == 1 && head ? head_len : indent;     // the column where the current line starts
         if (!lines || said_span(s, first[lines - 1], k + 1, start) > WIDTH) first[lines++] = k;
     }
     first[lines] = s->n;
@@ -163,7 +166,7 @@ static void fill(text* out, int indent, const saying* s) {
     fill_after(out, NULL, 0, indent, s);
 }
 
-// Lines of a paragraph of comment, at an indent, filled again.
+// Refills the lines of one comment paragraph, which all start at `indent`.
 static void fill_lines(text* out, char** lines, long n, int indent) {
     saying s = { 0 };
     for(long k=0; k < n; k++) words_of(&s, lines[k] + indent + 2, line_length(lines[k]) - indent - 2);
@@ -171,20 +174,23 @@ static void fill_lines(text* out, char** lines, long n, int indent) {
     free(s.at);
 }
 
-// A line that is only a \ comment: what it is.  ALONE is a \ by itself.
+// Classifies a line that is only a \ comment.  PROSE is ordinary text and
+// HEADING starts with dashes.  LAID_OUT has more than one space after its
+// \ and was formatted by hand.  ALONE is a \ with nothing after it.
+// Returns NOT_ONE for any other line.
 enum { NOT_ONE, PROSE, HEADING, LAID_OUT, ALONE };
 
 static int comment_line(const char* line, int brackets) {
     int at = indent_of(line), len = line_length(line);
     if (brackets || at >= len || line[at] != '\\' || (at + 1 < len && line[at + 1] != ' ')) return(NOT_ONE);
     if (at + 1 >= len) return(ALONE);
-    if (at + 2 >= len || line[at + 2] == ' ') return(LAID_OUT);     // laid out by hand
+    if (at + 2 >= len || line[at + 2] == ' ') return(LAID_OUT);     // formatted by hand
     if (!strncmp(line + at + 2, "----", 4)) return(HEADING);
     return(PROSE);
 }
 
-// A line that goes on with the \ comment of the line above, which is at
-// this column.
+// Returns 1 if a line continues the \ comment of the line above it, which
+// starts in `column`.
 static int goes_on(const char* line, int column) {
     return(column > 0 && indent_of(line) == column && line[column] == '\\' &&
            (line[column + 1] == ' ' || !line[column + 1]));
@@ -197,24 +203,25 @@ typedef struct {
     const piece* p;
 } code;
 
-// How long pieces a to b are, on a line by themselves.
+// Returns the length of pieces a to b-1 on a line of their own.
 static int span(const code* c, int a, int b) {
     int len = 0;
     for(int k=a; k < b; k++) len += (k > a ? c->p[k].gap : 0) + c->p[k].len;
     return(len);
 }
 
-// How long a line may be that ends with piece k: its last column is blank,
-// but for the end of a comment.
+// Returns the most characters a line that ends with piece k can have.  A
+// line's last column must stay blank unless the line ends in a comment.
 static int room_to(const code* c, int k) {
     return(is_comment(&c->p[k]) ? WIDTH : WIDTH - 1);
 }
 
+// Returns 1 if pieces a to b-1 fit on one line that starts at `indent`.
 static int fits(const code* c, int a, int b, int indent) {
     return(indent + span(c, a, b) <= room_to(c, b - 1));
 }
 
-// Whether a line as it is written fits a block's line.
+// Returns 1 if a line, as written, fits a block's line.
 static int line_fits(const char* line, int brackets) {
     int len = line_length(line);
     if (len != WIDTH) return(len < WIDTH);
@@ -225,6 +232,7 @@ static int line_fits(const char* line, int brackets) {
     return(ends_comment);
 }
 
+// Writes pieces a to b-1 as one line that starts at `indent`.
 static void put(text* out, const code* c, int a, int b, int indent) {
     char* line = room_for(indent + span(c, a, b) + 1, 1);
     int len = indent;
@@ -239,6 +247,7 @@ static void put(text* out, const code* c, int a, int b, int indent) {
     free(line);
 }
 
+// Returns 1 if piece k is a word that begins a definition.
 static int defines(const code* c, int k) {
     const piece* p = &c->p[k];
     return(p->kind == PLAIN && (is_word(c->line, p, ":") || is_word(c->line, p, "::") ||
@@ -246,8 +255,9 @@ static int defines(const code* c, int k) {
                                 is_word(c->line, p, "header-imm")));
 }
 
-// How many pieces a line starts with that start a definition, and where
-// its name and stack comment end, if it has one after its name.
+// Returns how many pieces at the start of a line begin a definition.  If
+// a stack comment follows them, `*stack_end` is set to the column where it
+// ends, and otherwise to 0.
 static int head_of(const code* c, int n, int* stack_end) {
     int head = 0;
     while (head < n && defines(c, head)) head++;
@@ -255,18 +265,22 @@ static int head_of(const code* c, int n, int* stack_end) {
     return(head);
 }
 
-// How deep in if, begin and do after a word, from how deep before it.
-// What ends one that started on a line before leaves it at nothing.
+// Returns the nesting depth of `if`, `begin` and `do` after a word, given
+// the depth before it and what the word does (`how`: 1 opens a structure,
+// -1 closes one).  A word that closes a structure opened on an earlier
+// line leaves the depth at 0.
 static int deeper(int depth, int how) {
     depth += how == 1 ? 1 : how == -1 ? -1 : 0;
     return(depth < 0 ? 0 : depth);
 }
 
-// Whether a phrase ends after piece k of those up to b, outside an if, a
-// begin or a do (depth): 2 where the writer said so, with two spaces after
-// it, or after a word that lays down a cell or a string (`,` `prow,` `,"`),
-// as a table's entries are; 1 at the end of an if, a begin or a do, which
-// is cut at only where the writer said nothing.
+// Tests whether a phrase ends after piece k, among the pieces up to b.
+// Returns 0 inside an `if`, a `begin` or a `do` (`depth` nonzero).
+// Returns 2 where the author marked the end with two spaces, and after a
+// word that compiles a cell or a string (`,` `prow,` `,"`), which is how
+// the entries of a table end.  Returns 1 at the end of an `if`, a `begin`
+// or a `do`.  A line is broken at a 1 only if it has no place that
+// returns 2.
 static int phrase_ends(const code* c, int k, int depth, int b) {
     const piece* p = &c->p[k];
     const char* word = c->line + p->at;
@@ -277,8 +291,8 @@ static int phrase_ends(const code* c, int k, int depth, int b) {
     return(control(c->line, p) == -1);
 }
 
-// A piece that starts a definition of its own: which goes at the left
-// edge, and not on under what is before it.
+// Returns 1 if a piece starts a new definition.  Such a piece goes at the
+// left margin, not indented under the code before it.
 static int starts_one(const code* c, int k) {
     static const char* const STARTS[] = { ":", "::", ":noname", "create", "variable", "2variable",
                                           "header", "header-imm", "defer", NULL };
@@ -286,16 +300,16 @@ static int starts_one(const code* c, int k) {
     return(p->kind == PLAIN && in_list(c->line, p->at, p->first, STARTS));
 }
 
-// Pieces a to b of a line of code, over as many lines as they need, the
-// first at the indent.
+// Writes pieces a to b-1 of a line of code on as many lines as they need.
+// The first line starts at `indent`.
 static void cut(text* out, const code* c, int a, int b, int indent) {
     if (a >= b) return;
     if (fits(c, a, b, indent)) {
         put(out, c, a, b, indent);
         return;
     }
-    // A definition: its name and stack comment on the first line, and its
-    // code on the lines after, indented.
+    // A definition: the name and stack comment go on the first line, and
+    // the code on the following lines, indented.
     int head = a;
     while (head < b && defines(c, head)) head++;
     if (head > a && head + 1 < b && c->p[head].kind == BRACKETS) {
@@ -303,11 +317,13 @@ static void cut(text* out, const code* c, int a, int b, int indent) {
         cut(out, c, head + 1, b, indent + 4);
         return;
     }
-    // What goes on from a line is indented: from a definition's first
-    // line, and from a line at the left edge.
+    // Continuation lines are indented four columns after a definition's
+    // first line and after a line at the left margin.  After an indented
+    // line they keep that line's indent.
     int more = head > a ? indent + 4 : indent ? indent : 4;
-    // What a create lays down goes on under itself, if it can be cut so
-    // and nothing else is defined after it.
+    // The data after a `create` continues in the column where it started,
+    // if it can be broken that way and nothing else is defined after it on
+    // the line.
     int under = indent + c->p[a].len + (a + 1 < b ? c->p[a + 1].gap : 0), alone = 1;
     for(int k=a + 1; k < b; k++) alone &= !starts_one(c, k);
     if (head == a && c->p[a].kind == PLAIN && is_word(c->line, &c->p[a], "create") && a + 1 < b &&
@@ -325,9 +341,10 @@ static void cut(text* out, const code* c, int a, int b, int indent) {
         if (left == had) return;
         left = had;
     }
-    // Where a phrase ends, as late as the line has room: where the writer
-    // said, if anywhere; but a definition's name is not left on a line by
-    // itself.  A definition of its own that follows goes at the left edge.
+    // Break at the last phrase end that fits on the line.  A place the
+    // author marked is preferred over any other.  A definition's name is
+    // never left on a line by itself.  If the piece after the break starts
+    // a definition of its own, it goes at the left margin.
     int best = -1;
     for(int said=2; said >= 1 && best < 0; said--) {
         int depth = 0;
@@ -342,8 +359,8 @@ static void cut(text* out, const code* c, int a, int b, int indent) {
         return;
     }
     int depth;
-    // An if, a begin or a do too long for the line: over lines, with what
-    // it holds indented.
+    // An `if`, a `begin` or a `do` that is too long for the line is spread
+    // over several lines, with its contents indented.
     depth = 0;
     for(int k=a; k < b; k++) {
         int how = control(c->line, &c->p[k]);
@@ -355,7 +372,7 @@ static void cut(text* out, const code* c, int a, int b, int indent) {
                 else if (then == -1 && !--in) end = j;
             }
             if (end < 0) break;
-            // A begin keeps what it tests, and its while, on its line if
+            // A `begin` keeps its test and its `while` on its own line, if
             // they fit there.
             int from = k + 1, test = -1;
             in = 1;
@@ -392,10 +409,11 @@ static void cut(text* out, const code* c, int a, int b, int indent) {
     too_long(out, "code has no end of a phrase to be cut at");
 }
 
-// Where the comments after a line's code start, and where its code ends:
-// the pieces at its end that are comments, but for a definition's stack
-// comment.  The start is the number of pieces if there are none, and
-// nothing if the line is only comments.
+// Returns the index of the first of the comments that follow a line's
+// code, and sets `*code_end` to the column where the code ends.  Those
+// comments are the pieces at the end of the line that are comments,
+// except a definition's stack comment, which counts as code.  Returns n
+// if there are none, and 0 if the line is only comments.
 static int comments_after(const code* c, int n, int* code_end) {
     int s = n;
     while (s > 0 && is_comment(&c->p[s - 1])) s--;
@@ -406,9 +424,10 @@ static int comments_after(const code* c, int n, int* code_end) {
     return(s);
 }
 
-// The first n pieces of a line of code, which has no \ comment among them.
-// A comment in brackets after the code stays beside it if the gap closed
-// is enough, or goes on a line of its own after it.
+// Writes the first n pieces of a line of code.  None of them is a \ comment.
+// A ( ) comment after the code stays beside the code if it fits once the
+// gap between them is reduced to two spaces.  Otherwise it goes on a line
+// of its own after the code.
 static void fit_rest(text* out, const code* c, int n, int indent) {
     const piece* p = c->p;
     int end = p[n - 1].at + p[n - 1].len, code_end;
@@ -438,9 +457,10 @@ static void fit_rest(text* out, const code* c, int n, int indent) {
     }
 }
 
-// A definition whose stack comment is the start of the \ comment after
-// its code, and not after its name: the line with it after the name, where
-// Forth has it, made here.  Nothing if the line is not one.
+// Handles a definition whose stack comment is at the start of the \ comment
+// after its code, instead of after its name.  Returns a new line with the
+// stack comment moved to follow the name, which is where Forth puts it.
+// Returns NULL if the line is not such a definition.
 static char* stack_after_name(const char* line, int brackets) {
     piece* p = NULL;
     long room = 0;
@@ -453,7 +473,7 @@ static char* stack_after_name(const char* line, int brackets) {
         int len = p[n - 1].len - 1;
         while (len && *said == ' ') said++, len--;
         const char* shut = len && *said == '(' ? memchr(said, ')', len) : NULL;
-        int effect = 0;                                 // it says what is taken and what is left
+        int effect = 0;                                 // 1 if the ( ) text contains --, which makes it a stack effect
         for(const char* at=said; shut && at + 1 < shut; at++) effect |= at[0] == '-' && at[1] == '-';
         if (effect) {
             const char* rest = shut + 1;
@@ -461,7 +481,7 @@ static char* stack_after_name(const char* line, int brackets) {
             while (rest_len && *rest == ' ') rest++, rest_len--;
             int name_end = p[head - 1].at + p[head - 1].len;
             text_more(&made, "%.*s %.*s", name_end, line, (int)(shut - said + 1), said);
-            if (head < n - 1) {                         // the code after the name, as far apart as it was
+            if (head < n - 1) {                         // copy the code after the name, with the gap it had before it
                 int code_end = p[n - 2].at + p[n - 2].len;
                 text_more(&made, "%*s%.*s", p[head].gap, "", code_end - p[head].at, line + p[head].at);
             }
@@ -472,7 +492,8 @@ static char* stack_after_name(const char* line, int brackets) {
     return(made);
 }
 
-// A line that is only `header name`, which is the definition's after it.
+// Returns 1 if a line is only `header NAME`.  Such a line belongs to the
+// definition on the line after it.
 static int lone_header(const char* line) {
     piece* p = NULL;
     long room = 0;
@@ -483,11 +504,11 @@ static int lone_header(const char* line) {
     return(lone);
 }
 
-// A comment put before the code it was beside: before the definition's
-// header, if it is a definition's and its header is on the line above;
-// and after a line of nothing, if a paragraph of comment is just above at
-// the left edge, which is another paragraph.  Nothing is put inside a
-// definition.
+// Writes a comment on the lines before the code it was beside.  If the
+// comment belongs to a definition whose `header` line is just above, the
+// comment goes before that `header` line.  If a comment paragraph is just
+// above at the left margin, a blank line is written first, to keep the two
+// paragraphs apart.  No blank line is written inside a definition.
 static void before_code(text* out, int indent, const saying* s, int definition) {
     char* header = definition && out->n && lone_header(out->at[out->n - 1]) ? out->at[--out->n] : NULL;
     if ((at_top || header) && !indent && out->n) {
@@ -501,11 +522,16 @@ static void before_code(text* out, int indent, const saying* s, int definition) 
     }
 }
 
-// A definition's line, with its purpose comment, whose words are s, taken
-// off its end: n pieces are left.  The purpose comment follows the stack
-// comment on the first line, and the code goes on the lines after; or it
-// goes on the line after the name, indented as the code is; or it is more
-// than a line, and goes before the definition.
+// Writes a definition's line and its purpose comment.  The comment's words
+// are in `s` and have been taken off the end of the line, which leaves n
+// pieces.  It uses the first of three layouts that fits:
+//
+//   the purpose comment after the stack comment on the first line, and
+//   the code on the following lines
+//   the purpose comment on the line after the name, indented like the
+//   code
+//   the purpose comment before the definition, when it is longer than one
+//   line
 static void purpose(text* out, const code* c, int n, const saying* s, int indent) {
     int stack_end, head = head_of(c, n, &stack_end);
     int body = stack_end ? head + 1 : head;
@@ -527,13 +553,16 @@ static void purpose(text* out, const code* c, int n, const saying* s, int indent
     }
 }
 
-// What is done with the comment after a line's code: as the rules say for
-// its kind (AS_IT_IS), or on under itself as one of a group (UNDER), or on
-// the line above the code, since there is no room beside it (ABOVE).
+// How the comment after a line's code is handled:
+//
+//   AS_IT_IS   by the rule for its kind
+//   UNDER      continued under itself, as one of a group
+//   ABOVE      moved to the line above the code, because there is no room
+//              beside the code
 enum { AS_IT_IS, UNDER, ABOVE };
 
-// A line of code, and the lines after it that go on with its \ comment.
-// Returns the line after them.
+// Reformats one line of code together with the lines after it that
+// continue its \ comment.  Returns the index of the line after those.
 static long fit_code_line(text* out, const text* in, long i, int brackets, int how) {
     const char* line = in->at[i];
     piece* p = NULL;
@@ -541,8 +570,8 @@ static long fit_code_line(text* out, const text* in, long i, int brackets, int h
     int starts = brackets;
     int n = pieces_of(line, &brackets, &p, &room), indent = p[0].at;
     int tail = n > 1 && p[n - 1].kind == TO_END ? p[n - 1].at : -1;
-    // A comment of a group whose comments go above their code goes above
-    // with the rest of them, though it would fit.
+    // When a group's comments go above their code, every comment in the
+    // group goes above, even one that would fit where it is.
     int all_fit = line_fits(line, starts) && !(how == ABOVE && tail >= 0);
     long j = i + 1;
     for(; tail >= 0 && j < in->n && goes_on(in->at[j], tail); j++) all_fit &= line_length(in->at[j]) <= WIDTH;
@@ -554,7 +583,7 @@ static long fit_code_line(text* out, const text* in, long i, int brackets, int h
     saying s = { 0 };
     for(long k=i; tail >= 0 && k < j; k++) words_of(&s, in->at[k] + tail + 1, line_length(in->at[k]) - tail - 1);
     char* stacked = j == i + 1 ? stack_after_name(line, starts) : NULL;
-    if (stacked) {                                      // read again, as it now is
+    if (stacked) {                                      // parse the line again in its new form
         line = stacked;
         brackets = starts;
         n = pieces_of(line, &brackets, &p, &room);
@@ -568,13 +597,13 @@ static long fit_code_line(text* out, const text* in, long i, int brackets, int h
     if (tail < 0) {
         fit_rest(out, &c, n, indent);
     } else if ((how == UNDER || (how == AS_IT_IS && !head)) && tail <= WIDTH - ROOM) {
-        fill_after(out, line, tail, tail, &s);          // on under itself
+        fill_after(out, line, tail, tail, &s);          // continue the comment under itself
     } else if (head && how != ABOVE) {
         purpose(out, &c, n - 1, &s, indent);
     } else {
-        // A narrative comment with no room beside its code: on the line
-        // above the code, or after it if the code only ends an if or a
-        // loop.
+        // A narrative comment with no room beside its code goes on the
+        // line above the code, or on the line after it if the code only
+        // closes an `if` or a loop.
         int closes = 1;
         for(int k=0; k < n - 1; k++) {
             int then = control(line, &p[k]);
@@ -590,18 +619,19 @@ static long fit_code_line(text* out, const text* in, long i, int brackets, int h
     return(j);
 }
 
-// The comments after code that are a group: moved left together as far
-// as the code allows, and what is to be done with each line's said in
-// `how`.  A group goes on over lines of code with no comment after them,
-// which it leaves as they are.
+// Finds each group of comments after code, moves the group left as far as
+// the code allows, and records in `how` what fit_code_line() is to do with
+// each line's comment.  A group continues across lines of code that have
+// no comment after them, and leaves those lines unchanged.
 static void align(text* lines, char* how) {
     long n = lines->n;
-    int* at = room_for(n, sizeof(int));                 // where the comments after the code start, or -1
-    // Where the code ends; or on a line that goes on with the comment
-    // above, -1 if that comment is one of a group's and -2 if not.
+    int* at = room_for(n, sizeof(int));                 // the column where the comments after the code start, or -1
+    // The column where the code ends.  On a line that continues the
+    // comment above, it is -1 if that comment is in a group and -2 if it
+    // is not.
     int* ends = room_for(n, sizeof(int));
-    int* plain = room_for(n, sizeof(int));              // where the line ends but for a \ comment
-    char* defining = room_for(n, 1);                    // the line starts a definition
+    int* plain = room_for(n, sizeof(int));              // the column where the line ends, not counting a \ comment
+    char* defining = room_for(n, 1);                    // 1 if the line starts a definition
     char* fits_now = room_for(n, 1);
     int brackets = 0, tail = -1, grouped = 0;
     piece* p = NULL;
@@ -644,14 +674,14 @@ static void align(text* lines, char* how) {
         for(long k=i; k < j; k++) {
             if (at[k] == column || ends[k] == -1) fit &= line_length(lines->at[k]) - (column - to) <= WIDTH;
         }
-        // Moved left, the comments may all fit.  If not, a narrative
-        // comment, or a field's in a record of several, goes on under
-        // itself if there is room beside the code, and above its code if
-        // there is not.  A definition's comment by itself is its purpose
-        // comment, and goes where a purpose comment goes.  The comments of
-        // the group move left together if then they fit or go on under
-        // themselves, and otherwise only if what is left beside the code
-        // does not fit where it is.
+        // Once moved left, the comments may all fit.  If they do not, a
+        // narrative comment, or one of several field comments in a record,
+        // continues under itself if there is room beside the code, and
+        // goes above its code if there is not.  A single comment on a
+        // definition is its purpose comment, and goes where a purpose
+        // comment goes.  The group moves left if its comments then fit or
+        // continue under themselves.  Otherwise it moves only if some line
+        // of the group is too long even without its \ comment.
         int table = commented > 1, beside = to <= WIDTH - ROOM;
         int moving = fit || (beside && (table || !definitions)) || still;
         for(long k=i; over && k < j; k++) {
@@ -663,7 +693,7 @@ static void align(text* lines, char* how) {
             char* line = lines->at[k];
             int len = line_length(line);
             char* moved = room_for(len + 1, 1);
-            if (ends[k] < 0) {                          // a line that goes on, moved as far
+            if (ends[k] < 0) {                          // a continuation line moves left by the same distance
                 memcpy(moved, line + (column - to), len - (column - to));
             } else {
                 memcpy(moved, line, ends[k]);
@@ -682,10 +712,11 @@ static void align(text* lines, char* how) {
     free(fits_now);
 }
 
-// Each line fitted to the width.
+// Reformats every line of `in` to fit the width, and writes the result to
+// `out`.
 static void fit_lines(text* out, const text* in, const char* how) {
     int brackets = 0;
-    where w = { 0 };                                    // where the lines read so far have left the code
+    where w = { 0 };                                    // the parse state after the lines read so far
     long read = 0;
     piece* seen = NULL;
     long seen_room = 0;
@@ -694,7 +725,7 @@ static void fit_lines(text* out, const text* in, const char* how) {
         at_top = between_things(&w);
         const char* line = in->at[i];
         int len = line_length(line), kind = comment_line(line, brackets);
-        if (kind == PROSE) {                            // and the rest of its paragraph
+        if (kind == PROSE) {                            // handle it together with the rest of its paragraph
             long j = i + 1;
             int indent = indent_of(line), longest = len;
             while (j < in->n && comment_line(in->at[j], 0) == PROSE && indent_of(in->at[j]) == indent) {
@@ -706,7 +737,7 @@ static void fit_lines(text* out, const text* in, const char* how) {
             i = j;
             continue;
         }
-        if (kind == ALONE && at_top && !indent_of(line)) {      // paragraphs are apart by a line of nothing
+        if (kind == ALONE && at_top && !indent_of(line)) {      // a blank line separates paragraphs, not a \ by itself
             add_line(out, "", 0);
             i++;
             continue;
@@ -733,7 +764,8 @@ static void fit_lines(text* out, const text* in, const char* how) {
     free(seen);
 }
 
-// The name of the first thing defined from a line on, for what is said.
+// Writes to `name` the name of the first definition in lines `from` to
+// `to`-1, for use in a message.
 static void name_from(const text* t, long from, long to, char* name, int room) {
     snprintf(name, room, "no definition");
     piece* p = NULL;
@@ -752,33 +784,35 @@ static void name_from(const text* t, long from, long to, char* name, int room) {
     free(p);
 }
 
-// The first line after j, before e, that starts a thing after one that
-// ended on the line before; or e.
+// Returns the first line after j and before e where a new thing starts
+// right after another has ended, or e if there is none.
 static long next_thing(const char* between, const char* only, long j, long e) {
     for(long k=j + 1; k < e; k++) if (between[k - 1] && !only[k - 1]) return(k);
     return(e);
 }
 
-// Runs longer than a block cut with a line of nothing, into `done`.
-// Returns how many runs could not be cut.
+// Copies `t` to `done`, inserting blank lines to split each run of lines
+// that is longer than a block.  Adds the number of blank lines inserted to
+// `*put_in`, and returns how many runs could not be split.
 static int fit_runs(text* done, const text* t, long* put_in) {
     long n = t->n;
-    char* nothing = room_for(n, 1);                     // a line of nothing
-    char* only = room_for(n, 1);                        // a line of nothing but comments
-    char* between = room_for(n, 1);                     // after this line, one thing has ended and the next is to start
-    char* entries = room_for(n, 1);                     // or a table goes on with its next entry
-    char* before = room_for(n + 1, 1);                  // a line of nothing goes before this one
+    char* nothing = room_for(n, 1);                     // 1 for a blank line
+    char* only = room_for(n, 1);                        // 1 for a line that is only comments
+    char* between = room_for(n, 1);                     // 1 if one thing has ended after this line and the next has not started
+    char* entries = room_for(n, 1);                     // 1 if a table continues with its next entry after this line
+    char* before = room_for(n + 1, 1);                  // 1 if a blank line is to be inserted before this line
     where w = { 0 };
     piece* p = NULL;
     long room = 0;
-    int tail = -1;                                      // the column of the \ comment a line may go on with
+    int tail = -1;                                      // the column of the \ comment that the next line may continue
     for(long i=0; i < n; i++) {
         nothing[i] = !line_length(t->at[i]);
         only[i] = !nothing[i] && only_comments(t->at[i], w.brackets);
         int goes = only[i] && goes_on(t->at[i], tail);
         int k = read_line(t->at[i], &w, &p, &room);
-        // A line that goes on with the comment above is that line's, and
-        // nothing is put between them: it is read as if it were code.
+        // A line that continues the comment above belongs to that line, and
+        // no blank line may come between the two.  So it is treated as
+        // code.
         between[i] = between_things(&w);
         entries[i] = between_entries(&w);
         if (goes) {
@@ -795,10 +829,11 @@ static int fit_runs(text* done, const text* t, long* put_in) {
         long e = i;
         int has_code = 0;
         while (e < n && !nothing[e]) has_code |= !only[e++];
-        // Before line j a thing starts (ENDS), or code starts after a
-        // comment and runs to where the next thing starts in a block's
-        // lines (COMMENT), or failing both, a table goes on with its next
-        // entry (ENTRY).
+        // The places a blank line can go before line j, in order of
+        // preference.  ENDS: a new thing starts at line j.  COMMENT: code
+        // starts at line j after a comment, and reaches the start of the
+        // next thing within a block's lines.  ENTRY: a table continues at
+        // line j with its next entry.
         #define ENDS(j)     (between[(j) - 1] && !only[(j) - 1])
         #define COMMENT(j)  (between[(j) - 1] && only[(j) - 1] && !only[j] && \
                              next_thing(between, only, (j), e) - (j) <= LINES)
@@ -808,7 +843,7 @@ static int fit_runs(text* done, const text* t, long* put_in) {
             for(long j=at + LINES; j > at && cut_at < 0; j--) if (ENDS(j)) cut_at = j;
             for(long j=at + LINES; j > at && cut_at < 0; j--) if (COMMENT(j)) cut_at = j;
             for(long j=at + LINES; j > at && cut_at < 0; j--) if (ENTRY(j)) cut_at = j;
-            if (cut_at < 0) {                           // the next place, and what is before it is too long, unless it is comment
+            if (cut_at < 0) {                           // no place within a block: take the next one, and report the lines before it unless they are all comments
                 for(long j=at + LINES + 1; j < e && cut_at < 0; j++) if (ENDS(j) || COMMENT(j)) cut_at = j;
                 long to = cut_at < 0 ? e : cut_at;
                 int comment = 1;

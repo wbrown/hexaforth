@@ -1,50 +1,59 @@
 //
 // tiles PICTURE.tiff own|half [OUT-DIRECTORY]
 //
-// What a picture would be stored as a vocabulary of tiles: a codebook of
-// small black and white tiles, and the picture as a tile's number in it for
-// each place, which is drawn as a font is, a tile for a glyph.  Whether
-// that is small enough, and looks enough like the dither, is what this
-// measures, before anything of it is written for the machine.
+// Measures a way of storing a picture as tiles from a codebook.  The
+// codebook is a set of small black and white tiles.  The picture is stored
+// as the number of a tile for each position, and it is drawn the way text
+// is drawn from a font, with a tile in place of a glyph.  This program
+// measures whether that is small enough and looks enough like the dither,
+// so that a choice can be made before any of it is written for the
+// machine.
 //
-// The picture is dithered as the machine dithers it (test/dither.c).  For
-// each shape of tile (16 by 1; 4 by 4, which is a cell of 16 bits too;
-// 2 by 2; 16 by 4, 16 by 8 and 32 by 4), and for each size of codebook,
-// 256, 1,024 or 4,096 tiles (4 or 8 for 2 by 2), a codebook
-// is made from the dither's own tiles by clustering them by how many pixels
-// differ: each tile goes to the nearest of the codebook's, and each of the
-// codebook's is made again of what most of its tiles have, ten times over.
-// A codebook that is not fewer than half the tiles there are says nothing,
-// and is left out.  It is made of this picture, and so is as good as a
-// codebook made that way can be for it: one made of other pictures would
-// do worse.
+// The picture is dithered as the machine dithers it (test/dither.c).  The
+// tile shapes tried are 16 by 1; 4 by 4, which is also one 16-bit cell;
+// 2 by 2; 16 by 4; 16 by 8; and 32 by 4.  The codebook sizes tried are
+// 256, 1,024 and 4,096 tiles (4 and 8 for the 2 by 2 tile).  For each
+// shape and size, a codebook is made from the dither's own tiles by
+// clustering them on the number of pixels that differ.  Each tile is
+// assigned to the nearest tile in the codebook, and then each tile in the
+// codebook is replaced by what most of the tiles assigned to it have at
+// each pixel.  That is repeated ten times.  A codebook with more than half
+// as many tiles as the picture has shows nothing, and is skipped.  The
+// codebook is made from this picture, so it is as good as a clustered
+// codebook can be for it.  One made from other pictures would do worse.
 //
-// Each size of codebook is also made by design, the same for every picture:
-// of as many grays as the square root of its size, evenly from black to
-// white, and of each the dither's own texture, at as many places along a
-// row: a field of that gray is dithered, and the tile at each place across
-// from a place well into it is taken.  So it has every gray at every phase
-// of the texture the dither makes of it, which clustering loses.  Nothing
-// of a picture is in it, and the machine could make it when it starts and
-// not keep it; its bytes are counted all the same.
+// Each size of codebook is also made by design, the same for every
+// picture.  It has as many grays as the square root of its size, spaced
+// evenly from black to white.  For each gray it has the dither's own
+// texture at that many positions along a row: a field of that gray is
+// dithered, and the tile at each successive pixel position, starting well
+// inside the field, is taken.  So it has every gray at every phase of the
+// texture the dither makes of it, which clustering loses.  It has nothing
+// from a picture in it, so the machine could generate it at startup
+// instead of storing it.  Its bytes are counted in the totals all the
+// same.
 //
-// The picture is then made of the codebook two ways:
-//   plain     each tile of the dither becomes the codebook's nearest to it
-//   diffused  the picture's grays are gone through a tile at a time, as the
-//             dither goes through them a pixel at a time: the tile chosen is
-//             the nearest to what the dither would make of what is owed
-//             there, and what each of its pixels is out by is passed on to
-//             the pixels after it as the dither passes it on
+// The picture is then made from the codebook in two ways:
+//   plain     each tile of the dither is replaced by the nearest tile in
+//             the codebook
+//   diffused  the picture's grays are processed a tile at a time, as the
+//             dither processes them a pixel at a time.  The tile chosen is
+//             the nearest to what the dither would make of the grays and
+//             the error owed at that position.  The error of each of its
+//             pixels is then passed on to the pixels after it, as the
+//             dither passes it on
 //
-// For each it prints how many bytes the picture is (the codebook and the
-// tiles' numbers, against the bitmap's), how many of its pixels are not the
-// dither's, and how far it is from the picture's grays when both are
-// blurred over 5 by 5 pixels, which is nearer what an eye sees than the
-// pixels are.  The dither itself is the first line, measured the same way.
+// For each it prints:
+//   - the bytes the picture takes (the codebook and the tile numbers),
+//     compared with the bitmap's
+//   - the share of its pixels that differ from the dither's
+//   - its distance from the picture's grays when both are blurred over 5
+//     by 5 pixels, which is closer to what an eye sees than the pixels are
+// The first line is the dither itself, measured the same way.
 //
-// With OUT-DIRECTORY, each is written there as a PBM (util/png makes a PNG
-// of one): dither.pbm, and SHAPE-SIZE-HOW-plain.pbm and -diffused.pbm, HOW
-// being cluster or design.
+// With OUT-DIRECTORY, each is written there as a PBM file (util/png
+// converts one to a PNG): dither.pbm, and SHAPE-SIZE-HOW-plain.pbm and
+// SHAPE-SIZE-HOW-diffused.pbm, where HOW is cluster or design.
 //
 
 #include <stdio.h>
@@ -54,14 +63,16 @@
 #include "../test/dither.h"
 #include "tiff.h"
 
-#define WORDS 4                         // a tile is at most 256 pixels: 32 by 8
+#define WORDS 4                         // a tile has at most 256 pixels (32 by 8), which is four 64-bit words
 
 typedef struct { uint64_t w[WORDS]; } tile;
 
-static int pw, ph;                      // the picture's size
-static const int* gray;                 // its grays
-static uint8_t* atk;                    // the dither: 1 is black
+static int pw, ph;                      // the picture's width and height in pixels
+static const int* gray;                 // the picture's grays
+static uint8_t* atk;                    // the dithered picture, one byte per pixel: 1 is black
 
+// Returns zeroed memory for n items of `size` bytes each.  Exits if there
+// is not enough memory.
 static void* room(size_t n, size_t size) {
     void* p = calloc(n ? n : 1, size);
     if (p == NULL) {
@@ -71,22 +82,27 @@ static void* room(size_t n, size_t size) {
     return(p);
 }
 
+// Returns the number of pixels that differ between two tiles.
 static int distance(const tile* a, const tile* b) {
     int d = 0;
     for(int k=0; k < WORDS; k++) d += __builtin_popcountll(a->w[k] ^ b->w[k]);
     return(d);
 }
 
+// Returns the number of black pixels in a tile.
 static int black_in(const tile* t) {
     int n = 0;
     for(int k=0; k < WORDS; k++) n += __builtin_popcountll(t->w[k]);
     return(n);
 }
 
+// bit() returns true if pixel i of a tile is black, and set() makes pixel
+// i black.
 static bool bit(const tile* t, int i) { return(t->w[i >> 6] >> (i & 63) & 1); }
 static void set(tile* t, int i) { t->w[i >> 6] |= 1ull << (i & 63); }
 
-// The tile at tile column tx, row ty of a bitmap, its pixels a row at a time.
+// Returns the tile at tile column tx and tile row ty of a bitmap.  The
+// tile's pixels are numbered row by row.
 static tile tile_of(const uint8_t* black, int tw, int th, int tx, int ty) {
     tile t = { 0 };
     for(int y=0; y < th; y++) {
@@ -98,6 +114,8 @@ static tile tile_of(const uint8_t* black, int tw, int th, int tx, int ty) {
     return(t);
 }
 
+// Returns the index of the tile, in a codebook of k tiles, that differs
+// from `t` in the fewest pixels.
 static int nearest(const tile* t, const tile* book, int k) {
     int best = 0, d = 1 << 30;
     for(int c=0; c < k; c++) {
@@ -112,14 +130,15 @@ static int by_black(const void* a, const void* b) {
     return(black_in(&sorting[*(const int*)a]) - black_in(&sorting[*(const int*)b]));
 }
 
-// A codebook of k tiles, made of n.
+// Returns a codebook of k tiles, clustered from n tiles that have `bits`
+// pixels each.
 static tile* codebook(const tile* tiles, int n, int k, int bits) {
     tile* book = room(k, sizeof(tile));
     int* order = room(n, sizeof(int));
     for(int i=0; i < n; i++) order[i] = i;
     sorting = tiles;
     qsort(order, n, sizeof(int), by_black);
-    for(int c=0; c < k; c++) book[c] = tiles[order[(long)c * n / k]];   // from the lightest to the darkest
+    for(int c=0; c < k; c++) book[c] = tiles[order[(long)c * n / k]];   // start with tiles spaced evenly from the lightest to the darkest
     free(order);
     int* of = room(n, sizeof(int));
     int* votes = room((size_t)k * bits, sizeof(int));
@@ -146,7 +165,8 @@ static tile* codebook(const tile* tiles, int n, int k, int bits) {
     return(book);
 }
 
-// A codebook of k tiles by design: levels grays, each at k / levels places.
+// Returns a designed codebook of k tiles: `levels` grays, each at
+// k / levels positions of the dither's texture.
 static tile* designed(int k, int tw, int th) {
     int levels = 1;
     while (levels * levels < k) levels++;
@@ -170,6 +190,7 @@ static tile* designed(int k, int tw, int th) {
     return(book);
 }
 
+// Copies a tile into a bitmap at tile column tx and tile row ty.
 static void put(uint8_t* black, const tile* t, int tw, int th, int tx, int ty) {
     for(int y=0; y < th; y++) {
         for(int x=0; x < tw; x++) {
@@ -179,17 +200,18 @@ static void put(uint8_t* black, const tile* t, int tw, int th, int tx, int ty) {
     }
 }
 
-// The dither's six to pass an eighth to, from a pixel: across and down.
+// The six pixels the dither passes an eighth of a pixel's error to, as
+// offsets across and down.
 static const int AHEAD[6][2] = { {1, 0}, {2, 0}, {-1, 1}, {0, 1}, {1, 1}, {0, 2} };
 
-// The picture made of the codebook, its grays gone through a tile at a time
-// with what is owed passed on.
+// Makes the picture from the codebook by processing its grays a tile at a
+// time and passing the error on.
 static void diffused(const tile* book, int k, int tw, int th, uint8_t* black) {
     int* owed = room((size_t)pw * ph, sizeof(int));
     int* here = room((size_t)tw * th, sizeof(int));
     for(int ty=0; ty * th < ph; ty++) {
         for(int tx=0; tx * tw < pw; tx++) {
-            // What the dither would make of this tile, on its own, from what is owed it.
+            // Dither this tile on its own, from its grays and the error owed to it.
             tile want = { 0 };
             for(int y=0; y < th; y++) {
                 for(int x=0; x < tw; x++) {
@@ -209,10 +231,11 @@ static void diffused(const tile* book, int k, int tw, int th, uint8_t* black) {
             }
             const tile* got = &book[nearest(&want, book, k)];
             put(black, got, tw, th, tx, ty);
-            // What each pixel of the tile chosen is out by, passed on.  A
-            // share for a pixel of a tile that is already chosen, on the
-            // left in this band, goes to the pixel under the band in its
-            // column, which is not, rather than being lost.
+            // Pass on the error of each pixel of the chosen tile.  A share
+            // that would go to a pixel of a tile that is already chosen
+            // (one to the left in this band of tiles) goes instead to the
+            // pixel in the same column just below the band, which is not
+            // chosen yet, so that the share is not lost.
             for(int y=0; y < th; y++) {
                 for(int x=0; x < tw; x++) {
                     int px = tx * tw + x, py = ty * th + y;
@@ -231,8 +254,8 @@ static void diffused(const tile* book, int k, int tw, int th, uint8_t* black) {
     free(owed), free(here);
 }
 
-// How far a bitmap is from the grays, both blurred over 5 by 5: the mean, of
-// 255.
+// Returns the mean difference between a bitmap and the picture's grays
+// when both are blurred over 5 by 5 pixels, out of 255.
 static double blurred(const uint8_t* black) {
     double sum = 0;
     for(int y=0; y < ph; y++) {
@@ -252,12 +275,15 @@ static double blurred(const uint8_t* black) {
     return(sum / ((double)pw * ph));
 }
 
+// Returns the percentage of a bitmap's pixels that differ from the
+// dither's.
 static double differ(const uint8_t* black) {
     long n = 0;
     for(long i=0; i < (long)pw * ph; i++) n += black[i] != atk[i];
     return(100.0 * n / ((double)pw * ph));
 }
 
+// Writes a bitmap to DIR/NAME.pbm.  Does nothing if `dir` is NULL.
 static void pbm(const char* dir, const char* name, const uint8_t* black) {
     if (!dir) return;
     char path[1024];
@@ -275,8 +301,8 @@ static void pbm(const char* dir, const char* name, const uint8_t* black) {
     fclose(out);
 }
 
-// The picture made of a codebook, plain and diffused: a line of the table,
-// and each written as a picture.
+// Makes the picture from a codebook both ways, plain and diffused.  It
+// prints one line of the table and writes each result as a picture.
 static void try_book(const char* dir, const char* how, const tile* book, int k, const tile* tiles, int n,
                      int tw, int th, long bitmap, uint8_t* made) {
     int bits = 0, across = (pw + tw - 1) / tw;
@@ -318,9 +344,9 @@ int main(int argc, char *argv[]) {
            "0.0%", blurred(atk));
     pbm(dir, "dither", atk);
 
-    // A shape, and the sizes of codebook it is tried with: a 2 by 2 tile is
-    // four pixels, which sixteen tiles are all of, so it is smaller only
-    // with fewer.
+    // Each tile shape, and the codebook sizes it is tried with.  A 2 by 2
+    // tile has four pixels, so there are only sixteen different tiles, and
+    // a codebook saves space only if it has fewer.
     static const struct { int tw, th, books[3]; } SHAPES[] = {
         {16, 1, {256, 1024, 4096}}, {4, 4, {256, 1024, 4096}}, {2, 2, {4, 8, 0}},
         {16, 4, {256, 1024, 4096}}, {16, 8, {256, 1024, 4096}}, {32, 4, {256, 1024, 4096}} };

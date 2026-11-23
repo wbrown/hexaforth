@@ -1,43 +1,44 @@
 //
 // keep GIT KEPT LABEL IMAGE.hex FILE...
 //
-// What was measured of an image, kept where the next measurement does not
-// write over it.
+// Saves the results of a measurement of an image where the next
+// measurement will not overwrite them.
 //
-// A target that measures writes what it found where it always does, so a
-// change that is to be compared with what was there before has nothing to
-// be compared with once it has been measured: the one before is gone.
-// This copies each FILE into KEPT, a directory of build/, under the image
-// it was measured of, the measurement's LABEL, and which time it is:
+// A measuring target always writes its results to the same place.  So once
+// a change has been measured, the results from before the change are gone,
+// and there is nothing to compare with.  This copies each FILE into KEPT,
+// a directory under build/, filed by the image that was measured, the
+// measurement's LABEL, and a run number:
 //
-//   KEPT/IMAGE-AS-IT-IS/LABEL/TIME/FILE
+//   KEPT/IMAGE-ID/LABEL/RUN/FILE
 //
-// An image as it is, is the first twelve digits of a number made of its
-// bytes: two images that are the same bytes are the same image, whatever
-// the tree was called when each was built.  So what is kept is kept by
-// what was measured, and not by when.
+// IMAGE-ID is the first twelve hex digits of a hash of the image's bytes.
+// Two images with the same bytes are the same image, whatever the tree was
+// called when each was built.  So results are filed by what was measured,
+// not by when.
 //
-// Nothing that is kept is written over.  The times are numbered from 1.
-// If every FILE is byte for byte what the last time has, nothing is
-// copied, and the log says it is as that time was; if any is not, which
-// is the same image given other work or measured another way, it is
-// another time, beside the last.
+// Nothing that has been kept is overwritten.  Runs are numbered from 1.
+// If every FILE is byte for byte the same as in the last run, nothing is
+// copied, and the log records that this run repeated that one.  If any
+// file differs, which means the same image was given other work or was
+// measured another way, the results become a new run beside the last.
 //
-// KEPT/IMAGE-AS-IT-IS/image/ has the image itself and what was written
-// beside it (its .tables, .sizes, .lst and .machine), so that counts by
-// place can be said by word long after build/ has another image in it, by
-// a tool that is the machine the image says (util/image.h).  What is
-// measured need not be an image (a kernel, the CPU's Verilog): a file that
-// is not a .hex is what was measured all the same, and is kept there by
-// itself.
-// KEPT/IMAGE-AS-IT-IS/of.txt says what the image is: its file, the commit
-// the tree was at when it was first kept (GIT is asked) and whether the
-// tree had changes not committed, and when that was.  KEPT/log.txt has a
-// line for every time something was measured, in order: when, the image
-// as it is, the commit, the label and its time, and the image's file.  It
-// is what is read to find the one before.
+// KEPT/IMAGE-ID/image/ holds the image itself and the files cross.fs wrote
+// beside it (its .tables, .sizes, .lst and .machine).  With those, counts
+// by address can still be reported by word long after build/ holds another
+// image, by a tool that takes its machine from the image (util/image.h).
+// The thing measured need not be an image: it can be a kernel, or the
+// CPU's Verilog.  A file that is not a .hex is still what was measured,
+// and is kept there on its own.
 //
-// It fails if the image or a file is not there: then nothing was
+// KEPT/IMAGE-ID/of.txt describes the image: its file, the commit the tree
+// was at when it was first kept (GIT is run to find out), whether the tree
+// had uncommitted changes, and the time.  KEPT/log.txt has one line for
+// every measurement, in order: the time, the image's id, the commit, the
+// label and run number, and the image's file.  The log is where to look to
+// find the run from before a change.
+//
+// It fails if the image or a file is missing, because then nothing was
 // measured.
 //
 
@@ -50,7 +51,7 @@
 #include <time.h>
 #include "room.h"
 
-// A directory, and those it is in, made if they are not there.
+// Creates a directory, and its parents, if they do not exist.
 static void directory(const char* path) {
     char* part = NULL;
     text_more(&part, "%s", path);
@@ -65,18 +66,18 @@ static void directory(const char* path) {
     free(part);
 }
 
-// A number made of some bytes (FNV-1a), which is the same for the same
-// bytes and all but never for others.
+// Returns a hash of some bytes (FNV-1a).
 static uint64_t number_of(const unsigned char* bytes, size_t len) {
     uint64_t h = 1469598103934665603ull;
     for(size_t at=0; at < len; at++) h = (h ^ bytes[at]) * 1099511628211ull;
     return(h);
 }
 
-// The first line of what git says when it is asked something of the tree
-// a file is in, without its end: made here, and empty if it said nothing.
-// It is the image's tree that is asked, which is not always the tree this
-// is run in: an image built in a copy of the tree is of that copy's commit.
+// Runs a git command in the tree that contains a file, and returns the
+// first line of its output, without the newline, as an allocated string.
+// The string is empty if git printed nothing.  The command runs in the
+// image's tree, which is not always the tree this program was started in:
+// an image built in a copy of the tree belongs to that copy's commit.
 static char* git_says(const char* git, const char* in_tree_of, const char* asked) {
     char* command = NULL;
     char* line = NULL;
@@ -102,7 +103,7 @@ static int there(const char* path) {
     return(!stat(path, &is));
 }
 
-// Whether two files are there and are the same bytes.
+// Returns 1 if two files both exist and have the same bytes.
 static int same(const char* one, const char* other) {
     unsigned char* a;
     unsigned char* b;
@@ -115,7 +116,7 @@ static int same(const char* one, const char* other) {
     return(is);
 }
 
-// A file copied to a directory, under its own name.
+// Copies a file into a directory, keeping its name.
 static void copied(const char* from, const char* dir) {
     unsigned char* file;
     size_t size = file_bytes(from, &file);
@@ -127,8 +128,8 @@ static void copied(const char* from, const char* dir) {
     free(file);
 }
 
-// The image, and what was written beside it, kept the first time anything
-// is kept of it.
+// Saves the image, and the files written beside it, the first time
+// anything is kept for that image.
 static void image_kept(const char* image, const char* of_image) {
     static const char* const beside[] = { ".hex", ".tables", ".sizes", ".lst", ".machine" };
     char* dir = NULL;
@@ -137,7 +138,7 @@ static void image_kept(const char* image, const char* of_image) {
     directory(dir);
     size_t stem = strlen(image);
     if (stem > 4 && !strcmp(image + stem - 4, ".hex")) stem -= 4;
-    else copied(image, dir);                            // what was measured is not an image: it is kept as it is
+    else copied(image, dir);                            // the thing measured is not an image: keep the file itself
     for(size_t b=0; stem < strlen(image) && b < sizeof(beside) / sizeof(beside[0]); b++) {
         char* from = NULL;
         text_more(&from, "%.*s%s", (int)stem, image, beside[b]);
@@ -179,8 +180,8 @@ int main(int argc, char *argv[]) {
     directory(labelled);
     image_kept(image, of_image);
 
-    // The last time this was measured of this image, and whether this is
-    // that again.
+    // Find the last run of this measurement for this image, and whether
+    // this run repeats it.
     int last = 0;
     for(;;) {
         char* next = NULL;

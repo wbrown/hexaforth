@@ -1,35 +1,40 @@
 //
-// turns.h - fewer instructions that do what a turn of a loop does, for the
-// tools and the tests that have this in them.  It has in it loops.h,
-// which says what a loop's turn is, and fewer.h, which looks for the
-// fewest instructions that leave what is wanted.
+// turns.h - searches for fewer instructions that do one turn of a loop,
+// for the tools and tests that include it.  It includes loops.h, which
+// defines a loop's turn, and fewer.h, which searches for the fewest
+// instructions that reach a target state.
 //
-// The peephole joins instructions that are next to each other, and keeps
-// every value where the source put it.  A loop has more to give: what it
-// keeps from one turn to the next (a pointer, an end, a distance) can be
-// in any cell, as long as it is in the same cell at the start of every
-// turn; and the end of a turn is next to the start of the next.
+// The peephole joins adjacent instructions and keeps every value where
+// the source put it.  A loop allows more.  The values it carries from one
+// turn to the next (a pointer, an end, a distance) can be in any cell, as
+// long as each is in the same cell at the start of every turn.  And the
+// end of one turn runs straight into the start of the next.
 //
-// A turn is taken whole: the body, and then the test if the loop tests at
-// the top.  What is looked for ends with the test, so that one branch at
-// the bottom goes back and no jump is needed: `begin ... until`, which
-// goes round while what is on top is nothing.  So the top is wanted only
-// for whether it is nothing; and the other way about from the loop's own
-// test, if the loop tests at the top and so goes round on something.
+// A turn is taken as a whole: the body, followed by the test if the loop
+// tests at the top.  The search looks for code that ends with the test, so
+// that a single branch at the bottom goes back and no jump is needed:
+// `begin ... until`, which repeats while the top is zero.  So the top only
+// matters as zero or non-zero.  A loop that tests at the top repeats while
+// its test is non-zero, so for such a loop the sense is inverted.
 //
-// It is looked for four ways (shorten): with what the turn keeps where it
-// is; with it kept in any of the top cells of the two stacks; a part of
-// the turn at a time, where the whole is too much to search; and with a
-// number the turn pushes kept on the return stack instead, put there
-// before the loop, where it is an input of the ALU.  What is found is run
-// on vm.c beside the turn (fewer.h, agree_on_machine) before it is said.
+// shorten() searches four ways:
 //
-// What is looked at is the turn's to say: every length shorter than it is
-// now, every way of keeping what it keeps in the cells it keeps it in,
-// every part of it shorter than the whole, and every number it pushes.
-// How long each search may take is fewer.h's (SEARCH_STATES), and the
-// same for every one; how many were made each way, and how many of those
-// were given up, is said with what was found.
+//   with the turn's kept values in their present cells
+//   with them kept in any of the top cells of the two stacks
+//   one part of the turn at a time, where the whole turn is too long to
+//     search
+//   with a number the turn pushes kept on the return stack instead, put
+//     there before the loop, where it is an ALU input
+//
+// Every answer is run on vm.c beside the turn (agree_on_machine(),
+// fewer.h) before it is reported.
+//
+// The turn determines what is searched: every length shorter than its
+// present length, every arrangement of its kept values among the cells it
+// uses, every part of it shorter than the whole, and every number it
+// pushes.  The time limit of each search is fewer.h's (SEARCH_STATES), and
+// is the same for all of them.  The report gives, for each way, the number
+// of searches made and the number that gave up.
 //
 
 #ifndef HEXAFORTH_TURNS_H
@@ -39,20 +44,20 @@
 #include "fewer.h"
 
 typedef struct {
-    uint16_t code[LAID_MOST];                // the turn as one run, as long as one can be run on vm.c (fuse.h),
+    uint16_t code[LAID_MOST];                // the turn as one run; at most the length vm.c can run (fuse.h)
     int len;
-    int now;                            // and how many instructions it runs in the loop, with its branches and calls
-    int at_top;                         // the loop tests at the top, and goes round on something
-    named left;                         // what the run leaves
-    int base;                           // the terms that is said in: those there were when it was run
-    int kept[2 * DEEP], n_kept;         // the cells it keeps things in, by their terms
-    int of_data, of_return;             // and how many of each stack's they are
+    int now;                            // the number of instructions it runs in the image, with its branches and calls
+    int at_top;                         // set if the loop tests at the top, and so repeats while the test is non-zero
+    named left;                         // the run's final state
+    int base;                           // the number of terms when it was stepped: `left` is expressed in those terms
+    int kept[2 * DEEP], n_kept;         // the cells it keeps values in, as terms
+    int of_data, of_return;             // how many of those are on each stack
 } a_turn;
 
-// A turn as one run, and what it leaves.  False if it is too long, or the
-// step cannot say what it leaves, or it does not leave the data stack one
-// deeper and the return stack as it was.  The terms it is said in are
-// there until the next turn is taken.
+// Builds a turn as one run and computes its final state.  Returns 0 if the
+// turn is too long, if the step cannot give its final state, or if it does
+// not leave the data stack one deeper and the return stack at the same
+// depth.  The terms of its final state stay valid until the next call.
 static int take_turn(const turn* t, a_turn* out) {
     named none;
     memset(out, 0, sizeof(a_turn));
@@ -73,12 +78,12 @@ static int take_turn(const turn* t, a_turn* out) {
     return(1);
 }
 
-// Every way of keeping what a turn keeps in the top cells of the two
-// stacks, but the way it is kept now, one at a time: so many cells in
-// every order, with from none to all of them on the data stack.  A way is,
-// for every cell's term, the cell it is kept in.  They are as many as the
-// orders of the cells, times one more than the cells, and are made as they
-// are wanted, not listed: a keeping starts with of_data less than nothing.
+// Enumerates every arrangement of a turn's kept values among the top cells
+// of the two stacks, except the present arrangement.  The values are taken
+// in every order, with anywhere from none to all of them on the data
+// stack.  An arrangement maps each cell's term to the cell its value is
+// kept in.  The arrangements are generated one at a time by next_way(),
+// not stored.  A `keeping` starts with of_data set to -1.
 typedef struct { int of_data, order[2 * DEEP]; } keeping;
 
 static int next_order(int* order, int k) {
@@ -111,8 +116,9 @@ static int next_way(const a_turn* t, keeping* g, int* to) {
     }
 }
 
-// A cell as it is said: T, N and R are the cells the machine has those
-// names for, and any other is its stack and how far under the top it is.
+// Formats a cell's name.  T, N and R are the cells the machine gives those
+// names.  Any other cell is named by its stack (d or r) and its depth
+// under the top.
 static void say_cell(char* text, size_t room, int cell) {
     int data = OF_DATA(cell), depth = DEPTH_OF(cell);
     if (data && depth == 0) snprintf(text, room, "T");
@@ -121,10 +127,10 @@ static void say_cell(char* text, size_t room, int cell) {
     else snprintf(text, room, "%s%d", data ? "d" : "r", depth);
 }
 
-// A way of keeping, in words: the text is made here, and is whoever
-// asks's to free.
+// Formats an arrangement as text.  Returns an allocated string, which the
+// caller frees.
 static char* kept_said(const a_turn* t, const int* to) {
-    char one[2 * 3 * sizeof(int) + sizeof(", x in x")];  // two cells, each a letter and a number, and what is between
+    char one[2 * 3 * sizeof(int) + sizeof(", x in x")];  // room for two cell names, each a letter and a number, and the text between
     char* text = room_for((size_t)t->n_kept + 1, sizeof(one));
     for(int idx=0; idx < t->n_kept; idx++) {
         char from[3 * sizeof(int) + 2], in[3 * sizeof(int) + 2];
@@ -138,9 +144,9 @@ static char* kept_said(const a_turn* t, const int* to) {
     return(text);
 }
 
-// What the top is to be nothing with, for `until` to go round when the
-// loop does: the flag for whether what the turn leaves on top is nothing,
-// and the other of it if the loop goes round on something.
+// Returns the flag the new top must match, so that `until` repeats exactly
+// when the loop does: the flag "the turn's top is zero", inverted if the
+// loop repeats while its test is non-zero.
 static int round_on(const a_turn* t, int top) {
     int flag = nothing(top);
     return(t->at_top ? not_flag(flag) : flag);
@@ -148,10 +154,11 @@ static int round_on(const a_turn* t, int top) {
 
 static wanted WANTED;
 
-// So many instructions that do a turn, with what it keeps kept as `to`
-// says (where it is, with none): found and run on vm.c beside the turn, or
-// not.  *given_up says the search stopped before it had looked at
-// everything, or there was no room for what was wanted.
+// Searches for `length` instructions that do a turn, with its kept values
+// arranged as `to` says, or left where they are if `to` is NULL.  Returns
+// 1 if they were found and agree with the turn when run on vm.c.
+// `*given_up` is set if the search stopped early, or if the target did not
+// fit the term table.
 static int turn_in(a_turn* t, const int* to, int length, long states, uint16_t* found, int* given_up) {
     int same[CELL_TERMS];
     named left;
@@ -167,9 +174,9 @@ static int turn_in(a_turn* t, const int* to, int length, long states, uint16_t* 
     return(agree_on_machine(t->code, t->len, found, length, to ? to : same, t->kept, t->n_kept, 1, t->at_top, 0) > 0);
 }
 
-// The same with a number kept on the return stack, put there before the
-// loop: what is found starts with it there and leaves it there.  `puts`
-// is the instructions that put it there, and there are PUTS of them.
+// The same, with a number kept on the return stack and put there before
+// the loop.  The answer starts with the number on the return stack and
+// leaves it there.  `puts` is the PUTS instructions that put it there.
 #define PUTS 2
 static int turn_with(a_turn* t, int64_t number, const uint16_t* puts, int length, long states,
                      uint16_t* found, int* given_up) {
@@ -196,8 +203,9 @@ static int turn_with(a_turn* t, int64_t number, const uint16_t* puts, int length
     return(agree_on_machine(t->code, t->len, whole, length + PUTS, NULL, t->kept, t->n_kept, 1, t->at_top, 1) > 0);
 }
 
-// The numbers a turn pushes, each once: how many.  There is room for as
-// many as the turn has instructions.
+// Lists the distinct numbers a turn pushes, with the instruction that
+// pushes each, and returns how many there are.  The caller's arrays must
+// have room for one per instruction of the turn.
 static int numbers_pushed(const a_turn* t, int64_t* pushed, uint16_t* by) {
     int n = 0;
     for(int idx=0; idx < t->len; idx++) {
@@ -210,10 +218,11 @@ static int numbers_pushed(const a_turn* t, int64_t* pushed, uint16_t* by) {
     return(n);
 }
 
-// A turn's test the other way round, if it is one instruction: one that
-// leaves the stacks as it does, and on top what is nothing when the
-// test's is not.  The instruction, or nothing; *searched says whether it
-// was looked for, and *given_up whether that was given up.
+// Finds the inverse of a turn's test, if the test is one instruction: an
+// instruction that leaves the stacks as the test does, with a top that is
+// zero exactly when the test's top is non-zero.  Returns the instruction,
+// or 0 if there is none.  `*searched` is set if a search was made, and
+// `*given_up` if it gave up.
 static uint16_t test_turned(const turn* loop_turn, long states, int* searched, int* given_up) {
     uint16_t found;
     named left;
@@ -228,32 +237,32 @@ static uint16_t test_turned(const turn* loop_turn, long states, int* searched, i
 
 static int by_parts(uint16_t* code, int len, long states, int* searched, int* given_up);
 
-// ---- a turn looked at every way
+// ---- searching a turn every way
 
 enum { KEPT_HERE, KEPT_ANYWHERE, TEST_AT_BOTTOM, A_PART_AT_A_TIME, NUMBER_IN_R };
 
-// Each search as it is made, for whoever wants to say how far it has got:
-// the way (above), how many instructions were looked for, of how many in
-// what is being made shorter, and whether it was given up.  Nothing is
-// said if it is not set.
+// An optional callback, called after each search so that a caller can
+// report progress.  It gets the way (above), the length searched for, the
+// length of the code being shortened, and whether the search gave up.  It
+// is not called if it is NULL.
 static void (*a_search)(int how, int length, int of, int given_up);
 #define SEARCHED(how, length, of, given_up) do { if (a_search) a_search((how), (length), (of), (given_up)); } while (0)
 
 typedef struct {
-    int how;                            // which way it was found
-    uint16_t code[LAID_MOST];                // the instructions before the branch that goes back,
-    int len;                            // and how many
-    int to[CELL_TERMS];                 // KEPT_ANYWHERE: where what the turn keeps is kept
-    int64_t number;                     // NUMBER_IN_R: the number
+    int how;                            // the way it was found
+    uint16_t code[LAID_MOST];                // the instructions before the backward branch
+    int len;                            // the number of those
+    int to[CELL_TERMS];                 // KEPT_ANYWHERE: the arrangement of the kept values
+    int64_t number;                     // NUMBER_IN_R: the number kept on the return stack
 } way;
 
 typedef struct {
     a_turn turn;
-    way found[NUMBER_IN_R + LAID_MOST]; // every way that fewer do it, in the order they were looked for: each of
-    int n;                              // the ways before the last once, and that once for each number pushed
-    int fewest;                         // the fewest instructions a turn, with the branch: as many as now, if no fewer
-    long searched[NUMBER_IN_R + 1];     // by way: the searches made,
-    long gave_up[NUMBER_IN_R + 1];      // and how many of them were given up
+    way found[NUMBER_IN_R + LAID_MOST]; // each shorter turn found, in the order searched: at most one for each way
+    int n;                              // before the last, and one per pushed number for the last
+    int fewest;                         // the fewest instructions per turn found, with the branch; the present count if none is shorter
+    long searched[NUMBER_IN_R + 1];     // the number of searches made, by way
+    long gave_up[NUMBER_IN_R + 1];      // the number of those that gave up, by way
 } shortened;
 
 static way* a_way(shortened* s, int how, const uint16_t* code, int len) {
@@ -265,10 +274,11 @@ static way* a_way(shortened* s, int how, const uint16_t* code, int len) {
     return(w);
 }
 
-// A turn looked at the four ways, each search given up after so many
-// states.  False if the turn cannot be taken (take_turn).  A way that is
-// found is there only if it is fewer than those found before it by the
-// same means: anywhere, only if fewer than where it is.
+// Searches a turn the four ways, each search limited to `states` states.
+// Returns 0 if take_turn() rejects the turn.  A result is recorded only if
+// it is shorter than the earlier result it competes with: a turn with
+// rearranged values is recorded only if it is shorter than the one with
+// the values in place.
 static int shorten(const turn* is, long states, shortened* s) {
     uint16_t found[LAID_MOST], known_to[LAID_MOST];
     a_turn* t = &s->turn;
@@ -277,14 +287,15 @@ static int shorten(const turn* is, long states, shortened* s) {
     if (!take_turn(is, t)) return(0);
     s->fewest = t->now;
 
-    // With what it keeps where it is; and then anywhere, if that is fewer.
+    // First with the kept values in place, then with them rearranged, if
+    // that is shorter.
     int most = t->now - 1, here = 0;
     for(int anywhere=0; anywhere < 2; anywhere++) {
         int length, way_found = 0, to[CELL_TERMS], found_to[CELL_TERMS];
         int how = anywhere ? KEPT_ANYWHERE : KEPT_HERE;
         for(length=1; length < most && !way_found; length++) {
             keeping g = { -1 };
-            while (!way_found && (anywhere ? next_way(t, &g, to) : g.of_data++ < 0)) {      // where they are: once
+            while (!way_found && (anywhere ? next_way(t, &g, to) : g.of_data++ < 0)) {      // in place there is one arrangement
                 int given_up = 0;
                 if (turn_in(t, anywhere ? to : NULL, length, states, found, &given_up)) {
                     way_found = 1;
@@ -305,9 +316,9 @@ static int shorten(const turn* is, long states, shortened* s) {
         }
     }
 
-    // What is known to do a turn with everything where it is: what was
-    // found, or the loop itself with its test at the bottom, the other way
-    // round.  That is then shortened a part at a time.
+    // Take code known to do a turn with every value in place: the result
+    // just found, or the loop itself with its test moved to the bottom and
+    // inverted.  Then shorten that one part at a time.
     int known_len = 0;
     if (here) {
         known_len = here;
@@ -338,8 +349,8 @@ static int shorten(const turn* is, long states, shortened* s) {
         }
     }
 
-    // A number the turn pushes, kept on the return stack instead.  (The
-    // parts forgot the turn's terms, so it is taken again.)
+    // Try keeping each number the turn pushes on the return stack instead.
+    // by_parts() discarded the turn's terms, so the turn is rebuilt first.
     int64_t pushed[LAID_MOST];
     uint16_t pushed_by[LAID_MOST], to_r = ins_named(">r");
     int pushes = to_r && take_turn(is, t) ? numbers_pushed(t, pushed, pushed_by) : 0;
@@ -359,12 +370,13 @@ static int shorten(const turn* is, long states, shortened* s) {
     return(1);
 }
 
-// Shorten a run that ends with what `until` asks about, a part at a time:
-// any run of a few of its instructions that fewer do the same as, with
-// everything where it is.  The last part is wanted, on top, only for
-// whether it is nothing.  What is found is run on vm.c beside the part.
-// The whole is not a part: it was looked for whole already.  How long the
-// run is after; *searched and *given_up are added to.
+// Shortens a run that ends with the value `until` tests, one part at a
+// time.  It replaces any stretch of the run with fewer instructions that
+// do the same, keeping every value in place.  For the last stretch, the
+// top only matters as zero or non-zero.  Each replacement is run on vm.c
+// beside the stretch it replaces.  The whole run is not tried as a
+// stretch, because it was already searched whole.  Returns the run's new
+// length, and adds to `*searched` and `*given_up`.
 static int by_parts(uint16_t* code, int len, long states, int* searched, int* given_up) {
     for(int again=1; again; ) {
         again = 0;

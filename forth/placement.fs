@@ -1,9 +1,8 @@
 \ placement.fs - where data and code are laid: bulk, high, the
 \ scratch, and the words that say a page
 
-\ cross.fs lays an image's regions and pages.  The nucleus has
-\ dp and the bulk's pointer, and compiles code where cp is: here
-\ high is bulk.
+\ The nucleus has dp and the bulk's pointer, and compiles code
+\ where cp is: here high is bulk.
 
 \ dp and dpl change places with the bulk's, if it has a place
 : bulk-swap ( -- )
@@ -22,11 +21,9 @@ header uncoded
 
 \ ---- the scratch
 
-\ Between meta and target, code is needed only while the file
-\ is compiled.  It goes to the scratch, the last $400
-\ instructions of the last code page, which is given back when
-\ the file has been read (files.fs).  In a definition the two
-\ do nothing.
+\ Code between meta and target goes to the scratch: the last
+\ $400 instructions of the last code page, which is given back
+\ when the file has been read (files.fs).
 meta
 code-base code-size + $400 - constant scratch-from
 :: SCRATCH0 scratch-from literal ;
@@ -49,9 +46,8 @@ header scratch-back
     cw-target  dup scratch !
     CODE-BASE CODE-SIZE + swap uncoded ;
 
-\ In code that is kept, a word of the scratch is in place.  One
-\ that cannot be, or whose xt is asked for, is not a word of
-\ that code's: -13.
+\ In code that is kept, a word of the scratch is inline.  One
+\ that cannot be, or whose xt is asked for, throws -13.
 : kept? ( xt -- f ) \ is xt a word code that is kept may call?
     SCRATCH0 u<  cp-kept @ or ;
 : kept, ( xt -- ) \ what compile, does (nuc.fs)
@@ -65,8 +61,8 @@ header-imm [']
 \ ---- the pages of code
 
 \ pages (nuc.fs) has how far each page's code has got.  Source
-\ of a block says the page its code goes on, as it does to
-\ cross.fs; typed, the words that say one do nothing.
+\ of a block names the page its code goes on; typed, the words
+\ that name one do nothing.
 
 : 'cp ( -- a ) \ the cell that says where code is laid next
     cp-kept @ if cp-kept else cp then ;
@@ -92,9 +88,8 @@ header-imm [']
 header code-on
 : code-on ( -- ) after-all lay-at ;
 
-\ Block source is done.  newpage? takes code from page 1 to
-\ cpn, and from a later page to the one after: so cpn is after
-\ all there is, and so is code that is past page 1.
+\ block source is done: cpn is after all the code there is, and
+\ so is code that is past page 1
 header pages-kept
 : pages-kept ( -- )
     cp @ CODE-BASE u< if after-all cpn ! exit then  code-on ;

@@ -1,5 +1,6 @@
 //
-// The nucleus on vm.c, typed at: nucleus.h says what this is for.
+// Runs the nucleus on vm.c and types at its prompt.  nucleus.h describes
+// the interface.
 //
 
 #include <stdarg.h>
@@ -11,28 +12,29 @@
 #include "../util/room.h"
 #include "../vm_stopped.h"
 
-context machine;                // too big for the stack: it has the machine's memory
-char* said = "";                // all it printed, however much
+context machine;                // a global, because it holds the machine's memory and is too big for the stack
+char* said = "";                // everything the machine printed, of any length
 void (*stopped_short)(void);
 
 static const char* nucleus_path;
-static uint8_t* nucleus;        // the image, as cross.fs wrote it,
-static size_t nucleus_len;      // and how many bytes it is
-static int stop_at;             // an instruction that is nothing: the machine stops at one
-static int prompt_at;           // where the machine is at its prompt: quit, as the machine says
-static char* typed;             // what is typed at it, which has room for as much as is typed,
+static uint8_t* nucleus;        // the image, as cross.fs wrote it
+static size_t nucleus_len;      // its length in bytes
+static int stop_at;             // the address of a zero instruction, where the machine stops
+static int prompt_at;           // the address of `quit`, the machine's prompt, as the machine itself reports it
+static char* typed;             // the queued input, in a buffer that grows as needed
 static long typed_room;
-static size_t typed_len;        // and how much that is
-static char* was_said;          // the room for what it printed, which is made anew each time it is run
-static bool has_run;            // it has been run since it was started: it goes on from its prompt
+static size_t typed_len;        // the length of the queued input
+static char* was_said;          // the buffer for the machine's output, allocated again on each run
+static bool has_run;            // true once the machine has run since start(); it then continues from its prompt
 
 uint64_t as_cell(int64_t x) {
     const int spare = 64 - CELL_BITS;
     return(((uint64_t)x << spare) >> spare);
 }
 
-// The machine stops at an instruction that is nothing, and the kernel's
-// ROM, which nothing stores into, has some after the kernel.
+// Returns the address of a zero instruction in the kernel's ROM.  The
+// machine stops at a zero instruction.  The ROM has some after the
+// kernel's code, and nothing stores into the ROM, so they stay zero.
 static int nothing_at(void) {
     const uint16_t* code = (const uint16_t*)nucleus;
     for(int idx=0; idx < KROM_BYTES / 2; idx++) {
@@ -61,9 +63,9 @@ void nucleus_is(const char* path) {
     prompt_at = (int)left(0);
 }
 
-// A context has room for the largest machine's memory.  This machine's is
-// the first MEM_BYTES of that room, and nothing touches the rest of it: so
-// what is cleared is all of the context but the rest of the room.
+// A context has room for the memory of the largest machine.  This machine
+// uses the first MEM_BYTES of it, and nothing touches the rest.  So
+// start() clears the whole context except the unused part of the memory.
 void start(void) {
     uint8_t* const memory = (uint8_t*)machine.memory;
     uint8_t* const after = memory + sizeof(machine.memory);
@@ -78,7 +80,7 @@ void line(const char* format, ...) {
     va_list args, again;
     va_start(args, format);
     va_copy(again, args);
-    int more = vsnprintf(NULL, 0, format, args);        // how long it is, and then it is written
+    int more = vsnprintf(NULL, 0, format, args);        // measure the text first, then format it
     va_end(args);
     AS_MANY(typed, (long)typed_len + more + 2, typed_room);
     typed_len += vsnprintf(typed + typed_len, more + 1, format, again);
@@ -93,11 +95,12 @@ void keys(const void* bytes, size_t count) {
     typed_len += count;
 }
 
-// What has been said has then been read: what is said next is read after.
+// Runs the machine on the queued input, and empties the queue.  Input
+// queued afterwards is read by the next run.
 static void read_it(void) {
     size_t said_len = 0;
     free(was_said);
-    AS_MANY(typed, 1, typed_room);                      // so that there is something to read from, if nothing was typed
+    AS_MANY(typed, 1, typed_room);                      // make sure the buffer exists even if nothing was queued
     machine.IN = fmemopen(typed, typed_len, "r");
     machine.OUT = open_memstream(&was_said, &said_len);
     vm(&machine);
@@ -107,16 +110,17 @@ static void read_it(void) {
     typed_len = 0;
     has_run = true;
     if (!STOPS.on || STOPS.reason == STOP_HALT) return;
-    // It stopped, and did not halt (vm_stopped.h): nothing goes on from there.
+    // The machine stopped without halting (vm_stopped.h).  The test cannot
+    // continue from there.
     if (stopped_short) stopped_short();
     fprintf(stderr, "%s\n", said);
     post_mortem(stderr, &machine, nucleus_path, NULL);
     exit(EXIT_FAILURE);
 }
 
-// What is then on the machine's data stack is what the lines left there.
-// A machine that has stopped once is where it stopped, which is nowhere to
-// go on from: it goes on from its prompt.
+// After type(), the machine's data stack holds what the lines left there.
+// A machine that has already run is restarted at its prompt, because the
+// address where it stopped is not a place to continue from.
 void type(void) {
     if (has_run) machine.EIP = prompt_at;
     line("%d execute", stop_at);
@@ -137,12 +141,12 @@ int stopping(void) {
     return(stop_at);
 }
 
-// The two depths are kept in two cells of the machine's, and the word that
-// goes on fetches them from there: it is all numbers and instructions, so
-// it calls nothing, and has nothing on the return stack before that
-// stack's depth is set.
-static uint64_t depths_at;      // the two cells,
-static int goes_on_at;          // and the word
+// The two stack depths are saved in two cells of the machine's memory,
+// and the word that resumes the machine fetches them from there.  That
+// word is made only of literals and instructions.  It calls nothing, so it
+// has nothing on the return stack before it sets that stack's depth.
+static uint64_t depths_at;      // the address of the two cells
+static int goes_on_at;          // the address of the word
 
 void going_on(void) {
     line("create depths 0 , 0 ,  depths");
@@ -177,7 +181,7 @@ uint8_t* cell_at(uint64_t addr) {
     return((uint8_t*)machine.memory + (addr << BYTE_SHIFT));
 }
 
-// A cell is 8, 4 or 2 bytes, the lowest first.
+// A cell is 8, 4 or 2 bytes, lowest byte first.
 uint64_t fetch(uint64_t addr) {
     const uint8_t* at = cell_at(addr);
     switch (CELL_BITS) {
@@ -196,8 +200,8 @@ void store(uint64_t addr, uint64_t x) {
     }
 }
 
-// A cell's bits are a power of two, so a pixel's cell and its bit of it
-// are a shift and a mask.
+// The number of bits in a cell is a power of two, so a pixel's cell and
+// its bit within the cell are found with a shift and a mask.
 bool black_at(int x, int y) {
     const int bits = CELL_BITS;
     uint64_t cell = fetch(DISP_ROW(y) + (x >> (BYTE_SHIFT + 3)));

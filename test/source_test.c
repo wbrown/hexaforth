@@ -1,26 +1,28 @@
 //
 // source_test IMAGE.hex DISK.img
 //
-// Source as the machine reads it: what is a comment is not read, at the
-// prompt and in a block (load), as Forth has it.  A block is read as one
-// thing: a comment in brackets ends at the next bracket, lines on or not,
-// and \ is what knows that a block has lines.  What is typed is a line,
-// and both comments end with it.
+// Checks how the machine reads source: comments are skipped, at the prompt
+// and in a block (load), as standard Forth defines them.  A block is read
+// as a single piece of text.  A ( comment ends at the next ), whether or
+// not that is on a later line, and \ is the word that knows a block has
+// lines.  Typed input is one line, and both kinds of comment end with it.
 //
-// The disk is one that mkdisk made with test/source.fs as its block of
-// source, so what lays a file's lines down as a block's is tried with what
-// reads them.  That file is words with comments about them, each comment
-// one that would undo its word, or leave a later word undefined, were it
-// read or did it not end where it should.  It has another block put in
-// the buffer while it is read, and loads one.  What each word is to leave
-// is said here and not there.
+// The disk is one that mkdisk made with test/source.fs as its source
+// block, so the code that packs a file's lines into a block is tested
+// together with the code that reads them.  That file is words with
+// comments around them.  Each comment would undo its word, or leave a
+// later word undefined, if it were read as code or did not end where it
+// should.  The file also has another block loaded into the buffer while it
+// is being read, and loads a block itself.  The values each word must
+// leave are given here, not in that file.
 //
-// The machine is the nucleus on vm.c, typed at (nucleus.h).  Under what a
-// check leaves is a number put there first: if the machine did not know a
-// word it has emptied its stack, and the number is gone.
+// The machine is the nucleus on vm.c (nucleus.h).  Before each check a
+// known number is pushed, under whatever the check leaves.  If the machine
+// met a word it did not know, it emptied its stack, and that number is
+// gone.
 //
-// It says how many checks it made and how many cells it compared, and
-// fails if that is none: then it found nothing to test.
+// It prints how many checks it made and how many cells it compared.  It
+// fails if it compared none, because then it tested nothing.
 //
 
 #include <stdio.h>
@@ -29,20 +31,20 @@
 #include <unistd.h>
 #include "nucleus.h"
 
-#define UNDER 12345             // what is under what a check leaves
-#define THROWS 3                // a block the test makes, after test/source.fs and the block of
-                                // nothing it loads: a word the machine does not know
+#define UNDER 12345             // the number pushed under whatever a check leaves
+#define THROWS 3                // the block the test adds, after test/source.fs and the empty block
+                                // that file loads; it contains a word the machine does not know
 #define SAID(x) #x
-#define NUMBER(x) SAID(x)       // a number that has a name, as it is typed
+#define NUMBER(x) SAID(x)       // a named number, as the text that is typed
 
 typedef struct {
     const char* label;
-    const char* typed;          // lines, typed after the block is loaded if it is one for the block
-    int count;                  // how many cells they leave,
-    int64_t leaves[4];          // and what those are, the top last
+    const char* typed;          // the lines to type; for a block check they are typed after the block is loaded
+    int count;                  // the number of cells they leave
+    int64_t leaves[4];          // those cells, the top of the stack last
 } check;
 
-// What is typed at the prompt.
+// The checks of typed input.
 static check PROMPT[] = {
     {"a comment to the end of the line", "7 \\ 8 9", 1, {7}},
     {"a comment to the end of the line, and the line after it", "7 \\ 8\n9", 2, {7, 9}},
@@ -55,7 +57,7 @@ static check PROMPT[] = {
      ": more ( a -- b ) 1+ \\ ; 99\n( 1+ ) ;\n6 more", 1, {7}},
     {""}};
 
-// What is typed when test/source.fs has been loaded.
+// The checks that run after test/source.fs has been loaded from its block.
 static check BLOCK[] = {
     {"a word with a comment after it that would throw", "seven", 1, {7}},
     {"a word after a comment that would make that word again", "seven nine", 2, {7, 9}},
@@ -73,15 +75,15 @@ static check BLOCK[] = {
      NUMBER(THROWS) " load\n" NUMBER(UNDER) " blk @ 7 \\ 8", 2, {0, 7}},
     {""}};
 
-static FILE* disk;              // the disk, if the checks being made are of the block,
-static long disk_blocks;        // and how many blocks it is
+static FILE* disk;              // the disk, for the block checks
+static long disk_blocks;        // its size in blocks
 static int checks, compared, failed;
 
-// The disk the checks are made with: a copy of the one mkdisk made of
-// test/source.fs, with one more block, THROWS, which is a word the machine
-// does not know.  (A block that is not there, or is nothing, is loaded and
-// throws nothing: the check of a block that throws once asked for the
-// picture's block, of a disk that had no picture.)
+// Makes the disk the checks use: a copy of the one mkdisk made from
+// test/source.fs, with one more block, THROWS, which contains a word the
+// machine does not know.  (Loading a block that is missing or all zeros
+// throws no error.  The check of a block that throws once loaded the
+// picture's block on a disk that had no picture, and so nothing threw.)
 static void disk_is(const char* path) {
     static const char unknown[] = "no-such-word";
     FILE* made = fopen(path, "rb");
@@ -117,7 +119,7 @@ static void run(const check* test, bool block) {
     start();
     line("%d", UNDER);
     if (block) {
-        machine.DISKS[0] = disk;    // which the machine finds when it starts
+        machine.DISKS[0] = disk;    // the machine finds this disk when it starts
         machine.DISKBLOCKS[0] = disk_blocks;
         line("%d load", DISK_SOURCE_BLOCK);
     }
@@ -145,7 +147,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Usage: %s IMAGE.hex DISK.img\n", argv[0]);
         return(1);
     }
-    alarm(600);                 // a machine that does not stop is stopped
+    alarm(600);                 // kill the test if the machine never stops
     nucleus_is(argv[1]);
     disk_is(argv[2]);
 

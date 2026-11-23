@@ -51,19 +51,17 @@ meta 1 code-page target
 include files.fs        \ a source of the disk's by its label, and a file's own names
 include console.fs      \ the screen as the console, and the boot from a disk
 
-\ what a machine that boots compiles from its disk is counted,
-\ for the order the image's headers are searched in (cross.fs)
+\ apps.fs's names are counted, for the order the image's headers
+\ are searched in (cross.fs)
 BOOTING? [if]
 says apps.fs
 [else]
 include apps.fs
 [then]
 
-\ after all the other data: how long it is moves nothing
-include-fused           \ fused.fs: instructions as words, for the decompiler
+include folds.fs        \ the peephole's rules: a table
 
-\ a table of instructions: the last thing laid on its page
-meta 0 sys-page target
-include folds.fs
+\ after all the other data
+include-fused           \ fused.fs: instructions as words, for the decompiler
 
 meta t' forth0 t' tstamp name-tables target

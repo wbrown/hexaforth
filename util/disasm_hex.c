@@ -3,80 +3,99 @@
 //                      [--layout [--near NAME]...] [--memory FILE [--own DISK.img]] [--headers]
 //                      [--color | --no-color]
 //
-// An image's code, word by word, as the decompiler shows it (forth/see.fs),
-// with the machine's form of every instruction beside it.
+// Disassembles an image's code word by word, laid out the way the
+// decompiler shows it (forth/see.fs), with each instruction's encoding
+// beside it.
 //
-// --layout is the whole image as it is laid out, to be read for a better
-// way of laying it: the pages of code as `examine` has them; the calls
-// that go to a word on another page, which are a push and a call of
-// execute where a call within a page or into the kernel's is one
-// instruction, each with how often it was run if --counts says, and what
-// they come to of the work; the words that are called so, by how often
-// those calls are run and again by how many places make them, each beside
-// the calls that reach it with one instruction, which moving it would
-// make longer; the data by cell, each variable and table with
-// the cells to the next and whether one instruction reaches it; and then
-// every word in order of place, with a line where each page starts and
-// ends that says what it has and what it has left, and a line for whatever
-// is between two words, nothing or what is no word's.  The targets
-// listing-64 and the like write it (cmake/machines.cmake).  With --near NAME,
-// as often as there are words, it is instead what the calls would be were
-// those words in the kernel's page (show_near, below, says what it
-// prints): asked before a word is moved there.
+// --layout prints the whole image as it is laid out, for someone looking
+// for a better layout.  It prints, in order:
 //
-// --memory FILE is the machine's memory in the image's place, as the
-// reference VM wrote it when it stopped: what the machine compiled is in
-// it, under the names its dictionary still has, and with --layout the calls
-// that code makes to other pages are counted with the image's.
+//   The pages of code, as `examine` reports them.
 //
-// With --own DISK.img as well, the disk that machine booted from as it left
-// it, the words its boot compiled that are each file's own have their names
-// too, which it keeps there (forth/files.fs).
+//   The calls to a word on another page.  Such a call is a push and a call
+//   of `execute`, where a call within a page or into the kernel's page is
+//   one instruction.  With --counts, each call has the number of times it
+//   ran, and the list ends with the share of the work those calls are.
 //
-// --headers is the dictionary and nothing else, from the header a search
-// starts at to the one its chain stops at (show_headers).
+//   The words that are called that way, ordered by how often those calls
+//   ran, and again by how many places make them.  Beside each word are the
+//   calls that reach it in one instruction, which would get longer if the
+//   word moved.
 //
-// --typed FILE.fs is the image as the machine has it when that file has
-// been typed at the nucleus's prompt: the words the file defines are
-// there as the nucleus's own compiler made them, and with no word named
-// those are the words shown.  --counts WORK has beside each instruction
-// how often it was run: WORK is the work by place that the reference VM
-// that counts leaves (RUN_WORK, bench/counting.c).
+//   The data by cell: each variable and table, the number of cells to the
+//   next one, and whether one instruction reaches it.
 //
-// Each word starts with its name, and its code is laid out as source is
-// written: what is inside an if or a begin is indented, and its branches
-// are said as `if`, `else`, `then`, `begin`, `until`, `again`, `while` and
-// `repeat`, read from where they go as see.fs reads them.  An instruction
-// is a line: where it is, its number, the words for it, and its fields as
-// vm_opcodes.h names them.
+//   Every word in address order.  A line marks where each page starts and
+//   ends, with what the page holds and how much space it has left.  A line
+//   also marks any gap between two words, which is zeros or bytes that
+//   belong to no word.
+//
+// The targets listing-64 and the like write this (cmake/machines.cmake).
+// With --near NAME, given once for each word, it prints instead what the
+// calls would be if those words were in the kernel's page (show_near(),
+// below, describes the output).  Use it before moving a word there.
+//
+// --memory FILE reads the machine's memory from FILE in place of the
+// image.  FILE is the memory the reference VM wrote when it stopped.  It
+// contains the code the machine compiled, which is shown under the names
+// the machine's dictionary still has.  With --layout, the calls that code
+// makes to other pages are counted together with the image's.
+//
+// --own DISK.img, with --memory, names the disk that machine booted from,
+// as the machine left it.  The machine saves each file's private names on
+// that disk (forth/files.fs), so the words its boot compiled under a
+// private name are shown with their names too.
+//
+// --headers prints only the dictionary, from the header a search starts at
+// to the header where the chain ends (show_headers()).
+//
+// --typed FILE.fs shows the image as the machine has it after FILE.fs has
+// been typed at the nucleus's prompt.  The words the file defines are then
+// present as the nucleus's own compiler compiled them.  If no word is
+// named, those are the words shown.
+//
+// --counts WORK prints beside each instruction the number of times it ran.
+// WORK is the file of counts by address that the counting reference VM
+// writes (RUN_WORK, bench/counting.c).
+//
+// Each word starts with its name, or with all of its names if it has more
+// than one header; naming any of them on the command line selects it.  Its
+// code is laid out like source.  The body of an `if` or a `begin` is
+// indented, and branches are shown as `if`, `else`, `then`, `begin`,
+// `until`, `again`, `while` and `repeat`, which are worked out from the
+// branch targets the way see.fs does it.  Each instruction is one line:
+// its address, its value, the words for it, and its fields under the names
+// vm_opcodes.h gives them.  An instruction is shown as follows:
 //
 //   a call            the word it calls, by its header or its label
-//   a number          the word that does nothing but push it (a variable,
-//                     anything made with create), or its label of data;
-//                     an execution token as ['] and its word; or itself
-//   a variable        fetched or stored by one instruction, by its name
-//   a call of execute after a number that is a word's place: that word,
-//                     on another page
-//   an instruction    the words the image's own table has for it (`fused`,
-//                     made by util/fused.c, which asks the machine); else
-//                     its name in vm_opcodes.h; else its number
-//   a return          folded into the instruction before it: `exit`, or
-//                     `;` where the word ends
+//   a literal         the word that only pushes that number (a variable,
+//                     or anything made with `create`), or the data label
+//                     at that address; or ['] and a word, if the number is
+//                     an execution token; or the number itself
+//   a variable        a variable fetched or stored by one instruction, by
+//                     its name
+//   a call of execute after a literal that is a word's address: that word,
+//                     which is on another page
+//   an ALU            the words the image's own table has for it (`fused`,
+//   instruction       made by util/fused.c, which gets them from the
+//                     machine); or else its name in vm_opcodes.h; or else
+//                     its value
+//   a return          it is folded into the instruction before it, and is
+//                     shown as `exit`, or as `;` at the end of the word
 //
-// The names are the image's dictionary and the labels in the file of names
-// beside it (IMAGE.tables, which util/words.h reads), and the file a
-// word's code is from is from the .sizes beside it (bench/files.h).  A
-// listing (.lst) may be given too, for whatever it names at a place of
-// code.  How long a word is, is util/words.h's to say.
-// With no word named and no range, it is every word of the image; a range
-// is the words that have code in it.  The nucleus's tables, which are laid
-// down after the code of their page, are not code and are not shown.
+// The names come from the image's dictionary and from the labels in the
+// names file that goes with it (IMAGE.tables, which util/words.h reads).
+// The source file each word's code belongs to comes from the image's
+// .sizes file (bench/files.h).  A listing (.lst) may also be given, for
+// any names it has for code addresses.  util/words.h determines how long
+// each word is.  With no word named and no range, every word of the image
+// is shown.  A range selects the words that have code inside it.
 //
-// On a terminal it is in colour, as `NO_COLOR` and `--no-color` say
-// otherwise: a word called in cyan, and in italics when it is a label;
-// numbers in yellow; variables and data in magenta; the words that steer
-// in red; and the words of one instruction that is several underlined as
-// one.  Where it is and its fields are dim.
+// On a terminal the output is in colour, unless `NO_COLOR` is set or
+// `--no-color` is given: a called word in cyan, and in italics if its name
+// is a label; numbers in yellow; variables and data in magenta; control
+// flow words in red; and the several words of a single instruction
+// underlined together.  The address and the fields are dim.
 //
 
 #include <unistd.h>
@@ -87,9 +106,10 @@
 #include "../bench/files.h"
 #include "../bench/work.h"
 
-// The nucleus typed at (test/nucleus.c): what of it is used here.  Its
-// header is not had: it names a function as vm.c, which this has, names
-// one of its own.
+// The parts of test/nucleus.c used here.  That file runs the nucleus and
+// types at its prompt.  They are declared here because nucleus.h cannot be
+// included: it declares a function with the same name as one in vm.c,
+// which this file includes.
 extern context machine;
 extern char* said;
 void nucleus_is(const char* path);
@@ -98,36 +118,35 @@ void line(const char* format, ...);
 void type(void);
 
 static int COLOR;
-static double* RAN;             // how often the instruction at each place was run, if that was asked for,
-static long RAN_PLACES;         // and of how many places it is said
+static double* RAN;             // the number of times the instruction at each address ran, or NULL without --counts
+static long RAN_PLACES;         // the number of addresses RAN covers
 
 // ---- the image
 
-static uint8_t* BYTES;          // the image as it is,
-static uint8_t* PLAIN;          // and with the nucleus's tables made nothing
+static uint8_t* BYTES;          // the image's bytes
 static size_t LEN;
-static const uint16_t* INSN;    // its instructions
+static const uint16_t* INSN;    // the same bytes as instructions
 static long INSTRUCTIONS;
-static word* WORDS;             // its words, by header and by label (words.h)
+static word* WORDS;             // the image's words, from its headers and its labels (words.h)
 static int NWORDS;
-static word* DATA;              // its labels of data
+static word* DATA;              // its data labels
 static long NDATA;
-static span* FILES;             // the source files its code is from (bench/files.h)
+static span* FILES;             // the source files its code comes from (bench/files.h)
 static int NFILES;
 
 typedef struct { long at; char* name; } named;
-static named* LISTED;           // names from a listing, where there are no labels
+static named* LISTED;           // names from a listing (.lst), for addresses that have no label
 static long NLISTED, LISTED_ROOM;
 
 typedef struct { long xt; long head; int pushes; uint64_t value; } header;
-static header* HEADERS;         // the dictionary: each word's place, its header,
-static long NHEADERS, HEADER_ROOM;  // and the number it pushes, if that is all it does
+static header* HEADERS;         // the dictionary: for each header, the word's address, the header's own address,
+static long NHEADERS, HEADER_ROOM;  // and the number the word pushes, if pushing it is all the word does
 
-typedef struct { uint16_t ins; int n; long head[4]; } fusion;
-static fusion* FUSED;           // the image's own table of an instruction's words
-static long NFUSED, FUSED_ROOM;
+typedef fused_entry fusion;
+static fusion* FUSED;           // the image's own table of the words for each instruction
+static long NFUSED;
 
-static long EXECUTE = -1;       // where execute is: a call of it after a word's place
+static long EXECUTE = -1;       // the address of `execute`; a pushed address and a call of it is a call to another page
 
 static long target_of(long at) { return((long)branch(at + 1, INSN[at] & 0x1fff)); }
 static int is_literal(uint16_t w) { return(w & 0x8000); }
@@ -135,10 +154,11 @@ static int is_variable(uint16_t w) { return(is_literal(w) && (w & 0x3000) == 0x3
 static int adds(uint16_t w) { return(is_literal(w) && !is_variable(w) && (w & 0x4000)); }
 static int pushes(uint16_t w) { return(is_literal(w) && !is_variable(w) && !(w & 0x4000)); }
 static uint64_t number_in(uint16_t w) { return((uint64_t)(w & 0xfff) << (((w >> 12) & 3) * LIT_BITS)); }
-static int kind_of(uint16_t w) { return(is_literal(w) ? -1 : (w >> 13) & 3); }     // OP_TYPE, or a literal
+static int kind_of(uint16_t w) { return(is_literal(w) ? -1 : (w >> 13) & 3); }     // the OP_TYPE, or -1 for a literal
 
-// The number the code at a place pushes, if that is all it does: pushes,
-// adds, and a plain exit (see.fs, hval).
+// Tests whether the code at an address only pushes a number: a literal,
+// any literals that add to it, and then a plain exit (see.fs, hval).  If
+// so, stores the number in `*value` and returns 1.
 static int pushes_only(long at, uint64_t* value) {
     if (at < 0 || at >= INSTRUCTIONS || !pushes(INSN[at])) return(0);
     uint64_t n = number_in(INSN[at]);
@@ -147,6 +167,8 @@ static int pushes_only(long at, uint64_t* value) {
     return(at < INSTRUCTIONS && INSN[at] == 0x7403);
 }
 
+// Reads the dictionary into HEADERS, in the order it is searched, and
+// finds the address of `execute`.
 static void read_dictionary(void) {
     for(uint32_t head = first_header(BYTES, LEN); head; ) {
         uint64_t xt;
@@ -161,12 +183,13 @@ static void read_dictionary(void) {
     }
 }
 
-// The dictionary as it is searched, from the header a search starts at:
-// the cell each is at, the cell its link says, which is the header looked
-// at after it, its word's place and its name.  The last line is the header
-// the chain stops at, whose link in an image is nothing: of a machine's
-// memory it is where a chain that was broken stops, and its link is there
-// to be read.
+// Prints the dictionary in the order it is searched, starting from the
+// header a search starts at.  Each line has the header's cell address, its
+// link (the cell address of the header searched next), the word's
+// address, and the name.  The last line is the header where the chain
+// ends.  In an image that header's link is 0.  In a machine's memory, a
+// chain that was broken ends at the header with the bad link, and the
+// line shows that link.
 static void show_headers(void) {
     printf("  cell   after   place  name\n");
     for(uint32_t head = first_header(BYTES, LEN); head; ) {
@@ -186,38 +209,18 @@ static const char* name_at_head(long head) {
     return(name);
 }
 
-static int has_header(long xt) {
-    for(long idx=0; idx < NHEADERS; idx++) if (HEADERS[idx].xt == xt) return(1);
-    return(0);
+static int immediate_head(long head) {
+    return((cell_of(BYTES, head / CELL_BYTES + 1) >> (CELL_BITS - 1)) & 1);
 }
 
 static int immediate(long xt) {
-    for(long idx=0; idx < NHEADERS; idx++) {
-        if (HEADERS[idx].xt == xt) return((cell_of(BYTES, HEADERS[idx].head / CELL_BYTES + 1) >> (CELL_BITS - 1)) & 1);
-    }
+    for(long idx=0; idx < NHEADERS; idx++) if (HEADERS[idx].xt == xt) return(immediate_head(HEADERS[idx].head));
     return(0);
 }
 
-// The decompiler's table (fused.fs), which the cell `fused-at` says the
-// place of (see.fs): cells of the instruction, how many words, and the
-// address of each word's header, to a cell that is nothing.
+// Reads the decompiler's table (fused.fs) from the image (words.h).
 static void read_fused(void) {
-    long at = place_of(WORDS, NWORDS, "fused-at");
-    uint64_t told, cells;
-    size_t room = LEN / CELL_BYTES;
-    if (at < 0 || !pushes_only(at, &told) || told >= room) return;
-    cells = cell_of(BYTES, told);
-    if (!cells) return;
-    while (cells + 2 < room && cell_of(BYTES, cells)) {
-        ONE_MORE(FUSED, NFUSED, FUSED_ROOM);
-        fusion* f = &FUSED[NFUSED];
-        f->ins = (uint16_t)cell_of(BYTES, cells);
-        f->n = (int)cell_of(BYTES, cells + 1);
-        if (f->n < 1 || f->n > 4 || cells + 2 + f->n > room) break;
-        for(int k=0; k < f->n; k++) f->head[k] = (long)cell_of(BYTES, cells + 2 + k) * CELL_BYTES;
-        NFUSED++;
-        cells += 2 + f->n;
-    }
+    NFUSED = fused_of(BYTES, LEN, WORDS, NWORDS, &FUSED);
 }
 
 static const fusion* fused(uint16_t w) {
@@ -244,8 +247,18 @@ static void read_listing(const char* path) {
     fclose(in);
 }
 
-// The name of the word that starts at a place, and whether it is a label;
-// or nothing.
+// Returns 1 if a header for the word at that address has that name.
+static int headed_as(long at, const char* name) {
+    for(long h=0; h < NHEADERS; h++) if (HEADERS[h].xt == at && !strcmp(name_at_head(HEADERS[h].head), name)) return(1);
+    return(0);
+}
+
+// Returns the name of the word that starts at an address, or NULL if no
+// word starts there.  `*label` is set to 1 if the name is a label and to 0
+// if it is a header's.  Where an address has both a label and a header,
+// the label names the word, and words.h sorts it first there (by_place).
+// The header then belongs to a word with no instructions that falls
+// through into this one.
 static const char* code_name(long at, int* label) {
     int lo = 0, hi = NWORDS;
     while (lo < hi) {
@@ -253,8 +266,8 @@ static const char* code_name(long at, int* label) {
         if (WORDS[mid].at < at) lo = mid + 1; else hi = mid;
     }
     for(int idx=lo; idx < NWORDS && WORDS[idx].at == at; idx++) {
-        *label = !has_header(at);
-        if (!*label) {                                  // the name of its header, of all it may have
+        *label = !headed_as(at, WORDS[idx].name);
+        if (!*label) {                                  // return the name of the first header for this address
             for(long h=0; h < NHEADERS; h++) if (HEADERS[h].xt == at) return(name_at_head(HEADERS[h].head));
         }
         return(WORDS[idx].name);
@@ -265,7 +278,18 @@ static const char* code_name(long at, int* label) {
     return(NULL);
 }
 
-// ---- what is printed: a line in pieces, each with how it looks
+// Returns 1 if `name` is one of the names of the word that starts at an
+// address.  A word can have more than one header (`1+` and `cell+`,
+// nuc.fs), and each is a name for it.  Any of them selects the word, and
+// code_name() returns the first.
+static int is_named(long at, const char* name) {
+    for(long h=0; h < NHEADERS; h++) if (HEADERS[h].xt == at && !strcmp(name_at_head(HEADERS[h].head), name)) return(1);
+    for(int idx=0; idx < NWORDS; idx++) if (WORDS[idx].at == at && !strcmp(WORDS[idx].name, name)) return(1);
+    for(long idx=0; idx < NLISTED; idx++) if (LISTED[idx].at == at && !strcmp(LISTED[idx].name, name)) return(1);
+    return(0);
+}
+
+// ---- output: a line is built from pieces, each with a style
 
 enum { PLAIN_STYLE, DIM, CALL, LABEL, NUMBER, DATA_STYLE, DATA_LABEL, STEER, UNDER, RAW, HEAD, HEAD_LABEL };
 static const char* LOOK[] = {
@@ -273,7 +297,7 @@ static const char* LOOK[] = {
     "\033[2m", "\033[1;36m", "\033[1;3;36m" };
 
 static char* LINE;
-static long LINE_ROOM, LINE_LEN, SHOWN;         // its text, and how wide it shows
+static long LINE_ROOM, LINE_LEN, SHOWN;         // the line's buffer size, its length, and its width without the colour codes
 
 static void put(int style, const char* text) {
     long len = (long)strlen(text);
@@ -292,7 +316,7 @@ static void putf(int style, const char* format, ...) {
     va_list args, again;
     va_start(args, format);
     va_copy(again, args);
-    int len = vsnprintf(NULL, 0, format, args);         // how long it is, and then it is written
+    int len = vsnprintf(NULL, 0, format, args);         // measure the text first, then format it
     va_end(args);
     char* text = room_for((size_t)len + 1, 1);
     vsnprintf(text, (size_t)len + 1, format, again);
@@ -311,12 +335,12 @@ static void line_done(void) {
     if (LINE) LINE[0] = 0;
 }
 
-#define SOURCE_AT 13            // where the source starts on a line,
-#define FIELDS_AT 58            // where the fields do,
-#define RAN_AT    96            // and where how often it was run does
+#define SOURCE_AT 13            // the column where the source starts
+#define FIELDS_AT 58            // the column where the fields start
+#define RAN_AT    96            // the column where the run count starts
 
-// An instruction's fields, as vm_opcodes.h names them; and after them how
-// often it was run, if that is known.
+// Prints an instruction's fields under the names vm_opcodes.h gives them,
+// and then the number of times it ran, if --counts was given.
 static void fields(long at) {
     uint16_t w = INSN[at];
     instruction ins = *(instruction*)&w;
@@ -327,7 +351,7 @@ static void fields(long at) {
         int shift = (w >> 12) & 3;
         putf(DIM, "%s%d%s", (w & 0x4000) ? "add " : "push ", w & 0xfff, shift ? (shift == 1 ? "<<12" : "<<24") : "");
     } else if (kind_of(w) == OP_TYPE_ALU) {
-        static const int DELTA[] = { 0, 1, 3, 2 };     // the field's value to its place in the table
+        static const int DELTA[] = { 0, 1, 3, 2 };     // maps a stack field's value to its index in the table of names
         putf(DIM, "%s %s %s", INPUT_MUX_REPR[ins.alu.in_mux], ALU_OPS_REPR[ins.alu.alu_op], OUTPUT_MUX_REPR[ins.alu.out_mux]);
         if (ins.alu.dstack) putf(DIM, " %s", DSTACK_REPR[DELTA[w >> 2 & 3]]);
         if (ins.alu.rstack) putf(DIM, " %s", RSTACK_REPR[DELTA[w & 3]]);
@@ -341,7 +365,8 @@ static void fields(long at) {
     }
 }
 
-// A word by its place: its name, or the place.
+// Prints the name of the word at an address, or the address if it has no
+// name.
 static void link_to(long at, int style_if_named) {
     int label;
     const char* name = code_name(at, &label);
@@ -349,8 +374,9 @@ static void link_to(long at, int style_if_named) {
     else putf(RAW, "$%04lx", at);
 }
 
-// A number, by what it is (see.fs, snum): the word that pushes it, its
-// label of data, an execution token, or itself.
+// Prints a number as what it refers to (see.fs, snum): the word that
+// pushes it, the data label at that address, ['] and a word if it is an
+// execution token, or else the number itself.
 static void number(uint64_t n, long self) {
     if (n >= VAR_BASE) {
         for(long idx=0; idx < NHEADERS; idx++) {
@@ -371,10 +397,10 @@ static void number(uint64_t n, long self) {
         return;
     }
     putf(NUMBER, "%lld", (long long)(int64_t)n);
-    if (n >= 4095) putf(DIM, " $%llx", (unsigned long long)n);    // a mask, or a place, is read in hex
+    if (n >= 4095) putf(DIM, " $%llx", (unsigned long long)n);    // a mask or an address is easier to read in hex
 }
 
-// The words for an ALU instruction with no return in it.
+// Prints the words for an ALU instruction that does not return.
 static void alu_words(uint16_t w) {
     const fusion* f = fused(w);
     if (f) {
@@ -390,10 +416,12 @@ static void alu_words(uint16_t w) {
     else putf(RAW, "[$%04x]", w);
 }
 
-// A call to a word on another page is the word's place pushed, in one
-// instruction or more, and a call of execute, or a jump to it where the
-// call is the last thing done.  Is that what starts at a place, before
-// `to`?  Then where the call of execute is, and the word's place.
+// Tests whether a call to a word on another page starts at `at` and ends
+// before `to`.  Such a call is the word's address pushed, in one
+// instruction or more, followed by a call of `execute`, or by a jump to
+// `execute` where the call is the last thing a word does.  If so, stores
+// the address of the call of `execute` in `*call_at` and the word's
+// address in `*callee`, and returns 1.
 static int far_call(long at, long to, long* call_at, long* callee) {
     if (at >= to || !pushes(INSN[at]) || EXECUTE < 0) return(0);
     uint64_t n = number_in(INSN[at]);
@@ -407,7 +435,7 @@ static int far_call(long at, long to, long* call_at, long* callee) {
     return(1);
 }
 
-// ---- a word: where its branches go, then each instruction
+// ---- a word: its branch targets first, then each instruction
 
 typedef struct { long* at; long n, room; } places;
 static void add_place(places* p, long at) { ONE_MORE(p->at, p->n, p->room); p->at[p->n++] = at; }
@@ -424,11 +452,16 @@ static void show_word(const word* w) {
     places thens = { 0 }, begins = { 0 }, whiles = { 0 };
     char* role = room_for(w->size + 1, 1);
 
-    // Where its branches go (see.fs, the first reading): a 0branch on is an
-    // if, or a while where the instruction before where it lands is a jump
-    // back; a jump on from just before where an if lands is an else; a jump
-    // or a 0branch back into the word is an until, an again or a repeat; any
-    // other jump is to another word, and does not come back.
+    // Classify the word's branches by their targets, as see.fs does in its
+    // first pass:
+    //
+    //   a conditional branch forward is an `if`, or a `while` if the
+    //   instruction before its target is a jump backward
+    //   a jump forward from just before an `if`'s target is an `else`
+    //   a conditional branch backward is an `until`
+    //   a jump backward within the word is a `repeat` if a `while` lands
+    //   just after it, and an `again` otherwise
+    //   any other jump goes to another word, and does not return
     for(long at=from; at < to; at++) {
         uint16_t c = INSN[at];
         int kind = kind_of(c);
@@ -460,9 +493,24 @@ static void show_word(const word* w) {
     else putf(RAW, "$%04lx", from);
     to_column(FIELDS_AT);
     const char* file = NFILES ? file_at(FILES, NFILES, from) : NULL;
-    putf(DIM, "%ld instructions from %04lx%s%s%s", w->size, from, immediate(from) ? ", immediate" : "",
+    putf(DIM, "%ld instructions from %04lx%s%s%s", w->size, from, !label && immediate(from) ? ", immediate" : "",
          file ? ", " : "", file ? file : "");
     line_done();
+    // Print the word's other headers.  Each is a second name for the same
+    // instructions.  Where a label names the word, every header at the
+    // address is printed: each belongs to a word with no instructions that
+    // falls through into this one.
+    for(long h=0, headed=label; h < NHEADERS; h++) {
+        if (HEADERS[h].xt != from || !headed++) continue;
+        put(DIM, "            ");
+        put(STEER, ":");
+        put(PLAIN_STYLE, " ");
+        put(HEAD, name_at_head(HEADERS[h].head));
+        to_column(FIELDS_AT);
+        putf(DIM, "%s%s", label ? "no instructions: it runs on into this word" : "the same word",
+             label && immediate_head(HEADERS[h].head) ? ", immediate" : "");
+        line_done();
+    }
 
     int indent = 1;
     #define START_LINE(at) do { \
@@ -494,8 +542,9 @@ static void show_word(const word* w) {
             number(number_in(c), from);
             put(PLAIN_STYLE, " +");
         } else if (pushes(c)) {
-            // A number in pieces is one number, said on its first line; and
-            // a word's place pushed and then execute called is that word.
+            // A number built by several literals is shown once, on the
+            // line of the first.  A word's address pushed and followed by
+            // a call of `execute` is shown as that word.
             uint64_t n = number_in(c);
             long end = at + 1, callee;
             while (end < to && adds(INSN[end])) n += number_in(INSN[end++]);
@@ -517,7 +566,7 @@ static void show_word(const word* w) {
         } else if (kind_of(c) == OP_TYPE_ALU) {
             if (c == 0x7403) {
                 put(STEER, last ? ";" : "exit");
-            } else if ((c & 0x1000) && (c & 3) == 3) {  // a return folded in
+            } else if ((c & 0x1000) && (c & 3) == 3) {  // an instruction with a return folded into it
                 alu_words(c & ~0x1003);
                 put(PLAIN_STYLE, " ");
                 put(STEER, last ? ";" : "exit");
@@ -538,7 +587,7 @@ static void show_word(const word* w) {
         line_done();
         if (r == IF || r == ELSE) indent++;
     }
-    for(int n=count_at(&thens, to); n > 0; n--) {       // a then at the very end
+    for(int n=count_at(&thens, to); n > 0; n--) {       // a `then` whose target is the end of the word
         indent--;
         START_LINE(-1); put(STEER, "then"); line_done();
     }
@@ -546,22 +595,22 @@ static void show_word(const word* w) {
     free(role); free(thens.at); free(begins.at); free(whiles.at);
 }
 
-// ---- the layout: where each page starts and ends and what it has left,
-// the calls that go to another page, and the data by cell
+// ---- the layout: where each page starts and ends and the space it has
+// left, the calls to other pages, and the data by cell
 
-static layout LAID;             // the image laid out (layout.h): what `examine` prints of it
+static layout LAID;             // the image's layout (layout.h), which is what `examine` prints
 
 static long bytes_of(long instructions) { return(instructions * (long)sizeof(instruction)); }
 
 static void page_starts(long page) {
     const code_page* has = &LAID.pages[page];
-    printf("==== page %ld, from %04lx: %ld words, %ld bytes of code, %ld of tables; %ld bytes left ====\n\n",
-           page, page * PAGE, has->words, bytes_of(has->code), bytes_of(has->tables), bytes_of(PAGE - has->end));
+    printf("==== page %ld, from %04lx: %ld words, %ld bytes of code; %ld bytes left ====\n\n",
+           page, page * PAGE, has->words, bytes_of(has->code), bytes_of(PAGE - has->end));
 }
 
-// What is between two words of a page, or after its last: nothing, or what
-// is no word's, which is a table or the two instructions an image starts
-// with.
+// Prints a line for the gap between two words of a page, or after the
+// page's last word.  The gap is either zeros or bytes that belong to no
+// word: a table, or the two instructions an image starts with.
 static void between(long from, long to) {
     if (to <= from) return;
     const uint16_t* as_it_is = (const uint16_t*)BYTES;
@@ -577,9 +626,13 @@ static void page_ends(long page, long code_to) {
            page, bytes_of(PAGE - has->end), page * PAGE + has->end);
 }
 
-// The calls from one word to a word on another page: in how many places,
-// how often they were run, and how many instructions those runs cost over
-// a call within a page, which is one instruction.
+// The calls from one word to one word on another page:
+//
+//   places   how many places make the call
+//   longer   how many more instructions those places take than calls
+//            within a page, which are one instruction each
+//   ran      how many times the calls ran
+//   more     how many more instructions ran because of them
 typedef struct { long from, to, places, longer; double ran, more; } crossing;
 
 static int most_run(const void* a, const void* b) {
@@ -596,22 +649,23 @@ static void name_to(char* out, size_t room, long at) {
     if (name) snprintf(out, room, "%s", name); else snprintf(out, room, "$%04lx", at);
 }
 
-// A word that is called from another page: from which pages, in how many
-// places of how many words, and how often those calls were run; and the
-// same of the calls that reach it with one instruction, from its own page
-// or from the kernel's, which are what moving it to another page would
-// make longer.
+// A word that is called from another page.  The far_ fields describe the
+// calls from other pages: how many places make them, in how many words,
+// and how often they ran.  The near_ fields describe the calls that reach
+// the word in one instruction, from its own page or from the kernel's.
+// Those are the calls that would get longer if the word moved to another
+// page.
 typedef struct {
     long at, far_places, far_words, near_places;
     double far_ran, near_ran;
-    unsigned long from_pages;           // a bit for each page that calls it from afar
-    long longer;                        // the instructions those places are over calls of one instruction,
-    double more;                        // and the instructions the work ran for them over such calls
-    long out_places;                    // the calls it makes itself to words of its own page, not the kernel's,
-    double out_ran;                     // which would be to another page if it were in the kernel's
+    unsigned long from_pages;           // one bit for each page that makes a far call to it
+    long longer;                        // how many more instructions the far calls take than one-instruction calls
+    double more;                        // how many more instructions ran because of them
+    long out_places;                    // the calls it makes to words on its own page (not the kernel's page),
+    double out_ran;                     // which would become far calls if it moved to the kernel's page
 } called;
 
-// How long the word at a place is, in instructions.
+// Returns the length in instructions of the word at an address.
 static long size_at(long at) {
     for(int idx=0; idx < NWORDS; idx++) if (WORDS[idx].at == at && WORDS[idx].size) return(WORDS[idx].size);
     return(0);
@@ -681,9 +735,9 @@ static void show_crossings(void) {
             }
             double ran = RAN && call_at < RAN_PLACES ? RAN[call_at] : 0;
             all[k].places++;
-            all[k].longer += call_at - at;                              // the pushes: the call is there either way
+            all[k].longer += call_at - at;                              // count the pushes only: a near call has the call instruction too
             all[k].ran += ran;
-            all[k].more += ran * (double)(call_at - at + execute_is);   // the pushes and execute's own, over the call
+            all[k].more += ran * (double)(call_at - at + execute_is);   // the pushes, plus the instructions of `execute` itself
             at = call_at;
         }
     }
@@ -710,13 +764,13 @@ static void show_crossings(void) {
     }
     printf("\n\n");
 
-    // The same by the word that is called.  The calls that reach a word
-    // with one instruction are counted over all the code: a call, and a
-    // jump to another word's start, that is not the call of execute a far
-    // call ends with.
+    // The same calls again, grouped by the word that is called.  The calls
+    // that reach a word in one instruction are counted over all the code.
+    // They are every call, and every jump to the start of another word,
+    // except the call of `execute` that ends a far call.
     long* near_places = room_for(INSTRUCTIONS + 1, sizeof(long));
     double* near_ran = room_for(INSTRUCTIONS + 1, sizeof(double));
-    long* out_places = room_for(INSTRUCTIONS + 1, sizeof(long));        // by the word that calls: to its own page
+    long* out_places = room_for(INSTRUCTIONS + 1, sizeof(long));        // indexed by the calling word: its calls to words on its own page
     double* out_ran = room_for(INSTRUCTIONS + 1, sizeof(double));
     for(int idx=0; idx < NWORDS; idx++) {
         const word* w = &WORDS[idx];
@@ -765,19 +819,27 @@ static void show_crossings(void) {
     free(all);
 }
 
-// What the calls would be were some words in the kernel's page (--near).
-// A call into the kernel's page is one instruction from anywhere, so every
-// call to a word put there is; but a call from the kernel's page to any
-// other is the long one, so every call such a word makes to a word that
-// is not put there too becomes one.  For each word: its bytes, how often
-// the calls to it that are long now were run, how often the calls it would
-// then make long were, and to which words those are, which are what has to
-// come with it for the move to be worth making.  Then all of it together.
-// It moves nothing: it is asked before an order is changed.
+// Prints what the calls would be if the named words were in the kernel's
+// page (--near).  A call into the kernel's page is one instruction from
+// any page, so every call to a word placed there becomes a near call.  A
+// call from the kernel's page to any other page is a far call, so every
+// call such a word makes to a word that is not placed there too becomes a
+// far call.  For each named word it prints:
+//
+//   its size in bytes
+//   the far calls to it now: how many places, and how often they ran
+//   the calls it makes that would become far: how many places, and how
+//     often they ran
+//   the words those calls go to.  These are the words that have to move
+//     with it for the move to pay.
+//
+// The last line gives the totals for the whole image, now and after the
+// move.  Nothing is moved: this is a report to read before the order of
+// the source is changed.
 typedef struct { long from, to; double ran; int far; } a_call;
 
 static void show_near(const char** names, int nnames) {
-    char* near = room_for(INSTRUCTIONS + 1, 1);         // of each place: a word that is to be put there starts here
+    char* near = room_for(INSTRUCTIONS + 1, 1);         // 1 at the address of each word that would be placed in the kernel's page
     long bytes = 0;
     for(int k=0; k < nnames; k++) {
         int found = 0;
@@ -838,7 +900,7 @@ static void show_near(const char** names, int nnames) {
         printf("  ");
         for(long k=0; k < n; k++) {
             if (calls[k].from != w->at || calls[k].far || !FAR_THEN(&calls[k])) continue;
-            int again = 0;                              // a word it calls in several places is said once, with all of them
+            int again = 0;                              // a word it calls from several places is listed once, with their total
             for(long j=0; j < k; j++) again |= calls[j].from == w->at && calls[j].to == calls[k].to && !calls[j].far;
             if (again) continue;
             double ran = 0;
@@ -859,9 +921,10 @@ static void show_near(const char** names, int nnames) {
     free(near);
 }
 
-// The data by cell: every word that only pushes where its data is, and
-// every label of data, with how many cells there are to the next and
-// whether one instruction reaches it (the 4,096 cells from VAR_BASE).
+// Prints the data in cell order: every word that only pushes the address
+// of its data, and every data label, with the number of cells to the next
+// one and whether one instruction reaches it.  One instruction reaches
+// the 4,096 cells starting at VAR_BASE.
 typedef struct { uint64_t cell; char* name; } datum;
 
 static int by_cell(const void* a, const void* b) {
@@ -880,7 +943,7 @@ static void show_data(void) {
         all[n].name = room_for(strlen(called) + 1, 1); \
         strcpy(all[n++].name, (called)); \
     } while (0)
-    for(int idx=0; idx < NWORDS; idx++) {               // a word with a header or a label that pushes a place of data
+    for(int idx=0; idx < NWORDS; idx++) {               // each named word that only pushes the address of some data
         uint64_t value;
         int label;
         if (!WORDS[idx].size || !pushes_only(WORDS[idx].at, &value) || value < VAR_BASE) continue;
@@ -893,7 +956,7 @@ static void show_data(void) {
     printf("==== the data, by cell: what is at each, the cells to the next, and whether one instruction reaches it ====\n\n");
     printf("    cell   cells  reached  name\n");
     for(long k=0; k < n; k++) {
-        if (k && all[k].cell == all[k - 1].cell && !strcmp(all[k].name, all[k - 1].name)) continue;    // said twice: a header and a label
+        if (k && all[k].cell == all[k - 1].cell && !strcmp(all[k].name, all[k - 1].name)) continue;    // skip a duplicate: the same name from a header and from a label
         long next = k + 1;
         while (next < n && all[next].cell == all[k].cell) next++;
         printf("  %6llx", (unsigned long long)all[k].cell);
@@ -905,7 +968,8 @@ static void show_data(void) {
     free(all);
 }
 
-// The file of that kind beside an image: its name with that ending.
+// Returns the path of a file that goes with an image: the image's path
+// with its extension replaced by `ending`.
 static char* beside(const char* image, const char* ending) {
     char* path = room_for(strlen(image) + strlen(ending) + 1, 1);
     strcpy(path, image);
@@ -920,11 +984,12 @@ static int numeric(const char* text, long* value) {
     return(*text && !*end);
 }
 
-// The image as the machine has it when a file has been typed at the
-// nucleus's prompt (test/nucleus.c): what is typed is compiled by the
-// nucleus's own compiler, and its words are in the dictionary after.  It
-// stops if the nucleus said anything was wrong.  `had` is the places the
-// image's words were at before, so that those typed can be told.
+// Types a file at the nucleus's prompt (test/nucleus.c), and replaces the
+// image with the machine's memory afterwards.  The nucleus's own compiler
+// compiles what is typed, and the words it defines are then in the
+// dictionary.  The program stops if the nucleus reported an error.  `*had`
+// receives the addresses the image's words had before the file was typed,
+// so that the newly defined words can be told apart from them.
 static void type_at_it(const char* image, const char* tables, const char* file, long** had, int* nhad) {
     word* before;
     *nhad = words_of(BYTES, LEN, tables, &before);
@@ -988,7 +1053,7 @@ int main(int argc, char *argv[]) {
 
     LEN = load_image(argv[1], &BYTES);
     if (!LEN) { fprintf(stderr, "disasm_hex: %s is not an image\n", argv[1]); return(1); }
-    if (memory) {               // the machine's memory when it stopped, in the image's place
+    if (memory) {               // use the machine's memory from when it stopped, in place of the image
         uint8_t* is;
         size_t got = file_bytes(memory, &is);
         if (got < LEN) { fprintf(stderr, "disasm_hex: %s is not that machine's memory\n", memory); return(1); }
@@ -996,29 +1061,26 @@ int main(int argc, char *argv[]) {
         free(is);
     }
     INSTRUCTIONS = LEN / sizeof(uint16_t);
-    char* tables = beside(argv[1], ".tables");          // the names beside the image,
-    char* sizes = beside(argv[1], ".sizes");            // and the files its code is from
+    char* tables = beside(argv[1], ".tables");          // the names file that goes with the image
+    char* sizes = beside(argv[1], ".sizes");            // the file that lists the source files its code comes from
     if (access(sizes, R_OK) == 0) NFILES = files_of(sizes, &FILES);
-    long* was = NULL;                                   // with a file typed: where the image's words were before
+    long* was = NULL;                                   // with --typed: the addresses the image's words had before the file was typed
     int nwas = 0;
     if (typed) type_at_it(argv[1], tables, typed, &was, &nwas);
 
-    PLAIN = room_for(LEN + CELL_BYTES, 1);
-    memcpy(PLAIN, BYTES, LEN);
-    word* with_tables;
-    int had = words_of(BYTES, LEN, tables, &with_tables);
-    without_tables(PLAIN, LEN, with_tables, had);
-    word* kept = NULL;                                  // with --own: the names the machine kept of what it compiled
+    word* kept = NULL;                                  // with --own: the names the machine saved for the words it compiled
     long nkept = 0, kept_room = 0;
     if (own) {
+        word* its_own;                                  // the words the image has without those names
+        int had = words_of(BYTES, LEN, tables, &its_own);
         uint8_t* disk;
         size_t disk_len = file_bytes(own, &disk);
-        nkept = kept_of(BYTES, LEN, with_tables, had, disk, disk_len, &kept, 0, &kept_room);
+        nkept = kept_of(BYTES, LEN, its_own, had, disk, disk_len, &kept, 0, &kept_room);
         free(disk);
+        free(its_own);
     }
-    free(with_tables);
-    NWORDS = words_and(PLAIN, LEN, tables, kept, nkept, &WORDS);
-    INSN = (const uint16_t*)PLAIN;
+    NWORDS = words_and(BYTES, LEN, tables, kept, nkept, &WORDS);
+    INSN = (const uint16_t*)BYTES;
     long data_room;
     NDATA = data_of(tables, &DATA, &data_room);
     read_dictionary();
@@ -1031,15 +1093,15 @@ int main(int argc, char *argv[]) {
         }
         lay_out(&LAID, argv[1], tables);
         printf("%s, cells of %d bits\n\n", argv[1], CELL_BITS);
-        printf("pages of code     from   words    code  tables    left\n");
+        printf("pages of code     from   words    code    left\n");
         for(long page=0; page < LAID.npages; page++) {
             const code_page* has = &LAID.pages[page];
             if (!has->words) continue;
-            printf("  page %-6ld     %04lx %7ld %7ld %7ld %7ld\n", page, page * PAGE, has->words, bytes_of(has->code),
-                   bytes_of(has->tables), bytes_of(PAGE - has->end));
+            printf("  page %-6ld     %04lx %7ld %7ld %7ld\n", page, page * PAGE, has->words, bytes_of(has->code),
+                   bytes_of(PAGE - has->end));
         }
         printf("\n");
-        if (nnear) {                                    // only what the calls would be: nothing else is asked
+        if (nnear) {                                    // --near prints only the report on the calls
             show_near(near, nnear);
             return(0);
         }
@@ -1048,17 +1110,17 @@ int main(int argc, char *argv[]) {
     }
 
     int shown = 0;
-    long on_page = -1, code_to = 0;                     // with the layout: the page being shown, and where its code has got to
+    long on_page = -1, code_to = 0;                     // with --layout: the page being printed, and the address its code has reached
     for(int idx=0; idx < NWORDS; idx++) {
         const word* w = &WORDS[idx];
         if (!w->size) continue;
         int label;
         const char* name = code_name(w->at, &label);
         int want = !nwanted && !nrange;
-        if (want && typed) {                            // with a file typed and no word named: the words it made
+        if (want && typed) {                            // with --typed and no word named, show only the words the file defined
             for(int k=0; k < nwas && want; k++) want = was[k] != w->at;
         }
-        for(int k=0; k < nwanted && name; k++) want |= !strcmp(name, wanted[k]);
+        for(int k=0; k < nwanted && name; k++) want |= is_named(w->at, wanted[k]);
         if (nrange) want |= w->at <= range[1] && w->at + w->size > range[0];
         if (!want) continue;
         if (laid_out) {

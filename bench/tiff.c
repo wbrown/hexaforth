@@ -3,7 +3,7 @@
 #include <string.h>
 #include "tiff.h"
 
-// A TIFF's numbers are in the order its first two bytes say.
+// The byte order of a TIFF's numbers is given by its first two bytes.
 static const uint8_t* file;
 static int big;
 
@@ -15,8 +15,8 @@ static unsigned long4(long at) {
     return(big ? short2(at) << 16 | short2(at + 2) : short2(at + 2) << 16 | short2(at));
 }
 
-// The nth value of a directory entry, which is in the entry if it fits and
-// otherwise where the entry says.
+// Returns the nth value of a directory entry.  The values are in the
+// entry itself if they fit, and otherwise at the offset the entry gives.
 static unsigned value(long entry, unsigned n) {
     unsigned type = short2(entry + 2);
     unsigned size = type == 3 ? 2 : type == 4 ? 4 : 1;
@@ -79,7 +79,8 @@ tiff read_tiff(const char* path) {
     return(t);
 }
 
-// A directory entry of one value: a SHORT (type 3) or a LONG (type 4).
+// Writes a directory entry with one value, which is a SHORT (type 3) or a
+// LONG (type 4).  Returns the address after the entry.
 static uint8_t* entry(uint8_t* at, unsigned tag, unsigned type, unsigned value) {
     unsigned fields[6] = { tag, type, 1, 0, value & 0xffff, type == 4 ? value >> 16 : 0 };
     for(int idx=0; idx < 6; idx++) {
@@ -89,26 +90,26 @@ static uint8_t* entry(uint8_t* at, unsigned tag, unsigned type, unsigned value) 
     return(at);
 }
 
-#define HEAD 1024       // the grays start a block in, which is where a cell of any size starts
+#define HEAD 1024       // the grays start one block into the file, which is a cell boundary at every cell size
 
 uint8_t* gray_tiff(const uint8_t* grays, int w, int h, size_t* len) {
     size_t pixels = (size_t)w * h;
     *len = HEAD + pixels;
     uint8_t* out = calloc(*len, 1);
     uint8_t* at = out;
-    memcpy(at, "II*\0\10\0\0\0", 8);            // the low byte first; the directory is at byte 8
+    memcpy(at, "II*\0\10\0\0\0", 8);            // little-endian; the directory is at byte 8
     at += 8;
-    *at++ = 9;                                  // entries
+    *at++ = 9;                                  // the number of entries
     *at++ = 0;
     at = entry(at, 256, 3, w);                  // width
     at = entry(at, 257, 3, h);                  // height
-    at = entry(at, 258, 3, 8);                  // bits in a sample
+    at = entry(at, 258, 3, 8);                  // bits per sample
     at = entry(at, 259, 3, 1);                  // not compressed
-    at = entry(at, 262, 3, 1);                  // black is nothing
-    at = entry(at, 273, 4, HEAD);               // where the one strip is
-    at = entry(at, 277, 3, 1);                  // samples to a pixel
+    at = entry(at, 262, 3, 1);                  // 0 is black
+    at = entry(at, 273, 4, HEAD);               // the offset of the one strip
+    at = entry(at, 277, 3, 1);                  // samples per pixel
     at = entry(at, 278, 3, h);                  // rows in the strip
-    at = entry(at, 279, 4, pixels);             // and its bytes
+    at = entry(at, 279, 4, pixels);             // the strip's length in bytes
     memcpy(out + HEAD, grays, pixels);
     return(out);
 }

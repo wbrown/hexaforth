@@ -3,7 +3,7 @@
 
 create t-view ," Mandrill"
 
-: picture-window ( -- ) \ the picture last, as picture-start
+: picture-window ( -- ) \ its window, and the picture in it
     d# 0 d# 20  fb-w @  fb-h @ d# 20 -  t-view
     ['] view-draw ['] ignore-key d# 0 window  dup view-menu
     >r

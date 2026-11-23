@@ -39,7 +39,7 @@ fetched(${PICTURE} 4.2.03)
 add_custom_target(picture DEPENDS ${PICTURE})
 owned(picture ${PICTURE})
 
-# A disk is no more than a floppy holds (DISK_FLOPPY, vm_constants.h), and
+# A disk holds at most what a floppy holds (DISK_FLOPPY, vm_constants.h), and
 # the pictures are on one of their own: an index and the Mandrill under
 # its label, which the viewer finds it by on whichever disk has it
 # (mkdisk --disk; doc/disk.md, Several disks).  It is a machine's second

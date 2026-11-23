@@ -39,24 +39,31 @@
 #include "tiff.h"
 #include "../util/png_file.h"
 
-static int pw, ph;                      // the picture's size, which is even
-static const int* gray;                 // its grays
+static int pw, ph;                      // the picture's width and height in pixels, which are both even
+static const int* gray;                 // the picture's grays
 
+// Returns v limited to the range 0 to 255.
 static int clamp(int v) {
     return(v < 0 ? 0 : v > 255 ? 255 : v);
 }
 
-// The four pixels of the 2 by 2 at bx, by.
+// Returns pixel `which` (0 to 3) of the 2 by 2 block at block column bx
+// and block row by.
 static int at(const int* g, int bx, int by, int which) {
     return(g[(2 * by + (which >> 1)) * pw + 2 * bx + (which & 1)]);
 }
 
+// Returns the mean of the picture's grays in a 2 by 2 block, rounded to
+// the nearest whole number.
 static int mean_of(int bx, int by) {
     int sum = 0;
     for(int which=0; which < 4; which++) sum += at(gray, bx, by, which);
     return((sum + 2) / 4);
 }
 
+// Each made_as_...() fills `made` with the full-size grays that one way of
+// storing the picture gives back.  The ways are described at the top of
+// this file.
 static void made_as_grays(int* made) {
     memcpy(made, gray, sizeof(int) * pw * ph);
 }
@@ -86,9 +93,9 @@ static void made_as_mean_smooth(int* made) {
     }
 }
 
-// Round each of w by h values to the nearest of `levels` levels from 0 to
-// 255.  With `passed`, each rounding error is passed on as the dither does:
-// an eighth to each of the six neighbours ahead.
+// Rounds each of w by h values to the nearest of `levels` levels from 0 to
+// 255.  If `passed` is true, each rounding error is passed on as the
+// dither passes it on: an eighth to each of the six neighbours ahead.
 static void to_levels(const int* from, int w, int h, int levels, bool passed, int* to) {
     double* owed = calloc((size_t)w * h, sizeof(double));
     static const int AHEAD[6][2] = { {1, 0}, {2, 0}, {-1, 1}, {0, 1}, {1, 1}, {0, 2} };
@@ -119,8 +126,9 @@ static void made_as_four_passed(int* made) {
     to_levels(gray, pw, ph, 4, true, made);
 }
 
-// The gap between a 2 by 2's lighter and darker pixels: the mean of those
-// above the block's mean, less the mean of the rest; 0 if none is above.
+// Returns the gap between the lighter and the darker pixels of a 2 by 2
+// block: the mean of the pixels above the block's mean, minus the mean of
+// the rest.  Returns 0 if no pixel is above the block's mean.
 static int spread_of(int bx, int by) {
     int mean = mean_of(bx, by), light = 0, dark = 0, lights = 0;
     for(int which=0; which < 4; which++) {
@@ -163,13 +171,15 @@ static void made_as_pattern(int* made) {
     free(means), free(spreads), free(kept);
 }
 
+// Returns the root mean square difference between `made` and the
+// picture's grays.
 static double rms(const int* made) {
     double sum = 0;
     for(long i=0; i < (long)pw * ph; i++) sum += (double)(made[i] - gray[i]) * (made[i] - gray[i]);
     return(sqrt(sum / ((double)pw * ph)));
 }
 
-// Write the dithered bitmap to DIR/NAME.png.
+// Writes the dithered bitmap to DIR/NAME.png.
 static void written(const char* dir, const char* name, const uint8_t* black) {
     size_t row = (size_t)(pw + 7) / 8;
     unsigned char* rows = room_for(row * ph, 1);

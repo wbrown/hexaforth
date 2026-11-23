@@ -1,28 +1,30 @@
 //
-// vm_stopped.h - why the reference VM stopped, and what is said of a
-// machine that stopped where it was not meant to.
+// vm_stopped.h - why the reference VM stopped, and the report printed for
+// a machine that stopped where it was not meant to.
 //
-// vm.c stops a machine at an instruction that is nothing: a halt, or
-// memory nothing was ever put in.  With STOPS.on it also stops one that
+// vm.c stops a machine at a zero instruction: a halt, or memory that was
+// never written.  With STOPS.on set it also stops a machine for these
+// reasons:
 //
-//   ran on        more than STOPS.budget instructions since it last took a
-//                 key: a machine that neither waits nor halts
-//   no code       is about to run an instruction where nothing was ever
-//                 put: not the image, not a block of a disk, not a store
-//   a break       is about to run the instruction STOPS.break_at
-//   a store       has stored to the cell STOPS.break_store
+//   ran on        it has run more than STOPS.budget instructions since it
+//                 last read a key: it is neither waiting nor halting
+//   no code       it is about to run an instruction at an address that was
+//                 never written: not by the image, a disk block or a store
+//   a break       it is about to run the instruction at STOPS.break_at
+//   a store       it has stored to the cell STOPS.break_store
 //
-// and keeps the last STOP_RING instructions it ran.  What drives a machine
-// (main.c, test/nucleus.c, test/deskvm.c) says which it wants, and when the
-// machine stops where it was not sent, post_mortem says the same things of
-// it whatever the reason: where, both stacks, the instructions before, and
-// its memory in a file for disasm_hex --memory to name.
+// It also keeps the addresses of the last STOP_RING instructions it ran.
+// The program driving the machine (main.c, test/nucleus.c, test/deskvm.c)
+// chooses which of these it wants.  When the machine stops somewhere
+// unexpected, post_mortem() prints the same report whatever the reason:
+// the address, both stacks, the instructions run before it, and the name
+// of a file with its memory, for `disasm_hex --memory`.
 //
-// The environment sets the two breaks and the budget for any of them:
-// STOP_AT and STOP_ON_STORE, each a number in hex, and STOP_BUDGET.
-// STOP_PASS is how many times a break is come to and passed before the
-// machine stops at one, and STOP_MEMORY the file its memory is written to
-// where what drives it names none.
+// Environment variables set the two breaks and the budget for any of those
+// programs: STOP_AT and STOP_ON_STORE, each a hex number, and STOP_BUDGET.
+// STOP_PASS is the number of times a break is reached and passed before
+// the machine stops at one.  STOP_MEMORY names the file the memory is
+// written to when the driving program names none.
 //
 
 #ifndef HEXAFORTH_VM_STOPPED_H
@@ -35,30 +37,31 @@ enum { STOP_HALT, STOP_RAN_ON, STOP_NO_CODE, STOP_AT_BREAK, STOP_AT_STORE };
 #define STOP_RING 64
 
 typedef struct {
-    int on;                     // whether any of this is looked at
+    int on;                     // set if any of these checks is active
     int reason;                 // why the machine last stopped
-    int64_t at;                 // the instruction it stopped at, which it has not run
-    uint64_t budget;            // the instructions it may run between two keys, or 0 for as many as it likes
-    uint64_t since;             // how many it has run since it last took one
-    int64_t break_at;           // an instruction it is to stop before, or -1
-    int64_t break_store;        // a cell it is to stop after a store to, or -1
-    int stored;                 // a store to that cell has been made, and not yet stopped for
-    uint64_t pass;              // the breaks it is to come to and pass before it stops at one
-    int64_t ring[STOP_RING];    // the instructions it last ran,
-    uint64_t ran;               // and how many it has run in all
-    uint8_t *put;               // a bit an instruction: something was put there; NULL if that is not looked at
+    int64_t at;                 // the address of the instruction it stopped at, which it has not run
+    uint64_t budget;            // the most instructions it may run between two keys; 0 for no limit
+    uint64_t since;             // instructions run since it last read a key
+    int64_t break_at;           // the address of an instruction to stop before, or -1
+    int64_t break_store;        // a cell to stop at after a store to it, or -1
+    int stored;                 // set when that store has happened and the machine has not yet stopped for it
+    uint64_t pass;              // the number of breaks to reach and pass before stopping at one
+    int64_t ring[STOP_RING];    // the addresses of the last instructions run
+    uint64_t ran;               // the total number of instructions run
+    uint8_t *put;               // one bit per instruction: set if something was written there; NULL if this is not checked
 } vm_stops;
 
 extern vm_stops STOPS;
 
-void stops_from_env(void);                  // the breaks and the budget the environment says, and STOPS.on if any
-void stops_watch_code(context *ctx);        // from now, nothing is run where nothing was put
-void stops_put(int64_t cell, int64_t cells);// cells were put in memory
+void stops_from_env(void);                  // reads the breaks and the budget from the environment; sets STOPS.on if any is given
+void stops_watch_code(context *ctx);        // from now on, stop before running an address that was never written
+void stops_put(int64_t cell, int64_t cells);// marks cells as written
 const char* stop_reason(void);
 
-// What the machine was at.  Its memory is written to memory_path, or if
-// that is NULL to the file STOP_MEMORY says, and image is in the command
-// that names what is there.
+// Prints the report of where the machine stopped.  Its memory is written
+// to memory_path, or to the file STOP_MEMORY names if memory_path is NULL.
+// `image` is the image's path, for the disasm_hex command the report
+// suggests.
 void post_mortem(FILE *to, context *ctx, const char *image, const char *memory_path);
 
 #endif

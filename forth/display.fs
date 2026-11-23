@@ -1105,7 +1105,7 @@ INK-BLACK? [if] [else]
     dup gcell  ra @ rless @ and lsb @ lshift rshift
     ra @ r0 @ in-place - tband +  'lanes @ execute
     ra @ rless @ or 1+                              ( p row )
-;fallthru
+;into band-rest
 
 : band-rest ( p row -- ) \ the cells after the first
     begin dup rb @ < while
@@ -1240,7 +1240,7 @@ W32+? [if]
     ra @ lanes-cut  over 'lanes @ execute  ( p dst )
     rless @ 1+ ra @ rless @ and in-place -  DISP-STRIDE * +
     ra @ rless @ or 1+                     ( p dst row )
-;fallthru
+;into screen-rest
 
 : screen-rest ( p dst row -- ) \ the cells after the first
     begin dup rb @ < while

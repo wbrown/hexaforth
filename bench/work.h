@@ -1,15 +1,16 @@
 //
-// work.h - the work of a profile by place, as a file, for the tools that
-// have this in them: profile.c writes it, and what says what the work
-// costs reads it.
+// work.h - the file format for a profile's work by address, for the tools
+// that include this file.  profile.c writes the file, and the tools that
+// report what the work costs read it.
 //
-// The file is, for each place of code that was counted, how often the
-// instruction there ran in the work that was profiled; and then, for each
-// again, how often it runs in a turn of the event loop with nothing
-// happening.  Each is a number of 64 bits with a fraction, since the work
-// has what an idle turn runs taken out of it.  How many places there are
-// is whoever writes it's to say (profile.c: as many as the VM that counts
-// keeps counts of), and is read from how long the file is.
+// The file has two arrays.  The first has, for each code address that was
+// counted, the number of times the instruction there ran in the profiled
+// work.  The second has, for each of the same addresses, the number of
+// times it runs in one turn of the event loop when nothing is happening.
+// Each number is a double, because the work has the idle turns subtracted
+// from it and so can have a fraction.  The writer decides how many
+// addresses there are (profile.c writes as many as the counting VM has
+// counts for), and a reader gets that number from the file's length.
 //
 
 #ifndef HEXAFORTH_WORK_H
@@ -18,8 +19,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// Write the work and a turn's, of so many places, to a file.  False if it
-// could not be.
+// Writes the work and the idle turn for `places` addresses to a file.
+// Returns 0 if the file could not be written.
 static int work_written(const char* path, const double* work, const double* a_turn, long places) {
     FILE* out = fopen(path, "wb");
     if (out == NULL) {
@@ -31,9 +32,10 @@ static int work_written(const char* path, const double* work, const double* a_tu
     return(fclose(out) == 0 && is);
 }
 
-// Read them: how many places they are of, or nothing, and then it says
-// why.  The work is made here, as long as that, and so is a turn's if
-// somewhere is given for it.
+// Reads a work file.  Returns the number of addresses it covers, or 0
+// after printing the reason if it cannot be read.  `*work` receives an
+// allocated array of that length.  If `a_turn` is not NULL, `*a_turn`
+// receives the idle turn's array, which is in the same allocation.
 static long work_read(const char* path, double** work, double** a_turn) {
     FILE* in = fopen(path, "rb");
     if (!in) {
@@ -51,7 +53,7 @@ static long work_read(const char* path, double** work, double** a_turn) {
         return(0);
     }
     fclose(in);
-    *work = both;                           // the first half; and a turn's is the second
+    *work = both;                           // the work is the first half of the buffer, and the idle turn is the second half
     if (a_turn) *a_turn = both + places;
     return(places);
 }

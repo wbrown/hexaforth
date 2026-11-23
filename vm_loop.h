@@ -1,24 +1,24 @@
 //
-// vm_loop.h - the machine's loop, and what it does with a cell, for one
-// width of cell.
+// vm_loop.h - the machine's interpreter loop and its cell operations, for
+// one cell width.
 //
-// vm.c has this once for each width a cell has, with the width said
-// (CELL_IS: 64, 32 or 16).  There the width is a constant, each function
-// below is named with the width after its name (cell_64, mem_load_64),
-// and the loop is vm_64 and the like.  vm() looks at the machine's width once,
-// as it starts, and runs the loop that is of it: a program is not built
-// for a width, and has all three.
+// vm.c includes this file once for each cell width, with CELL_IS defined
+// as 64, 32 or 16.  In each of those copies the width is a constant, every
+// function below has the width added to its name (cell_64, mem_load_64),
+// and the loop is vm_64, vm_32 or vm_16.  vm() checks the machine's width
+// once and runs the matching loop.  So one program contains all three
+// loops, and is not built for a width.
 //
-// And vm.c has it once with no width said.  Then the width is the width of
-// the machine a program is run for, read where it is used (CELL_BITS,
-// vm_constants.h), the names are as they are written here, and there is no
-// loop.  That is for what asks of a cell outside the loop: the ports, what
-// says where a machine stopped, and what has vm.c in it (util/fuse.h,
-// bench/counting.c).
+// vm.c also includes this file once with CELL_IS undefined.  In that copy
+// the width is read where it is used, from the machine the program is run
+// for (CELL_BITS, vm_constants.h), the functions keep the names written
+// here, and there is no loop.  That copy is for code outside the loop that
+// handles cells: the ports, the report of where a machine stopped, and the
+// files that include vm.c (util/fuse.h, bench/counting.c).
 //
-// What is the same whatever the width is said once, in vm.c: the checks a
-// strict machine makes, the ports, and the step's words (vm_step.h).  By
-// itself this is not C.
+// What does not depend on the width is defined once, in vm.c: the strict
+// machine's checks, the ports, and the macros the step function uses
+// (vm_step.h).  This file is not valid C on its own.
 //
 
 #ifdef CELL_IS
@@ -60,8 +60,9 @@ static void strict_at(const char *what, int64_t addr, int far_too) {
 }
 #endif
 
-// Where a cell is.  An address is the number of a cell; one outside memory
-// is undefined, and here it wraps, unless the machine has a cell for it.
+// Returns a pointer to the cell at an address.  An address is a cell
+// number.  An address outside memory is undefined: here it wraps around,
+// unless the machine has an extra cell for it (FAR_CELL).
 static inline uint8_t *cell_at(context *ctx, int64_t addr) {
     if (ucell(addr) >> ADDR_BITS) {
         uint8_t *far = FAR_CELL(addr);
@@ -70,7 +71,7 @@ static inline uint8_t *cell_at(context *ctx, int64_t addr) {
     return (uint8_t *)ctx->memory + ((ucell(addr) & ((1ull << ADDR_BITS) - 1)) << BYTE_SHIFT);
 }
 
-// A cell where it is: CELL_BYTES bytes, the lowest first.
+// Reads the cell at a pointer: CELL_BYTES bytes, lowest byte first.
 static inline int64_t cell_from(const uint8_t *at) {
     switch (CELL_BITS) {
         case 64: { int64_t v; memcpy(&v, at, sizeof(v)); return v; }
@@ -108,8 +109,9 @@ static inline void mem_store(context *ctx, int64_t addr, int64_t v) {
     cell_to(cell_at(ctx, addr), v);
 }
 
-// The arithmetic: what an operation makes of its two inputs, and of nothing
-// else.  Which two they are is the step's to say (vm_step.h).
+// The arithmetic.  Returns the result of an operation on its two inputs,
+// and depends on nothing else.  The step function chooses the inputs
+// (vm_step.h).
 static inline int64_t alu(int op, int64_t a, int64_t b) {
     switch (op) {
         case ALU_ADD:    return a + b;
@@ -121,15 +123,15 @@ static inline int64_t alu(int op, int64_t a, int64_t b) {
         case ALU_EQ:     return a == b ? TRUE : FALSE;
         case ALU_GT:     return b < a ? TRUE : FALSE;
         case ALU_U_GT:   return ucell(b) < ucell(a) ? TRUE : FALSE;
-        case ALU_RSHIFT: return ucell(a) >> (b & 63);       // from the cell width up, the result is 0
+        case ALU_RSHIFT: return ucell(a) >> (b & 63);       // the count is modulo 64: from the cell width up to 63 it gives 0
         case ALU_LSHIFT: return ucell(a) << (b & 63);
         default:         return 0;
     }
 }
 
 #ifdef CELL_IS
-// The loop: it runs the machine from where it is until it halts, or is
-// stopped (vm_stopped.h).
+// The interpreter loop.  Runs the machine from its current state until it
+// halts or is stopped (vm_stopped.h).
 static int vm_loop(context *ctx) {
     register int64_t EIP = ctx->EIP;        // EIP = execution pointer
     register int16_t SP = 0;                // SP = data stack pointer
@@ -146,7 +148,7 @@ static int vm_loop(context *ctx) {
 #ifdef STRICT_ALIGN
         if (strict_steps && cycles - ctx->CYCLES >= strict_steps) break;
 #endif
-        if (STOPS.on) {         // what stops it besides a halt (vm_stopped.h)
+        if (STOPS.on) {         // the other reasons to stop (vm_stopped.h)
             if (STOPS.stored) {
                 STOPS.stored = 0;
                 if (!STOPS.pass) { STOPS.reason = STOP_AT_STORE; break; }
@@ -173,7 +175,8 @@ static int vm_loop(context *ctx) {
 #ifdef STRICT_ALIGN
         strict_pc = EIP;
 #endif
-        // A literal (the MSB is set) or an instruction of the ALU: the step.
+        // A literal (the MSB is set) or an ALU instruction: run the step
+        // function.
         if (ins.lit.lit_f || ins.alu.op_type == OP_TYPE_ALU) {
 #include "vm_step.h"
             continue;
@@ -194,15 +197,15 @@ static int vm_loop(context *ctx) {
                 EIP = branch(EIP, ins.jmp.target);
                 break;
             case OP_TYPE_CALL:
-                // Unconditional call.  The return address is a cell on the
-                // return stack, as everything else there is.
+                // Unconditional call.  The return address is truncated to a
+                // cell, like everything else on the return stack.
                 ctx->RSTACK[RSP-1] = R;
                 R = cell(EIP);
                 ctx->RSTACK[RSP] = R;
                 RSP++;
                 EIP = branch(EIP, ins.jmp.target);
                 break;
-            default:                // of the ALU, which the step did
+            default:                // an ALU instruction, which the step function handled
                 break;
         }
         // print_stack(SP,T, ctx, false);
@@ -210,7 +213,8 @@ static int vm_loop(context *ctx) {
 #ifdef DEBUG
     print_state(ctx, RSP, SP, EIP, R, T);
 #endif
-    // A halt where nothing was ever put is the machine running where there is no code.
+    // A halt at an address that was never written means the machine ran
+    // into memory that holds no code.
     if (STOPS.on && STOPS.reason == STOP_HALT && STOPS.put && !(STOPS.put[EIP >> 3] & (1 << (EIP & 7)))) {
         STOPS.reason = STOP_NO_CODE;
     }

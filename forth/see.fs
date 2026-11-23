@@ -315,28 +315,34 @@ target
     >r sb sbn @ r> tok
 ;
 
-\ an instruction's words in fused.fs's table: how many, then the
-\ header of each
-: fused? ( w -- a|0 )
-    fused-at @
+\ fused.fs's table is fields of sixteen bits, the first of a
+\ cell its lowest: an instruction, how many words it is, and
+\ each word's header.  A field that is zero ends it.
+: ffield ( n -- u ) \ its nth field
+    2* fused-at @ swap ifield ;
+
+\ an instruction's words: the field that has how many, which
+\ the header of each comes after
+: fused? ( w -- n|0 )
+    >r d# 0                                 ( n ) ( R: w )
     begin
-        dup @
+        dup ffield ?dup
     while
-        2dup @ = if nip cell+ exit then
-        cell+ dup @ + 1+
+        r@ = if rdrop 1+ exit then
+        1+ dup ffield + 1+
     repeat
-    2drop d# 0
+    rdrop drop d# 0
 ;
 
 : sfused ( w -- f ) \ as its words, if it is in the table
-    dup fused? ?dup 0= if drop false exit then      ( w a )
+    dup fused? ?dup 0= if drop false exit then      ( w n )
     swap smach !  d# -1 sgap !
-    dup @ d# 1 > sbold !
-    dup @ swap 1+ swap bounds                       ( end a )
+    dup ffield d# 1 > sbold !
+    dup ffield swap 1+ swap bounds                  ( end n )
     begin
         2dup xor
     while
-        dup @ sname
+        dup ffield sname
         1+
     repeat
     2drop
@@ -952,8 +958,17 @@ create hovoy 0 ,
     ['] words-moved 'moved !  ['] hov-overlay 'overlay !
 ;
 
-: wlist ( -- ) \ the words, the one chosen white on black
+\ wsel is kept while it is a header of the word shown, and found
+\ from the word when it is not
+: wchosen ( -- )
+    wsel @ dup 0< if drop else
+        nth ?dup if hxt wxt @ = if exit then then
+    then
     wxt @ xt>hdr ?dup if hdr>i else d# -1 then wsel !
+;
+
+: wlist ( -- ) \ the words, the one chosen white on black
+    wchosen
     d# 0 wi !
     wtop @ nth
     begin

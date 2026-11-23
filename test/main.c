@@ -24,7 +24,8 @@ static uint16_t *load_hex_file(const char *filename, int *total_words) {
   if (!f)
     return NULL;
 
-  // As many words as the file has: there is room for more as it is read.
+  // The array grows as the file is read, so it holds however many words
+  // the file has.
   uint16_t *memory = NULL;
   int addr = 0, room = 0;
   char line[100];
@@ -59,16 +60,16 @@ static uint16_t *load_hex_file(const char *filename, int *total_words) {
   return memory;
 }
 
-// A word of a test image's dictionary: its name, and the instruction its
-// code starts at.
+// One word from a test image's dictionary: its name, and the address of
+// the instruction its code starts at.
 typedef struct dict_entry {
   char name[64];
   uint16_t code_addr;
 } dict_entry;
 
-// The words of a test image's dictionary, from the first that is looked at
-// (read_header in vm_opcodes.c): how many, and the entries, which are made
-// here and are as many as the dictionary has.
+// Reads the words of a test image's dictionary, in the order it is
+// searched (first_header and read_header, vm_opcodes.c).  Returns how many
+// there are, and stores an allocated array of them in `*entries`.
 static int parse_dictionary(uint16_t *memory, int total_words,
                             dict_entry **entries) {
   const uint8_t *bytes = (const uint8_t *)memory;
@@ -116,7 +117,7 @@ static void extract_test_bytecode(uint16_t *memory, int total_words,
     // Find this test in dictionary
     for (int j = 0; j < dict_count; j++) {
       if (strcmp(dict_entries[j].name, test_name) == 0) {
-        // Found it - its code is where the image has it, and is not copied
+        // Found it.  Point at its code in the image; the code is not copied.
         int addr = dict_entries[j].code_addr;
         tests[i].bytes = memory + addr;
         tests[i].count = 0;
@@ -150,7 +151,7 @@ int main() {
   }
   printf("Loaded %d words from test_cases.hex\n", total_words);
 
-  // The instruction that is an exit, as vm_opcodes.h has it
+  // Find the exit instruction in vm_opcodes.h
   uint16_t exit_ins = 0;
   for (word_node *w = ctx.words; w->repr && strlen(w->repr); w++) {
     if (w->num_ins == 1 && strcmp(w->repr, "exit") == 0) {
@@ -176,7 +177,7 @@ int main() {
   }
   printf("Found %d test words in dictionary\n", cross_test_count);
 
-  // Extract bytecode for tests: as many as the dictionary has test words
+  // Extract the bytecode of each test word in the dictionary
   test_bytecode *cross_tests = calloc(cross_test_count + 1, sizeof(test_bytecode));
   extract_test_bytecode(hex_memory, total_words, exit_ins, cross_tests,
                         cross_test_count, dict_entries, dict_count);
@@ -195,7 +196,8 @@ int main() {
 
   bool all_compiler_tests_passed = true;
 
-  // A test that cross.fs's image has no word for is compared with nothing.
+  // If the image from cross.fs lacks the word for a test, that test cannot
+  // be compared, and the run fails.
   if (cross_test_count < active_tests) {
     printf("%d tests, and the image has %d of them\n", active_tests,
            cross_test_count);
@@ -208,7 +210,7 @@ int main() {
     // Compile with C compiler
     static context c_ctx;
     memset(&c_ctx, 0, sizeof(c_ctx));
-    // as many words as vm_opcodes.h has room for
+    // room for every word in vm_opcodes.h
     c_ctx.words = calloc(sizeof(FORTH_WORDS) / sizeof(FORTH_WORDS[0]), sizeof(word_node));
 
     // Suppress opcode output during comparison
@@ -303,7 +305,8 @@ int main() {
   }
   printf("All compiler comparisons PASSED\n");
 
-  // Clean up: a test's bytes are the image's
+  // Clean up.  Each test's bytes point into hex_memory, so they are not
+  // freed separately.
   free(hex_memory);
   free(cross_tests);
   free(dict_entries);

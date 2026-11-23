@@ -1,17 +1,18 @@
 //
 // screen IMAGE.hex MEMORY.out SCREEN.pbm
 //
-// The display of a machine, from its memory as the reference VM writes it
-// when it has stopped (`hexaforth IMAGE.hex DISK.img MEMORY.out`): a PBM of
-// bits, the leftmost pixel the highest bit of a byte and a set bit black,
-// as the desktop's test leaves its screens.  util/png.c makes a PNG of
-// one.  The reference VM shows no display, and this is how what a program
-// drew on it is seen.
+// Extracts a machine's display from the memory file the reference VM
+// writes when it stops (`hexaforth IMAGE.hex DISK.img MEMORY.out`), and
+// writes it as a binary PBM.  In the PBM the leftmost pixel is the highest
+// bit of a byte and a set bit is black, the same format the desktop's test
+// saves its screens in.  util/png.c converts one to a PNG.  The reference
+// VM has no window for the display, so this is how to see what a program
+// drew.
 //
-// The machine is the one the image is for, which the image says beside it
-// (util/image.h): where its display is, and which bit of a cell is which
-// pixel.  It fails if the image says no machine, or the file is less than
-// the display's memory.
+// The machine is the one the image was built for, which is recorded beside
+// the image (util/image.h).  That gives the display's address and which
+// bit of a cell is which pixel.  It fails if the image has no machine
+// recorded, or if the memory file ends before the display does.
 //
 
 #include "../vm_constants.h"

@@ -1,34 +1,37 @@
 //
 // examine IMAGE.hex IMAGE.tables IMAGE.sizes [FILE.fs]
 //
-// What an image is made of: its pages of code, the source files its code
-// is from, and the rest of its memory.  layout.h says what each of those
-// is and finds them; this prints what it found, in bytes.
+// Reports what an image is made of: its pages of code, the source files
+// its code comes from, and the rest of its memory.  layout.h defines and
+// finds each of those.  This prints what it found, in bytes:
 //
-//   The kernel: its words, how long it is, and what is left of its ROM.
+//   The kernel: its number of words, its length, and the space left in its
+//   ROM.
 //
-//   A line a page that has code: the words that start on it, its code, its
-//   tables, which are not code, and what of the page is left after them.
+//   One line per page that has code: the number of words that start on it,
+//   its code, and the space left on the page after it.
 //
-//   A line a source file: its words, its code and its tables as they are
-//   in the image, and the pages they are on, which are its own and the
-//   kernel's if some of its words are laid there; then the data and the
-//   dictionary headers that cross.fs counted for it (.sizes), which for a
-//   file that includes others have theirs in them.  The nucleus's own is
-//   what no file it includes has.
+//   One line per source file: its words and code as they are in the
+//   image, and the pages they are on, which are its own page and the
+//   kernel's if some of its words were placed there.  Then the data and
+//   the dictionary headers that cross.fs counted for the file (.sizes).
+//   For a file that includes others, those figures include theirs.  The
+//   nucleus's own line is whatever belongs to none of the files it
+//   includes.
 //
-//   The dictionary, the data as far as the data pointer, and what there is
-//   past it.
+//   The dictionary, the data up to the data pointer, and what lies past
+//   it.
 //
-// With a file named, that file's words too, each with where it is and how
-// long.  It fails if the image has no words: then it looked at nothing.
+// With a file named, it also lists that file's words, each with its
+// address and length.  It fails if the image has no words, because then it
+// examined nothing.
 //
 
 #include "layout.h"
 
 static layout IMAGE;
 
-// A number of instructions, as the bytes they are.
+// Converts a number of instructions to bytes.
 static long bytes(long instructions) { return(instructions * (long)sizeof(instruction)); }
 
 static void pages_said(const held* has) {
@@ -43,30 +46,30 @@ int main(int argc, char *argv[]) {
     lay_out(&IMAGE, argv[1], argv[2]);
     span* FILES;
     int files = every_file_of(argv[3], &FILES);
-    held* HAS = room_for(files + 1, sizeof(held));      // and one for the nucleus's own
+    held* HAS = room_for(files + 1, sizeof(held));      // one per file, plus one for the nucleus itself
     held_by(&IMAGE, FILES, files, HAS);
     const held* own = &HAS[files];
 
-    long words = 0, code = 0, tables = 0;
+    long words = 0, code = 0;
     for(long page=0; page < IMAGE.npages; page++) {
         words += IMAGE.pages[page].words;
         code += IMAGE.pages[page].code;
-        tables += IMAGE.pages[page].tables;
     }
-    printf("%s, cells of %d bits: %ld bytes; %ld words, %ld bytes of code and %ld of tables\n",
-           argv[1], CELL_BITS, (long)IMAGE.len, words, bytes(code), bytes(tables));
+    printf("%s, cells of %d bits: %ld bytes; %ld words, %ld bytes of code\n",
+           argv[1], CELL_BITS, (long)IMAGE.len, words, bytes(code));
     printf("the kernel: %ld words, %ld bytes of the %d of its ROM, %ld left\n",
            own->words, bytes(IMAGE.kernel), KROM_BYTES, (long)KROM_BYTES - bytes(IMAGE.kernel));
 
-    printf("\npages of code   words    code  tables    left\n");
+    printf("\npages of code   words    code    left\n");
     for(long page=0; page < IMAGE.npages; page++) {
         const code_page* has = &IMAGE.pages[page];
         if (!has->words) continue;
-        printf("  page %-6ld %7ld %7ld %7ld %7ld\n", page, has->words, bytes(has->code), bytes(has->tables), bytes(PAGE - has->end));
+        printf("  page %-6ld %7ld %7ld %7ld\n", page, has->words, bytes(has->code), bytes(PAGE - has->end));
     }
 
-    // What cross.fs counted for the nucleus's own: the whole image's, less
-    // that of the files that no other file includes.
+    // The data and headers cross.fs counted for the nucleus itself: the
+    // whole image's figures, minus those of the files that no other file
+    // includes.
     long own_data = 0, own_headers = 0;
     int whole = 0;
     for(int idx=0; idx < files; idx++) {
@@ -76,14 +79,14 @@ int main(int argc, char *argv[]) {
             own_data -= FILES[idx].data, own_headers -= FILES[idx].headers;
         }
     }
-    printf("\nsource files       words    code  tables    data headers  pages\n");
-    printf("  %-16s %7ld %7ld %7ld", "(the nucleus)", own->words, bytes(own->code), bytes(own->tables));
+    printf("\nsource files       words    code    data headers  pages\n");
+    printf("  %-16s %7ld %7ld", "(the nucleus)", own->words, bytes(own->code));
     if (whole) printf(" %7ld %7ld ", own_data, own_headers); else printf("       -       - ");
     pages_said(own);
     printf("\n");
     for(int idx=0; idx < files; idx++) {
-        if (is_all_of_it(&FILES[idx]) || is_laid_near(&FILES[idx])) continue;   // what is laid near is in its file's line
-        printf("  %-16s %7ld %7ld %7ld %7ld %7ld ", FILES[idx].file, HAS[idx].words, bytes(HAS[idx].code), bytes(HAS[idx].tables),
+        if (is_all_of_it(&FILES[idx]) || is_laid_near(&FILES[idx])) continue;   // code placed on the kernel's page is in its file's line
+        printf("  %-16s %7ld %7ld %7ld %7ld ", FILES[idx].file, HAS[idx].words, bytes(HAS[idx].code),
                FILES[idx].data, FILES[idx].headers);
         pages_said(&HAS[idx]);
         printf("\n");

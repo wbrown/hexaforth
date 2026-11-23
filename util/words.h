@@ -1,17 +1,18 @@
 //
-// words.h - the words of an image, for the tools that have this in them:
-// every definition that has a header or a label, where its code starts,
-// and how many instructions it is.
+// words.h - the words of an image, for the tools that include it: every
+// definition that has a header or a label, where its code starts, and how
+// many instructions it has.
 //
 // A header is in the image (read_header, vm_opcodes.c).  A label is not:
-// cross.fs writes the labels to the file of names beside the image
-// (build/nuc.tables), in the decompiler's records, and says there how
-// they are laid out (name-tables).
-// A word is as long as it is to the next word of its page, or for the last
-// of a page to the end of the page, less what is nothing at the end of
-// that: code is not always laid down against the code before it.  Where
-// cells are 16 bits the kernel's ROM is half of page 0 and other code is
-// put in the rest of the page, with nothing between the two.
+// cross.fs writes the labels to the names file beside the image
+// (build/64/nuc.tables), in the format of the decompiler's records, which
+// cross.fs describes at name-tables.
+//
+// A word's length runs to the next word on its page, or to the end of the
+// page for the last word on it, minus any trailing zeros.  Code does not
+// always start right after the code before it: with 16-bit cells the
+// kernel's ROM is half of page 0, other code goes in the rest of the page,
+// and the space between the two is zero.
 //
 
 #ifndef HEXAFORTH_WORDS_H
@@ -32,10 +33,16 @@ typedef struct {
     char name[NAME_ROOM];
 } word;
 
+// Orders words by address.  Where a label and a header share an address,
+// the label sorts first and gets the instructions: the label names the
+// word whose code is there, and the header belongs to a word with no
+// instructions that falls through into it (cross.fs, ;into).  Until the
+// list is sorted, `size` is 1 for a label and 0 for a header.
 static int by_place(const void* a, const void* b) {
     const word* x = a;
     const word* y = b;
     if (x->at != y->at) return(x->at < y->at ? -1 : 1);
+    if (x->size != y->size) return(x->size > y->size ? -1 : 1);
     return(strcmp(x->name, y->name));
 }
 
@@ -45,15 +52,21 @@ static uint64_t cell_of(const uint8_t* cells, size_t which) {
     return(cell);
 }
 
-// The labels the file of names has, of code or of data, put after what a
-// list has: how many the list then has.  The file's first block is a
-// stamp, how many blocks the run by execution token is and how many the
-// run by number, and the first key of each; the runs are after it.  A
-// block of a run is how many records it has, and the records: a word's
-// header and its key, or a label's place with the top bit set, its key
-// and its name.  The labels of data are those of the run by number.  They
-// are put in newest first, as the labels were made: by place, which is
-// kept where the size goes until they are in order.
+// Appends the labels in the names file to a list, and returns the list's
+// new length.  `of_data` selects the labels of data; otherwise the labels
+// of code are read.
+//
+// The file's first block holds a stamp, the number of blocks in the run
+// sorted by execution token, the number of blocks in the run sorted by
+// number, and the first key of each block.  The runs follow it.  A block
+// of a run is a count of records and then the records.  A record is a
+// word's header address and its key; or, for a label, the label's position
+// in cross.fs's label table with the top bit set, its key, and its name.
+// The labels of data are the labels in the run sorted by number.
+//
+// The labels are appended newest first, which is the order cross.fs
+// created them in.  They are sorted by that position, which is kept in
+// `size` until the sort is done.
 static int newest_first(const void* a, const void* b) {
     const word* x = a;
     const word* y = b;
@@ -75,7 +88,7 @@ static long labels_of(const char* tables, int of_data, word** list, long n, long
         for(uint64_t r=0; r < records && at + 1 < have; r++) {
             uint64_t first = cell_of(cells, at), key = cell_of(cells, at + 1);
             at += 2;
-            if (!(first & top)) continue;                       // a word that has a header
+            if (!(first & top)) continue;                       // a word with a header, not a label
             ONE_MORE(*list, n, *room);
             decode_name(cells + at * CELL_BYTES, (have - at) * CELL_BYTES, (*list)[n].name);
             (*list)[n].at = (long)key;
@@ -90,11 +103,12 @@ static long labels_of(const char* tables, int of_data, word** list, long n, long
     return(n);
 }
 
-// The words of an image, in order of where they are: how many there are,
-// and the list, which is made here and has room for them all.  A second
-// name for the same code has no instructions of its own.  `more` is words
-// that are said besides, each a name and where its code starts: those a
-// machine kept of what its boot compiled (kept_of, below).
+// Lists the words of an image, sorted by where their code starts.  Returns
+// their number and allocates the list.  A second name for the same code
+// gets a size of 0.  Where a label and a header share an address, the
+// label has the instructions (by_place).  `more` is extra words to
+// include, each a name and the address of its code: the names a machine
+// kept for the words its boot compiled (kept_of, below).
 static int words_and(const uint8_t* image, size_t len, const char* tables, const word* more, long nmore, word** list) {
     word* out = NULL;
     long n = 0, room = 0;
@@ -102,6 +116,7 @@ static int words_and(const uint8_t* image, size_t len, const char* tables, const
         uint64_t xt;
         ONE_MORE(out, n, room);
         head = read_header(image, len, head, &xt, out[n].name);
+        out[n].size = 0;
         out[n++].at = xt;
     }
     for(long idx=0; idx < nmore; idx++) {
@@ -109,8 +124,10 @@ static int words_and(const uint8_t* image, size_t len, const char* tables, const
         out[n] = more[idx];
         out[n++].size = 0;
     }
+    long labels = n;
     n = labels_of(tables, 0, &out, n, &room);
-    ONE_MORE(out, n, room);                             // so that there is a list, if there are none
+    for(long idx=labels; idx < n; idx++) out[idx].size = 1;
+    ONE_MORE(out, n, room);                             // so that the list is allocated even when it is empty
     *list = out;
     qsort(out, n, sizeof(word), by_place);
     const uint16_t* code = (const uint16_t*)image;
@@ -136,20 +153,20 @@ static int words_of(const uint8_t* image, size_t len, const char* tables, word**
     return(words_and(image, len, tables, NULL, 0, list));
 }
 
-// The labels for data that the file of names has: a variable or a table
-// that has no header, by its name, with the cell it is of as its place.
-// How many there are, and the list, which is made here, with how much it
-// has room for, for whoever puts more after them (ONE_MORE).
+// Lists the labels of data in the names file: each variable or table that
+// has no header, with its name and the address of its cell.  Returns their
+// number, allocates the list, and sets `*room` to the list's capacity, so
+// that a caller can append to it (ONE_MORE).
 static long data_of(const char* tables, word** list, long* room) {
     *list = NULL;
     *room = 0;
     long n = labels_of(tables, 1, list, 0, room);
-    ONE_MORE(*list, n, *room);                          // so that there is a list, if there are none
+    ONE_MORE(*list, n, *room);                          // so that the list is allocated even when it is empty
     return(n);
 }
 
-// The cell a label for data is of, or 0 if the file of names has no such
-// label.
+// Returns the address of the cell a data label names, or 0 if the names
+// file has no such label.
 static uint64_t data_called(const char* tables, const char* name) {
     word* labels;
     long room, n = data_of(tables, &labels, &room);
@@ -159,12 +176,13 @@ static uint64_t data_called(const char* tables, const char* name) {
     return(is);
 }
 
-// The listing beside an image (IMAGE.lst, which cross.fs writes): every
-// word that has code, in the order the source defines them, each the
-// instruction it starts at, in hex, and its name.  How many there are, and
-// the list, which is made here; none if the image has no listing.  Two
-// words of one name are told apart by it: which was defined first is the
-// same in every build of a source, and where each is laid is not.
+// Reads the listing beside an image (IMAGE.lst, which cross.fs writes):
+// every word that has code, in the order the source defines them, each
+// with the address of its first instruction, in hex, and its name.
+// Returns their number and allocates the list; the number is 0 if the
+// image has no listing.  The listing tells two words with the same name
+// apart: their order of definition is the same in every build of a source,
+// and their addresses are not.
 static long listing_of(const char* hex, word** list) {
     word* out = NULL;
     long n = 0, room = 0;
@@ -188,34 +206,20 @@ static long listing_of(const char* hex, word** list) {
     if (in) fclose(in);
     free(line);
     free(path);
-    ONE_MORE(out, n, room);                             // so that there is a list, if there are none
+    ONE_MORE(out, n, room);                             // so that the list is allocated even when it is empty
     *list = out;
     return(n);
 }
 
-// Where a word is, or less than nothing if the image has none of that name.
+// Returns the address of a word's code, or -1 if the image has no word
+// with that name.
 static long place_of(const word* words, int n, const char* name) {
     for(int idx=0; idx < n; idx++) if (!strcmp(words[idx].name, name)) return(words[idx].at);
     return(-1);
 }
 
-// The nucleus's table (join.fs, folds.fs) is instructions laid down after
-// its code, to the end of what its page has, and folds-at says where it
-// is.  It is not code: here it is made nothing, in an image that is to be
-// read as code.
-static void without_tables(uint8_t* image, size_t len, const word* words, int n) {
-    uint16_t* code = (uint16_t*)image;
-    long told = place_of(words, n, "folds-at");
-    if (told < 0) return;
-    uint64_t cell = 0;                  // the word pushes where its cell is
-    for(const instruction* ins = (const instruction*)code + told; ins->lit.lit_f; ins++) {
-        cell += (uint64_t)ins->lit.lit_v << (ins->lit.lit_shifts * LIT_BITS);
-    }
-    uint64_t at = cell_of(image, cell);
-    for(uint64_t idx=at; at && idx < (at / PAGE + 1) * PAGE && idx < len / 2; idx++) code[idx] = 0;
-}
-
-// The number the code at a place pushes: its literals, added up.
+// Returns the number that the code at an address pushes: the sum of its
+// literal instructions.
 static uint64_t pushed_at(const uint8_t* image, long at) {
     uint64_t is = 0;
     for(const instruction* ins = (const instruction*)image + at; ins->lit.lit_f; ins++) {
@@ -224,16 +228,53 @@ static uint64_t pushed_at(const uint8_t* image, long at) {
     return(is);
 }
 
-// The names a machine kept of the words its boot compiled, which are each
-// file's own and not in its dictionary (forth/files.fs): put after what a
-// list has, and how many the list then has.  `memory` is the machine's
-// memory when it stopped, of which `words` are the words of its image, and
-// `disk` the disk it booted from as it left it.  The machine's cells
-// own-kept say the first block they are in and how many blocks have any,
-// and files.fs what a block of them is.  A record that has a number where
-// a place goes is of no word that is anywhere, and is not in the list.
-// Whether a word is immediate is left where its size goes, for whoever
-// asks before the list is put in order.
+// Reads the decompiler's table (forth/fused.fs) from an image or from a
+// machine's memory.  The variable `fused-at` holds the table's address.
+// The table is 16-bit fields packed into cells, lowest bits first.  An
+// entry is the instruction, the number of words it is shown as, and the
+// address of each word's header; a zero field ends the table.  Returns the
+// number of entries and allocates the list, or returns 0 if there is no
+// table.
+#define FUSED_WORDS 4                   // the most words an entry has
+typedef struct { uint16_t ins; int n; long head[FUSED_WORDS]; } fused_entry;
+
+static long fused_of(const uint8_t* image, size_t len, const word* words, int n, fused_entry** list) {
+    fused_entry* out = NULL;
+    long entries = 0, room = 0;
+    *list = NULL;
+    long at = place_of(words, n, "fused-at");
+    const size_t cells_there = len / CELL_BYTES;
+    if (at < 0) return(0);
+    uint64_t told = pushed_at(image, at);
+    if (told >= cells_there) return(0);
+    uint64_t starts = cell_of(image, told);
+    if (!starts || starts >= cells_there) return(0);
+    const uint8_t* fields = image + starts * CELL_BYTES;
+    const size_t most = (len - starts * CELL_BYTES) / sizeof(uint16_t);    // the most fields that fit between there and the end
+    #define FUSED_FIELD(k) ((uint16_t)(fields[2 * (k)] | fields[2 * (k) + 1] << 8))
+    for(size_t k=0; k + 2 < most && FUSED_FIELD(k); ) {
+        fused_entry e = { .ins = FUSED_FIELD(k), .n = FUSED_FIELD(k + 1) };
+        if (e.n < 1 || e.n > FUSED_WORDS || k + 2 + e.n > most) break;
+        for(int w=0; w < e.n; w++) e.head[w] = (long)FUSED_FIELD(k + 2 + w) * CELL_BYTES;
+        ONE_MORE(out, entries, room);
+        out[entries++] = e;
+        k += 2 + e.n;
+    }
+    #undef FUSED_FIELD
+    *list = out;
+    return(entries);
+}
+
+// Appends the names a machine kept for the words its boot compiled, and
+// returns the list's new length.  Those names are private to their files
+// and are not in the dictionary (forth/files.fs).  `memory` is the
+// machine's memory after it stopped, `words` is the words of its image,
+// and `disk` is the disk it booted from, as the boot left it.  The
+// machine's variable `own-kept` holds the first block the names are in and
+// the number of blocks used, and files.fs describes the layout of a block.
+// A record that has a number instead of an address names no code, and is
+// left out.  Each word's `size` is set to 1 if the word is immediate, for
+// a caller that needs to know before the list is sorted.
 static long kept_of(const uint8_t* memory, size_t len, const word* words, int n,
                     const uint8_t* disk, size_t disk_len, word** list, long have, long* room) {
     long told = place_of(words, n, "own-kept");
@@ -261,15 +302,35 @@ static long kept_of(const uint8_t* memory, size_t len, const word* words, int n,
     return(have);
 }
 
-// The word that the instruction at a place is in.
+// Returns how many of a word's instructions a machine compiled when it
+// booted.  `memory` is the machine's memory after the boot, `with` is the
+// image it booted with, and `pages` is the address of the table that
+// records how far each page's code has reached (nuc.fs).  Returns 0 for a
+// word that was already in the image, for a second name, and for code that
+// was zeroed.  The count stops where the page's code ends: past that point
+// the nucleus's peephole keeps instructions it has set aside while it
+// tries a word inline (join.fs, keep), and those are not code.
+static long compiled_of(const uint8_t* with, const uint8_t* memory, uint64_t pages, const word* w) {
+    const uint16_t* booted_with = (const uint16_t*)with;
+    const uint16_t* code = (const uint16_t*)memory;
+    long at = w->at, size = w->size;
+    if (!size || booted_with[at] || !code[at]) return(0);
+    long got_to = (long)cell_of(memory, pages + at / PAGE);
+    if (got_to && at + size > got_to) size = got_to - at;
+    return(size > 0 ? size : 0);
+}
+
+// Returns the name of the word that contains the instruction at an
+// address.
 static const char* word_at(const word* words, int n, long at) {
     const char* in = "?";
     for(int idx=0; idx < n && words[idx].at <= at; idx++) if (words[idx].size) in = words[idx].name;
     return(in);
 }
 
-// The dictionary of an image: the byte its headers start at in memory, the
-// byte after the last of them there, and how many headers it has.
+// Measures the dictionary of an image.  Sets `*from` to the byte offset of
+// the lowest header in memory and `*to` to the byte offset just past the
+// highest, and returns the number of headers.
 static int headers_of(const uint8_t* image, size_t len, size_t* from, size_t* to) {
     int n = 0;
     *from = *to = 0;

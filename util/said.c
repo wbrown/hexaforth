@@ -1,66 +1,76 @@
 //
 // said_files GIT KIND... [--not DIRECTORY...] [--besides NAME...]
 //
-// The files that the tree's own text says by name, and whether each is
-// there: the target `said`, which cmake/said.cmake says.
+// Finds the file names mentioned in the tree's own text, and checks that
+// each one names a file that exists: the target `said`, defined in
+// cmake/said.cmake.
 //
-// A file is named in many places besides where it is: by what includes
-// it, by CMake, in the comment at the top of another file, in CLAUDE.md.
-// When it is given another name, or taken away, each of those is wrong,
-// and nothing that is built finds the ones that are only said.  This does.
+// A file is mentioned in many places besides its own path: in the files
+// that include it, in CMake, in the comment at the top of another file,
+// in CLAUDE.md.  When the file is renamed or removed, every one of those
+// mentions is wrong, and the build catches only the ones it uses.  This
+// catches the rest.
 //
-// It is run where the tree is.  The tree's files are those git has, and
-// those it has not been told of and has not been told to leave out: GIT is
-// asked.  What is in a DIRECTORY is not among them (worktrees, which is
-// other trees).  It reads each that is text.  A name is a run of letters,
-// digits and _ + . / - that ends in a dot and one of the KINDs, which are
-// the endings of the tree's source: `c`, `h`, `fs`.  It is there if some
-// file's path ends with it, whatever directory it was said from.  These
-// are not looked for:
+// Run it from the top of the tree.  The tree's files are the ones git
+// tracks, plus the untracked ones that git does not ignore; it runs GIT
+// to list them.  Files under a DIRECTORY are left out (worktrees, which
+// holds other trees).  It reads every file that is text.  A name is a run
+// of letters, digits and _ + . / - that ends in a dot and one of the
+// KINDs.  The KINDs are the extensions of the tree's source: `c`, `h`,
+// `fs`.  A name exists if some file's path ends with it, so it is found
+// whatever directory it was written relative to.  These are not checked:
 //
-//   in C, a name that is not in a comment or between quotes: a part of a
-//   structure is said with a dot too, and a header of the system's is
-//   between < >;
-//   a name with `build` among its directories, which is made, and one
-//   after a % between quotes, which is yet to be made;
-//   a name with no small letter before its ending, which stands for any
-//   file (FILE.fs), and before the name a directory with none (FORTH/),
-//   which stands for wherever that is;
-//   and each NAME, which is a file that is said here and is not the
-//   tree's: cmake/said.cmake says which and why.
+//   In C, a name outside a comment or a string.  A struct member is also
+//   written with a dot, and a system header is between < >.
 //
-// It prints each name that is not there after the file and the line that
-// say it, and then how many names were said in how many files.  It fails
-// if any is not there, and if nothing was said.
+//   A name with `build` among its directories, which is a generated file,
+//   and a name that follows a % in a string, which is a format that
+//   builds a name.
 //
-// Code that tools share is a header, which each includes, and a file of C
-// is compiled by itself.  Some are both, as the machine is (vm.c): it says
-// which, after the rest.
+//   A name with no lower-case letter before its extension, which is a
+//   placeholder for any file (FILE.fs).  A leading directory with no
+//   lower-case letter (FORTH/) is a placeholder too, and is dropped before
+//   the name is looked up.
+//
+//   Each NAME, which is a file that is mentioned in the tree and does not
+//   belong to it.  cmake/said.cmake lists them and gives the reason for
+//   each.
+//
+// It prints each missing name after the file and line that mention it,
+// and then the number of names it checked and the number of files they
+// were in.  It fails if any name is missing, or if it found no names at
+// all.
+//
+// Code that tools share is in a header, which each tool includes, and a
+// .c file is compiled on its own.  A few .c files are compiled on their
+// own and also included by another file, as the machine is (vm.c).  It
+// lists those last.
 //
 // said_files GIT --figures WORD... [--not DIRECTORY...]
 //
-// The figures the tree's comments and documents say: the target `figures`.
-// How big a thing is, how many of a thing there are and what a thing costs
-// is what the build prints, and written down it is a fact said a second
-// time, which someone then has to keep in step (CLAUDE.md).  This prints
-// each line of a comment, or of a document, that has a number and then a
-// WORD, which is what such a figure is of (`bytes`, `cycles`, `%`), for
-// someone to read: a number that says what the machine is stays, and one
-// that says how much there was when it was written does not.  Nothing here
-// can tell the two apart, so it fails nothing.
+// Lists the figures in the tree's comments and documents: the target
+// `figures`.  The build prints sizes, counts and costs.  A figure written
+// down is a second copy of one of those, which someone then has to keep
+// up to date (CLAUDE.md).  This prints every line of a comment or a
+// document that has a number followed by a WORD.  The WORDs are the units
+// such figures come in (`bytes`, `cycles`, `%`).  A person reads the list:
+// a number that defines the machine stays, and a number that records a
+// measurement from the time of writing goes.  The program cannot tell the
+// two apart, so it never fails.
 //
 // said_files GIT --words WORD... [--not DIRECTORY...]
 //
-// Where the tree's text says a word of Forth, for a word that is to be
-// given another name or taken away.  It is run by hand, where the tree
-// is, since the words are whatever is asked about
-// (`build/cmake/said_files git --words tuck --not worktrees`).  A word of
-// Forth is whatever is between spaces, and in a comment or a document it
-// is between quotes, backticks or brackets as well, or before a comma or
-// a full stop.  Each line that says a WORD so is printed after its file
-// and line; and, marked `within`, each line that has it only as part of a
-// longer word (`or` in `or!`), which is another word and is not to be
-// changed with it.  It fails if any line says one.
+// Lists where the tree's text mentions a Forth word, for use before a
+// word is renamed or removed.  It is run by hand from the top of the
+// tree, with the words in question
+// (`build/cmake/said_files git --words tuck --not worktrees`).  A Forth
+// word is delimited by spaces.  In a comment or a document it can also be
+// delimited by quotes, backticks or brackets, or be followed by a comma
+// or a full stop.  It prints each line that has a WORD delimited that
+// way, after the file and line number.  It also prints, marked `within`,
+// each line that has the WORD only as part of a longer word (`or` in
+// `or!`).  That is a different word, which a rename must leave alone.  It
+// exits with status 1 if any line has a WORD as a whole word.
 //
 
 #include <ctype.h>
@@ -88,8 +98,9 @@ static int among(const names* list, const char* name, size_t len) {
 
 static names KINDS, SKIPPED, BESIDES, FILES, INCLUDED, FIGURES, WORDS;
 
-// The files of C that a file includes, which are compiled by themselves as
-// well, or they would be headers: each is kept, once, by its name alone.
+// Records the .c files that a file includes.  A .c file is also compiled
+// on its own; otherwise it would be a header.  Each is recorded once, by
+// its file name without the directory.
 static void included_in(const unsigned char* text, size_t len) {
     for(size_t at=0; at<len; at++) {
         if (at && text[at - 1] != '\n') continue;
@@ -112,16 +123,17 @@ static void included_in(const unsigned char* text, size_t len) {
     }
 }
 
-// Is a file in a directory that is skipped?
+// Returns 1 if a file is under one of the skipped directories.
 static int is_skipped(const char* path) {
     for(const char* at = strchr(path, '/'); at; at = strchr(at + 1, '/'))
         if (among(&SKIPPED, path, at - path)) return(1);
     return(0);
 }
 
-// The tree's files, by their paths from where this is run: git is asked
-// for those it has and those it has not been told of or told to leave out.
-// One that is no longer there, or is a link, is not among them.
+// Lists the tree's files in FILES, by path relative to the current
+// directory.  It runs git to list the tracked files and the untracked
+// files that are not ignored.  A file that no longer exists, or that is a
+// symbolic link, is left out.
 static void files_of(const char* git) {
     char* asked = NULL;
     text_more(&asked, "'%s' ls-files --cached --others --exclude-standard", git);
@@ -148,16 +160,17 @@ static void files_of(const char* git) {
     free(asked);
 }
 
-// Is a file C, by its name?
+// Returns 1 if a file's name has a C or C++ extension.
 static int is_c(const char* path) {
     const char* dot = strrchr(path, '.');
     return(dot && (!strcmp(dot, ".c") || !strcmp(dot, ".h") || !strcmp(dot, ".cpp")));
 }
 
-// A file of C with nothing left of it but its comments and, if they are
-// wanted, what is between quotes: the rest is spaces, and so is a \ between
-// quotes and the character after it, which is not part of a name ("\nfuse"
-// is a new line).  Its lines are where they were.
+// Blanks out everything in a C file's text except its comments and, if
+// `quoted` is set, the contents of its strings.  Everything else becomes
+// spaces.  So does a backslash in a string and the character after it,
+// which is an escape and not part of a name ("\nfuse" is a newline and
+// then "fuse").  Newlines are kept, so line numbers do not change.
 static void only_said(unsigned char* text, size_t len, int quoted) {
     enum { CODE, LINE, BLOCK, QUOTED, CHARACTER } in = CODE;
     for(size_t at=0; at<len; at++) {
@@ -208,7 +221,7 @@ static int of_a_name(int c) {
     return(isalnum(c) || c == '_' || c == '+' || c == '.' || c == '/' || c == '-');
 }
 
-// Is one of a name's directories `build`?
+// Returns 1 if one of the directories in a name is `build`.
 static int is_made(const char* name, size_t len) {
     const char* at = name;
     const char* end = name + len;
@@ -221,7 +234,8 @@ static int is_made(const char* name, size_t len) {
     return(0);
 }
 
-// Does some file's path end with a name, at a directory?
+// Returns 1 if some file's path ends with the name, starting at a
+// directory boundary.
 static int is_there(const char* name, size_t len) {
     for(long idx=0; idx<FILES.n; idx++) {
         size_t all = strlen(FILES.at[idx]);
@@ -231,12 +245,14 @@ static int is_there(const char* name, size_t len) {
     return(0);
 }
 
-// The names a file says: how many, and each that is not there printed.
+// Finds the file names mentioned in one file.  Prints each that does not
+// exist, adds their number to `*missing`, and returns the number of names
+// it checked.
 static long said_in(const char* path, long* missing) {
     unsigned char* text;
     size_t len = file_bytes(path, &text);
     long said = 0, line = 1;
-    if (!text || memchr(text, '\0', len)) {     // not text
+    if (!text || memchr(text, '\0', len)) {     // a binary file
         free(text);
         return(0);
     }
@@ -253,10 +269,13 @@ static long said_in(const char* path, long* missing) {
         size_t from = at;
         while (at < len && of_a_name(text[at])) at++;
         size_t to = at;
-        if (from > 0 && text[from - 1] == '%') from++;                  // "%s.fs" is a name yet to be made
-        while (to > from && strchr(".-/", text[to - 1])) to--;          // the end of a sentence is not the name's
-        for(;;) {                                                       // nor is where it is said from,
-            size_t under = from;                                        // nor a directory that stands for any
+        if (from > 0 && text[from - 1] == '%') from++;                  // "%s.fs" is a format that builds a name
+        while (to > from && strchr(".-/", text[to - 1])) to--;          // drop the punctuation that ends a sentence
+        // Drop each leading directory that is empty, starts with a dot
+        // (./ and ../), or has no lower-case letter (a placeholder), and
+        // drop a leading -.
+        for(;;) {
+            size_t under = from;
             int small = 0;
             while (under < to && text[under] != '/') small |= islower(text[under++]);
             if (under < to && (under == from || !small || text[from] == '.')) from = under + 1;
@@ -289,9 +308,10 @@ static int ends_with(const char* path, const char* end) {
     return(all >= len && !strcmp(path + all - len, end));
 }
 
-// A file with nothing left of it but what it says to a reader: the
-// comments of C, of Forth (after a \ that is a word) and of CMake (after a
-// #), and all of a document.  False if it is none of those.
+// Blanks out everything in a file's text except its prose: the comments
+// of C, of Forth (after a \ that is a word by itself) and of CMake (after
+// a #), or the whole text of a Markdown document.  Returns 0 if the file
+// is none of those kinds.
 static int only_prose(const char* path, unsigned char* text, size_t len) {
     if (ends_with(path, ".md")) return(1);
     if (is_c(path)) {
@@ -316,10 +336,11 @@ static int only_prose(const char* path, unsigned char* text, size_t len) {
     return(1);
 }
 
-// The lines of a file's prose that have a figure in them, printed: how
-// many.  A figure is a number, of digits with commas and a point, that is
-// not part of a word or of a number said otherwise ($ff, 0x4000), and
-// then one of the words a figure is of, which may be on the next line.
+// Prints the lines of a file's prose that contain a figure, and returns
+// how many there are.  A figure is a decimal number (digits, with commas
+// and a decimal point) followed by one of the FIGURES words, which may be
+// on the next line.  A number that is part of a word, or of a number in
+// another notation ($ff, 0x4000), does not count.
 static long figures_in(const char* path) {
     unsigned char* text;
     size_t len = file_bytes(path, &text);
@@ -348,15 +369,16 @@ static long figures_in(const char* path) {
         while (from < stop && strchr(" \t", text[from])) from++;
         printf("%s:%ld: %.*s\n", path, line, (int)(stop - from), (const char*)text + from);
         said++;
-        at = stop - 1;                          // a line is printed once
+        at = stop - 1;                          // print each line only once
     }
     free(text);
     return(said);
 }
 
-// The lines of a file that say one of the words, printed: how many say
-// one as a word.  What a word of Forth may have next to it and still be
-// that word is a space, the end of a line, and what prose puts round it.
+// Prints the lines of a file that contain one of the WORDS, and returns
+// how many contain one as a whole word.  A Forth word is whole if it has
+// on each side a space, the end of the line, or the punctuation prose puts
+// around a word (BEFORE and AFTER).
 static long words_in(const char* path) {
     static const char BEFORE[] = " \t`\"'([{,";
     static const char AFTER[] = " \t`\"')]},.";

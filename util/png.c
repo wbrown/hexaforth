@@ -11,7 +11,9 @@
 #include <ctype.h>
 #include "png_file.h"
 
-// A number of a PBM's header, past the spaces and the comments before it.
+// Reads the next number in a PBM's header, skipping the whitespace and
+// comments before it, and advances `*at` past it.  Returns -1 if there is
+// no number.
 static long header_number(const unsigned char* bytes, size_t len, size_t* at) {
     for(;;) {
         while (*at < len && isspace(bytes[*at])) (*at)++;
@@ -37,7 +39,7 @@ int main(int argc, char *argv[]) {
         down = header_number(pbm, len, &at);
     }
     size_t row = across > 0 ? (size_t)(across + 7) / 8 : 0;
-    at++;                                               // the one space after the header
+    at++;                                               // skip the single whitespace character that ends the header
     if (across <= 0 || down <= 0 || at + row * (size_t)down > len) {
         fprintf(stderr, "%s is not a PBM of bits with all its rows\n", argv[1]);
         return(1);

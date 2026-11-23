@@ -61,6 +61,8 @@ variable tcp    0 tcp !         \ Code pointer
 \   ALU    with the one or two before it, is the one instruction
 \          that does the same; or three are two
 \   a run with numbers or variables in it is a shorter run
+\   a 0 pushed after ALU instructions, or four to six ALU
+\          instructions, are the one or two that do the same
 \ The machine is asked which (util/fuse.h).
 \ Instructions named by number: 7403 exit, 643c +, 6800 @,
 \ 6308 !, 6480 invert, 6400 does nothing, 8000 a literal pushed,
@@ -72,10 +74,8 @@ variable tfence     0 tfence !                  \ the last place a branch or cal
 variable tpinned    -1 tpinned !                \ an instruction that stays as written: the word called before it reads it
 variable peephole   true peephole !
 
-\ PEEPHOLE=off is the plain build: nothing is combined.  It is
-\ not run: the test `builds` compares it with the image, run for
-\ run.  It inlines the calls the image inlined (.inline), so
-\ that the two have the same calls.
+\ PEEPHOLE=off is the plain build: nothing is combined, and the
+\ calls the image inlined are inlined (.inline).
 variable plain      false plain !               \ true for the plain build
 s" PEEPHOLE" getenv s" off" compare 0= [if] false peephole !  true plain ! [then]
 
@@ -103,6 +103,7 @@ variable 'ptcode                                \ compiles an instruction throug
 variable cur        false cur !                 \ true while a small word's instructions are being inlined
 variable stays      false stays !               \ true from `in-place` to the call after it
 variable ending     false ending !              \ true while the exit that ends a definition is compiled
+variable pend-one   false pend-one !            \ true if the waiting word waits only for that exit (try-inline)
 variable cur-tcp0                               \ where the word being inlined starts,
 create cur-save 12 cells allot                  \ and the twelve instructions before it
 defer call,     ( body -- )                     \ compile a call to a word
@@ -142,7 +143,14 @@ defer tcode,
     true
 ;
 
-: settle ( -- ) pend @ if false pend !  (backout) then ;
+\ What waits is called after all where a branch lands; a word
+\ that waits only for the end of the definition stays inline.
+: settle ( -- )
+    pend @ if
+        false pend !
+        pend-one @ if  false pend-one !  1 inl-map pend-ord @ + c!  else  (backout)  then
+    then
+;
 
 : label     settle  tcp @ tfence ! ;    \ a branch or a call lands here
 
@@ -251,6 +259,7 @@ variable fv-base    -1 fv-base !            \ var-base
 defer machine-fuse ( first second third -- one | 0 )
 defer machine-two ( first second third -- two | 0 )
 defer machine-lit ( run n branch? out -- m | -1 )
+defer machine-few ( run n out -- m | -1 ) \ the one or two that do the work of a run
 
 : fuse-pair ( insn -- insn false | true )
     1 fusable? if
@@ -283,6 +292,7 @@ defer machine-lit ( run n branch? out -- m | -1 )
 ;
 
 defer fuse-lit ( insn -- insn false | true )
+defer fuse-few ( insn -- insn false | true )
 
 :noname ( insn -- )
     peephole @ if
@@ -296,6 +306,7 @@ defer fuse-lit ( insn -- insn false | true )
             fuse-triple if exit then
             fuse-three  if exit then
         then
+        fuse-few    if exit then
     then
     (tcode,)
 ; constant ptcode,                              \ an instruction, by way of the peephole
@@ -310,6 +321,11 @@ variable laid-near  false laid-near !           \ true from nearby to nearby-end
 \ tcode, : an instruction, compiled while a small word may be waiting
 :noname ( insn -- )
     pend @ 0= if ptcode, execute exit then
+    pend-one @ if                               \ it waited for the end of the definition: is this it?
+        false pend !  false pend-one !
+        ending @ if (backout) else 1 inl-map pend-ord @ + c! then
+        ptcode, execute  exit
+    then
     dup lkind h# 8000 =  kernel? 0= and  cur @ 0= and  pend-xn @ 3 < and if
         dup pend-x pend-xn @ cells + !  1 pend-xn +!        \ a push: keep waiting, for what uses it
         false pend !  ptcode, execute  true pend !
@@ -345,11 +361,9 @@ variable lower                                  \ where code was being compiled 
 ;
 
 \ n code-page continues code on page n, from where that page's
-\ code stopped, so the program can come back to a page.
-\ The plain build ignores this: its code is longer and would not
-\ fit the same pages.  It starts a new page before any
-\ definition that begins in the last quarter of a page
-\ (?own-page).
+\ code stopped.  The plain build ignores this, and starts a new
+\ page before any definition that begins in the last quarter of
+\ a page (?own-page).
 variable page-min   \ the byte where the first page after page 1 starts (code-base, as bytes)
 16 constant code-pages
 create page-at code-pages cells allot   page-at code-pages cells erase   \ for each page, the byte its code has reached
@@ -406,14 +420,11 @@ variable saids#     0 saids# !
 
 \ ---- how often the source says each name
 \
-\ The names the source says are counted as its files are read: a
-\ file is read again as text, a name being what has no space in
-\ it.  \ and ( are names, which the machine looks up as it does
-\ any, and what is after \ on its line or between ( and ) is not
-\ counted.  It is what the order the image's headers are searched
-\ in is made from (headers-ordered).  A file that cross.fs does
-\ not compile, and the machine will, is counted by `says`, and so
-\ is every file it includes.
+\ The names the source uses are counted as its files are read: a
+\ file is read again as text, and a name is what has no space in
+\ it.  \ and ( are names; what is after \ on its line, or between
+\ ( and ), is not counted.  `says` counts a file that cross.fs
+\ does not compile, and every file it includes.
 wordlist constant said-counts               \ a word a name, with how often it is said
 : said-count ( c-addr u -- a | 0 ) said-counts search-wordlist if >body else 0 then ;
 : count-said ( c-addr u -- ) \ what is longer than a name can be is none
@@ -463,29 +474,21 @@ variable said-header                        \ whether a header named the word be
 \
 \ A name defined when there is one of that name already is
 \ noted, and what is noted is written beside the image
-\ (.shadows, shadows-written).  Nothing stops: Forth finds the
-\ newest, and what is compiled after means that one.  The
-\ machine has one dictionary where cross.fs has several places
-\ for names, so what is noted is what hides a name in either.
+\ (.shadows, shadows-written).  The kinds:
 \
 \   again     a word, table, constant or macro of a name the
 \             program has defined already
 \   own       one that has no header, of a name that has a
-\             header.  A file the machine compiles has its own
-\             names only until it is read (files.fs): after it
-\             the machine finds the header's word again, and
-\             cross.fs goes on finding this one
-\   header    a header of a name that has a header: typed, the
-\             newer is found
+\             header
+\   header    a header of a name that has a header
 \   meta      a name defined between meta and target that is
 \             also a word's, a macro's or a header's, or a
 \             word's of cross.fs or gforth
 \   of-meta   a word, table, constant or macro named as
 \             something defined between meta and target was
 \
-\ A baseword given its body is not noted: the macro and the word
-\ are one instruction.  Nor is a name at: defines, where the
-\ word its header names pushes that address: they are one cell.
+\ Not noted: a baseword given its body, and a name at: defines
+\ where the word its header names pushes that address.
 0 constant shadow-again
 1 constant shadow-own
 2 constant shadow-header
@@ -598,8 +601,7 @@ wordlist constant macro-bodies
 ;
 
 \ Macros and the program's words are in one wordlist, and a
-\ name has one case: a word `line` would hide the macro LINE
-\ from every later file.  After each file every macro's name is
+\ name has one case.  After each file every macro's name is
 \ looked up again (?macros), and no macro takes a word's name
 \ (macro,).
 variable macros  0 macros !             \ each entry: link, xt, checked after each file?, length and name
@@ -662,7 +664,6 @@ variable listing  false listing !       \ true once the basewords are read: macr
 
 \ ---- what the nucleus has a word of too
 \
-\ Source that the nucleus compiles uses these names as well.
 \ both:: is ::, both-flag:: is :: for a flag, and both-constant
 \ is constant.  Each notes its name.  For each name noted,
 \ names.fs lays a word of the nucleus with a header of
@@ -712,9 +713,11 @@ s" m" add-lib
 c-function (machine-fuse) fuse_one n n n -- n
 c-function (machine-two) fuse_two n n n -- n
 c-function (machine-lit) fuse_lit a n n a -- n
+c-function (machine-few) fuse_few a n a -- n
 ' (machine-fuse) is machine-fuse
 ' (machine-two) is machine-two
 ' (machine-lit) is machine-lit
+' (machine-few) is machine-few
 cell-bytes 2 = [if] 1 [else] cell-bytes 4 = [if] 2 [else] 3 [then] [then] both-constant byte-shift
 cell-bits #64 = [if] -1 [else] 1 cell-bits lshift 1- [then] both-constant cell-mask
 var-base byte-shift lshift both-constant data-base  \ the byte of the image the data starts at
@@ -827,20 +830,20 @@ variable included#  0 included# !
 
 : include-measured ( a u -- ) \ include a file, and write its line of the .sizes
     { a u }
+    a u basename { na nu }
     tcp @ tdp @ thp @ + tbp @ + hdr-bytes @ lbl-bytes @ { c d h l }
     file-now @ { was }
-    a u file-id file-now !  1 file-now @ cells file-open + +!
+    na nu file-id file-now !  1 file-now @ cells file-open + +!
     1 included-deep +!  1 included# +!
     a u false said-in
     a u included-whole
     -1 file-now @ cells file-open + +!  was file-now !
-    a u  c one-run  tdp @ thp @ + tbp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  c 2/  included-deep @  size-line
+    na nu  c one-run  tdp @ thp @ + tbp @ + d -  hdr-bytes @ h -  lbl-bytes @ l -  c 2/  included-deep @  size-line
     -1 included-deep +!
 ;
 :: include  parse-name save-mem include-measured ;
-\ says FILE: the file is not compiled here, and the machine will
-\ compile it and what it includes from its disk: what they say
-\ is counted
+\ says FILE: the names in the file and in what it includes are
+\ counted (said-in).  It is not compiled here.
 :: says  parse-name save-mem true said-in ;
 
 \ nearby ... nearby-end: the code between them is laid in the
@@ -1015,12 +1018,21 @@ create fl-run fl-room 2* allot                  \ the run, as the machine is giv
 create fl-out fl-room 2* allot                  \ and what the machine gives for it
 variable fl-run#
 
-: fl-take ( -- ) \ the run, into fl-run
+: fl-add ( insn -- ) fl-run fl-run# @ 2* + w!  1 fl-run# +! ;   \ one more of the run
+: fl-copy ( start -- ) \ the instructions from start to tcp, into fl-run
     0 fl-run# !
-    tcp @  tk-at fl-n @ 1- cells + @  ?do
-        i t@  fl-run fl-run# @ 2* + w!  1 fl-run# +!
-    2 +loop
-    fl-trig @ 2 <> if  fl-insn @  fl-run fl-run# @ 2* + w!  1 fl-run# +!  then
+    tcp @ swap ?do  i t@ fl-add  2 +loop
+;
+
+: fl-take ( -- ) \ the run, into fl-run
+    tk-at fl-n @ 1- cells + @ fl-copy
+    fl-trig @ 2 <> if fl-insn @ fl-add then
+;
+
+: fl-give ( before m -- ) \ m instructions of fl-out, in place of the last `before`
+    swap retract
+    dup 0 ?do  dup 1- i - 2* fl-out + uw@  swap  loop       ( the last ... the first m )
+    0 ?do tcode, loop       \ which may come back here
 ;
 
 : fl-plain? ( -- f ) \ is the run only ALU instructions?
@@ -1039,10 +1051,7 @@ variable fl-run#
     fl-take
     fl-run fl-run# @  fl-trig @ 2 = 1 and  fl-out  machine-lit     ( before m )
     dup 0< if 2drop false exit then
-    swap retract
-    dup 0 ?do  dup 1- i - 2* fl-out + uw@  swap  loop       ( the last ... the first m )
-    0 ?do tcode, loop       \ which may come back here
-    true
+    fl-give true
 ;
 
 \ fuse-lit: insn is an ALU instruction, an add, a variable's or
@@ -1078,6 +1087,61 @@ variable fl-run#
     repeat
     drop false
 ; is fuse-lit
+
+\ The last `before` instructions and insn are given to the
+\ machine.  If it has one instruction or two for them, those are
+\ compiled in their place: true.
+: few-try ( before -- f )
+    dup fusable? 0=  over fl-room 2 - > or  if drop false exit then
+    tcp @ over 2* - fl-copy  fl-insn @ fl-add
+    fl-run fl-run# @ fl-out machine-few             ( before m )
+    dup 0< if 2drop false exit then
+    fl-give true
+;
+
+: alus-before ( -- n ) \ how many ALU instructions end at tcp, up to five
+    0 begin
+        dup 5 <  over 1+ 2* tcp @ u> 0=  and
+    while
+        tcp @ over 1+ 2* - t@ alu-tok? 0= if exit then
+        1+
+    repeat
+;
+
+\ fuse-few: insn is a 0 pushed after an ALU instruction, or an
+\ ALU instruction after three or more.  The longest run that ends
+\ with it and that the machine has one or two for is replaced.
+:noname ( insn -- insn false | true )
+    dup fl-insn !
+    dup h# 8000 = if
+        toks
+        tk-n @ 0= if false exit then
+        tk-kind @ 1 <> if false exit then
+        0 begin                                     \ the tokens up to a variable's
+            dup tk-n @ < if dup cells tk-kind + @ 4 <> else false then
+        while
+            1+
+        repeat
+        begin
+            dup
+        while
+            tcp @  over 1- cells tk-at + @  -  2/  few-try if 2drop true exit then
+            1-
+        repeat
+        drop false exit
+    then
+    dup h# e000 and h# 6000 = if
+        alus-before
+        begin
+            dup 2 >
+        while
+            dup few-try if 2drop true exit then
+            1-
+        repeat
+        drop
+    then
+    false
+; is fuse-few
 
 ( Defining words for target                  JCB 19:04 05/02/12)
 
@@ -1180,8 +1244,7 @@ wordlist constant headers-wordlist          \ where each header is, by name (hdr
 
 \ The listing (.lst): every word that has code, in the order the
 \ source defines them: the instruction it starts at, in hex, and
-\ its name.  Two words of one name are told apart by it, however
-\ the image is laid (util/cut.h).
+\ its name.
 : listed ( "name" -- ) \ the word that starts here; its name is left to be read again
     base @ >r  hex
     tcp @ 2/ s>d <# bl hold # # # # #> lst @ write-file throw
@@ -1189,8 +1252,36 @@ wordlist constant headers-wordlist          \ where each header is, by name (hdr
     wordstr lst @ write-line throw
 ;
 
+\ ;into NAME ends a definition with no exit: it runs on into the
+\ definition after it, which is to be NAME, by its header's name
+\ or by its own.  The build stops if another definition comes
+\ first, or if code is between the two.
+variable into-given  false into-given !     \ true from ;into to the definition it names
+variable into-at                            \ where the word that runs on ended
+create into-name 64 allot                   \ the name it gave, counted
+: into-here ( -- ) \ the definition it named starts: nothing is to be between
+    tcp @ into-at @ <> abort" code is laid between a word and the word it runs on into (;into)"
+    false into-given !
+;
+: into-header ( "name" -- ) \ a header is laid: its name may be the one
+    into-given @ if
+        wordstr into-name count same-name? if into-here then
+    then
+;
+: into-word ( "name" -- ) \ a definition starts: it is to be the one, if its header was not
+    into-given @ if
+        wordstr into-name count same-name? 0=
+        abort" a word runs on into another than the one it says (;into)"
+        into-here
+    then
+;
+: into-none ( -- ) \ a definition with no name starts
+    into-given @ abort" a word runs on into a definition that is not the one it says (;into)"
+;
+
 : (header) ( immediate? "name" -- ) \ a header for the definition that starts here
     ?own-page
+    into-header
     label
     listed
     wordstr said-wordlist search-wordlist if
@@ -1241,6 +1332,19 @@ variable lp  cell-bytes lp !                \ where the next goes, in bytes
 variable wordstart
 variable lastdef    \ body of the most recent target colon definition
 variable indef      \ true from : to ; (and not from :noname)
+variable defstart   0 defstart !    \ where the definition being compiled began, : or :noname
+
+\ Has the definition a conditional branch that was never given
+\ where it goes?  One is a branch to instruction 0.
+: waiting? ( -- f )
+    false
+    tcp @ defstart @ u> if
+        tcp @ defstart @ do  i t@ h# 2000 = or  2 +loop
+    then
+;
+: none-waiting ( -- )
+    waiting? abort" a branch of this definition was never given where it goes"
+;
 
 \ A small word: no more than four instructions, none a call or a
 \ branch, that returns only at its end and leaves the return
@@ -1261,7 +1365,8 @@ variable in-depth                           \ how many cells it has pushed on th
         dup h# 8000 and 0= if                       \ not a literal:
             dup h# e000 and h# 6000 <> if drop 0 unloop exit then              \ a call or a branch
             dup h# 1000 and  i in-n @ 1- <>  and if drop 0 unloop exit then    \ a return before the end
-            dup h# 0c00 and h# 0c00 =  in-depth @ 0=  and if drop 0 unloop exit then   \ reads R, having pushed none
+            dup h# 0c00 and h# 0c00 =  over h# 1ff3 and h# 0d00 <> and         \ reads R, other than to put it back (2drop),
+            in-depth @ 0=  and if drop 0 unloop exit then                      \ having pushed none
             dup h# 1000 and 0= if
                 dup 3 and  dup 1 = if 1 in-depth +! then    \ r+1
                 dup 3 = if -1 in-depth +! then              \ r-1
@@ -1289,6 +1394,17 @@ variable in-depth                           \ how many cells it has pushed on th
     drop
 ;
 
+\ In the kernel, a word that is an exit and one instruction which
+\ cannot take the return waits for the end of a definition alone
+\ (pend-one): there a call of it is made a jump.
+: alone? ( body -- f ) \ is what was just laid that word's one instruction, as the word has it?
+    kernel? 0= if drop false exit then
+    dup 2 cells + @ 2 <>  over 3 cells + @ 2 <>  or if drop false exit then
+    @ 2* t@                                     ( its instruction )
+    dup foldable? if drop false exit then
+    tcp @ cur-tcp0 @ - 2 =  swap tcp @ 2 - t@ =  and
+;
+
 \ a use of a small word, numbered ord: inlined at once if that
 \ cannot be longer than a call, and if not, as a trial (pend)
 : try-inline ( body ord -- )
@@ -1301,7 +1417,9 @@ variable in-depth                           \ how many cells it has pushed on th
     tcp @ cur-tcp0 !  tcp @ cur-save snap  true cur !
     over inline,
     false cur !
-    drop  tcp @ cur-tcp0 @ - 2 > 0=
+    drop
+    dup alone?  stays @ 0= and  dup pend-one !  ( body waits-alone? )
+    0=  tcp @ cur-tcp0 @ - 2 > 0=  and
     stays @ or  false stays !
     if
         drop  1 inl-map r> + c!
@@ -1332,9 +1450,10 @@ variable in-depth                           \ how many cells it has pushed on th
 :: :
     hex
     ?own-page
+    into-word
     named? dup said-header !
     0= labelling and if tcp @ 2/ (label)  listed then
-    tcp @ wordstart !
+    tcp @ wordstart !  tcp @ defstart !
     label
     create  here lastdef !  note-def  codeptr , 0 , 0 , 0 , 0 ,
     true indef !
@@ -1386,7 +1505,8 @@ variable in-depth                           \ how many cells it has pushed on th
 ;
 
 :: :noname
-    false indef !
+    into-none
+    false indef !  tcp @ defstart !
 ;
 
 :: ,
@@ -1396,6 +1516,13 @@ variable in-depth                           \ how many cells it has pushed on th
 
 :: c,
     tc,
+;
+
+\ sixteen bits of data, the low byte first: a field of a cell,
+\ the first of a cell its lowest
+:: w, ( u -- )
+    dup $ffff u> abort" w,: more than sixteen bits"
+    tw,
 ;
 
 \ Pixels are written with the leftmost in the highest bit.
@@ -1649,14 +1776,16 @@ variable nt-at                              \ the cell the block being filled st
     nip $7403 = if true else drop false then
 ;
 
-: xt-table ( -- ) \ words with a header, and labels of code, by xt
-    link @ begin dup while dup false over hdr-xt nt-add  hdr-link repeat drop
+\ A place that has a label and a header has the label's record
+\ first, which is the one a search by place finds.
+: xt-table ( -- ) \ labels of code, and words with a header, by xt
     llink @ begin
         dup
     while
         dup lbl-val lbl-data? 0= if dup true over lbl-val $ffff and nt-add then
         lbl-link
     repeat drop
+    link @ begin dup while dup false over hdr-xt nt-add  hdr-link repeat drop
     nt-lay
 ;
 \ words that only push a number, by the number; and labels of
@@ -1683,9 +1812,11 @@ variable nt-at                              \ the cell the block being filled st
     nt-lay
 ;
 
-:: hdr, ( "name" -- ) \ a cell that holds the address of the word's header
+:: hdr, ( "name" -- ) \ sixteen bits that are the address of the word's header
     bl parse headers-wordlist search-wordlist 0= abort" hdr, of a word with no header"
-    >body @  tcalign tcell,
+    >body @
+    dup $ffff u> abort" hdr,: the header's address is more than sixteen bits"
+    tw,
 ;
 
 \ ," d# h# c# char and [char] are literals.fs's.
@@ -1749,6 +1880,7 @@ variable nt-at                              \ the cell the block being filled st
 
 :: ;
     stays @ abort" in-place with no call after it"
+    none-waiting
     pend @ if
         true ending !  h# 7403 tcode,  false ending !
         tcp @ 2 - t@ h# 7403 = if 1 retract end-word then
@@ -1762,9 +1894,19 @@ variable nt-at                              \ the cell the block being filled st
     then
 ;
 
-\ ;fallthru ends a definition with no exit: it runs on into the
-\ definition after it.
-:: ;fallthru ;
+\ ;fallthru ends a definition with no exit, where its last word
+\ returns for it (inline;, offered).  A definition that runs on
+\ into the one after it ends with ;into and that one's name; one
+\ of no instructions is to have a header.
+:: ;fallthru  none-waiting ;
+:: ;into ( "name" -- )
+    none-waiting  settle
+    indef @  tcp @ defstart @ = and  said-header @ 0= and
+    abort" a word of no instructions that runs on (;into) has no header"
+    parse-name  dup 63 > abort" ;into: the name is longer than a name is"
+    into-name place
+    tcp @ into-at !  true into-given !
+;
 
 \ header X callable X: the baseword X as a word of the kernel as
 \ well.  In the kernel a use of X is that word, called or
@@ -1792,34 +1934,17 @@ s" ;" target-wordlist search-wordlist 0= throw constant the-semicolon
     does>   dup name-used @ literal
 ;
 
-\ A table of instructions is laid among the code, where i@ reads
-\ it, all on one page.
-variable tabled  -1 tabled !            \ the page the last table is on
-: table-room ( n -- ) \ before a table of n instructions
-    settle
-    2* tcp @ $1fff and + $1ffe u> if next-page then
-    tcp @ $2000 / tabled !
-;
 \ The image's table of its pages, the cells from a: the
 \ instruction each page's code has reached, or 0 for a page with
-\ none.  A page with a table has no room: its last instruction.
+\ none.
 : pages-laid ( a -- )
     page-kept
     code-pages 0 do
         page-at i cells + @ 2/
-        i tabled @ = if drop  i 1+ $1000 * 1-  then
         over i + tvar!
     loop
     drop
 ;
-: (i,) ( w -- )
-    settle
-    tcp @ $1fff and $1ffe = abort" a table of instructions has run off its page"
-    tcp @ tw!  2 tcp +!
-    label
-;
-:: i, ( w -- ) (i,) ;
-: is, ( w n -- ) 0 ?do dup (i,) loop drop ;
 
 \ With a header before it, code is laid that pushes the address.
 :: create
@@ -1836,10 +1961,8 @@ variable tabled  -1 tabled !            \ the page the last table is on
 
 ( Switching between target and meta          JCB 19:08 05/02/12)
 
-\ What is defined between meta and target is a word of gforth's,
-\ and on the machine a word like any other: each is looked for
-\ among the program's names when target is said (names defined
-\ again).
+\ Each word defined between meta and target is looked for among
+\ the program's names when target comes (names defined again).
 variable meta-from  0 meta-from !       \ gforth's newest word when meta was said, or 0
 : older? ( nt -- f ) \ has gforth an older word of that name?
     dup name>string 2>r  @
@@ -2027,9 +2150,7 @@ both-flag:: BOOTING? booting ;
 
 ( What is code, and not a number )
 
-both:: (i@)  cell-bits #16 = if s" @" else s" 2* uw@" then evaluate ;
-both:: (i!)  cell-bits #16 = if s" !" else s" 2* w!" then evaluate ;
-both:: (>c)       byte-shift literal s" lshift" evaluate ;  \ a cell's byte address
+both:: (>c)      byte-shift literal s" lshift" evaluate ;  \ a cell's byte address
 both:: (c>)       byte-shift literal s" rshift" evaluate ;  \ the cell a byte is in
 both:: RAW>SRC    disp-ink-black 0= if s" invert" evaluate then ;   \ a set bit is black
 both:: PIXR   disp-left-low if s" lshift" else s" rshift" then evaluate ;  \ pixels to the right
@@ -2082,7 +2203,11 @@ both:: M8     disp-left-low if $ff else $ff cell-bits 8 - lshift then literal ;
 
 ( Conditionals                               JCB 13:12 09/03/10)
 
+\ A branch is laid with nowhere to go (`if`, `while`, `else`,
+\ `ahead`), and is given where it goes later.  What is resolved
+\ is to be such a branch.
 : resolve ( orig -- ) \ the branch at orig lands here
+    dup t@ h# dfff and abort" a then, or the like, of what is not a branch that waits for where it goes"
     label
     tcp @ over tbranches !
     dup t@ here-target or swap tw!
@@ -2121,17 +2246,15 @@ both:: M8     disp-left-low if $ff else $ff cell-bits 8 - lshift then literal ;
 :: until
     2/ >target 0branch
 ;
-:: while
+:: while ( dest -- orig dest )
     settle
     0 0branch
-    tcp @ 2 -
+    tcp @ 2 -  swap
 ;
 \ repeat rotates a loop whose test is the one instruction xor or
-\ =.  Instead of a jump back to the test, the test is compiled
-\ again after the body, inverted, with a conditional branch back
-\ to the body.  Each pass of the loop runs one instruction
-\ fewer, and the loop is one instruction longer.  inl-map
-\ records which loops were rotated, for the plain build.
+\ =: the test is compiled again after the body, inverted, with a
+\ conditional branch back to the body.  inl-map records which
+\ loops were rotated, for the plain build.
 : turned ( insn -- insn' true | false ) \ xor made =, or = made xor
     dup h# f300 and h# 6000 <> if drop false exit then
     dup h# f0 and dup h# 60 = swap h# 90 = or 0= if drop false exit then
@@ -2143,8 +2266,8 @@ both:: M8     disp-left-low if $ff else $ff cell-bits 8 - lshift then literal ;
     last t@ turned 0= abort" a loop is turned with the peephole on, and with it off its test does not end in xor or ="
     tcode,
 ;
-:: repeat ( dest orig -- )
-    call# @  1 call# +!  { dest orig ord }
+:: repeat ( orig dest -- )
+    call# @  1 call# +!  { orig dest ord }
     plain @ if
         inl-map ord + c@ if
             dest orig turned-again
@@ -2225,13 +2348,10 @@ create ntb 8 allot
 ;
 \ ---- the order the image's headers are searched in
 \
-\ The nucleus looks a name up a header at a time, from the header
-\ `forth` holds and along the links (sfind, nuc.fs).  The image's
-\ headers are linked in the order of how often the source says
-\ each one's name (said-counts): the one said most is the first
-\ looked at.  Headers of one name are said as often as each other
-\ and stay newest first, so the newest is the one found.  A header
-\ made on the machine is linked before all of the image's.
+\ The image's headers are linked in the order of how often the
+\ source uses each one's name (said-counts): the one used most
+\ is the first looked at (sfind, nuc.fs).  Headers of one name
+\ stay newest first.
 variable ordered  false ordered !
 : said-times ( i -- n ) said-at cell+ 2@ said-count dup if @ then ;
 : header-of ( i -- a ) said-at 3 cells + @ ;
@@ -2240,7 +2360,7 @@ variable ordered  false ordered !
     true ordered !
     here  saids# @ cells allot  { order }           \ which header is looked at first, second and so on
     saids# @ 0 ?do  saids# @ 1- i -  order i cells + !  loop    \ as they are: the newest first
-    saids# @ 1 ?do                                  \ each is put before those said less often
+    saids# @ 1 ?do                                  \ each is put before those used less often
         order i cells + @ { h }
         h said-times { n }
         i begin
@@ -2251,7 +2371,7 @@ variable ordered  false ordered !
         repeat
         cells order + h swap !
     loop
-    saids# @ 0 ?do                                  \ each is linked to the next, and the last to nothing
+    saids# @ 0 ?do                                  \ each is linked to the next, and the last to 0
         i 1+ saids# @ < if  order i 1+ cells + @ header-of  else 0 then
         order i cells + @ header-of  tvar!
     loop
@@ -2294,15 +2414,13 @@ plain @ [if]
 
 \ ---- a file of the program's that cross.fs runs as well
 \
-\ Some words of the program are run as source is compiled
-\ (pixels.fs).  They are written once, as target source, and
-\ host-included has gforth compile the same file: its words go
-\ in common-wordlist, and one that has a header is made a macro
-\ of the header's name.  reading-wordlist is what words of the
-\ text mean while gforth compiles it: those gforth has not, or
-\ has otherwise, and every macro and flag of both:: as a word
-\ that acts at once.  A cell of gforth's stands for a cell of
-\ the machine's, and a count of cells for a count of bytes.
+\ host-included has gforth compile a file of the program's: its
+\ words go in common-wordlist, and one that has a header is made
+\ a macro of the header's name.  reading-wordlist is what words
+\ of the file mean while gforth compiles it: those gforth has
+\ not, or has otherwise, and every macro and flag of both:: as a
+\ word that acts at once.  A cell of gforth's stands for a cell
+\ of the machine's, and a count of cells for a count of bytes.
 wordlist constant common-wordlist
 wordlist constant reading-wordlist
 2variable head-name                         \ the name a header gave the next definition,
@@ -2558,10 +2676,8 @@ shadows-written
 ;
 needs-written
 
-\ .machine: the machine the image is for, as basewords.fs said it:
-\ a line of its sizes, in the order util/image.c reads them.  A tool
-\ that is given the image is that machine's from it, and is not
-\ built for one machine.
+\ .machine: the machine the image is for: a line of its sizes, in
+\ the order util/image.c reads them.
 : size-said ( n f -- ) >r  s>d <# bl hold #s #>  r> write-file throw ;
 : machine-written ( -- )
     s" machine" out-suffix { f }

@@ -1,48 +1,52 @@
 //
 // weigh TYPED IMAGE.sizes COUNTS PIECE...
 //
-// What the nucleus's compiler is worth: what it makes of the system's code
-// beside what cross.fs makes, and what each thing it joins saves, in the
-// code and when the code is run.
+// Reports what the nucleus's compiler is worth: what it makes of the
+// system's code compared with what cross.fs makes, and what each of its
+// joins saves, both in the size of the code and when the code runs.
 //
-// TYPED is what `typed read` prints: a line a run of the system's code,
-// with the word and place, how many instructions were typed, how many the
-// nucleus made and how many cross.fs made, and after its fourth bar what
-// the nucleus made of what as it went: the instructions that went in, a >,
-// and what is there in their place (bench/typed.c).  IMAGE.sizes is the
-// image's .sizes: the bytes of each source file's code and the instruction
-// it starts at (files.h).  COUNTS is a directory with, for each PIECE of
-// work, PIECE.counts, and idle.counts: how often the instruction at each
-// place was run with the work done, and with the machine only started
-// (bench/counting.c).
+// TYPED is the output of `typed read`: one line for each run of the
+// system's code, with the word and address, the number of instructions
+// typed, the number the nucleus made and the number cross.fs made.  After
+// the line's fourth bar are the joins the nucleus made on the way: the
+// instructions that went in, a `>`, and the instructions that replaced
+// them (bench/typed.c).  IMAGE.sizes is the image's .sizes file: the bytes
+// of each source file's code and the instruction it starts at (files.h).
+// COUNTS is a directory that has PIECE.counts for each PIECE of work, and
+// idle.counts.  Each file gives the number of times the instruction at
+// each address ran: PIECE.counts with that work done, and idle.counts with
+// the machine only started (bench/counting.c).
 //
-// An instruction fewer in a run is one fewer each time the run is run, so
-// a run's instructions are weighed by how often its first is run.
+// One instruction fewer in a run is one fewer each time the run runs.  So
+// a run's instructions are weighted by the number of times its first
+// instruction ran.
 //
-// Prints:
-//   by source file, the instructions typed, what the nucleus makes of
-//     them, and what cross.fs makes
-//   for each piece of work, the instructions it runs, how many more it
-//     would run if the nucleus had compiled the code and not cross.fs, and
-//     how many what the nucleus joins saves
-//   each thing the nucleus joined: how often in the code, what that saves
-//     in each piece, and `runs` if it saves at least SHARE of the
-//     instructions of some piece.  Instructions with no number in them
-//     that it made one of, or nothing, are said each by themselves, as the
-//     words that went in and the word that came out.  What has a number in
-//     it is of as many kinds as there are numbers, and is said together:
-//     a variable fetched or stored by one instruction, and a number worked
-//     out, added, or taken across what was before it
+// It prints:
+//   - for each source file, the instructions typed, the number the
+//     nucleus makes of them, and the number cross.fs makes
+//   - for each piece of work, the instructions it runs, how many more it
+//     would run if the nucleus had compiled the code instead of cross.fs,
+//     and how many the nucleus's joins save
+//   - each join the nucleus made: the number of times in the code, what
+//     that saves in each piece of work, and `runs` if it saves at least
+//     SHARE of the instructions of some piece.  A join of instructions
+//     that have no number in them, into one instruction or into none, has
+//     a line of its own, as the words that went in and the word that came
+//     out.  Joins with a number in them have as many forms as there are
+//     numbers, so they are totalled in two groups: a variable fetched or
+//     stored by one instruction; and a number computed, added, or moved
+//     across the instruction before it
 //
-// And it writes COUNTS/words.txt: each word that has a run the nucleus
-// makes more or fewer instructions of than cross.fs does, with how many
-// each makes of the word and how many more each piece of work would run,
-// the dearest first.  It is by how many instructions and not which: a run
-// both make as long is not looked at further.
+// It also writes COUNTS/words.txt.  That file lists each word that has a
+// run the nucleus compiles to a different length than cross.fs does, with
+// the number of instructions each compiler makes of the word and how many
+// more each piece of work would run, most expensive first.  It compares
+// lengths and not the instructions themselves: a run that both compilers
+// make the same length is not examined further.
 //
-// There are as many pieces of work as are named, as many things joined as
-// the nucleus joined, as many files as the .sizes has and as many places
-// as were run: each has the room it needs (room.h).
+// No list here has a fixed size.  The pieces of work, the joins, the
+// source files and the addresses are each allocated for the number there
+// are (room.h).
 //
 
 #include <stdint.h>
@@ -53,42 +57,48 @@
 #include "../util/named.h"
 #include "files.h"
 
-#define SHARE 0.0001                    // what a thing joined is to save of a piece's work to be marked `runs`: chosen
+#define SHARE 0.0001                    // the share of a piece's work a join must save to be marked `runs`.  It is a choice
 
-// A piece of work: how often each place ran in it, with what runs when the
-// machine is only started taken out, and all of that.
+// A piece of work.  `ran` is the number of times each address ran in it,
+// less the number of times that address runs when the machine is only
+// started.
 typedef struct {
     const char* name;
     int64_t* ran;
-    long places;
-    int64_t all, more, saved;           // and how many more the nucleus's code would run, and what it joins saves
+    long places;                        // the number of addresses `ran` covers
+    int64_t all, more, saved;           // the total of `ran`; how many more the nucleus's code would run; what the nucleus's joins save
 } piece;
 static piece* PIECE;
 static int pieces;
 
+// Returns the count at an address in a piece of work, or 0 if the address
+// is outside the counts.
 static int64_t ran_at(const piece* p, long at) { return(at >= 0 && at < p->places ? p->ran[at] : 0); }
 
-// A thing the nucleus joined: what went in and what came out, or one of
-// the two kinds that have a number in them.
+// A join the nucleus made: the instructions that went in and those that
+// came out, or one of the two groups of joins that have a number in them.
 typedef struct {
-    char* key;                          // as TYPED has it, or the kind
-    char* said;                         // in words
-    long uses;
+    char* key;                          // the join as TYPED has it, or the group's name
+    char* said;                         // the join in words
+    long uses;                          // the number of times it was made in the code
     long fewer;                         // the instructions it saves in the code
-    int64_t* saves;                     // in each piece,
-    int64_t most;                       // and the most of them
+    int64_t* saves;                     // the instructions it saves in each piece of work
+    int64_t most;                       // the largest of those
 } joined;
 static joined* JOINED;
 static long joins, joins_room;
 
 static const char VARIABLE[] = "a variable fetched or stored in one";
-static const char NUMBER[] = "a number worked out, added or taken across";
+static const char NUMBER[] = "a number folded, added or moved across";
 
+// is_number() returns true for a literal.  is_variable() returns true for
+// a literal that fetches or stores a variable.
 static int is_number(long ins) { return((ins & 0x8000) != 0); }
 static int is_variable(long ins) { return((ins & 0xb000) == 0xb000); }
 
-// What a thing joined is called: the words that went in, and the word
-// that came out, each by its name or its number.
+// Returns a join in words: the instructions that went in, ` =`, and the
+// instructions that came out, each by its name or as a number.  The text
+// ends with `nothing` if no instruction came out.
 static char* said_of(const char* key, size_t len) {
     char* said = NULL;
     int out = 0;
@@ -108,8 +118,9 @@ static char* said_of(const char* key, size_t len) {
     return(said);
 }
 
-// The thing joined that a part of TYPED is, which is made if it is new:
-// and how many instructions fewer it leaves.
+// Returns the record for the join that a part of a TYPED line describes,
+// creating the record if the join is new.  `*fewer` receives the number of
+// instructions the join saves.
 static joined* joined_as(const char* part, size_t len, int* fewer) {
     int in = 0, out = 0, after = 0, number = 0, variable = 0;
     for(const char* at = part; at < part + len; ) {
@@ -138,20 +149,20 @@ static joined* joined_as(const char* part, size_t len, int* fewer) {
     return(new);
 }
 
-typedef struct { long runs, typed, nucleus, cross; } tally;
+typedef struct { long runs, typed, nucleus, cross; } tally;     // the number of runs, and the instructions typed, made by the nucleus and made by cross.fs
 
-// A word of the code: its runs, how many of them the two compilers make
-// different lengths of, and what the nucleus's would run more in each piece.
+// A word of the code.
 typedef struct {
     char* name;
-    tally is;
-    long differ;
-    int64_t* more;
-    int64_t most;                       // the most of those
+    tally is;                           // the totals over its runs
+    long differ;                        // the number of its runs that the two compilers make different lengths
+    int64_t* more;                      // how many more instructions the nucleus's code would run in each piece of work
+    int64_t most;                       // the largest of those
 } worded;
-static worded* WORDED;                  // (WORD is the machine's: vm_constants.h)
+static worded* WORDED;                  // named WORDED because vm_constants.h defines WORD
 static long words, words_room;
 
+// Returns the record for a word, creating it if the word is new.
 static worded* word_called(const char* name, size_t len) {
     for(long w=0; w < words; w++) {
         if (strlen(WORDED[w].name) == len && !strncmp(WORDED[w].name, name, len)) return(&WORDED[w]);
@@ -172,8 +183,9 @@ static int by_more(const void* a, const void* b) {
     return(dx < dy ? 1 : dx > dy ? -1 : strcmp(x->name, y->name));
 }
 
-// The counts of a piece of work: how many places they are of, and the
-// counts, which are made here.
+// Reads the counts of a piece of work from DIR/NAME.counts.  `*counts`
+// receives the counts, which are allocated.  Returns the number of
+// addresses they cover.
 static long read_counts(const char* dir, const char* name, uint64_t** counts) {
     static const char ending[] = ".counts";
     char* path = room_for(strlen(dir) + 1 + strlen(name) + sizeof(ending), 1);
@@ -209,7 +221,7 @@ int main(int argc, char *argv[]) {
 
     span* FILES;
     int files = files_of(argv[2], &FILES);
-    tally* OF_FILE = room_for(files + 1, sizeof(tally));    // and one for what is in none of them
+    tally* OF_FILE = room_for(files + 1, sizeof(tally));    // one for each file, and one for code that is in none of them
 
     uint64_t* idle;
     long idle_places = read_counts(argv[3], "idle", &idle);
@@ -222,7 +234,7 @@ int main(int argc, char *argv[]) {
             PIECE[p].ran[at] = (int64_t)did[at] - (int64_t)(at < idle_places ? idle[at] : 0);
             PIECE[p].all += PIECE[p].ran[at];
         }
-        for(long at=PIECE[p].places; at < idle_places; at++) PIECE[p].all -= (int64_t)idle[at];    // run only when idle
+        for(long at=PIECE[p].places; at < idle_places; at++) PIECE[p].all -= (int64_t)idle[at];    // addresses that only the idle counts cover
         free(did);
         if (PIECE[p].all <= 0) { fprintf(stderr, "weigh: nothing was run in %s\n", PIECE[p].name); return(1); }
     }
@@ -243,20 +255,24 @@ int main(int argc, char *argv[]) {
         }
         long at = strtol(place, NULL, 16);
         runs++; typed_all += typed; nucleus_all += nucleus; cross_all += cross;
-        int f = file_holding(FILES, files, at);             // the file it is in (files.h);
-        if (f < 0) f = files;                               // or none of them, which is the file that includes the rest
+        int f = file_holding(FILES, files, at);             // the file the run is in (files.h)
+        if (f < 0) f = files;                               // it is in none of them: that code is in the file that includes the others
         OF_FILE[f].runs++; OF_FILE[f].typed += typed; OF_FILE[f].nucleus += nucleus; OF_FILE[f].cross += cross;
         for(int p=0; p < pieces; p++) PIECE[p].more += (nucleus - cross) * ran_at(&PIECE[p], at);
         worded* w = word_called(line, (size_t)(place - 1 - line));
         w->is.runs++; w->is.typed += typed; w->is.nucleus += nucleus; w->is.cross += cross;
         w->differ += nucleus != cross;
         for(int p=0; p < pieces; p++) w->more[p] += (nucleus - cross) * ran_at(&PIECE[p], at);
-        const char* bar = line + used;                      // after the word, whose name may have a bar in it
+        const char* bar = line + used;                      // search after the word, because a word's name can have a bar in it
         for(int n=0; n < 4 && bar; n++) bar = strchr(bar + 1, '|');
         for(const char* rest = bar ? bar + 1 : NULL; rest; ) {
             rest += strspn(rest, " \n");
             size_t len = strcspn(rest, " \n");
             if (!len) break;
+            // Skip the instruction before the join, which is not part of
+            // it (bench/typed.c): it ends with a colon.
+            const char* colon = memchr(rest, ':', len);
+            if (colon) { len -= (size_t)(colon + 1 - rest); rest = colon + 1; }
             int fewer;
             joined* j = joined_as(rest, len, &fewer);
             j->uses++;
@@ -313,7 +329,8 @@ int main(int argc, char *argv[]) {
     printf("\n%ld things are joined in the code, which is %ld instructions fewer; %d save at least %g%% of what some piece of work runs (runs)\n",
            joins, fewer_all, hot, 100 * SHARE);
 
-    // The words that are made another length, in a file beside the counts.
+    // Write the words that the two compilers make different lengths to a
+    // file beside the counts.
     static const char listed[] = "/words.txt";
     char* path = room_for(strlen(argv[3]) + sizeof(listed), 1);
     sprintf(path, "%s%s", argv[3], listed);

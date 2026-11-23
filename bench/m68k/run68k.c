@@ -1,26 +1,28 @@
 //
 // run68k PROGRAM.bin AT PICTURE.tiff gray|colour own|half
 //
-// The same dither as the machine's, on a 68000, and how many clocks it
-// took.  It is here to be compared with: the machine's dither is timed on
-// its own CPU (rtl/tb.cpp), and this is the same picture and the same
-// work on the processor of the first Macintosh, at the same clock.
+// Runs the machine's dither on a 68000 and reports the number of clocks it
+// took.  It is a comparison for the machine's own figures.  The machine's
+// dither is timed on its own CPU (rtl/tb.cpp), and this program times the
+// same picture and the same work on the processor of the first Macintosh,
+// at the same clock rate.
 //
-// The 68000 is Musashi, which counts the clocks of each instruction as
-// Motorola's tables give them.  It is not kept here: CMake fetches it.
+// The 68000 is Musashi, which counts the clocks of each instruction from
+// Motorola's tables.  Its source is not in this tree: CMake fetches it.
 // PROGRAM.bin is glue.s, atk.s and gray.s, linked to run from the address
-// AT.  The picture is put in the 68000's memory, whole, as its three
-// samples (colour) or as its grays (gray), with what glue.s says it wants
-// in the registers, and the program is run until it says it is done.  The
-// bitmap it leaves, whose bytes have their first pixel highest as the
-// Macintosh's do, is then compared with the dither a pixel at a time
-// (test/dither.c), every pixel: the same one the machine's is compared
-// with.
+// AT.  The whole picture is put in the 68000's memory, as its three
+// samples per pixel (colour) or as its grays (gray).  The registers are
+// set to what glue.s expects, and the program runs until it signals that
+// it is done.  The bitmap it leaves has the first pixel in the highest bit
+// of each byte, as the Macintosh's bitmaps have.  Every pixel of it is
+// compared with the reference dither, which works one pixel at a time
+// (test/dither.c).  The machine's bitmap is compared with the same
+// dither.
 //
-// The clocks are of the whole run.  The 68000 has the picture in memory
-// when it starts, and reads no file.  What it took is printed as the
-// machine's own figures are (figure.h), and says FAIL if the bitmap is not
-// the dither's.
+// The clocks are for the whole run.  The 68000 has the picture in memory
+// when it starts, and reads no file.  The result is printed in the form of
+// the machine's own figures (figure.h), and it says FAIL if the bitmap is
+// not the dither's.
 //
 
 #include <stdbool.h>
@@ -32,18 +34,20 @@
 #include "../figure.h"
 #include "../tiff.h"
 
-// The 68000's memory, and where things are put in it.  The program is
-// below the bitmap, and its stack comes down from STACK.
+// The size of the 68000's memory, and the addresses things are put at.
+// The program is below the bitmap, and its stack grows down from STACK.
 #define MEMORY  (1 << 20)
 #define BITMAP  0x10000
 #define TABLES  0x1f000
 #define PICTURE 0x20000
 #define STACK   0xf0000
-#define DONE    0xffffe
+#define DONE    0xffffe         // the program writes to this address when it is done
 
 static uint8_t memory[MEMORY];
 static bool done;
 
+// Musashi calls the functions below to read and write the 68000's memory.
+// A write to DONE ends the run.
 unsigned int m68k_read_memory_8(unsigned int a) {
     return(memory[a & (MEMORY - 1)]);
 }
@@ -75,12 +79,14 @@ void m68k_write_memory_32(unsigned int a, unsigned int v) {
     m68k_write_memory_16(a + 2, v);
 }
 
-// A long as the 68000 has it: the high byte first.
+// Stores a 32-bit value in the 68000's memory, high byte first.
 static void put_long(unsigned at, unsigned v) {
     for(int idx=0; idx < 4; idx++) memory[at + idx] = v >> (8 * (3 - idx));
 }
 
-// A table of gray.s: what each value of a sample comes to, of 256 parts.
+// Writes one of gray.s's tables.  For each sample value from 0 to 255 it
+// stores parts * value as 16 bits, high byte first: the sample weighted by
+// `parts` parts of 256.
 static void table(unsigned at, int parts) {
     for(int idx=0; idx < 256; idx++) {
         memory[at + 2 * idx] = (parts * idx) >> 8;
@@ -111,7 +117,8 @@ int main(int argc, char *argv[]) {
     put_long(0, STACK);
     put_long(4, at);
 
-    // The picture: its samples as the file has them, or its grays.
+    // Put the picture in memory: its samples as the file has them, or its
+    // grays.
     tiff picture = read_tiff(argv[3]);
     int w, h;
     int* gray = grays_of(picture.bytes, picture.w, picture.h, picture.samples, false, &w, &h);
@@ -154,7 +161,8 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // What it made, against the dither a pixel at a time.
+    // Compare the bitmap the program made with the reference dither, pixel
+    // by pixel.
     int dw, dh;
     int* wanted = grays_of(grays, w, h, 1, half, &dw, &dh);
     uint8_t* black = calloc((size_t)dw * dh + 1, 1);
@@ -173,5 +181,5 @@ int main(int argc, char *argv[]) {
     text_more(&is, "%s%llu clocks; %d by %d: %d pixels compared, %d differ (program %d bytes)",
               failed ? "FAIL " : "", clocks, dw, dh, dw * dh, differ, (int)len);
     figure(work, NULL, "68000", is);
-    return(0);                  // it has said which: the table of the benchmarks gives the status (check.c)
+    return(0);                  // the line printed says whether it failed; `check table` turns that into an exit status (check.c)
 }

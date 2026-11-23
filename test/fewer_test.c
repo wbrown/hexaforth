@@ -1,23 +1,25 @@
 //
 // fewer_test
 //
-// The search for the fewest instructions that do the work of a run, and of
-// a turn of a loop (util/fewer.h, util/turns.h).
+// Tests the search for the fewest instructions equivalent to a run, and to
+// one turn of a loop (util/fewer.h, util/turns.h).
 //
-// A check is words of vm_opcodes.h, as they are written, and how many
-// instructions are the fewest that do their work: which is said here, of
-// runs whose one instruction CLAUDE.md and vm_opcodes.h name, and of runs
-// that plainly have none.  The search is to find as many and no fewer,
-// and what it finds is to agree with the words when both are run on vm.c.
-// Some are wanted, on top, only for whether what they leave is nothing,
-// as a branch asks.
+// A check is some words of vm_opcodes.h, written as source, and the
+// smallest number of instructions equivalent to them.  That number is
+// given here.  The checks are runs whose single instruction CLAUDE.md and
+// vm_opcodes.h name, and runs that plainly have no shorter form.  The
+// search must find exactly that many instructions, and what it finds must
+// agree with the words when both are run on vm.c.  In some checks only one
+// thing about the top of the stack matters: whether it is zero, which is
+// what a branch tests.
 //
-// A turn is a loop's test and body, as words, looked at every way the
-// tools look at one (turns.h, shorten).  The fewest that do it are said
-// for what it keeps where it is, for it kept in any cell, and for a number
-// it pushes kept on the return stack.
+// A turn is a loop's test and body, given as words, and examined every way
+// the tools examine one (turns.h, shorten()).  The fewest instructions are
+// given for three cases: with the loop's values kept where they are, with
+// them kept in any cell, and with a number the loop pushes kept on the
+// return stack.
 //
-// It says how many checks it made, and fails if that is none.
+// It prints how many checks it made, and fails if it made none.
 //
 
 #include "../util/fuse.h"
@@ -30,8 +32,8 @@
 typedef struct {
     const char* label;
     const char* words;
-    int fewest;                 // the fewest instructions that do it: as many as it is, if no fewer do
-    int tops;                   // the top is wanted only for whether it is nothing
+    int fewest;                 // the fewest equivalent instructions; the run's own length if nothing shorter exists
+    int tops;                   // 1 if all that matters about the top is whether it is zero
 } run_check;
 
 static run_check RUNS[] = {
@@ -53,34 +55,48 @@ static run_check RUNS[] = {
     {"= and then not, for whether it is nothing, is xor", "= invert", 1, 1},
     {"xor and then = of nothing, for whether it is nothing, is =", "xor 0=", 1, 1},
     {"a flag is wanted whole: = and invert are two", "= invert", 2},
+    // A cell equals itself, and the cell under the top can be both of the
+    // ALU's inputs.  So -1 is one instruction, and so is 0.
+    {"-1 is one instruction: the cell under the top compared with itself", "0 invert", 1},
+    {"one taken away is two: that, and an add", "0 invert +", 2},
+    {"two cells dropped and nothing pushed are one", "drop drop 0", 1},
+    {"a cell pushed and told apart from itself is one: nothing", "dup dup xor", 1},
+    // A cell and-ed or or-ed with itself is that cell, and no cell is less
+    // than itself.
+    {"a cell and-ed with itself is one that does nothing", "dup and", 1},
+    {"and so is one or-ed with itself", "dup or", 1},
+    {"a cell is not less than itself: one, which makes the top nothing", "dup <", 1},
+    {"nor below itself", "dup u<", 1},
     {NULL}};
 
 typedef struct {
     const char* label;
-    const char* test;           // at the top, or none: the body ends with what the branch asks
+    const char* test;           // the test at the top of the loop, or NULL if the body ends with what the branch tests
     const char* body;
-    int here;                   // the fewest, with the branch, for what it keeps where it is,
-    int anywhere;               // and kept in any cell: each is not asked, if it is nothing;
-    int in_r;                   // and the fewest with a number it pushes kept on the return stack, if that is fewer
+    int here;                   // the fewest instructions, counting the branch, with the loop's values kept where they are
+    int anywhere;               // the fewest with them kept in any cell; `here` and `anywhere` are not checked when 0
+    int in_r;                   // the fewest with a number the loop pushes kept on the return stack, if that is fewer
 } turn_check;
 
 static turn_check TURNS[] = {
-    // begin 2dup xor while 1+ repeat is four instructions a turn; begin 1+ 2dup = until is three
+    // `begin 2dup xor while 1+ repeat` is four instructions a turn; `begin 1+ 2dup = until` is three
     {"a loop up to an end that is under the count", "over over xor", "1+", 3, 3},
-    // the end on the return stack: 1+ r@ over = until, four; and with the end under the count, three
+    // with the end on the return stack, `1+ r@ over = until` is four; with the end under the count it is three
     {"a loop up to an end that is on the return stack", "dup r@ xor", "1+", 4, 3},
-    // a loop that tests at the bottom already, and has no fewer
+    // a loop that already tests at the bottom, which has no shorter form
     {"a loop that tests at the bottom", NULL, "1+ over over =", 3, 3},
-    // a number stored to every cell: with it on the return stack that is the kernel's cells-fill, four a turn
+    // a number stored to every cell; with the number on the return stack this is the kernel's cells-fill, four a turn
     {"a number stored to every cell up to an end", NULL, "7 over ! 1+ over over =", 0, 0, 4},
     {NULL}};
 
-// A search here is of a few instructions, and is never to be given up: none
-// of these looks at as many states as a search may (SEARCH_STATES, which
-// cmake/default-machine.cmake says and fewer.h has).
+// Every search here is for a few instructions, and none may be abandoned.
+// None of them examines as many states as a search is allowed
+// (SEARCH_STATES, which cmake/default-machine.cmake sets and fewer.h
+// uses).
 
-// Words as their instructions: how many.  A number is the instruction
-// that pushes it, as the step found them (kinds.h).
+// Compiles words to their instructions in `code`, and returns how many
+// instructions there are.  A number becomes the instruction that pushes
+// it, which the step identified (kinds.h).
 static int compiled(const char* words, uint16_t* code) {
     int len = 0;
     char word[64];

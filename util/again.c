@@ -1,23 +1,26 @@
 //
 // again NAME FILE.shadows [NAME FILE.shadows ...]
 //
-// The names that a source defines again, of several images of it, each
-// said once.
+// Prints the names that a source defines more than once, merged across
+// several images built from it, with each name listed once.
 //
-// cross.fs writes beside every image the names it found defined when there
-// was one of that name already (cross.fs, names defined again): two lines
-// that say what the file is, and then for each kind of them a line that
-// says the kind and a line a name, which starts with spaces.  The machines
-// of util/machines are built of one source, and what one has another mostly
-// has.  This prints the first file's two lines, and each kind once with
-// every name that any image has under it.  A name that not every image has
-// is followed by the images that have it: the NAME given with each file.
+// Beside every image, cross.fs writes the names it found being defined
+// when a definition of that name already existed (cross.fs, names defined
+// again).  The file is two lines that describe it, and then, for each kind
+// of redefinition, a line naming the kind followed by one line per name,
+// each starting with spaces.  The machines in util/machines are built from
+// one source, so their files are mostly the same.  This prints the first
+// file's two lines, and then each kind once, with every name that any
+// image has under it.  A name that some images lack is followed by the
+// images that have it, using the NAME given with each file.
 //
-// It is what is shown when the tests are run (the targets quick and check).
-// A name defined again is not an error, and Forth takes the newest; one
-// that was not meant is to be read here, and not found by debugging.
+// The targets quick and check print this before their tests.  A name
+// defined again is not an error, since Forth uses the newest definition.
+// This list is where an unintended redefinition gets noticed, so that it
+// does not have to be found by debugging.
 //
-// It fails if a file is not there, since then an image was not built.
+// It fails if a file is missing, because that means an image was not
+// built.
 //
 
 #include <stdio.h>
@@ -27,11 +30,11 @@
 
 typedef struct {
     char* text;                 // a name's line
-    long kind;                  // the kind it is under,
-    unsigned long in;           // and the files that have it, a bit a file
+    long kind;                  // the index of its kind
+    unsigned long in;           // the files that have it, one bit per file
 } entry;
 
-static char** KINDS;            // the line that says each kind, in the order they are first read
+static char** KINDS;            // the line naming each kind, in the order first read
 static long kinds, kinds_room;
 static entry* ENTRIES;
 static long entries, entries_room;
@@ -80,7 +83,7 @@ int main(int argc, char *argv[]) {
         long kind = -1;
         for(long n=0; line_of(in, &line, &room); n++) {
             line[strcspn(line, "\r\n")] = 0;
-            if (n < 2) {                                // what the file is
+            if (n < 2) {                                // the two lines that describe the file
                 if (!f) puts(line);
             } else if (line[0] == ' ') {
                 if (kind >= 0) note(line, kind, f);
