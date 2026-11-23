@@ -15,7 +15,7 @@ meta 0 sys-page target
 include display.fs      \ the display: a bitmap in memory, and text on it
 include region.fs       \ shapes that are not rectangles, to clip to
 
-meta 1 code-page target
+meta 2 sys-page target
 
 include tiff.fs        \ uncompressed TIFF from blocks, a row at a time
 include atkinson.fs     \ Atkinson dithering to the display
@@ -45,4 +45,4 @@ include view.fs         \ image viewer, and its menu: how it is drawn
 meta 2 sys-page target
 
 include viewdesk.fs     \ the picture's window, by itself
-include folds.fs     \ what the peephole is told of numbers: a table, last
+include folds.fs        \ the peephole's rules: a table

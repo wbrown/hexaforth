@@ -70,8 +70,8 @@ multiply.
 
 - **`IN->`** passes its input through. The instruction is then just its
   routes and stack movements, and covers `dup`, `over`, `drop`, `>r`, `r>`,
-  `r@`, `exit`, `@` and `!`. No other operation does as much of the ALU's
-  work on the desktop (the target `profile` says how much)
+  `r@`, `exit`, `@` and `!`. It does more of the ALU's work on the desktop
+  than any other operation (the target `profile` prints each one's share)
 - **`T->N,IN->`** also writes T into the cell under it. In the J1 that is one
   of the routes. Here the output is T, R, memory or a port, and N is
   otherwise written only by a push, so this has to be an operation. It
@@ -96,8 +96,8 @@ multiply.
   or stored. A conditional jump only asks whether T is zero, so for a jump
   alone `xor` would do. It is also `0=`, which is `0 =`. With N as its
   input it compares a cell with itself, which is true whatever the cell
-  is: that is `true`, -1 in one instruction, as `IN^N` with N as its input
-  is `false`
+  holds. That is `true`: -1 in one instruction. In the same way, `IN^N`
+  with N as its input is `false`
 - **`N<IN`** has to be an operation because the machine keeps no flags. The
   sign of a difference is wrong when the subtraction overflows, and nothing
   records that it did
@@ -196,7 +196,7 @@ marks what is out of date, and the event loop repaints it.
 
 ## As hardware
 
-The Verilog follows the J1a's design (`rtl/hexaforth.v` says how). The
+The Verilog follows the J1a's design (`rtl/hexaforth.v` explains how). The
 memory has one read port, and what comes out of it is what was requested in
 the previous cycle: usually the next instruction, fetched while the current
 one runs. T, N and R are registers. One adder serves `+`, `=`, `<` and
@@ -233,10 +233,8 @@ machine.
 ## Small before fast
 
 The kernel has to fit its ROM at every cell size. Kernel words are written
-the short way, and the comment at each one says what the faster way would
-be and where the difference would be noticed. `um*` takes a step for every
-bit regardless of the numbers, and a program that multiplies a lot has its
-own multiply.
+the short way: `um*` takes a step for every bit regardless of the numbers,
+and a program that multiplies a lot has its own multiply.
 
 The targets `profile`, `bench` and `examine-16` show where the instructions
 go, what a piece of work costs in clocks, and how long each part is. A

@@ -1,14 +1,14 @@
 //
 // kernel_size KERNEL.symbols KERNEL.bin
 //
-// How big a kernel is: its own code, which is from its symbol _start to
-// its symbol native_end (symbols.h), and the whole of it with the image it
-// has in it, which is the file.
+// Prints the size of a kernel: its own code, which runs from its symbol
+// _start to its symbol native_end (symbols.h), and the whole file, which
+// also has the image in it.
 //
-// Then the parts of its own code: a line for each label it has, with the
-// bytes from that label to the next.  What a part is is the kernel's to
-// say, at the label (hexaforth.S).  It fails if the parts do not come to
-// the whole.
+// Then it prints the parts of the kernel's own code: one line for each
+// label, with the bytes from that label to the next.  The kernel's source
+// says at each label what the part is (hexaforth.S).  The program fails if
+// the parts do not add up to the whole.
 //
 
 #include <stdio.h>
@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
     printf("\nits parts      bytes\n");
     for(long idx=0; idx < n; idx++) {
         uint64_t next = idx + 1 < n ? parts[idx + 1].at : to;
-        if (next == parts[idx].at) continue;            // a second name for the same place
+        if (next == parts[idx].at) continue;            // a second name for the same address
         printf("  %-12s %5llu\n", parts[idx].name, (unsigned long long)(next - parts[idx].at));
         all += next - parts[idx].at;
     }

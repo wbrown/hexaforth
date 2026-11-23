@@ -1,10 +1,8 @@
 \ macros.fs - :: on the machine: a word that runs as source is
 \ compiled
 
-\ To cross.fs a :: word is a definition of gforth's.  Here it
-\ is an immediate word, and in its body literal and s" do what
-\ they do there: literal compiles a number when the :: word
-\ runs, and s" keeps its text.
+\ A :: word is an immediate word.  In its body, literal compiles
+\ a number when the :: word runs, and s" keeps its text.
 
 create macro-xt 0 ,     \ where the :: word being made starts
 

@@ -1,31 +1,32 @@
 //
-// vm_step.h - what one instruction does, if it is a literal or of the ALU.
+// vm_step.h - what one instruction does, if it is a literal or an ALU
+// instruction.
 //
-// This is the machine's step, and it is said here once.  vm.c has it in its
-// loop and runs it on cells.  util/fuse.h has it too, and runs it on terms:
-// the name of what would be in each cell, in place of the number, so that
-// what a run of instructions leaves is known for every state at once.
-// Nothing in it looks at a value, but through what is named below: it only
-// says what goes where.
+// This is the machine's step function, and it is written only here.  vm.c
+// includes it in its loop and runs it on cells.  util/fuse.h includes it
+// too and runs it on terms.  A term is a name for the value a cell would
+// hold, so stepping on terms gives the result of a run of instructions for
+// every starting state at once.  Nothing in this file examines a value
+// except through the macros below.  It only says what moves where.
 //
-// Whatever has it gives, before it:
+// A file that includes this must first define:
 //
-//   VALUE                  what is in a cell
+//   VALUE                  the type of a cell's contents
 //   T R IN N OUT           the registers, each a VALUE
-//   SP RSP                 the depths, which are numbers
+//   SP RSP                 the stack depths, which are plain numbers
 //   ins                    the instruction
-//   DS(i) RS(i)            a cell of the data stack and of the return stack
-//   NUMBER(n)              the cell that holds a number
-//   WHOLE(x)               x as a cell holds it
-//   ALU(op, a, b)          what the operation makes of its two inputs
-//   FETCH(a)  STORE(a, x)  memory
-//   RETURN(r)              go to r
-//   IO_IN(port)            what a port reads as
-//   IO_OUT()               store OUT to the port T, and go to resolve_dstack
-//                          or resolve_rstack
-//   DEPTHS()               the depths have just moved
+//   DS(i) RS(i)            a cell of the data stack, and of the return stack
+//   NUMBER(n)              the VALUE for a number
+//   WHOLE(x)               x truncated to a cell
+//   ALU(op, a, b)          the result of an operation on two inputs
+//   FETCH(a)  STORE(a, x)  memory access
+//   RETURN(r)              continue at the address r
+//   IO_IN(port)            the value read from a port
+//   IO_OUT()               store OUT to the port T, then go to
+//                          resolve_dstack or resolve_rstack
+//   DEPTHS()               called after the stack depths have changed
 //
-// A jump, a conditional jump and a call are not here: they are vm.c's.
+// Jumps, conditional jumps and calls are not here.  vm.c handles them.
 //
 
 if (ins.lit.lit_f) {
@@ -69,8 +70,8 @@ if (ins.lit.lit_f) {
         default:
             break;
     }
-    // The operation.  Those that are arithmetic are given their two
-    // inputs, and it is said here which those are.
+    // The operation.  For the arithmetic operations, this chooses the two
+    // inputs.
     switch (ins.alu.alu_op) {
         case ALU_IN:            // `IN->OUT`
             OUT = IN;
@@ -91,14 +92,14 @@ if (ins.lit.lit_f) {
         case ALU_IO_READ:       // `io[IN]->OUT`
             OUT = IO_IN(IN);
             break;
-        case ALU_INVERT:        // of IN alone
+        case ALU_INVERT:        // IN only
             OUT = ALU(ALU_INVERT, IN, IN);
             break;
-        case ALU_RSHIFT:        // of IN, by T
+        case ALU_RSHIFT:        // IN, shifted by T
         case ALU_LSHIFT:
             OUT = ALU(ins.alu.alu_op, IN, T);
             break;
-        default:                // of IN and N
+        default:                // IN and N
             OUT = ALU(ins.alu.alu_op, IN, N);
             break;
     }

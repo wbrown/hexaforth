@@ -45,10 +45,10 @@ void generate_test_cases_fs() {
       // Convert regular numbers to d# format for cross.fs
       const char *p = TESTS[i].input;
       while (*p) {
-        // Words that are a phrase of the table (vm_opcodes.h) are its one
-        // instruction, said here by its fields: the peephole is off, and
-        // would not make it.  The C compiler finds a phrase the same way
-        // (compiler.c).
+        // Consecutive words that form a phrase in vm_opcodes.h are the
+        // phrase's single instruction.  It is written here by its fields,
+        // because the peephole is off and would not join the words.  The C
+        // compiler finds a phrase the same way (compiler.c).
         if (*p != ' ' && *p != '\t' && *p != '\'') {
           char copy[160];
           char *words[4];
@@ -61,7 +61,7 @@ void generate_test_cases_fs() {
             char *fields = instruction_to_str(said[0]);
             fprintf(f, "meta %s target ", fields);
             free(fields);
-            for (; took; took--) {           // past the words it took
+            for (; took; took--) {           // skip the words the phrase used
               while (*p == ' ' || *p == '\t') p++;
               while (*p && *p != ' ' && *p != '\t') p++;
             }

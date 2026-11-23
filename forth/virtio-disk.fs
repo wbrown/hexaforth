@@ -39,7 +39,8 @@ meta #136 cell-bytes / target constant VQ-CELLS
 : vq! ( x n -- ) VQB + w! ;    \ 16 bits, n bytes into them
 : vq@ ( n -- x ) VQB + uw@ ;
 
-: also-2 ( f pa -- f' ) reg32@ d# 2 xor or ;  \ and is the register there 2?
+: also-2 ( f pa -- f' ) \ and is the register there 2?
+    reg32@ d# 2 xor or ;
 : vdisk? ( pa -- f ) \ is a block device at those registers?
     dup reg32@ h# 74726976 xor          \ "virt"
     over d# 4 + also-2                  \ version 2

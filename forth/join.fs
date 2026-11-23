@@ -63,24 +63,24 @@ include compose.fs
 \ ---- numbers: code that only computes a number is run, and
 \ the number compiled.  folds.fs lists the instructions that
 \ compute one number from one or from two, and puts here those
-\ that compute one from none: true and false, each of which
-\ pushes a number of its own, whatever the stacks have.
+\ that compute one from none: true and false.
 
 create of-none 0 , 0 ,
 
-: of-none? ( w -- f ) dup of-none @ =  swap of-none 1+ @ =  or ;
+: of-none? ( w -- f )
+    dup of-none @ =  swap of-none 1+ @ =  or ;
 
 : folds ( -- ia ) folds-at @ ;
 
 \ how many numbers w computes one from, 1 or 2, if it is one of
 \ those folds.fs lists, and 0 if it is not
 : makes ( w -- n )
-    folds d# 4 +  folds i@ folds 1+ i@ +  bounds    ( w end a )
+    folds d# 6 +  folds i@ folds 1+ i@ +  bounds    ( w end a )
     begin
         2dup xor
     while
         >r  over r@ i@ = if
-            2drop  r> folds d# 4 + -  folds i@ u<  d# 2 +  exit
+            2drop  r> folds d# 6 + -  folds i@ u<  d# 2 +  exit
         then
         r> 1+
     repeat
@@ -116,11 +116,12 @@ create of-none 0 , 0 ,
     r> r> swap i!
 ;
 
-\ n replaces the code from s, if that is no longer
 : renumber ( n s -- )
-    cp @ >r  over tliteral  cp @ r@ -  r@ cp !
-    ( n s len ) ( R: where the code ends )
-    over r> swap - u> if 2drop exit then
+    \ compiles n over the code from s, if n is at most as long
+    syncpt @ >r  cp @ dup syncpt ! >r
+    over tliteral  cp @ r@ -  r@ cp !
+    ( n s len ) ( R: syncpt, where the code ends )
+    over r> swap - u>  r> syncpt !  if 2drop exit then
     cp ! tliteral
 ;
 
@@ -141,7 +142,7 @@ create of-none 0 , 0 ,
 \ push and another instruction.  folds.fs has a set of rules
 \ for each of the three, and says what a rule is.
 : set-of ( x -- set | 0 ) \ the set for dup, r@ or r>
-    folds dup i@ over 1+ i@ + + d# 4 +              ( x set )
+    folds dup i@ over 1+ i@ + + d# 6 +              ( x set )
     folds d# 2 + i@ negate                          ( x set -n )
     begin
         dup
@@ -168,6 +169,7 @@ create of-none 0 , 0 ,
 
 : pushed ( -- n ) \ how many instructions pushed what was pushed
     prev i@ dup h# c000 and h# 8000 = if drop d# 1 exit then
+    dup of-none? if drop d# 1 exit then
     h# c000 lit?  prev 1- i@ h# 8000 lit?  and  d# 2 and
 ;
 
@@ -193,29 +195,93 @@ create of-none 0 , 0 ,
     2drop
 ;
 
-\ `0 =` after an instruction that leaves a flag is invert.
-\ The last set's instruction is = and each rule's third is
-\ invert, so y is w xor invert and ( w y ) xor is invert.
-: flag-set ( -- set ) folds dup d# 3 + i@ + ;
-: flag-not ( -- f )
-    prev i@ h# 8000 =  flag-set i@ jn @ =  and if
-        prev 1- plain? if
-            prev 1- i@ dup flag-set crossed ?dup if ( w y )
-                xor  d# -1 cp +!  join,  true exit
+\ ---- a 0 was compiled as false.  folds.fs has two lists of
+\ sets of rules for it, and says what a set is.
+: zero-part ( -- ia ) folds dup d# 3 + i@ + ;
+: set-past ( set -- set' ) dup d# 2 + i@ d# 3 * + d# 3 + ;
+
+: zero-at ( set -- ia | 0 )
+    \ the address of the instruction the set's rules change
+    1+ i@ ?dup if
+        prev 1- i@ <> if d# 0 exit then
+        prev d# 2 -
+    else
+        prev 1-
+    then
+    dup plain? and
+;
+
+: zero-test ( -- f ) \ compiles jn, an =, by a rule for X 0 =
+    zero-part i@ jn @ <> if false exit then
+    zero-part d# 2 +                                ( set )
+    begin
+        dup i@
+    while
+        dup zero-at ?dup if                         ( set ia )
+            2dup i@ swap 1+ crossed ?dup if         ( set ia y )
+                over i!  1+ cp !  i@ join,  true exit
             then
             drop
         then
+        set-past
+    repeat
+    drop false
+;
+
+: before-zero ( -- f ) \ changes jn by a rule for A 0 jn
+    prev 1- plain? 0= if false exit then
+    zero-part dup 1+ i@ +                           ( set )
+    begin
+        dup i@
+    while
+        dup i@ prev 1- i@ = if
+            jn @ over 1+ crossed ?dup if            ( set y )
+                jn !  1+ i@ prev 1- i!  d# -1 cp +!  true exit
+            then
+        then
+        set-past
+    repeat
+    drop false
+;
+
+: add-back ( -- f )
+    \ moves the add before jn, a +, back by a rule
+    jn @ h# 643c <> if false exit then
+    prev i@ h# c000 lit? 0= if false exit then
+    prev 1- plain? 0= if false exit then
+    prev 1- i@  folds dup d# 5 + i@ +  crossed 0= if
+        false exit
     then
-    false
+    prev 1- i@  prev i@ prev 1- i!  prev i!  true
+;
+
+: store-set? ( set -- f ) \ do the set's B and A match the code?
+    dup i@ prev i@ =  swap 1+ i@ prev d# 2 - i@ =  and ;
+
+: stored-as ( set y -- ) \ replaces A X B, and jn with y
+    jn !  d# 2 + i@ prev d# 2 - i!  d# -2 cp +! ;
+
+: store-rule ( -- ) \ changes jn, a !, by a rule for A X B !
+    jn @ h# 6308 <> if exit then
+    prev 1- plain?  prev d# 2 - plain?  and 0= if exit then
+    folds dup d# 4 + i@ +                           ( set )
+    begin
+        dup i@
+    while
+        dup store-set? if
+            prev 1- i@ over d# 2 + crossed
+            ?dup if stored-as exit then
+        then
+        dup d# 3 + i@ d# 3 * + d# 4 +
+    repeat
+    drop
 ;
 
 : emit-lit ( w -- ) \ a literal: after an add, tidy
     dup code,  h# c000 lit? if room? if tidy drop then then ;
 
 \ jn, a +, is added to the number before it, where that is no
-\ more instructions than the number is: -1 that an instruction
-\ of its own pushes (true) is one, and added it is more.  What
-\ is added is laid past the code first, to see how long it is.
+\ more instructions than the number is
 : add-to ( -- f )
     jn @ h# 643c <> if false exit then
     cp @ number-at ?dup 0= if false exit then
@@ -228,12 +294,38 @@ create of-none 0 , 0 ,
     swap cp !  h# c000 segs,  true
 ;
 
-: after-lit ( -- ) \ jn, with a literal before it
+: after-lit ( -- ) \ compiles jn, which follows a literal
     jn @  dup h# 6800 = over h# 6308 = or if var, exit then
-    drop  flag-not if exit then  across  jn @ code,
+    drop  add-back if jn @ join, exit then
+    across  jn @ code,
+;
+
+: after-zero ( -- f ) \ compiles jn by a rule, if it follows a 0
+    prev i@ of-none 1+ @ <> if false exit then
+    zero-test if true exit then
+    before-zero dup if jn @ join, then
+;
+
+: after-none ( -- ) \ compiles jn, which follows false or true
+    after-zero if exit then  across
+    jn @ dup h# c and d# 4 = if code, exit then  join,
+;
+
+: after-push ( -- f ) \ compiles jn if it follows a push
+    prev i@ dup h# 8000 and if drop after-lit true exit then
+    of-none? dup if after-none then
+;
+
+: none, ( -- f )
+    \ compiles false or true as it is, unless the instruction
+    \ before it moves a stack down
+    jn @ of-none? 0= if false exit then
+    prev i@ d# 10 and if false exit then
+    jn @ code,  true
 ;
 
 : emit0 ( w -- ) \ an instruction of a word compiled inline
+    dup h# 8000 = if drop of-none 1+ @ then
     dup h# 8000 and if emit-lit exit then
     dup h# 1000 and if h# effc and then     \ without the return
     jn !
@@ -242,15 +334,17 @@ create of-none 0 , 0 ,
             jn @ makes if fold if exit then then
             add-to if exit then
         then
-        prev i@ h# 8000 and if after-lit exit then
+        after-push if exit then
+        none, if exit then
     then
-    jn @ join,
+    store-rule  jn @ join,
 ;
 
 : lays ( xt n -- ) \ n instructions of a word, inline
     bounds begin 2dup xor while dup i@ emit0 1+ repeat 2drop ;
 
-: quiet? ( w -- f ) \ does it neither read R nor write it?
+: quiet? ( w -- f ) \ does w do the same for any value in R?
+    dup h# ff3 and h# d00 = if drop true exit then
     dup h# c00 and h# c00 <>  swap h# 300 and h# 100 <>  and ;
 
 \ of a word inline: w goes on (0), is the last (1), or cannot

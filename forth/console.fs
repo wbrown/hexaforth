@@ -35,7 +35,7 @@ create con-c 0 ,
 ;
 
 header con-emit
-: con-emit ( c -- ) \ QEMU's bridge shows the screen at key?
+: con-emit ( c -- ) \ to the serial line, and on the screen
     dup uart-emit  con-draw  key? drop
 ;
 

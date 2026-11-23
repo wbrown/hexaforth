@@ -4,52 +4,56 @@
 // check IMAGE.hex display MEMORY MEMORY TIMED WHAT ON [PIECE ...]
 // check table RESULT ...
 //
-// IMAGE.hex is the image the machine ran: the machine whose memory is
-// looked at is the one it is for, which it says beside it (util/image.h).
+// Checks what a benchmark produced, and only then prints what the work
+// cost.  A benchmark whose result was not checked has measured nothing,
+// so this program is the only place its figure is printed.
 //
-// What a benchmark made, looked at, and then what it cost: one that has
-// not been checked has measured nothing, so the figure is printed here and
-// only after.
+// IMAGE.hex is the image the machine ran.  The cell size and the display
+// are those of the machine the image was built for, which is recorded
+// beside the image (util/image.h).  A bitmap stores its pixels the way
+// the display does, so one description serves for both.
 //
-// The first is a bitmap the machine made of a picture, against the dither
-// a pixel at a time (test/dither.c), every cell of it.  MEMORY is the
-// machine's memory when it had stopped (rtl/tb.cpp writes it), and CONSOLE
-// what it printed, in which
+// `picture` checks a bitmap the machine dithered from a picture.  Every
+// cell is compared with the reference dither, which works one pixel at a
+// time (test/dither.c).  MEMORY is the machine's memory when it stopped
+// (rtl/tb.cpp writes it).  CONSOLE is what the machine printed.  The last
+// line typed at the machine was
 //     b @ . b 1+ @ .
-// was typed last: where the bitmap is, and the cells of a row of it.  The
-// picture was dithered at its own size (own), at half size (half), or from
-// its half-size grays with each gray made a 2 by 2 (doubled).  A machine
-// that could not do the work (an error at its console) has measured
-// nothing, and that is a FAIL like any other.
+// which prints the bitmap's address and the number of cells in one of its
+// rows.  The picture was dithered at full size (own), at half size
+// (half), or from its half-size grays with each gray repeated as a 2 by 2
+// square (doubled).  If the machine printed an error at its console, it
+// could not do the work and has measured nothing, so the result is a FAIL.
 //
-// The second is the same for a bitmap the machine made of the picture kept
-// as gray (forth/gray.fs): one sample per 1 << SHIFT pixels a side, all of
-// it drawn with each sample 1 << DSHIFT pixels a side, through N by N blue
-// noise.  It is compared with the same done a pixel at a time
-// (test/gray.h), and so is the display, where the bitmap was copied to AT
-// pixels across at the top.
+// `gray` checks a bitmap the machine drew from the picture stored as gray
+// (forth/gray.fs).  The gray has one sample for each square of
+// 1 << SHIFT pixels a side.  The machine drew all of it with each sample
+// 1 << DSHIFT pixels a side, through an N by N blue-noise mask.  The
+// bitmap is compared with the same drawing done one pixel at a time
+// (test/gray.h).  The display is compared too: the machine copied the
+// bitmap to the top of the display, AT pixels from the left.
 //
-// The last is the display, in the memory of two machines that were
-// typed the same at: the reference VM (main.c writes its memory) and the
-// Verilog CPU.  Every cell of it is to be the same in both, and something
-// is to have been drawn.
+// `display` compares the display in the memory of two machines that were
+// typed the same input: the reference VM (main.c writes its memory) and
+// the Verilog CPU.  Every cell must be the same in both, and something
+// must have been drawn.
 //
-// TIMED is what the Verilog's test bench said of the run: what passed
-// between each mark the machine made and the next (figure.h).  WHAT is the
-// work and ON the machine; a PIECE is the name of what was done between a
-// mark and the next, in order, and with none named there is one piece and
-// it is the work.  A line a piece is printed, or one line that says FAIL
-// and why; what was compared is said to stderr.  Having said either, it
-// has done what it is for, and its status says only whether it could look.
+// TIMED is the Verilog test bench's report of the run: the cycles between
+// each mark the machine made and the next (figure.h).  WHAT names the
+// work and ON names the machine.  Each PIECE names the work done between
+// one mark and the next, in order.  If no PIECE is given, the whole work
+// is one piece.  The program prints one line for each piece, or one line
+// that says FAIL with the reason.  It writes what it compared to stderr.
+// Its exit status is 0 in both cases.  The status is non-zero only when
+// the check could not be run: wrong arguments, or a file that cannot be
+// read.
 //
 // check table RESULT ...
 //
-// What each of those printed, in the order they are named: the table of
-// the benchmarks.  Its status is the benchmarks': it fails if a result
-// says FAIL, and if one says nothing, which is work that was not checked.
-//
-// It is of the size of machine the memory is of, and of its display, since
-// a bitmap has its pixels as the display has them: both are the image's.
+// `table` prints the results the other forms wrote, in the order the
+// files are given.  That is the table of the benchmarks.  It exits with 1
+// if a result says FAIL, or if a result file is empty, which means the
+// work was never checked.
 //
 
 #include <stdio.h>
@@ -63,7 +67,8 @@
 #include "figure.h"
 #include "tiff.h"
 
-// A file, whole, with nothing after it.
+// Reads a whole file and returns it with a NUL after its last byte.
+// `*len` receives its length.  Exits if the file cannot be read.
 static char* read_all(const char* path, size_t* len) {
     FILE* in = fopen(path, "rb");
     if (in == NULL) {
@@ -83,14 +88,16 @@ static char* read_all(const char* path, size_t* len) {
     return(bytes);
 }
 
-// A number the machine printed, as a cell that is not negative.
+// Returns a number the machine printed with `.` as an unsigned cell.  `.`
+// prints a cell as a signed number.
 static uint64_t ucell(long long x) {
     const int spare = 64 - CELL_BITS;
     return(((uint64_t)x << spare) >> spare);
 }
 
-// The display in two memories: row y is where vm_constants.h says it is.
-// What is wrong with it, or nothing.
+// Compares the display in two memory files.  DISP_ROW(y) is the address
+// of row y (vm_constants.h).  Returns a description of what is wrong, or
+// NULL if the two displays are the same and something was drawn.
 static char* displays(const char* one, const char* other) {
     size_t len, other_len;
     uint8_t* a = (uint8_t*)read_all(one, &len);
@@ -112,8 +119,9 @@ static char* displays(const char* one, const char* other) {
     return(why);
 }
 
-// What the machine said it could not do, if it said so: the text, which is
-// made here.
+// If the machine printed an error at its console, returns a message with
+// the error's number, as newly allocated text.  Returns NULL if it printed
+// no error.
 static char* could_not(const char* said) {
     static const char error[] = "error: ";
     const char* at = strstr(said, error);
@@ -123,8 +131,11 @@ static char* could_not(const char* said) {
     return(is);
 }
 
-// A bitmap the machine made, w by h, against the cells it is to be, a row
-// being stride of them.  What is wrong with it, or nothing.
+// Compares a bitmap the machine made, w by h pixels, with the cells it
+// should have: `want`, with `stride` cells to a row.  `is_memory` is the
+// file of the machine's memory.  `said` is what the machine printed, which
+// has the bitmap's address in it.  Returns a description of what is wrong,
+// or NULL if the bitmap is right.
 static char* bitmaps(const uint64_t* want, int stride, int w, int h, const char* is_memory, const char* said) {
     int total = stride * h;
     size_t len;
@@ -159,9 +170,11 @@ static char* bitmaps(const uint64_t* want, int stride, int w, int h, const char*
     return(why);
 }
 
-// A bitmap the machine made of a picture, against the dither a pixel at a
-// time: of its grays at full size, at half size, or at half size with each
-// gray made a 2 by 2 (doubled).
+// Checks a bitmap the machine dithered from a picture against the
+// reference dither.  `size` says which grays were dithered: the picture's
+// at full size (own), at half size (half), or at half size with each gray
+// repeated as a 2 by 2 square (doubled).  Returns a description of what is
+// wrong, or NULL if the bitmap is right.
 static char* pictures(const char* is_picture, const char* size, const char* is_memory, const char* said) {
     tiff picture = read_tiff(is_picture);
     int w, h, stride;
@@ -180,16 +193,12 @@ static char* pictures(const char* is_picture, const char* size, const char* is_m
     return(why);
 }
 
-// The picture on the display, where it was copied to dx pixels across at
-// the top, against black[]; pixels past the display's edge are skipped.
-// Returns what is wrong, or NULL.
-//
-// grays(), below: a bitmap the machine made of a picture kept as gray in
-// sixteen levels, one sample per 1 << shift pixels a side, all of it drawn
-// with each sample 1 << dshift pixels a side through n by n blue noise.
-// It is compared with the same done a pixel at a time (test/gray.h), using
-// the thresholds the disk's masks are made from (util/bluenoise.h), and
-// then the display is.  Returns what is wrong, or NULL.
+// Compares the picture on the display with `black`, which has one byte
+// for each pixel of a w by h picture, non-zero where the pixel is black.
+// The machine copied the picture to the top of the display, `dx` pixels
+// from the left.  Pixels past the display's right or bottom edge are
+// skipped.  Returns a description of what is wrong, or NULL if the
+// display is right.
 static char* on_display(const uint8_t* black, int w, int h, int dx, const char* is_memory) {
     size_t len;
     uint8_t* memory = (uint8_t*)read_all(is_memory, &len);
@@ -213,6 +222,14 @@ static char* on_display(const uint8_t* black, int w, int h, int dx, const char* 
     return(why);
 }
 
+// Checks a bitmap the machine drew from a picture stored as gray in
+// sixteen levels.  The gray has one sample for each square of 1 << shift
+// pixels a side.  The machine drew all of it with each sample 1 << dshift
+// pixels a side, through an n by n blue-noise mask.  The bitmap is
+// compared with the same drawing done one pixel at a time (test/gray.h),
+// using the thresholds the disk's masks are made from (util/bluenoise.h).
+// If the bitmap is right, the display is compared as well.  Returns a
+// description of what is wrong, or NULL if both are right.
 static char* grays(const char* is_picture, int shift, int dshift, int n, int dx, const char* is_memory, const char* said) {
     tiff picture = read_tiff(is_picture);
     int fw, fh, gw, gh, stride;
@@ -230,7 +247,8 @@ static char* grays(const char* is_picture, int shift, int dshift, int n, int dx,
     return(why);
 }
 
-// The results, and whether all of them are figures.
+// Prints each result file.  Returns 1 if any of them says FAIL or is
+// empty, and 0 otherwise.
 static int table(char** results, int count) {
     int failed = 0;
     for(int n=0; n < count; n++) {
@@ -247,7 +265,7 @@ static int table(char** results, int count) {
 int main(int argc, char *argv[]) {
     if (argc >= 3 && !strcmp(argv[1], "table")) return(table(argv + 2, argc - 2));
     const char* self = argv[0];
-    bool told = argc >= 3 && machine_of(argv[1]);       // the machine whose memory this is: the image's
+    bool told = argc >= 3 && machine_of(argv[1]);       // take the cell size and the display from the image
     if (told) argv++, argc--;
     bool display = argc >= 7 && !strcmp(argv[1], "display"), picture = argc >= 9 && !strcmp(argv[1], "picture");
     bool gray = argc >= 12 && !strcmp(argv[1], "gray");
@@ -260,8 +278,8 @@ int main(int argc, char *argv[]) {
                 self, self, self, self);
         return(1);
     }
-    int before = display ? 4 : picture ? 6 : 9;         // what is said before TIMED
-    char** rest = argv + before;                        // TIMED WHAT ON, and the pieces
+    int before = display ? 4 : picture ? 6 : 9;         // the index of TIMED in argv
+    char** rest = argv + before;                        // TIMED, WHAT, ON, and then the names of the pieces
     int pieces = argc - before - 3;
     const char* timed = rest[0];
     const char* what = rest[1];

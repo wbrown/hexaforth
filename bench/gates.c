@@ -1,16 +1,17 @@
 //
 // gates_said LABEL YOSYS.stat
 //
-// How big a CPU is, as gates, from what Yosys counted of it.
+// Reports the size of a CPU in gates, from Yosys's cell counts.
 //
-// The CPU was put through a flow that leaves it as NAND gates of two
-// inputs, inverters and D flip-flops (cmake/gates.cmake says the flow), and
-// Yosys's `stat` says how many of each cell there are: a line a kind, with
-// the number before its name or after it, as the Yosys is.  A NAND is one
-// gate, an inverter half of one and a
-// flip-flop four.  A memory that was left a memory, and a multiplier that
-// was left out, are said and not counted.  It fails if there are no gates:
-// then nothing was counted.
+// The CPU was synthesized by a flow that reduces it to two-input NAND
+// gates, inverters and D flip-flops (cmake/gates.cmake defines the flow).
+// Yosys's `stat` command prints the number of cells of each kind, one kind
+// per line, with the number before or after the cell's name depending on
+// the version of Yosys.  A NAND counts as one gate, an inverter as half a
+// gate, and a flip-flop as four gates.  A memory that was kept as a
+// memory, and a multiplier that was left out, are reported but not
+// counted.  It fails if there are no gates, because then it counted
+// nothing.
 //
 
 #include <stdio.h>
@@ -18,7 +19,7 @@
 #include <string.h>
 #include "../util/room.h"
 
-// The number a line has: the first of its words that is all digits.
+// Returns the number on a line: its first word that is all digits.
 static long count_in(const char* line) {
     for(const char* at = line + strspn(line, " \t"); *at; at += strspn(at, " \t")) {
         size_t word = strcspn(at, " \t\r\n");
@@ -44,7 +45,7 @@ int main(int argc, char *argv[]) {
         long count = count_in(line);
         if (strstr(line, "$_NAND_")) nand = count;
         if (strstr(line, "$_NOT_")) not = count;
-        if (strstr(line, "$_DFF_")) flops += count;     // of every kind of flip-flop
+        if (strstr(line, "$_DFF_")) flops += count;     // add up every kind of flip-flop
         if (strstr(line, "$mem_v2")) memories = count;
         if (strstr(line, "$mul")) multipliers = count;
     }

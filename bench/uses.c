@@ -1,32 +1,36 @@
 //
 // uses PLAIN.hex PLAIN.tables IMAGE.hex IMAGE.tables COUNTS WORD ...
 //
-// Where the work uses a small word, how often, and what it is given.
+// Reports where the work uses a small word, how often, and what value the
+// word is passed.
 //
-// A small word is in the code two ways: called, and compiled in place of
-// the call, where cross.fs then joins its instructions to their
-// neighbours and they are no longer to be told apart.  So the places are
-// found in the image built with the peephole off (PLAIN), where a word in
-// place is still the word's own instructions one after another; and how
-// often each place ran is read at the same place of the image built with
-// it on (IMAGE), which the work was counted on (COUNTS: work.h).  The two
-// are cut into the same runs in the same order (cut.h), and this stops if
-// they are not.
+// A small word appears in the code in two forms: as a call, and inlined in
+// place of the call.  cross.fs joins the inlined instructions with their
+// neighbours, and then they can no longer be told apart.  So the uses are
+// found in the image built with the peephole off (PLAIN), where an inlined
+// word is still the word's own instructions in sequence.  The number of
+// times each use ran is read at the same position in the image built with
+// the peephole on (IMAGE), which is the image the work was counted on
+// (COUNTS: work.h).  The two images are cut into the same runs in the same
+// order (cut.h), and the program stops if they are not.
 //
-// What a use is given is what is on top of the stack when it comes to it:
-// the instruction before it, as it was typed.  A number is said, a
-// variable is named, and anything else is said by its instruction.  For a
-// use that a run starts with, what is on top was left by a call or came
-// round a branch, and it says so.
+// The value a use is passed is the top of the stack when the use is
+// reached.  It is described from the instruction before the use, as that
+// instruction was typed: a number is printed, a variable is named, and
+// anything else is described by its instruction.  If the use is the first
+// thing in a run, the top of the stack was left by a call or arrived
+// through a branch, and the report says so.
 //
-// The words are looked for in the order they are named, and an instruction
-// that is one word's is not looked at for the next: so `-` is named before
-// `negate`, which it is made of.
+// The words are searched for in the order they are named, and an
+// instruction that belongs to a use of one word is not considered for the
+// next word.  So `-` is named before `negate`, because `-` contains
+// `negate`.
 //
-// Prints, for each word, how often the work used it called and in place;
-// then what it was given, by how often; then the places, by how often,
-// each with the run it is in as typed and as cross.fs made it.  It fails
-// if the work used none of the words.
+// For each word it prints the number of times the work used it, as a call
+// and inlined.  Then it prints the values the words were passed, ordered
+// by count.  Then it prints the uses, ordered by count, each with the run
+// it is in as typed and as cross.fs compiled it.  It fails if the work
+// used none of the words.
 //
 
 #include "../util/fuse.h"
@@ -36,33 +40,36 @@
 #include "work.h"
 
 static cut_image PLAIN, BUILT;
-static double* work;                    // how often each of IMAGE's instructions ran
+static double* work;                    // the number of times each of IMAGE's instructions ran
 
 typedef struct {
-    int of;                             // which of the words named
-    char called;                        // called, or in place
-    long item;                          // the run it is in, or the call, of both images
-    long from;                          // in place: the instruction of the run it starts at
-    double times;
-    char* given;                        // what it is given, said
+    int of;                             // the index of the word among those named
+    char called;                        // 1 if the use is a call, 0 if it is inlined
+    long item;                          // the index of the run it is in, or of the call; the same in both images
+    long from;                          // for an inlined use: the offset in the run where it starts
+    double times;                       // the number of times it ran
+    char* given;                        // a description of the value it is passed
 } use;
 
 static use* USE;
 static long uses, uses_room;
 
-typedef struct { char* what; double times; } gift;
+typedef struct { char* what; double times; } gift;      // a description of a value, and the number of times it was passed
 static gift* GIFT;
 static long gifts, gifts_room;
 
 static word* LABELS;                    // the names of cells
 static long labels, labels_room;
 
-// The name of a cell: of a label for data, or of a word that only pushes it.
+// Returns the name of a cell: a label for data, or a word that only pushes
+// the cell's address.  Returns NULL if the cell has no name.
 static const char* cell_named(long cell) {
     for(long n=0; n < labels; n++) if (LABELS[n].at == cell) return(LABELS[n].name);
     return(NULL);
 }
 
+// Fills LABELS from the image's labels for data, and from its words that
+// only push a number.
 static void cells_are_named(const char* tables) {
     uint16_t leaves = ins_named("exit");
     labels = data_of(tables, &LABELS, &labels_room);
@@ -77,8 +84,8 @@ static void cells_are_named(const char* tables) {
     }
 }
 
-// What is on top of the stack after some instructions as they were typed:
-// the text is made here.
+// Returns a description of the value on top of the stack after some
+// instructions, as they were typed.  The text is allocated.
 static char* top_after(const uint16_t* typed, long len) {
     char* is = NULL;
     if (!len) {
@@ -88,7 +95,7 @@ static char* top_after(const uint16_t* typed, long len) {
     uint16_t last = typed[len - 1];
     long k = len;
     while (k && pushes_number(typed[k - 1], 1)) k--;
-    if (k && pushes_number(typed[k - 1], 0)) {          // a number, and what was added to it
+    if (k && pushes_number(typed[k - 1], 0)) {          // a number pushed, and the literals added to it
         long number = 0;
         for(long j=k - 1; j < len; j++) number += number_in(typed[j]);
         text_more(&is, "the number %ld", number);
@@ -96,7 +103,7 @@ static char* top_after(const uint16_t* typed, long len) {
         const char* name = cell_named((long)NUMBER_IN[last].number);
         if (name) text_more(&is, "the variable %s", name);
         else text_more(&is, "the variable at cell %lld", (long long)NUMBER_IN[last].number);
-    } else if (last == ins_named("@")) {                // a cell fetched: a variable's, if where it is is a number
+    } else if (last == ins_named("@")) {                // a cell fetched: it is a variable if its address is a number
         long cell = 0;
         k = len - 1;
         while (k && pushes_number(typed[k - 1], 1)) k--;
@@ -106,13 +113,16 @@ static char* top_after(const uint16_t* typed, long len) {
         else if (is_number) text_more(&is, "the cell %ld", cell);
         else text_more(&is, "a cell of a record, fetched");
     } else {
-        char one[2 * sizeof(((forth_op*)0)->repr) + 64];    // as kinds.h has room for one
+        char one[2 * sizeof(((forth_op*)0)->repr) + 64];    // the size kinds.h uses for one instruction's text
         say_ins(one, sizeof(one), last, 1);
         text_more(&is, "what `%s` left", one);
     }
     return(is);
 }
 
+// Records a use, with its count from the built image and a description of
+// the value it is passed.  `before` is the `len` instructions typed before
+// the use in its run.
 static void add_use(int of, int called, long item, long from, const uint16_t* before, long len) {
     ONE_MORE(USE, uses, uses_room);
     use* u = &USE[uses++];
@@ -129,8 +139,11 @@ static void add_use(int of, int called, long item, long from, const uint16_t* be
     GIFT[g].times += u->times;
 }
 
-// A word's own instructions, as they were typed: without its return.  How
-// many there are; they are made here.
+// Returns the number of a word's own instructions as they were typed,
+// without its return.  `*body` receives the instructions, which are
+// allocated, and `*is_word` receives the word's index in PLAIN.  Exits if
+// the image has no such word, or if the word has no instructions of its
+// own.
 static long body_of(const char* name, uint16_t** body, int* is_word) {
     long at = -1, size = 0;
     for(int idx=0; idx < PLAIN.n; idx++) {
@@ -169,7 +182,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "usage: uses PLAIN.hex PLAIN.tables IMAGE.hex IMAGE.tables COUNTS WORD ...\n");
         return(1);
     }
-    machine_from(argv[3]);              // the cell is the image's, before anything is asked of it
+    machine_from(argv[3]);              // take the cell size from the image before the step is used
     get_ready();
     list_kinds();
     cut(&PLAIN, argv[1], argv[2]);
@@ -193,11 +206,11 @@ int main(int argc, char *argv[]) {
 
     char** names = argv + 6;
     int named = argc - 6;
-    char* taken = room_for(PLAIN.instructions, 1);      // an instruction that is one of the words', in place
+    char* taken = room_for(PLAIN.instructions, 1);      // 1 for an instruction in a named word's own definition, or in a use already found
     double* called = room_for(named, sizeof(double));
     double* in_place = room_for(named, sizeof(double));
     long* length = room_for(named, sizeof(long));
-    for(int of=0; of < named; of++) {                   // a word that is named is not a use of itself, or of another that is
+    for(int of=0; of < named; of++) {                   // a named word's own definition is not a use of that word, or of another named word
         uint16_t* body;
         int is_word;
         body_of(names[of], &body, &is_word);
@@ -257,7 +270,7 @@ int main(int argc, char *argv[]) {
         const item* made = &BUILT.items[u->item];
         char* was = typed->run ? run_said(PLAIN.code + typed->at, (int)typed->len, 1) : NULL;
         char* is = made->run ? run_said(BUILT.code + made->at, (int)made->len, 1) : NULL;
-        char where[sizeof(BUILT.words[0].name) + 32];    // a word's name and a place
+        char where[sizeof(BUILT.words[0].name) + 32];    // room for a word's name and an address
         snprintf(where, sizeof(where), "%s@%lx", word_at(BUILT.words, BUILT.n, made->at), made->at);
         printf("%-24s %10.0f  %-8s  %s", where, u->times, names[u->of], u->given);
         if (u->called) printf(": called\n");

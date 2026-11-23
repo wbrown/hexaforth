@@ -147,8 +147,8 @@ static hexaforth_test TESTS[] = {
      .init = "0",
      .input = "1024 >r 0 >r exit",
      .rstack = "1024"},
-    // A phrase of the table (vm_opcodes.h) is one instruction, written as
-    // the words it is: these are the phrases, each run as its instruction.
+    // A phrase in vm_opcodes.h is one instruction, written as its words.
+    // The tests that follow run each phrase as its single instruction.
     {.label = "2dup < ( a b -- a b f )",
      .input = "1024 2048 2dup <",
      .dstack = "1024 2048 -1"},
@@ -246,9 +246,9 @@ static hexaforth_test TESTS[] = {
               "16 r@ +! r@ @ ",
      .dstack = "12 28",
      .rstack = "0"},
-    // The fetch and the add are one instruction.  So a cell that holds
-    // what is to be taken away, negated, is a subtraction in one; and a
-    // number that is negative, added to a cell, takes it away there.
+    // `@ +` is one instruction.  So a subtraction takes one instruction
+    // when a cell holds the negated amount, and `+!` with a negative
+    // number subtracts from a cell.
     {.label = "@ + ( n addr -- n+[addr] )",
      .init = "8 -5",
      .input = "4 0 @ + "
@@ -286,8 +286,9 @@ static hexaforth_test TESTS[] = {
      .input = "0 >r r@ not! r@ @",
      .dstack = "-6",
      .rstack = "0"},
-    // The address is a number and not r@, so that the fetch is the phrase's
-    // and not `r@ @`'s, which is a phrase too.
+    // The address is a literal here, not `r@`.  After `r@`, the fetch would
+    // be compiled as part of the phrase `r@ @`, and not as part of the
+    // phrase under test.
     {.label = "@ or ( n addr -- n )",
      .init = "9",
      .input = "6 0 @ or",
@@ -408,10 +409,11 @@ static hexaforth_test TESTS[] = {
      .input = "1 >r 2 >r 3 >r 9 1 209 io!",
      .dstack = "9",
      .rstack = "1"},
-    // Setting a depth changes only the depth.  The cells a lowered depth
-    // hides keep their values and are there again when it is raised.  (A
-    // cell that is popped is gone: here the two operands of the second io!
-    // are pushed over cells 2 and 3, which are then dropped unread.)
+    // Setting a stack depth changes only the depth.  The cells hidden by a
+    // lowered depth keep their values, and are visible again when the
+    // depth is raised.  (A cell that is pushed over is gone: here the two
+    // operands of the second io! overwrite cells 2 and 3, which the test
+    // then drops unread.)
     {.label = "io 208: raising the depth brings the cells back",
      .input = "1 2 3 4 5 6 7 8 9 2 208 io! 9 208 io! + + + + nip nip",
      .dstack = "1 2 35"},

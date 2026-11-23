@@ -47,7 +47,7 @@
 set(BB ${BUILD}/bench)
 set(BENCH ${CMAKE_SOURCE_DIR}/bench)
 
-# The benchmarks' disks, each no more than a floppy: the system's, which
+# The benchmarks' disks, each at most the size of a floppy: the system's, which
 # the machine has as its first; the pictures' disk, which has the Mandrill;
 # and a disk of the Mandrill's grays and its grays at half size, as
 # one-sample TIFFs (GRAYS and SMALL, which are made with the pictures:
@@ -266,24 +266,32 @@ function(bench_on NAME)
     # Where the dither's clocks go (dither-costs-NAME): the same work, at
     # half the picture's size, typed at the machine's counting VM with the
     # VM's own disk, and then what each word costs with all it calls, its
-    # loops and its variables (bench/costs.c, in clocks by bench/cycles.h),
-    # and the fewest instructions found that do a turn of each loop
-    # (bench/shorter.c, in shorter.txt).  What is kept is in
-    # build/bench/costs-NAME-PIC/, what the machine printed in typed.out
-    # there.
+    # loops and its variables (bench/costs.c, in clocks by bench/cycles.h).
+    # What is kept is in build/bench/costs-NAME-PIC/, what the machine
+    # printed in typed.out there.
+    #
+    # shorter-dither-NAME is a separate target because its searches are
+    # slow.  For each loop that ran in the same work, it searches for the
+    # fewest instructions that do one turn (bench/shorter.c).  It writes
+    # each result to shorter.txt there as it finds it, and the loop it is
+    # searching to shorter.log.
     set(WORKS)
     set(COSTED)
+    set(SEARCHED)
     foreach(PIC ${COSTED_PICTURES})
         set(K ${BB}/costs-${NAME}-${PIC})
         work_counted(${K} ${NAME} dither ${BB}/asks-${PIC}-half.fs)
         list(APPEND WORKS ${K}/work)
         list(APPEND COSTED COMMAND ${ECHO} "dither ${PIC} half, cells of ${CELL} bits:"
                            COMMAND costs ${NUC} ${BUILD}/${NAME}/nuc.tables ${BUILD}/${NAME}/nuc.sizes ${K}/work ${K}
-                           COMMAND shorter ${NUC} ${BUILD}/${NAME}/nuc.tables ${K}/work ${K}/shorter.txt
                            COMMAND ${KEEP} dither-costs-${PIC} ${NUC} ${K}/work ${K}/typed.fs ${K}/paths.txt
-                                     ${K}/loops.txt ${K}/vars.txt ${K}/shorter.txt)
+                                     ${K}/loops.txt ${K}/vars.txt)
+        list(APPEND SEARCHED COMMAND shorter ${NUC} ${BUILD}/${NAME}/nuc.tables ${K}/work ${K}/shorter.txt
+                                       2> ${K}/shorter.log
+                             COMMAND ${KEEP} shorter-dither-${PIC} ${NUC} ${K}/shorter.txt)
     endforeach()
     add_custom_target(dither-costs-${NAME} ${COSTED} DEPENDS ${WORKS} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    add_custom_target(shorter-dither-${NAME} ${SEARCHED} DEPENDS ${WORKS} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
     # The same for the gray (gray-costs-NAME): bench/gray.fs's work typed at
     # the counting VM, then the cost of each word, loop and variable, in

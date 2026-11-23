@@ -1,45 +1,56 @@
 //
 // finds IMAGE.hex [DISK.img [MEMORY.out]]
 //
-// The reference VM, watching what the dictionary is asked for.  It is
-// main.c and vm.c as they are, with what vm.c tells of an instruction about
-// to be run (RUNS) taken up here.
+// The reference VM, recording every search of the dictionary.  It is
+// main.c and vm.c unchanged.  vm.c reports each instruction it is about to
+// run through the macro RUNS, and this file defines RUNS.
 //
-// sfind (nuc.fs) is given a name and goes along the dictionary, from the
-// header a search starts at, until it finds the name's or comes to the end:
-// a header made on the machine is before the image's.  Where it is
-// entered, the name is read as it is given; each time round its loop is a
-// header looked at; where it calls same-cells? it has a header whose name
-// starts as the name does, and the last of those before it returns is the
-// one it found; and its last instruction is where it returns when it has
-// found none.  Nothing here knows the form of a header: which header a cell
-// is in is asked of read_header and header_end (vm_opcodes.c).
+// sfind (nuc.fs) takes a name and follows the dictionary's links, from the
+// header a search starts at, until it finds a header with that name or
+// reaches the end.  Headers created on the machine come before the
+// image's.  This program follows a search at four points in sfind:
 //
-// When the machine stops, what was seen is written to the file that the
-// environment's FINDS names, if it names one:
+//   - at its first instruction, the name is read from the machine's
+//     memory
+//   - each turn of its loop is one header examined
+//   - where it calls same-cells?, it has a header whose name begins as
+//     the name does.  The last such header before sfind returns is the
+//     one it found
+//   - its last instruction is the return it takes when it found no header
 //
-//   how often the dictionary was asked, and how many headers were looked
-//   at; of those, how many for names found in the image's own headers, for
-//   names found in headers made since, and for names not found
+// This program does not know the layout of a header.  read_header and
+// header_end (vm_opcodes.c) tell which header a cell belongs to.
 //
-//   what the same asking would have looked at were the image's headers in
-//   the order of how often each is found, with the headers made since still
-//   before them: a header of the image's is found past the headers made
-//   since, and then past those of the image's that are before it
+// When the machine stops, the results are written to the file named by the
+// environment variable FINDS, if it is set:
 //
-//   what it would have looked at were the dictionary several chains, a
-//   name's chosen from the first cell of its packed name: for each way of
-//   choosing one (chain_of) and each number of chains, beside what it
-//   would be if names fell evenly among them
+//   - the number of searches and the number of headers examined.  Of
+//     those headers, the numbers examined for names found in the image's
+//     own headers, for names found in headers created since, and for
+//     names not found
 //
-//   a line a name, by the headers looked at for it: how often it was asked
-//   for and found, the headers looked at each time, the share of all that
-//   is, and where its header is among the image's, the first looked at
-//   being 1
+//   - the number of headers the same searches would have examined if the
+//     image's headers were ordered by how often each is found.  The
+//     headers created since would still come first: a search that finds
+//     one of the image's headers passes all of those, and then the
+//     image's headers before the one it finds
+//
+//   - the number of headers the searches would have examined if the
+//     dictionary were several chains, with a name's chain chosen from the
+//     first cell of its packed name.  It is given for each way of choosing
+//     a chain (chain_of) and each number of chains, beside the number it
+//     would be if names were spread evenly over the chains
+//
+//   - one line for each name, ordered by the headers examined for it: the
+//     number of times it was searched for and found, the headers examined
+//     per search, the name's share of all the headers examined, and the
+//     position of its header among the image's, counting the first header
+//     examined as 1
 //
 // FINDS_NAMES names the file of names that goes with the image
-// (nuc.tables), for the words that have no header.  The machine is watched
-// from when it last started at instruction 0.
+// (nuc.tables), which has the words with no header.  Recording starts
+// again each time the machine starts at instruction 0, so the results
+// cover the time since the last start.
 //
 
 #include <ctype.h>
@@ -56,50 +67,59 @@ static void ran(context* ctx, int64_t at, int sp, int64_t t);
 
 typedef struct {
     char name[NAME_ROOM];
-    long asked, found;          // how often it was asked for, and how often found
-    double looked;              // the headers looked at for it, in all;
-    double looked_missed;       // of those, when it was not found,
-    double looked_there;        // when the image's header of it was found,
-    double looked_since;        // and when one made since was
-    long in_image;              // where the image's header of it is among the image's: the first looked at is 1, and none is 0
-    long found_there;           // how often the one found was that header,
-    double made_since;          // and the headers made since the image that were looked at before it, in all
+    long asked, found;          // the number of searches for the name, and the number that found it
+    double looked;              // the total of headers examined in those searches
+    double looked_missed;       // the part of that total from searches that did not find the name
+    double looked_there;        // the part from searches that found the image's header for the name
+    double looked_since;        // the part from searches that found a header created since the image
+    long in_image;              // the position of the name's header among the image's: 1 is the first examined, and 0 means the image has none
+    long found_there;           // the number of searches that found the image's header
+    double made_since;          // the total of headers created since the image that those searches examined before they reached it
 } asking;
 static asking* ASKED;
 static long nasked, asked_room;
 
-typedef struct { uint32_t from, to; } header;   // the bytes one of the image's is: they are kept in the order they are looked at
+typedef struct { uint32_t from, to; } header;   // the bytes one of the image's headers occupies; the list is in the order a search examines them
 static header* HEADERS;
 static long nheaders, headers_room;
 
 static context* MACHINE;
-static long FROM = -1, TO, HEAD = -1, SAME = -1;       // sfind's instructions, where its loop starts, and same-cells?
-static long NOW = -1;           // the name being looked for, or less than nothing
-static long turns;              // how many times round the loop for it
-static uint64_t candidate;      // the cell same-cells? was last given
+static long FROM = -1, TO, HEAD = -1, SAME = -1;       // sfind's first address and the address after its last; the head of its loop; the address of same-cells?
+static long NOW = -1;           // the index of the name being searched for, or -1 when no search is under way
+static long turns;              // the number of turns of the loop in this search
+static uint64_t candidate;      // the address on top of the stack at the last call of same-cells?, which is inside the header being compared
 
-// Several chains.  Were the dictionary several chains, a name's chosen from
-// the first cell of its packed name, a search would go along one of them:
-// of the headers it looked at, it would look at those of the name's chain,
-// each chain being in the order the one chain is in.  The loop has a
-// header's first name cell against the key's once for each header it looks
-// at (COMPARED), and there the two cells are the machine's to give: which
-// cell of a header that is, nothing here knows.  A header is counted for
-// each way of choosing a chain, and each number of chains, that would have
-// it in the name's: two chains, four, and so on to two to the CHAINS_MOST.
+// Several chains.  Suppose the dictionary were several chains, with a
+// name's chain chosen from the first cell of its packed name.  A search
+// would then follow one chain.  Of the headers the real search examined,
+// it would examine only those in the name's chain, and each chain would
+// keep the order the single chain has.  sfind's loop compares a header's
+// first name cell with the key's once for each header it examines (the
+// instruction at COMPARED).  At that instruction the machine has both
+// cells on its stack, so this program does not need to know which cell of
+// a header holds the name.  A header is counted once for each way of
+// choosing a chain, and each number of chains, that would put it in the
+// name's chain.  The numbers of chains are 2, 4, and so on up to
+// 1 << CHAINS_MOST.
 //
-// A packed name is codes of five bits, the first in the lowest bits of its
-// first cell (nuc.fs).  A chain is chosen by that cell's low bits, which of
-// up to 32 chains is by the first code alone; by its first two codes, one
-// xor the other; by its first three; or by the top bits of the cell
-// multiplied by a number that mixes all of it into them.
+// A packed name is a sequence of 5-bit codes, with the first code in the
+// lowest bits of its first cell (nuc.fs).  The four ways of choosing a
+// chain are:
+//   - the low bits of that cell, which for up to 32 chains is the first
+//     code alone
+//   - the first two codes, xored together
+//   - the first three codes, xored together
+//   - the top bits of the cell after it is multiplied by a constant that
+//     mixes all of its bits into them
 #define CHAINS_MOST 6
 static const char* const CHOSEN[] = { "its low bits", "two codes", "three codes", "multiplied" };
 #define WAYS (int)(sizeof(CHOSEN) / sizeof(CHOSEN[0]))
 static double WOULD[sizeof(CHOSEN) / sizeof(CHOSEN[0])][CHAINS_MOST + 1];
-static double compared;         // how often the loop had a header's first name cell against the key's
-static long COMPARED = -1;      // the instruction that does
+static double compared;         // the number of times the loop compared a header's first name cell with the key's
+static long COMPARED = -1;      // the address of the instruction that compares them, or -1 if it was not found
 
+// Returns the chain a name is in.  `first` is the first cell of its packed
+// name, `way` is the way of choosing, and there are 1 << bits chains.
 static uint64_t chain_of(int way, uint64_t first, int bits) {
     const uint64_t most = ((uint64_t)1 << bits) - 1;
     switch (way) {
@@ -113,6 +133,8 @@ static uint64_t chain_of(int way, uint64_t first, int bits) {
     }
 }
 
+// Counts one compared header for every way of choosing and every number
+// of chains that would put the header in the key's chain.
 static void chained(uint64_t first, uint64_t key) {
     compared++;
     for(int way=0; way < WAYS; way++) {
@@ -122,6 +144,8 @@ static void chained(uint64_t first, uint64_t key) {
     }
 }
 
+// Returns the index of the record for a name, adding one if the name is
+// new.
 static long asking_of(const char* name) {
     for(long n=0; n < nasked; n++) if (!strcmp(ASKED[n].name, name)) return(n);
     ONE_MORE(ASKED, nasked, asked_room);
@@ -130,8 +154,9 @@ static long asking_of(const char* name) {
     return(nasked++);
 }
 
-// The machine starts: so does the watch.  The words and the headers are the
-// image's, which is what is in memory then.
+// Starts recording.  It is called when the machine starts.  It finds
+// sfind and reads the image's headers from the machine's memory, which
+// holds the image unchanged at that time.
 static void watch(context* ctx) {
     MACHINE = ctx;
     const uint8_t* image = (const uint8_t*)ctx->memory;
@@ -147,15 +172,16 @@ static void watch(context* ctx) {
     for(int idx=0; idx < n; idx++) if (words[idx].at == FROM && words[idx].size) TO = FROM + words[idx].size;
     free(words);
     if (FROM < 0) return;
-    // its loop starts where its last jump back goes
+    // The head of sfind's loop is the target of its last backward jump.
     for(long at=FROM; at < TO; at++) {
         instruction ins = *(instruction*)&ctx->memory[at];
         if (ins.lit.lit_f || ins.jmp.op_type != OP_TYPE_JMP) continue;
         long to = (long)branch(at + 1, ins.jmp.target);
         if (to >= FROM && to < at) HEAD = to;
     }
-    // and the compare is the instruction of it that fetches the cell at the
-    // address on the stack and says whether it is the cell under that address
+    // The compare is the instruction in the loop that fetches the cell at
+    // the address on top of the stack and tests whether it equals the cell
+    // under that address.
     for(long at=HEAD; HEAD >= 0 && at < TO && COMPARED < 0; at++) {
         instruction ins = *(instruction*)&ctx->memory[at];
         if (ins.lit.lit_f || ins.alu.op_type != OP_TYPE_ALU) continue;
@@ -169,22 +195,26 @@ static void watch(context* ctx) {
         HEADERS[nheaders++].to = header_end(image, len, head);
         head = read_header(image, len, head, &xt, name);
         long of = asking_of(name);
-        if (!ASKED[of].in_image) ASKED[of].in_image = nheaders;        // the first of that name, which is the one found
+        if (!ASKED[of].in_image) ASKED[of].in_image = nheaders;        // keep the first header with that name, which is the one a search finds
     }
 }
 
-// Where the header of the image's that a cell is in is among them, the
-// first looked at being 1; or nothing, if it is in none of them.
+// Returns the position, among the image's headers, of the header a cell
+// belongs to, counting the first header examined as 1.  Returns 0 if the
+// cell is in none of them.
 static long header_holding(uint64_t cell) {
     uint64_t byte = cell * CELL_BYTES;
     for(long idx=0; idx < nheaders; idx++) if (byte >= HEADERS[idx].from && byte < HEADERS[idx].to) return(idx + 1);
     return(0);
 }
 
+// vm.c calls this before it runs each instruction.  `at` is the
+// instruction's address, `sp` is the data stack's pointer and `t` is the
+// top of the data stack.
 static void ran(context* ctx, int64_t at, int sp, int64_t t) {
     if (at == 0 || !MACHINE) watch(ctx);
     if (FROM < 0 || HEAD < 0) return;
-    if (at == FROM && sp >= 2) {                        // ( c-addr u ): the name, which has one case
+    if (at == FROM && sp >= 2) {                        // ( c-addr u ): the name, which is lowered because a name has one case
         uint64_t from = ucell(ctx->DSTACK[sp - 2]), count = ucell(t);
         char name[NAME_ROOM];
         size_t len = 0;
@@ -200,14 +230,15 @@ static void ran(context* ctx, int64_t at, int sp, int64_t t) {
     }
     if (NOW < 0 || at < FROM || at >= TO) return;
     if (at == HEAD) turns++;
-    if (at == COMPARED && sp >= 2) {                    // ( key name ): the header's first name cell is at name
+    if (at == COMPARED && sp >= 2) {                    // ( key name ): `name` is the address of the header's first name cell
         chained(ucell(cell_from(cell_at(ctx, t))), ucell(ctx->DSTACK[sp - 2]));
     }
     instruction ins = *(instruction*)&ctx->memory[at];
     if (!ins.lit.lit_f && ins.jmp.op_type == OP_TYPE_CALL && (long)branch(at + 1, ins.jmp.target) == SAME) candidate = ucell(t);
     if (ins.lit.lit_f || ins.alu.op_type != OP_TYPE_ALU || !ins.alu.r_eip) return;
 
-    // It returns: with the name's header, or at its end with none.
+    // sfind is returning.  A return from its last instruction means it
+    // found no header, and any other return means it found one.
     asking* a = &ASKED[NOW];
     int found = at != TO - 1;
     long looked = found ? turns : turns - 1, which = found ? header_holding(candidate) : 0;
@@ -240,6 +271,7 @@ static int by_found_there(const void* a, const void* b) {
     return(x->in_image < y->in_image ? -1 : x->in_image > y->in_image);
 }
 
+// Writes the results to the file FINDS names.
 void finds_said(void) {
     const char* path = getenv("FINDS");
     if (!path) return;
@@ -263,9 +295,11 @@ void finds_said(void) {
         found_there += a->found_there, made_since += a->made_since;
     }
 
-    // Were the image's headers in the order of how often each is found: the
-    // one found most is 1.  A name found there is then found past the
-    // headers made since, as it was, and past those before it in that order.
+    // Compute what the searches would examine if the image's headers were
+    // ordered by how often each is found, with the one found most often
+    // first.  A search that finds one of them would still pass the headers
+    // created since the image, as it did, and then the image's headers
+    // that come before it in the new order.
     asking** order = room_for(nasked + 1, sizeof(asking*));
     long ordered = 0;
     for(long n=0; n < nasked; n++) if (ASKED[n].found_there) order[ordered++] = &ASKED[n];
@@ -273,7 +307,7 @@ void finds_said(void) {
     double in_order = 0;
     for(long n=0; n < ordered; n++) in_order += (double)(n + 1) * order[n]->found_there;
     free(order);
-    const double of_image = there - made_since;        // of the image's own headers, looked at when one of them was found
+    const double of_image = there - made_since;        // the image's own headers examined by the searches that found one of them
     const double all = looked ? looked : 1;
 
     fprintf(out, "the dictionary, as it was asked for while the machine ran (sfind): %.0f times, and %.0f found\n", asked, found);
@@ -288,8 +322,10 @@ void finds_said(void) {
                  "  would be %.0f where they are %.0f, and all of them %.0f: %.1f%% of what they are\n\n",
             in_order, of_image, looked - of_image + in_order, 100 * (looked - of_image + in_order) / all);
 
-    // Several chains (chained, above).  What was counted there is of every
-    // header looked at, or it is of something else and is not said.
+    // Several chains (chained(), above).  The counts are reported only if
+    // the compare ran once for every header examined.  If the two numbers
+    // differ, the instruction that was found is not that compare, and the
+    // counts would describe something else.
     if (COMPARED < 0 || compared != looked) {
         fprintf(out, "  several chains: the loop had a header's first name cell against the key's %.0f times, where %.0f\n"
                      "  headers were looked at, so nothing is said of them\n\n", compared, looked);
@@ -309,8 +345,9 @@ void finds_said(void) {
         fprintf(out, "\n");
     }
 
-    // The names, by what was looked at for each: those that are a five
-    // hundredth of all of it or more a line each, and the rest together.
+    // The names, ordered by the headers examined for each.  A name with at
+    // least one five-hundredth of all the headers examined has a line of
+    // its own, and the rest are totalled on one line.
     qsort(ASKED, nasked, sizeof(asking), by_looked);
     fprintf(out, "name                             asked    found   looked at     each  of all  in the image\n");
     double rest_asked = 0, rest_found = 0, rest_looked = 0;

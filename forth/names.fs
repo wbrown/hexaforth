@@ -1,8 +1,7 @@
 \ names.fs - names that source uses and the kernel has not
 
-\ Source is written for cross.fs, and the nucleus compiles it
-\ too.  A header here has the name source uses, on a word
-\ named otherwise.
+\ A header here has the name source uses, on a word named
+\ otherwise.
 
 \ the kernel's evaluate, align, , and c, by cross.fs's names
 header tevaluate : cw-tevaluate ( c-addr u -- ) tevaluate ;

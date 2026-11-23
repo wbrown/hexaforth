@@ -51,14 +51,16 @@ static char* RSTACK_REPR[] = {
         "r+0", "r+1", "r-1", "r-2"
 };
 
-// === NAME_CODES: the characters of a name in a dictionary header that are
-// not letters.  A name is five bits a character, as many to a cell as a cell
-// holds, the first the lowest, and the top bit of its last cell is set.
-// Codes 1 to 26 are the letters.  These are the rest, in three lots: those
-// with a code of their own, and those said by a code that says which lot
-// and then which of it, counted from 1.  cross.fs packs names with these
-// (they are written into basewords.fs), and `decode_name` reads one;
-// `read_header` reads the header it is in.
+// === NAME_CODES: the characters of a dictionary name that are not
+// letters.  A name is packed at five bits per character, as many
+// characters per cell as fit, first character in the lowest bits, and the
+// top bit of the name's last cell is set.  Codes 1 to 26 are the letters.
+// The strings below give the other characters, in three groups.  Each
+// character of the first group has its own code.  A character of the
+// second or third group takes two codes: one that selects the group, then
+// its position in the group, counting from 1.  cross.fs packs names with
+// these (they are written into basewords.fs).  `decode_name` unpacks a
+// name, and `read_header` reads the header a name is in.
 static char* NAME_CODES_REPR[] = {
         "-!?",                                  // codes 27, 28 and 29
         "0123456789><@'(),.+*/=\"#:;[]$%&",     // after code 30
@@ -178,23 +180,25 @@ typedef struct {
 //        || imm+   (0x4001)   => 0x4001
 //        || imm    (0x8000)   => 0xc001    (final 16-bit instruction written out)
 //
-// A name with a space in it is a phrase, and not a word: `dup >r` is what
-// is written, two words, and the entry says which one instruction the two
-// are.  Nobody types it as one name, and there is no word of it: the
-// compilers make the instruction of the phrase (cross.fs's peephole, and
-// the nucleus's), and the entry is where a trace, a test or a reader looks
-// the instruction up by what is written for it.  A definition here that
-// says the words of a phrase one after another has the phrase's
-// instruction (`-rot` is `swap >r swap r>`, which is two).
+// A name with a space in it is a phrase, not a word.  `dup >r` is written
+// in source as two words, and its entry records the one instruction those
+// two words compile to.  No word has the phrase as its name, and nobody
+// types it as one name.  The compilers make the instruction from the
+// phrase (cross.fs's peephole, and the nucleus's).  The entry lets a
+// trace, a test or a reader find the instruction by the words written for
+// it.  A definition in this table that lists a phrase's words in order
+// gets the phrase's instruction (`-rot` is `swap >r swap r>`, which is two
+// instructions).
 //
-// Every name is held to the machine when an image is built (util/joins.c):
-// the instruction it is given is to be the one that stands for all that do
-// the same, and a phrase's is to do what its words do.
+// util/joins.c checks every name against the machine when an image is
+// built.  A name's instruction must be the representative of all the
+// instructions that do the same thing, and a phrase's instruction must do
+// what its words do.
 //
-// `true` and `false` are the cell under the top compared with itself, and
-// told apart from itself: the flag that says it is the same, and nothing,
-// whatever the cell is.  A literal holds what is not negative, so `true`
-// is the one instruction that pushes -1.
+// `true` compares the cell under the top with itself, and `false` xors it
+// with itself.  The results are -1 and 0 whatever the cell holds.  A
+// literal cannot be negative, so `true` is the one instruction that pushes
+// -1.
 
 
 static forth_define FORTH_OPS[] = {
@@ -318,8 +322,9 @@ uint8_t lookup_said(word_node* nodes, char* const* words, int count, instruction
 const char* lookup_opcode(word_node nodes[], instruction ins);
 char* instruction_to_str(instruction ins);
 bool init_opcodes(word_node opcodes[]);
-// A name is read as far as NAME_MOST characters.  What it is read into has
-// room for those, for what the cell they end in may add, and for its end.
+// A name is read up to NAME_MOST characters.  The buffer it is read into
+// needs NAME_ROOM bytes: room for those characters, for the extra
+// characters the last cell may hold, and for the terminating zero.
 #define NAME_MOST 128
 #define NAME_ROOM (NAME_MOST + CELL_MOST + 1)
 

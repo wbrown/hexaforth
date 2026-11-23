@@ -4,8 +4,7 @@
 \ cells hold symbols: where each value came from.  The one
 \ instruction that would leave the same is built from what is
 \ left (jleft) and stepped too: it is the answer only if it
-\ leaves the same (jcand).  The target `pairs` checks every
-\ answer against vm_step.h.
+\ leaves the same (jcand).
 
 meta
 : low-bit ( mask -- n )
@@ -24,6 +23,7 @@ meta 0 T->N,IN-> 0 io[IN] low-bit rshift target
     constant OP-UNDER
 meta 0 ~IN 0 io[IN] low-bit rshift target constant OP-NOT
 meta 0 IN==N 0 io[IN] low-bit rshift target constant OP-SAME
+meta 0 IN^N 0 io[IN] low-bit rshift target constant OP-XOR
 meta 0 IN>>T 0 io[IN] low-bit rshift target constant OP-SHIFT
 meta 0 [IN] 0 io[IN] low-bit rshift target constant OP-LOAD
 meta 0 io[IN] 0 io[IN] low-bit rshift target constant OP-IO
@@ -103,9 +103,18 @@ unhigh
 : jeither? ( op -- f )
     dup OP-SAME = swap d# 3 - d# 5 u< or ;
 
+: jself ( op -- sym | 0 )
+    \ the symbol for x op x when every x gives the same, else 0
+    dup OP-SAME = if d# 0 swap jmade exit then
+    dup OP-XOR =  swap OP-SAME - 1- d# 2 u<  or
+    if d# 0 OP-XOR jmade exit then
+    d# 0 ;
+
 \ an operation of IN and the cell under T, either way round
 : jof-two ( a n op -- sym )
-    >r  dup N-WAS = if drop jsrc r> jmade exit then
+    >r
+    2dup = if r@ jself ?dup if nip nip rdrop exit then then
+    dup N-WAS = if drop jsrc r> jmade exit then
     over N-WAS = r@ jeither? and if nip jsrc r> jmade exit then
     2drop rdrop jbad ;
 

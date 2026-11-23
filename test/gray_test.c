@@ -1,29 +1,35 @@
 //
 // gray_test IMAGE.hex [SEED]
 //
-// A picture kept as gray and drawn through a mask (forth/gray.fs), compared
-// with the same done here a pixel at a time.
+// Tests storing a picture as gray and drawing it through a mask
+// (forth/gray.fs), by comparison with the same done here one pixel at a
+// time.
 //
-// It is a contrastive test: the expected bitmap comes from gray.h, written
-// from gray.fs's description independently of the machine's code, and
-// nothing is built from it.  The machine keeps levels in bit planes and
-// draws a cell at a time; gray.h keeps a level per sample and draws a pixel
-// at a time.  The two must make the same bitmap, every cell.
+// It is a contrastive test.  The expected bitmap comes from gray.h, which
+// was written from the description in gray.fs independently of the
+// machine's code, and nothing is built from it.  The machine keeps levels
+// in bit planes and draws a cell at a time.  gray.h keeps one level per
+// sample and draws a pixel at a time.  The two must produce the same
+// bitmap, in every cell.
 //
-// Each picture's bytes are random, the same for a given seed, and are put
-// in the memory the machine is about to allocate (image-is, as dither_test
-// does).  It is kept at one sample per pixel, per 2 by 2 and per 4 by 4,
-// with one sample per pixel and with three, and drawn through Bayer's mask
-// and through 32 by 32 and 64 by 64 blue noise.  The masks are put in the
-// machine's memory in the disk's layout (mask_planes, util/bluenoise.h)
-// and loaded from there (mask-from); the expected bitmap uses the same
-// thresholds before that layout.  A picture is either whole cells wide,
-// which the machine reads a cell at a time, or a few pixels wider, which it
-// reads a pixel at a time; and a few rows taller, so leftover rows are
-// ignored.  Each is drawn whole, at the size it was kept for.  Kept at 2 by
-// 2, 4 by 4 and 8 by 8, it is also drawn as the viewer's menu draws it
-// (gray-draw-start): at half that sample size, the part starting a cell in
-// and three rows down, through a mask made darker or lighter.
+// Each picture's bytes are random, the same for a given seed, and are
+// copied into the memory the machine is about to allocate (image-is, as
+// dither_test does).  A picture is stored with one sample for each pixel,
+// for each 2 by 2 pixels and for each 4 by 4 pixels, from sources with one
+// sample per pixel and with three, and is drawn through Bayer's mask and
+// through 32 by 32 and 64 by 64 blue noise.  The masks are copied into the
+// machine's memory in the disk's layout (mask_planes(), util/bluenoise.h)
+// and loaded from there (mask-from).  The expected bitmap uses the same
+// thresholds before they are put in that layout.
+//
+// A picture is either a whole number of cells wide, which the machine
+// reads a cell at a time, or a few pixels wider, which it reads a pixel at
+// a time.  It is also one row taller than a whole number of samples, to
+// check that a leftover row is ignored.  Each picture is drawn whole, at the
+// size it was stored for.  A picture stored at 2 by 2, 4 by 4 and 8 by 8
+// is also drawn the way the viewer's menu draws it (gray-draw-start): at
+// half that sample size, starting one cell in and three rows down, through
+// a mask made darker or lighter.
 //
 // It prints how many pictures and bitmap cells it compared, and fails if
 // any differ or if it compared nothing.
@@ -51,13 +57,15 @@ static uint8_t chance(void) {
     return(seed >> 32);
 }
 
-// How it is drawn: a sample as 1 << dsh pixels a side; the bitmap is the
-// part of the picture as drawn from pixel x0 (a cell boundary) and row y0,
-// `across` cells by `down` rows; br is added to every threshold.
+// How a picture is drawn.  A sample is drawn as a square of 1 << dsh
+// pixels a side.  The bitmap is the part of the drawn picture that starts
+// at pixel x0 (a cell boundary) and row y0, and is `across` cells by
+// `down` rows.  br is added to every threshold.
 typedef struct { int dsh, x0, y0, across, down, br; } drawn;
 
-// The bitmap the machine should draw, made a pixel at a time.  Returns its
-// size in cells, and sets *stride to cells per row.
+// Computes the bitmap the machine should draw, one pixel at a time.
+// Returns its size in cells, and sets `*stride` to the number of cells in
+// a row.
 static int expected(const uint8_t* bytes, int w, int h, int samples, int sh, int bits,
                     const uint8_t* mask, int n, const drawn* d, uint64_t** cells, int* stride) {
     int fw, fh, gw, gh;
@@ -77,14 +85,15 @@ static int pictures, compared, failed;
 // disk's layout (mask_planes, util/bluenoise.h).
 typedef struct { const char* name; int n; const uint8_t* bytes; const uint8_t* planes; } a_mask;
 
-#define BITS_KEPT 4             // bits per level, as the machine keeps them
+#define BITS_KEPT 4             // bits per level, as the machine stores them
 
-// Draw the picture whole, each sample as many pixels as it was kept for;
-// or, with `part`, as the viewer draws it (forth/view.fs): part of it,
-// each sample half as many pixels, from a cell in and three rows down,
-// darker or lighter.  A picture row is whole cells (`over` false) or has
-// some pixels over: whole cells are read a cell at a time, the others a
-// pixel at a time.
+// Runs one picture.  Without `part` the picture is drawn whole, each
+// sample at the size it was stored for.  With `part` it is drawn the way
+// the viewer draws it (forth/view.fs): a part of it, each sample at half
+// that size, starting one cell in and three rows down, through a mask made
+// darker or lighter.  A picture row is a whole number of cells (`over`
+// false) or has some pixels left over.  The machine reads whole cells a
+// cell at a time, and the other rows a pixel at a time.
 static void run(int samples, int sh, const a_mask* m, bool part, bool over) {
     const int bits = BITS_KEPT;
     int w = (part ? 4 : 2) * BITS + (over ? (1 << sh) - 1 : 0), h = (part ? 9 : 5) * (1 << sh) + 1;
@@ -94,7 +103,7 @@ static void run(int samples, int sh, const a_mask* m, bool part, bool over) {
     size_t len = (size_t)w * h * samples, cells = (len + CELL_BYTES - 1) / CELL_BYTES;
     uint8_t* bytes = malloc(len);
     for(size_t idx=0; idx < len; idx++) bytes[idx] = chance();
-    size_t mask_len = (size_t)m->n * DISK_MASK_PLANES * DISK_MASK_WIDTH / 8;   // after the picture, in cells
+    size_t mask_len = (size_t)m->n * DISK_MASK_PLANES * DISK_MASK_WIDTH / 8;   // the mask goes after the picture, in whole cells
     size_t mask_cells = mask_len / CELL_BYTES;
 
     start();
@@ -171,8 +180,9 @@ int main(int argc, char *argv[]) {
     }
     room = left(0);
 
-    // The masks: Bayer's from gray.h, and Bayer's as the disk's maker
-    // (util/bluenoise.h) makes it; and blue noise.
+    // The masks.  Bayer's thresholds come from gray.h, and its disk layout
+    // from the Bayer mask util/bluenoise.h makes, which mkdisk uses.  The
+    // other two are blue noise.
     uint8_t bayer8[64], bayer_disk[64];
     for(int y=0; y < 8; y++) for(int x=0; x < 8; x++) bayer8[y * 8 + x] = gray_bayer(x, y);
     bayer_bytes(bayer_disk);

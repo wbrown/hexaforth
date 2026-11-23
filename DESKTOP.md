@@ -21,15 +21,16 @@ typed at QEMU's serial console also goes to the window in front.
 
     cmake --build build/cmake --target demo-boot
 
-is the same machine with nothing in its memory but the kernel's ROM. It
-reads the system from its first disk, compiles the applications and the
-desktop from their source there, saying on the screen each file as it
-reads it, and then runs the desktop.
+starts the same machine with only the kernel's ROM in memory. It reads the
+system from its first disk and compiles the applications and the desktop
+from their source there. It prints each file's label on the screen as it
+reads the file, and then runs the desktop.
 
-A disk is no more than 1,024 blocks, what an 8-inch floppy holds. The
-first is the one the machine starts from or is given: source, the names,
-HexaPaint's canvas, and what the viewer keeps. The second has the
-pictures.
+A disk has at most 1,024 blocks, the capacity of an 8-inch floppy. The
+first disk is the one the machine starts from, or the one it is given
+when its image is already in memory. It holds source, the names,
+HexaPaint's canvas, and the viewer's bitmap and gray. The second disk
+holds the pictures.
 
 A machine with other devices brings them up itself and then runs `windows`.
 A machine with only a console uses the console's keys.
@@ -66,25 +67,26 @@ The windows:
 
 - **Forth**: a prompt. It runs as its own task, so its stack is kept from
   one line to the next and the desktop keeps going while a line runs.
-  What has scrolled off is kept as long as there is room for it: PgUp and
-  PgDn look back at it a window less a line at a time, and anything
-  printed comes back to the end. `[PGUP]` at the right of the first line
-  says more is above, and `[PGDN]` at the right of the last that more is
-  below
+  Text that has scrolled off is kept while there is room for it. PgUp and
+  PgDn scroll through it by one line less than a window, and anything
+  printed returns the view to the end. `[PGUP]` at the right of the first
+  line means there is more above, and `[PGDN]` at the right of the last
+  line means there is more below
 - **Editor**: one block of the disk, 16 lines of 64 characters. Typing
   overwrites, the cursor keys move, PgUp and PgDn change block, `^S` writes
   the block, and `^L` writes it and loads it as Forth
-- **Mandrill**: a picture read from a TIFF and dithered. The TIFF is on
-  the pictures' disk, found by its label, `mandrill.tiff`, on whichever
-  disk has it. A task does it a row at a time, and the picture appears
-  down the window. The bitmap is written to the first disk a block at a
-  time as its rows are made,
-  and is never whole in memory; the window is repainted from the disk,
-  reading only the blocks it needs. The Picture menu in the bar shows it
-  in other ways: kept as gray and painted through Bayer's mask or blue
-  noise, finer or coarser, darker or lighter, straight from the gray to
-  the window; or dithered, which is the bitmap on the disk again. The
-  gray is on the disk too, made and read a block at a time
+- **Mandrill**: a picture read from a TIFF and dithered. The viewer finds
+  the TIFF by its label, `mandrill.tiff`, on whichever disk has it, which
+  is the pictures' disk. A task dithers it a row at a time, and the
+  picture appears down the window. The bitmap is written to the first
+  disk a block at a time as its rows are made, so it is never whole in
+  memory. The window is repainted from the disk, reading only the blocks
+  it needs. The Picture menu in the bar shows the picture in other ways.
+  It can be kept as gray and painted straight from the gray to the
+  window, through Bayer's mask or blue noise, finer or coarser, darker or
+  lighter. Or it can be dithered, which shows the bitmap on the disk
+  again. The gray is on the disk too, and is made and read a block at a
+  time
 - **Calculator**: digits make a number; Enter or the space bar pushes it, or
   duplicates the top if no number is being typed; `+ - * /` work on the top
   two; `n` negates, `x` swaps, `d` drops, Backspace removes a digit. The
@@ -192,40 +194,43 @@ they are.
   once more when the button goes up, with `held` false. HexaPaint draws
   this way
 - To be told whenever the pointer moves, a program stores a word of
-  `( x y win -- )` in `'moved`. It is run with where the pointer is in
-  the window in front, as a click says it, and that window, which may
-  not be the program's own. The Words window shows its box this way
+  `( x y win -- )` in `'moved`. The word is run with the pointer's
+  position in the front window, in the coordinates a click uses, and with
+  that window, which may belong to another program. The Words window
+  shows its box this way
 - To draw over its window straight onto the screen, as the pointer is
-  drawn, a program stores a word of `( on? -- )` in `'overlay`. It is
-  run with false before anything is painted, to take off what it drew,
-  and with true after, to put it back. To change what it shows, it calls
-  `overlays-off`, changes it, and calls `overlays-on`. It draws in its
-  window with `win-port ( win -- )`, which shows only where the window
-  can be seen, and goes back with `screen-port @ port!`.
-  `keep-bits ( bitmap x y w h -- )` keeps the screen's cells under a
-  rectangle and `put-bits` puts them back. The Words window's box is
-  drawn this way, so moving it does not paint the window again
+  drawn, a program stores a word of `( on? -- )` in `'overlay`. The word
+  is run with false before anything is painted, to remove what it drew,
+  and with true afterwards, to draw it again. To change what the overlay
+  shows, the program calls `overlays-off`, makes the change, and calls
+  `overlays-on`. The program draws in its window with
+  `win-port ( win -- )`, which clips to the visible part of the window,
+  and returns to the screen's port with `screen-port @ port!`.
+  `keep-bits ( bitmap x y w h -- )` saves the screen's cells under a
+  rectangle and `put-bits` restores them. The Words window's box is
+  drawn this way, so moving the box does not repaint the window
 - To be told when its window comes to the front, a program stores a word of
-  `( win -- )` in the window's `win-front ( win -- a )`; to be told when
-  another window comes in front of it, one in `win-back ( win -- a )`. Each
-  is 0 until a word is stored there. HexaPaint reads its canvas from the
-  disk when it comes to the front, and saves it and gives back its memory
-  when it goes behind, this way
+  `( win -- )` in the window's `win-front ( win -- a )`. To be told when
+  another window comes in front of it, it stores one in
+  `win-back ( win -- a )`. Each is 0 until a word is stored there.
+  HexaPaint uses both: it reads its canvas from the disk when it comes to
+  the front, and saves the canvas and frees its memory when it goes
+  behind
 - `win-data ( win -- a )` is a cell of the window's record for the
   program's own use. The picture viewer keeps its record there
 
 ### Long-running work
 
 The event loop runs each of a window's words to completion, so a slow one
-holds up the whole desktop. Such work is given to a task (`spawn`), which
-does a piece of it and then calls `pause`. `view.fs` reads and dithers its
+holds up the whole desktop. Give such work to a task (`spawn`), which does
+a piece of it and then calls `pause`. `view.fs` reads and dithers its
 picture this way.
 
 ### Memory
 
 `halloc ( u -- a )` allocates u bytes, in whole cells, and returns the
-address of a cell. `hgive ( a cells -- )` gives it back. `hreuse` is
-`halloc` that reuses memory that was given back, if there is enough of it.
+address of a cell. `hgive ( a cells -- )` frees it. `hreuse` is a `halloc`
+that reuses freed memory when enough of it is free.
 
 ### An example
 
@@ -247,12 +252,12 @@ address of a cell. `hgive ( a cells -- )` gives it back. `hreuse` is
     abcq
 
 `34 parse` takes the text up to the next `"`, whose character code is 34,
-and `s,` lays it down with its length in front: that is the title. Numbers
+and `s,` compiles it with its length in front: that is the title. Numbers
 typed at the prompt are decimal.
 
 It is the only window, so it doesn't need `windows`: `display-init` makes
-the screen's port and switches to it, and `no-windows` says there are no
-windows yet. `event-loop` marks the whole screen out of date, and then on
+the screen's port and switches to it, and `no-windows` records that there
+are no windows yet. `event-loop` marks the whole screen out of date, and then on
 each pass takes a key if one is waiting and repaints what is out of date.
 The reference VM always reports a key waiting, so there the first key is
 taken before the first paint.
@@ -266,29 +271,29 @@ file typed at it has to halt it.
 
     cmake --build build/cmake --target hello
 
-types that file at the reference VM, prints what it said (which ends with
-`3 1`), and leaves a picture of the display in `build/hello/hello.png`. To
-do the same by hand with your own file, once `hello` or `seen` has built the
-tools, with `/tmp/mine` standing for a directory of your own:
+types that file at the reference VM, prints the VM's output (which ends
+with `3 1`), and writes a picture of the display to
+`build/hello/hello.png`. To do the same by hand with your own file, once
+`hello` or `seen` has built the tools, with `/tmp/mine` standing for a
+directory of your own:
 
     build/cmake/hexaforth build/64/nuc.hex build/64/disk.img /tmp/mine/memory.out < /tmp/mine/mine.fs
     build/cmake/screen build/64/nuc.hex /tmp/mine/memory.out /tmp/mine/mine.pbm
     build/cmake/png /tmp/mine/mine.pbm /tmp/mine/mine.png
 
-The VM is given the image, a disk, and where to write its memory when it
-stops, and `screen` the image as well, which says what machine the memory
-is of. The VM opens the disk for writing as well, so a program that writes
-blocks should be given a copy of `disk.img`.
+The VM's arguments are the image, a disk, and the file to write its memory
+to when it stops. `screen` takes the image too, which tells it which
+machine the memory belongs to. The VM opens the disk for writing, so give
+a program that writes blocks a copy of `disk.img`.
 
 ### A machine's devices
 
-The desktop needs three things from a machine, each a word that a driver
-stores in a cell. The two of the disk are stored by the kernel when the
-machine starts, from the driver of the disk controller it finds (`MODEL.md`,
-Other devices); `desktop`, in `desk.fs`, stores QEMU's itself, until the
-kernel has a driver for it. `'poll` is stored by the driver of the keyboard
-and the pointer: `desktop` does it for QEMU's, and a machine with other
-devices does the same and then runs `windows`.
+The desktop needs three things from a machine. Each is a word that a
+driver stores in a cell. The kernel stores the two disk words when the
+machine starts, from the driver of the disk controller it finds
+(`MODEL.md`, Other devices). The driver of the keyboard and the pointer
+stores `'poll`. `desktop`, in `desk.fs`, does that for QEMU's devices, and
+a machine with other devices does the same and then runs `windows`.
 
     'blk-read   ( buf blk# -- )    read block blk#, 1,024 bytes, into the cell buf
     'blk-write  ( buf blk# -- )    write it from there
@@ -313,13 +318,14 @@ the form Linux input devices use:
 
 ### Adding a program to the system
 
-- The program is a file in `forth/`, and `system.fs` includes it.
-  `system.fs` says at its top which code page each file goes on, for a
-  64K-cell machine and for a larger one. The target `examine-16` shows how
-  much of each page is left
+- The program is a file in `forth/`, and `apps.fs` includes it. The line
+  that includes it also names the code page the file goes on: `small-page`
+  for a 64K-cell machine and `big-page` for a larger one. The target
+  `examine-16` shows how much room each page has left
 - A word that `desk.fs` names needs a header (`header name : name`). A
-  word with none is the file's own: where the machine compiles the file
-  from its disk, its name is gone when the file has been read
+  word without a header belongs to its file only. Where the machine
+  compiles the file from its disk, the word's name leaves the dictionary
+  when the file has been read
 - `windows`, in `desk.fs`, makes the window. Where it goes is a line in each
   of the two tables there: `big-desk` for a 768 by 576 screen and
   `small-desk` for a smaller one

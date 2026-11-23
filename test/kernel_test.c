@@ -1,32 +1,32 @@
 //
 // kernel_test IMAGE.hex IMAGE.tables [typed | to NAME...]
 //
-// The kernel has nothing in it that nothing comes to.
+// Checks that the kernel contains no word that nothing reaches.
 //
-// A word of the kernel that has no header cannot be typed: it is there for
-// what calls it, and for nothing else.  Nor can one whose header a newer
-// header of the same name hides, since a search finds the newest: the
-// kernel's `;` was such a word, join.fs having its own.  What reaches each
-// word is asked of the image (reach.h).  If nothing reaches a word that
-// cannot be typed, it is instructions the kernel's ROM carries for nothing:
-// this fails, and says which.  So a word is taken out when the last thing
-// that called it is.
+// A kernel word with no header cannot be typed, so it exists only for the
+// code that calls it.  The same is true of a word whose header is shadowed
+// by a newer header of the same name, because a search finds the newest:
+// the kernel's `;` was such a word, since join.fs has its own.  This
+// program finds what reaches each word of the image (reach.h).  If nothing
+// reaches a word that cannot be typed, the kernel's ROM is carrying
+// instructions that are never used.  The test then fails and names the
+// word.  So a word has to be removed when its last caller is.
 //
-// A word with a header that nothing calls is not wrong, since it can be
-// typed: it is what the kernel has for the prompt alone.  Those are
-// counted, and with `typed` they are printed, each with how many
-// instructions it is, for whoever is asking what the kernel could be
-// without (CLAUDE.md, Making the kernel smaller).
+// A word with a header that nothing calls is not an error, because it can
+// be typed: the kernel has it for use at the prompt.  Such words are
+// counted.  With `typed` they are also listed, each with its length in
+// instructions, for anyone looking at what the kernel could do without
+// (CLAUDE.md, Making the kernel smaller).
 //
-// With `to` and the names of words it says instead what comes to each, of
-// the whole image: every call, jump and branch, by the word it is in and
-// its place, and then what else reaches the word.  It is what is asked
-// before a word is made shorter, moved or taken out, and it fails if the
-// image has no word of a name.
+// With `to` and some word names, it prints instead what reaches each of
+// those words from anywhere in the image: every call, jump and branch,
+// with the word it is in and its address, and then the other ways the
+// word is reached.  Use it before a word is made shorter, moved or
+// removed.  It fails if the image has no word with one of the names.
 //
-// The kernel is what is in its ROM: the words that start in the first
-// KROM_BYTES of the image.  It says how many it looked at, and fails if
-// that is none: then it looked at nothing.
+// The kernel is the contents of its ROM: the words that start in the first
+// KROM_BYTES of the image.  It prints how many words it examined, and
+// fails if there were none, because then it checked nothing.
 //
 
 #include "../vm.c"
@@ -34,11 +34,11 @@
 #include "../util/reach.h"
 
 static cut_image IMAGE;
-static reached* HOW;                    // of each of its words
+static reached* HOW;                    // how each of the image's words is reached
 
-// What comes to the words of a name: how many words have the name.  A
-// word may have more names than one (`1+` and `cell+`, nuc.fs), and is
-// found by any of them.
+// Prints what reaches each word that has a given name, and returns how
+// many words have it.  A word can have more than one name (`1+` and
+// `cell+`, nuc.fs), and any of its names selects it.
 static int comes(const char* name) {
     int named = 0;
     for(int said=0; said < IMAGE.n; said++) {

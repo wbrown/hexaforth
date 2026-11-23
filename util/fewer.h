@@ -1,35 +1,35 @@
 //
-// fewer.h - the fewest instructions that leave what is wanted, for the
-// tools that have this in them.  It has in it fuse.h, by which it asks
-// the machine, and kinds.h, which lists the instructions that have a
-// number in them.
+// fewer.h - searches for the fewest instructions that produce a target
+// state, for the tools that include it.  It includes fuse.h, through
+// which it asks the machine, and kinds.h, which lists the instructions
+// that have a number in them.
 //
-// What is wanted is said as fuse.h says what a run leaves: the terms in
-// the cells of the two stacks, memory as a term, and where it fetched
-// from (a `named`).  It may be wanted with the top of the data stack
-// only as far as whether it is nothing, which is all a branch asks of
-// it: then two that leave tops that are nothing from the same states
-// leave what is wanted, whatever the tops are otherwise.
+// The target is given in fuse.h's form for the final state of a run: the
+// terms in the cells of the two stacks, memory as a term, and the
+// addresses fetched from (a `named`).  The target may ask about the top of
+// the data stack only whether it is zero, which is all a conditional
+// branch tests.  In that case a candidate matches if its top is zero from
+// exactly the same starting states, whatever else its top is.
 //
-// The search is of every instruction the step says of, the numbers and
-// the variables that what is wanted has in it.  It does not know what an
-// instruction does: each is stepped (fuse.h, which is vm_step.h on terms)
-// and what the step leaves is looked at.  An instruction is gone on from
-// only if what it made is part of what is wanted, or was there already,
-// or is nothing when the top is to be; and a line of search is given up
-// when what is left to do cannot be done in the instructions left.  It
-// is given up altogether after so many states (`nodes`), and says so.
+// The search tries every instruction the step handles, plus literal and
+// variable instructions for the numbers and variables in the target.  It
+// knows nothing about what an instruction does: it steps each one (fuse.h,
+// which is vm_step.h on terms) and examines the result.  It continues from
+// an instruction only if the value the instruction produced is part of
+// the target, or was already present, or is zero exactly when the top
+// must be.  It abandons a line of search when the remaining work cannot be
+// done in the instructions that are left.  It gives up entirely, and
+// reports that, after examining a set number of states.
 //
-// What is found is found by terms, which say it is so from every state
-// if the step and what fuse.h takes to be so of the arithmetic are right.
-// So it is also run on vm.c, beside what it is to do the work of
-// (agree_on_machine): a thing made otherwise, which nothing here is built
-// from.
+// An answer is found on terms, which hold for every state only if the
+// step and the arithmetic facts fuse.h relies on are right.  So each
+// answer is also run on vm.c beside the code it replaces
+// (agree_on_machine()), which is an independent check.
 //
-// A turn of a loop keeps things from one turn to the next in cells of
-// the stacks.  kept_as says what a turn is to leave if each of those is
-// kept in another cell: the same terms, with the cells they are made of
-// and the cells they are left in renamed.
+// A turn of a loop carries values from one turn to the next in cells of
+// the stacks.  kept_as() gives the target for a turn when each of those
+// values is kept in a different cell: the same terms, with the cells they
+// are computed from and the cells they end in renamed.
 //
 
 #ifndef HEXAFORTH_FEWER_H
@@ -38,55 +38,58 @@
 #include "fuse.h"
 #include "kinds.h"
 
-// How far a search goes is the problem's to say: a line of it is given up
-// when what is left to do cannot be done in the instructions left
-// (at_least), and the stacks are as deep as the step has names for.  How
-// long one may take is said once, in cmake/default-machine.cmake
-// (SEARCH_STATES): the states a search looks at before it is given up, the
-// same for every search.
+// The problem itself bounds how deep a search goes: a line of search is
+// abandoned when the remaining work cannot be done in the instructions
+// that are left (at_least()), and the stacks can be as deep as the step
+// has terms for.  The time limit is set in one place,
+// cmake/default-machine.cmake: SEARCH_STATES is the number of states a
+// search examines before it gives up, and it is the same for every search.
 #ifndef SEARCH_STATES
 #error "fewer.h: the states a search looks at are said in cmake/default-machine.cmake (SEARCH_STATES)"
 #endif
-#define FEW_SEEN_BITS   16              // there is room to begin with for two to this many states come to: it grows
-#define FEW_NEVER       INT_MAX         // how many instructions it takes to do what cannot be done
+#define FEW_SEEN_BITS   16              // the table of visited states starts with 2^16 slots, and grows
+#define FEW_NEVER       INT_MAX         // the cost of something that cannot be done
 
 #include <limits.h>
 
-// ---- the cells of the stacks, by their terms (fuse.h says which term is which cell's)
+// ---- the cells of the stacks, by their terms (fuse.h defines which term belongs to which cell)
 
-#define DEPTH_OF(cell)        (DEEP - 1 - CELL_OF(cell))        // how far a cell is under the top, at the start
-#define CELL_OF_DATA(depth)   DATA_TERM(DEEP - 1 - (depth))     // the term for a cell of the data stack, by how far
-#define CELL_OF_RETURN(depth) RETURN_TERM(DEEP - 1 - (depth))   // under; and of the return stack
+#define DEPTH_OF(cell)        (DEEP - 1 - CELL_OF(cell))        // a cell's depth under the top, at the start
+#define CELL_OF_DATA(depth)   DATA_TERM(DEEP - 1 - (depth))     // the term for the data-stack cell at a depth
+#define CELL_OF_RETURN(depth) RETURN_TERM(DEEP - 1 - (depth))   // the term for the return-stack cell at a depth
 
-typedef uint64_t cell_set;              // some of the cells: a bit a cell's term
+typedef uint64_t cell_set;              // a set of cells: one bit per cell's term
 _Static_assert(CELL_TERMS <= 8 * sizeof(cell_set), "fewer.h: a set of cells has too few bits for the cells there are");
 #define IN_SET(cell)          ((cell_set)1 << (cell))
 
-// The term in a cell of what was left, and the cell given a term.
+// Returns a pointer to the term in a cell of a state, for reading or
+// writing.
 static int* cell_left(named* m, int cell) {
     int idx = CELL_OF(cell);
     if (OF_DATA(cell)) return(idx == m->SP - 1 ? &m->T : &m->DS[idx]);
     return(idx == m->RSP - 1 ? &m->R : &m->RS[idx]);
 }
 
-// ---- the instructions of the ALU, by what they make
+// ---- the ALU instructions, grouped by the value they produce
 
-// Many instructions make the same thing and put it in different places:
-// those that take the same input through the same operation.  One of them
-// that puts it on top and moves neither stack is stepped first, and the
-// rest only if what it made is worth having.  That they make the same
-// thing is asked of the step when they are listed (makes_as): one that
-// does not is by itself, and is always stepped.
-typedef struct { uint16_t probe; int first, n; } family;        // its members are so many of MEMBER, from the first
+// Many instructions produce the same value and put it in different
+// places: those that pass the same input through the same operation.
+// They form a family.  One member that puts the value on top and moves
+// neither stack is the probe.  The search steps the probe first, and
+// steps the other members only if the probe's value is useful.  Whether
+// the members really produce the same value is checked with the step when
+// the families are built (makes_as()).  An instruction that does not is a
+// family of its own, and is always stepped.
+typedef struct { uint16_t probe; int first, n; } family;        // its members are MEMBER[first] to MEMBER[first + n - 1]
 static family* FAMILY;
 static uint16_t* MEMBER;
-static int families, alike;             // how many there are; and how many are of instructions that make the same
-                                        // thing, which are first: the rest are each one instruction by itself
+static int families, alike;             // the number of families; the first `alike` of them are real families,
+                                        // and the rest are single instructions
 
-// Does an instruction make what another puts on top, and nothing else?
-// Both are stepped from the start: the cells of the stacks and what was
-// stored are then to have only what was there at the start, and what the
-// other left on top.
+// Returns 1 if instruction `x` produces the value that `probe` puts on
+// top, and no other new value.  Both are stepped from the starting state.
+// Afterwards the stack cells and the stores of `x` may hold only terms
+// that existed at the start, and the term `probe` left on top.
 static int makes_as(uint16_t x, uint16_t probe) {
     named p, m;
     forget();
@@ -110,16 +113,16 @@ static int makes_as(uint16_t x, uint16_t probe) {
     return(1);
 }
 
-// It is had after kinds.h, and the kinds are listed before this is called.
-// The instructions that do not return are put in order, those of a family
-// together: each is in the family of the first that takes its input
-// through its operation, puts what it makes on top and leaves everything
-// else as it was, if it makes what that one does; and if not it is a
-// family by itself.
+// Builds the families.  kinds.h must be included first, and list_kinds()
+// called before this.  The instructions that do not return are grouped by
+// family.  An instruction joins the family of the first instruction that
+// has its input and its operation, puts the result on top and changes
+// nothing else, provided it produces the same value as that one
+// (makes_as()).  Otherwise it is a family of its own.
 static void fewer_ready(void) {
-    static int probe_of[INPUTS][OPS];                   // by input and operation, where in ALU
-    int* family_at = room_for(alus, sizeof(int));       // the family each instruction is in, or less than nothing
-    int* by_probe = room_for(alus, sizeof(int));        // by where a probe is in ALU, its family
+    static int probe_of[INPUTS][OPS];                   // the ALU index of the probe for each input and operation
+    int* family_at = room_for(alus, sizeof(int));       // the family of each instruction, or -1
+    int* by_probe = room_for(alus, sizeof(int));        // the family of a probe, indexed by the probe's ALU index
     memset(probe_of, -1, sizeof(probe_of));
     free(FAMILY);
     free(MEMBER);
@@ -155,7 +158,7 @@ static void fewer_ready(void) {
         }
         FAMILY[family_at[idx]].n++;
     }
-    for(int f=0, first=0; f < families; f++) {          // where each one's members start; and none are there yet
+    for(int f=0, first=0; f < families; f++) {          // set where each family's members start, and reset the counts
         FAMILY[f].first = first;
         first += FAMILY[f].n;
         FAMILY[f].n = 0;
@@ -169,10 +172,9 @@ static void fewer_ready(void) {
     forget();
 }
 
-// ---- terms: the cells one is made of, and one with its cells renamed
+// ---- terms: the cells a term depends on, and a term with its cells renamed
 
-// The cells of the stacks, as they were at the start, that a term is made
-// of.
+// Returns the set of starting stack cells a term is computed from.
 static cell_set cells_in(int t) {
     const term* is = &KNOWN[t];
     if (is->kind == IN_DATA || is->kind == IN_RETURN) return(t < CELL_TERMS ? IN_SET(t) : 0);
@@ -181,20 +183,21 @@ static cell_set cells_in(int t) {
     return(in);
 }
 
-// Whether a term is nothing, as a term: a flag that says so.  Two terms
-// are nothing from the same states if this is the same for both.
+// Returns the term for the flag "this term is zero".  Two terms are zero
+// from the same states exactly when this returns the same term for both.
 static int nothing(int t) {
     return(t_made(ALU_EQ, t, t_number(0)));
 }
 
+// Returns the term for a flag inverted.
 static int not_flag(int flag) {
     for(int op=0; op < OPS; op++) if (ALU_UNDOES(op)) return(t_made(op, flag, flag));
     return(flag);
 }
 
-// A term with the cells it is made of renamed: `to` is, for each cell's
-// term, the cell's term it is to be.  It is made again of the renamed
-// parts, as the step would have made it.
+// Returns a term with its starting cells renamed.  `to` maps each cell's
+// term to the term of the cell that replaces it.  The term is rebuilt from
+// the renamed parts, as the step would have built it.
 static int renamed(int t, const int* to) {
     const term is = KNOWN[t];
     named at;
@@ -221,11 +224,11 @@ static int renamed(int t, const int* to) {
     }
 }
 
-// ---- a turn of a loop: the cells it keeps things in, and the same turn with them kept elsewhere
+// ---- a turn of a loop: the cells it keeps values in, and the same turn with them kept elsewhere
 
-// How many cells at the top of each stack a turn reads or changes.  The
-// turn left the data stack one deeper, with what the branch asks about
-// on top.
+// Finds how many cells at the top of each stack a turn reads or changes.
+// The turn's final state has the data stack one deeper, with the value the
+// branch tests on top.
 static void cells_kept(const named* turn, int* of_data, int* of_return) {
     named left = *turn;
     cell_set used = cells_in(left.T);
@@ -234,7 +237,7 @@ static void cells_kept(const named* turn, int* of_data, int* of_return) {
     }
     for(int idx=0; idx < left.fetches; idx++) used |= cells_in(left.fetched[idx]);
     for(int cell=0; cell < CELL_TERMS; cell++) {
-        if (DEPTH_OF(cell) < 0) continue;               // above where the turn started
+        if (DEPTH_OF(cell) < 0) continue;               // above the stack top the turn started with
         int is = *cell_left(&left, cell);
         if (is != cell) used |= cells_in(is) | IN_SET(cell);
     }
@@ -245,20 +248,20 @@ static void cells_kept(const named* turn, int* of_data, int* of_return) {
     }
 }
 
-// What a turn is to leave when what it keeps is kept as `to` says: `to`
-// is, for each cell's term, the cell it is kept in, and is the cell itself
-// for those the turn does not keep anything in.  What was in a cell is
-// left in the cell it is renamed to, made of the renamed cells; every
-// other cell is as it was.
+// Builds the target for a turn whose kept values are moved as `to` says.
+// `to` maps each cell's term to the cell its value is kept in, and maps a
+// cell in which the turn keeps no value to itself.  The value that was
+// left in a cell is left in the cell it is renamed to, computed from the
+// renamed cells.  Every other cell is unchanged.
 static void kept_as(const named* turn, const int* to, named* wanted) {
     named left = *turn;
     start(wanted);
     wanted->SP = left.SP;
     wanted->RSP = left.RSP;
-    wanted->DS[wanted->SP - 1] = wanted->T;             // the cell that was on top is under what the branch asks about
+    wanted->DS[wanted->SP - 1] = wanted->T;             // the old top is now under the value the branch tests
     for(int cell=0; cell < CELL_TERMS; cell++) {
         if (to[cell] == cell && *cell_left(&left, cell) == cell) continue;
-        if (DEPTH_OF(cell) < 0) continue;               // above where the turn started
+        if (DEPTH_OF(cell) < 0) continue;               // above the stack top the turn started with
         *cell_left(wanted, to[cell]) = renamed(*cell_left(&left, cell), to);
     }
     wanted->T = renamed(left.T, to);
@@ -268,28 +271,28 @@ static void kept_as(const named* turn, const int* to, named* wanted) {
     for(int idx=0; idx < left.fetches; idx++) wanted->fetched[wanted->fetches++] = renamed(left.fetched[idx], to);
 }
 
-// ---- what is wanted
+// ---- the target
 
 typedef struct {
-    named left;                         // what is to be left
-    int fact;                           // the flag for whether the top is nothing, if that is all that is wanted of
-                                        // the top; or less than nothing
-    int base;                           // the terms there were when this was said: a later one is not part of it
-    unsigned char needed[ROOM];         // the terms it is made of, and the parts of each
-    short stores_to[ROOM];              // for memory as it is after so many of its stores, how many; or less
-    int stores;
-    int final[CELL_TERMS], finals;      // the terms its stacks have, each once
-    cell_set cells;                     // the cells its stacks are made of, and what is asked of the top,
-    cell_set cells_from[ROOM + 1];      // and those its stores are, after so many of them are made
-    int places[FETCHES], n_places;      // where it fetches from
-    uint16_t pushes[ROOM], adds[ROOM];  // the instructions for its numbers: no more than the terms there can be,
-    uint16_t fetches[FETCHES], stores_var[ROOM];        // and for its variables: than its places, and its stores
+    named left;                         // the final state to reach
+    int fact;                           // if only "is the top zero?" matters, the term for that flag; otherwise -1
+    int base;                           // the number of terms when the target was set: later terms are not part of it
+    unsigned char needed[ROOM];         // set for each term the target is built from, and for the parts of each
+    short stores_to[ROOM];              // for a memory term that is the target's memory after k of its stores: k; else -1
+    int stores;                         // the number of stores in the target
+    int final[CELL_TERMS], finals;      // the terms on the target's stacks, each listed once
+    cell_set cells;                     // the starting cells its stacks, and the test of its top, are computed from
+    cell_set cells_from[ROOM + 1];      // the starting cells its remaining stores need, after k of them are done
+    int places[FETCHES], n_places;      // the addresses it fetches from
+    uint16_t pushes[ROOM], adds[ROOM];  // literal instructions for its numbers: at most one per term
+    uint16_t fetches[FETCHES], stores_var[ROOM];        // variable instructions: at most one per fetch address, and per store
     int n_pushes, n_adds, n_fetches, n_stores_var;
-    int nothing_of[ROOM];               // of the terms there were: the flag for whether each is nothing, when asked
+    int nothing_of[ROOM];               // a cache: for each earlier term, the term for "it is zero", once computed
 } wanted;
 
-// Everything a term is made from; and of a run of one operation, what
-// each part of the run makes.
+// Marks as needed every term a term is built from.  For a chain of one
+// associative operation, it also marks the result of every subset of the
+// chain's operands.
 static void parts(wanted* w, int t) {
     if (lost || t >= ROOM || w->needed[t]) return;
     w->needed[t] = 1;
@@ -308,8 +311,8 @@ static void parts(wanted* w, int t) {
     }
 }
 
-// Say what is wanted.  The terms it is made of are there, and are not
-// forgotten while it is looked for.  False if there was no room for them.
+// Sets the target.  The terms it is built from must already exist, and are
+// kept while the search runs.  Returns 0 if the term table overflowed.
 static int want(wanted* w, const named* left, int fact) {
     memset(w, 0, sizeof(wanted));
     w->left = *left;
@@ -317,7 +320,7 @@ static int want(wanted* w, const named* left, int fact) {
     memset(w->stores_to, -1, sizeof(w->stores_to));
     int chain[ROOM], links = 0;
     for(int mem=left->M; KNOWN[mem].kind == STORED && links < ROOM; mem = KNOWN[mem].of[0]) chain[links++] = mem;
-    w->stores = links;                  // a store is a term, and there are no more than ROOM
+    w->stores = links;                  // each store is a term, so there are at most ROOM of them
     w->stores_to[MEMORY_TERM] = 0;
     for(int idx=0; idx < links; idx++) w->stores_to[chain[links - 1 - idx]] = idx + 1;
 
@@ -325,15 +328,15 @@ static int want(wanted* w, const named* left, int fact) {
     for(int cell=0; cell < CELL_TERMS; cell++) {
         int data = OF_DATA(cell), idx = CELL_OF(cell);
         if (idx >= (data ? l.SP : l.RSP)) continue;
-        if (data && idx == l.SP - 1 && fact >= 0) continue;     // the top, which is wanted only for whether it is nothing
+        if (data && idx == l.SP - 1 && fact >= 0) continue;     // the top, when only "is it zero?" matters
         int is = *cell_left(&l, cell), had = 0;
         parts(w, is);
         w->cells |= cells_in(is);
         for(int f=0; f < w->finals; f++) had |= w->final[f] == is;
         if (!had) w->final[w->finals++] = is;
     }
-    for(int idx=0; idx < links; idx++) {                // from the last store back: a store that is made
-        parts(w, KNOWN[chain[idx]].of[1]);              // needs its cells no longer
+    for(int idx=0; idx < links; idx++) {                // from the last store back: once a store is done,
+        parts(w, KNOWN[chain[idx]].of[1]);              // its cells are no longer needed
         parts(w, KNOWN[chain[idx]].of[2]);
         w->cells_from[links - 1 - idx] = w->cells_from[links - idx] |
                                          cells_in(KNOWN[chain[idx]].of[1]) | cells_in(KNOWN[chain[idx]].of[2]);
@@ -353,8 +356,9 @@ static int want(wanted* w, const named* left, int fact) {
     }
     if (lost) return(0);
 
-    // The numbers and the variables it has in it, as the instructions
-    // that push, add, fetch and store them.
+    // Collect the literal and variable instructions for the numbers and
+    // variables in the target: the instructions that push, add, fetch and
+    // store them.
     for(int t=FIXED; t < known; t++) {
         const numbered* is;
         if (!w->needed[t] || KNOWN[t].kind != A_NUMBER) continue;
@@ -377,9 +381,9 @@ static int want(wanted* w, const named* left, int fact) {
     return(1);
 }
 
-// Is a term nothing when the top is wanted to be?  What is made to find
-// out is forgotten again, but for a term there was when what is wanted
-// was said, which is asked once.
+// Returns 1 if a term is zero exactly when the target's top must be.  The
+// terms built to find out are discarded afterwards.  For a term that
+// existed when the target was set, the answer is cached.
 static int is_the_fact(wanted* w, int t) {
     if (w->fact < 0) return(0);
     if (t < w->base && w->nothing_of[t] >= 0) return(w->nothing_of[t] == w->fact);
@@ -399,7 +403,7 @@ static int on_a_stack(const named* m, int t) {
     return(0);
 }
 
-// Has what was left what is wanted?
+// Returns 1 if a state matches the target.
 static int is_wanted(wanted* w, const named* m) {
     const named* l = &w->left;
     if (m->unsaid || lost || m->next >= 0) return(0);
@@ -411,9 +415,9 @@ static int is_wanted(wanted* w, const named* m) {
     return(n == fetched_from(l, y) && !memcmp(x, y, n * sizeof(int)));
 }
 
-// The instructions needed to make a stack into another, with so many more
-// cells on it: a cell can be written only when it is the top, or just
-// under it.
+// Returns a lower bound on the instructions needed to turn one stack into
+// another that has `extra` more cells on top.  It relies on a cell being
+// writable only when it is the top, or the cell just under the top.
 static int to_shape(const int* is, int size, const int* to, int to_size, int extra) {
     int want = to_size + extra, at = 0;
     while (at < size && at < to_size && is[at] == to[at]) at++;
@@ -425,7 +429,8 @@ static int to_shape(const int* is, int size, const int* to, int to_size, int ext
     return(first + (want > at + 2 ? want - (at + 2) : 0));
 }
 
-// No fewer instructions than this are still needed.
+// Returns a lower bound on the instructions still needed to reach the
+// target from a state, or FEW_NEVER if the target cannot be reached.
 static int at_least(wanted* w, const named* m) {
     int d[SLOTS], r[SLOTS], to_d[SLOTS], to_r[SLOTS];
     const named* l = &w->left;
@@ -437,7 +442,7 @@ static int at_least(wanted* w, const named* m) {
     for(int idx=0; idx < m->SP; idx++) have |= cells_in(d[idx]);
     for(int idx=0; idx < m->RSP; idx++) have |= cells_in(r[idx]);
     int made = m->M < ROOM && w->stores_to[m->M] >= 0 ? w->stores_to[m->M] : 0;
-    if ((w->cells | w->cells_from[made]) & ~have) return(FEW_NEVER);    // something needed is gone for good
+    if ((w->cells | w->cells_from[made]) & ~have) return(FEW_NEVER);    // a cell the target needs has been lost
     int values = w->stores - made;
     for(int f=0; f < w->finals; f++) values += !on_a_stack(m, w->final[f]);
     if (w->fact >= 0) {
@@ -459,12 +464,12 @@ static int at_least(wanted* w, const named* m) {
 // ---- the search
 
 typedef struct { uint64_t state; int stamp; int left; } was_seen;
-static was_seen* SEEN_WITH;             // the states come to, found by the state: there is room for twice as many
-static int seen_bits;                   // as a search has come to, which is two to this many,
-static long seen_now;                   // and this is how many this search has come to
-static int searching;                   // which search this is: what an earlier one saw is not seen
-static long states_left;
-static int gave_up;
+static was_seen* SEEN_WITH;             // a hash table of the states visited, kept at most half full
+static int seen_bits;                   // the table has 2^seen_bits slots
+static long seen_now;                   // the number of states this search has visited
+static int searching;                   // the number of the current search: entries stamped by earlier searches are ignored
+static long states_left;                // the number of states this search may still examine
+static int gave_up;                     // set when a search has run out of states
 
 static uint64_t state_of(const named* m) {
     uint64_t h = mix(mix(mix(mix(mix(7, m->SP), m->RSP), KNOWN[m->T].is), KNOWN[m->R].is), KNOWN[m->M].is);
@@ -473,17 +478,17 @@ static uint64_t state_of(const named* m) {
     return(h | 1);
 }
 
-// Has this been come to before with as many instructions left, or more?
-// It has now.
-static was_seen* seen_at(uint64_t state) {      // where a state of this search is, or would be
+static was_seen* seen_at(uint64_t state) {      // returns a state's slot in this search's table, or the empty slot for it
     uint64_t at = (state * 0x9e3779b97f4a7c15ull) >> (8 * sizeof(uint64_t) - seen_bits);
     while (SEEN_WITH[at].stamp == searching && SEEN_WITH[at].state != state) at = (at + 1) & (((uint64_t)1 << seen_bits) - 1);
     return(&SEEN_WITH[at]);
 }
 
+// Returns 1 if a state was already visited with at least as many
+// instructions left.  Otherwise records the visit and returns 0.
 static int seen_with(const named* m, int left) {
     uint64_t state = state_of(m);
-    if (!SEEN_WITH || 2 * (seen_now + 1) > (long)1 << seen_bits) {      // there is to be room for twice what there is
+    if (!SEEN_WITH || 2 * (seen_now + 1) > (long)1 << seen_bits) {      // grow the table to keep it at most half full
         was_seen* had = SEEN_WITH;
         long was = had ? (long)1 << seen_bits : 0;
         seen_bits = had ? seen_bits + 1 : FEW_SEEN_BITS;
@@ -498,9 +503,9 @@ static int seen_with(const named* m, int left) {
     return(0);
 }
 
-// Is a fetch from memory as it is one that what is wanted makes too?  It
-// fetches from where that does, and what it fetches was there when what
-// is wanted was said.
+// Returns 1 if a fetch from the current memory is one the target also
+// makes: it reads an address the target reads, and the term it reads
+// existed when the target was set.
 static int fetch_is_wanted(const wanted* w, const named* m, int place) {
     int allowed = 0;
     for(int p=0; p < w->n_places; p++) allowed |= w->places[p] == place;
@@ -514,19 +519,20 @@ static int fetch_is_wanted(const wanted* w, const named* m, int place) {
 
 static int look(wanted* w, const named* m, int left, uint16_t* path, int at);
 
-// What is looked for may be to end in an instruction of some set, as one
-// that a return can be folded into: by instruction, whether it is of the
-// set.  With none, it ends in any.
+// An optional restriction on the last instruction of an answer, such as
+// "a return can be folded into it".  It is indexed by instruction, and is
+// 1 for the instructions allowed.  If it is NULL, any instruction may come
+// last.
 static const unsigned char* ends_in;
 
-// One instruction on from a state, if what it leaves is worth going on
-// from; and on from there.
+// Steps one instruction from a state and, if the result is worth pursuing,
+// continues the search from it.  Returns 1 if an answer was found.
 static int on(wanted* w, const named* m, uint16_t x, int left, uint16_t* path, int at) {
     if (left == 1 && ends_in && !ends_in[x]) return(0);
     named s = *m;
     step_named(&s, x);
-    if (s.unsaid || lost || s.next >= 0) { lost = 0; return(0); }     // the step says when a stack is deeper than it names
-    if (s.M != m->M && (s.M >= ROOM || w->stores_to[s.M] < 0)) return(0);       // a store that is not the next one wanted
+    if (s.unsaid || lost || s.next >= 0) { lost = 0; return(0); }     // the step also reports a stack deeper than it has terms for
+    if (s.M != m->M && (s.M >= ROOM || w->stores_to[s.M] < 0)) return(0);       // a store that is not the next store the target needs
     for(int idx=m->fetches; idx < s.fetches; idx++) if (!fetch_is_wanted(w, m, s.fetched[idx])) return(0);
     if (seen_with(&s, left - 1)) return(0);
     if (at_least(w, &s) > left - 1) return(0);
@@ -534,12 +540,15 @@ static int on(wanted* w, const named* m, uint16_t x, int left, uint16_t* path, i
     return(look(w, &s, left - 1, path, at + 1));
 }
 
-// Is what an instruction made worth having: part of what is wanted, or
-// there already, or nothing when the top is to be?
+// Returns 1 if a value an instruction produced is useful: it is part of
+// the target, or already on a stack, or zero exactly when the top must be.
 static int worth_having(wanted* w, const named* m, int made) {
     return((made < w->base && w->needed[made]) || on_a_stack(m, made) || is_the_fact(w, made));
 }
 
+// Tries every instruction from a state, with `left` instructions
+// remaining.  Returns 1 if an answer was found, with its instructions in
+// `path`.
 static int look(wanted* w, const named* m, int left, uint16_t* path, int at) {
     if (!left) return(is_wanted(w, m));
     if (gave_up || --states_left < 0) { gave_up = 1; return(0); }
@@ -577,9 +586,10 @@ static int look(wanted* w, const named* m, int left, uint16_t* path, int at) {
     return(0);
 }
 
-// So many instructions that leave what is wanted, from a state, which is
-// the start if none is given: found, or not.  *given_up says whether the
-// search was given up before it had looked at everything.
+// Searches for exactly `length` instructions that reach the target from a
+// state, or from the starting state if `from` is NULL.  Returns 1 and
+// writes them to `found` if there are such instructions.  `*given_up` is
+// set if the search stopped before examining everything.
 static int exactly(wanted* w, const named* from, int length, long states, uint16_t* found, int* given_up) {
     named first;
     if (from) first = *from; else start(&first);
@@ -604,8 +614,8 @@ typedef struct {
     uint64_t data;
 } leaving;
 
-// Run one of the two sequences in memory from a state, and keep what it
-// left.  False if the machine stopped.
+// Runs sequence `which` from a state and saves its result in `l`.  Returns
+// 0 if the machine stopped early.
 static int left_by(int which, int len, const state* from, leaving* l) {
     if (!run(which, len, from)) return(0);
     l->sp = machine.SP < FILLED ? machine.SP : FILLED;
@@ -619,9 +629,10 @@ static int left_by(int which, int len, const state* from, leaving* l) {
     return(1);
 }
 
-// Where in the machine's stack a cell is, by its term: the machine starts
-// DEPTH deep, and the terms DEEP.  And the cell of a state, if the state
-// gives one there.
+// in_machine() returns a cell's index in the machine's stack, given its
+// term: the machine starts DEPTH deep, and the terms start DEEP deep.
+// cell_in() returns a pointer to that cell in a state, or NULL if the
+// state has no such cell.
 static int in_machine(int cell) { return(CELL_OF(cell) - (DEEP - DEPTH)); }
 
 static int64_t* cell_in(state* s, int cell) {
@@ -629,14 +640,19 @@ static int64_t* cell_in(state* s, int cell) {
     return(idx < 0 || idx >= FILLED ? NULL : OF_DATA(cell) ? &s->dstack[idx] : &s->rstack[idx]);
 }
 
-// Do two sequences agree from a state, run on vm.c?  The second is run
-// with what the first keeps in a cell kept where `to` says, and is to
-// leave in each such cell what the first leaves in the cell it was, and
-// every other cell as it was; the same memory; and the tops both nothing
-// or neither (or one of them only, with `other_way`), if that is all that
-// is wanted of the tops.  With no `to`, every cell is to be the same, and
-// the second may leave `over` more cells on the return stack.  1 if they
-// agree, 0 if not, and less than nothing if either stopped.
+// Runs two sequences on vm.c from one state and compares the results.
+// Returns 1 if they agree, 0 if they differ, and -1 if either stopped
+// early.
+//
+// With `to`, the second sequence keeps its values in other cells: it is
+// started with each value the first keeps in a cell moved to the cell `to`
+// gives.  It must leave in each such cell what the first leaves in the
+// original cell, leave every other cell unchanged, and leave the same
+// memory.  If `tops` is set, the two tops only have to be both zero or
+// both non-zero (or, with `other_way`, exactly one of them zero).
+//
+// Without `to`, every cell must be the same, and the second sequence may
+// leave `over` more cells on the return stack.
 static int agree_from(int alen, int blen, const state* from, const int* to, int tops, int other_way, int over) {
     state with = *from;
     leaving a, b;
@@ -651,7 +667,7 @@ static int agree_from(int alen, int blen, const state* from, const int* to, int 
     if (!a.went_on || !b.went_on || a.sp != b.sp || b.rsp != a.rsp + over || a.data != b.data) return(0);
     if (tops && ((a.d[a.sp - 1] == 0) != ((b.d[b.sp - 1] == 0) != (other_way != 0)))) return(0);
     if (!to) {
-        // the cell at the bottom of the data stack is what sets the depths' own (fuse.h, lay_leads)
+        // skip the bottom cell of the data stack, which holds the lead-in's own value (lay_leads(), fuse.h)
         for(int idx=1; idx < a.sp - (tops != 0); idx++) if (a.d[idx] != b.d[idx]) return(0);
         for(int idx=0; idx < a.rsp; idx++) if (a.r[idx] != b.r[idx]) return(0);
         return(1);
@@ -670,17 +686,18 @@ static int agree_from(int alen, int blen, const state* from, const int* to, int 
     return(1);
 }
 
-// Do two sequences agree, run on vm.c from every state there is here, and
-// from every way of giving the cells the first keeps things in one of
-// three numbers: nothing, one, and the flag that says yes?  A flag is
-// seldom yes by chance (fuse.h says so of its own).  1 if they agree
-// from every state, and both ran to the end from enough of them; 0 if
-// they do not agree; less than nothing if they ran from too few to say.
+// Runs two sequences on vm.c from every random state, and from every
+// assignment of three numbers (0, 1 and TRUE) to the cells the first
+// sequence keeps values in.  The assignments are needed because a
+// comparison is rarely true by chance (fuse.h explains this for its own
+// check).  Returns 1 if the sequences agree from every state and both ran
+// to the end from enough of them, 0 if they disagree, and -1 if they ran
+// from too few states to tell.
 static int agree_on_machine(const uint16_t* a, int alen, const uint16_t* b, int blen,
                             const int* to, const int* kept, int n_kept, int tops, int other_way, int over) {
     if (alen > LAID || blen > LAID) return(-1);
-    // The cells the two name as numbers are given to the machine, as
-    // fuse.h gives them (tried).
+    // Give the machine a cell for each literal address the two sequences
+    // use, as tried() does in fuse.h.
     int had = known, was_lost = lost;
     const uint16_t* both[2] = { a, b };
     const int len[2] = { alen, blen };

@@ -1,52 +1,61 @@
 //
 // shorter IMAGE.hex IMAGE.tables COUNTS [REPORT]
 //
-// Fewer instructions that do what a loop does, wherever its values are
-// kept: for each loop of the image that ran, with the words it calls put in
-// place, what a turn costs now, and the fewest instructions found that do a
-// turn.  What a loop and its turn are is loops.h's to say, the ways fewer
-// are looked for turns.h's, and the search fewer.h's; this orders the loops
-// by the work done in them and says what was found.
+// Searches for fewer instructions that do one turn of a loop, with the
+// loop's values kept in any cells.  For each loop of the image that ran,
+// it inlines the words the loop calls, reports what a turn costs now, and
+// reports the fewest instructions found that do a turn.  loops.h defines a
+// loop and its turn, turns.h defines the ways a shorter turn is searched
+// for, and fewer.h does the search.  This program orders the loops by the
+// work done in them and writes the report.
 //
-// COUNTS is the work by place, as bench/profile.c leaves it
-// (build/profile/desktop.counts; work.h).  ONLY in the environment is
-// words, with commas between, whose loops alone are looked at.  Every loop
-// that ran and has a turn is looked at, however long its turn; how long a
-// search may take is said once, in cmake/default-machine.cmake
-// (SEARCH_STATES, which fewer.h has).
+// COUNTS is the work by address, as bench/profile.c writes it
+// (build/profile/desktop.counts; work.h).  The target shorter-loops runs
+// this program on that file, after the profile.  If the environment
+// variable ONLY is set, it is a list of words separated by commas, and
+// only the loops in those words are searched.  Every loop that ran and has
+// a turn is searched, however long its turn is.  The limit on one search
+// is set in one place, cmake/default-machine.cmake (SEARCH_STATES, which
+// fewer.h uses).
 //
-// The report is build/shorter.txt if none is named: for each loop, the
-// turn as it is, each way that fewer do it, and for each way it was looked
-// for how many searches were made and how many of them were given up.  It
-// is written a line at a time, so what is done can be read while the rest
-// is looked for.  A line a loop is printed as it is done, with how many
-// instructions the turn is and the fewest found; and a line a search to
-// stderr as each is made, with the loop, the way, how many instructions
-// were looked for of how many, and whether it was given up, so that a long
-// loop says how far it has got.  It fails if no loop ran.
+// The report is build/shorter.txt unless REPORT names another file.  For
+// each loop it gives the turn as it is now, each shorter form found, and,
+// for each way of searching, the number of searches made and the number
+// that gave up.  The report is written a line at a time, so the finished
+// part can be read while the search goes on.  One line is printed for each
+// loop when it is finished: the length of its turn, and the fewest
+// instructions found.  One line is written to stderr for each search as it
+// is made: the loop, the way, the length searched for, the turn's length,
+// and whether the search gave up.  That shows how far a long loop has got.
+// The program fails if no loop ran.
 //
 // shorter IMAGE.hex IMAGE.tables --rom [REPORT]
 //
-// The same asked of a kernel's ROM, which is the first KROM_BYTES of the
-// image, for what would make it shorter: every run of its words (cut.h),
-// with everything where it is, whole and then a part at a time, and the
-// fewest instructions found that leave what the run leaves; and every loop
-// it has, whether it ran or not, as above.  A run that ends a
-// word is looked for with the return in its last instruction, and then with
-// a return of its own, which is an instruction more; which instructions a
-// return can be in is asked of the step.  A run that a branch follows is
-// wanted, on top, only for whether it is nothing.  A run the step says
-// nothing of, as one that reads or writes a port, is not looked at; and
-// the instruction after a call of a word that reads where it returns to is
-// no part of a run, since such a word may take it for its own (inline:).
+// Does the same for a kernel's ROM, which is the first KROM_BYTES of the
+// image, to find what would make it shorter.  It searches every
+// straight-line run of the ROM's words (cut.h), with every value in its
+// present cell: first the whole run, and then a part at a time.  For each
+// run it reports the fewest instructions found that reach the run's final
+// state.  It also searches every loop in the ROM as above, whether or not
+// the loop ran.
 //
-// The searches of one run have nothing to do with another's, so as many
-// runs are looked at at once as the computer has processors, the longest
-// first, and the loops beside them.  It says a line to stderr as each run
-// is begun, and another if fewer do it; and when all are done, each run
-// that fewer do, as it is and as found, how many instructions of the ROM
-// the fewest found would save, and then the loops.  ONLY is as above.  It
-// fails if no run was looked at.
+// A run that ends a word is searched for first with the return in its last
+// instruction, and then with a separate return instruction, which costs
+// one more.  The step tells which instructions can have the return in
+// them.  If a branch follows a run, the top of the stack matters only as
+// zero or non-zero.  A run the step does not model, such as one that reads
+// or writes a port, is not searched.  The instruction after a call to a
+// word that reads its return address is not part of a run, because such a
+// word may use that instruction as data (inline:).
+//
+// The searches for one run are independent of the searches for another.
+// So as many runs are searched at the same time as the computer has
+// processors, longest first, and the loops are searched alongside them.
+// A line is written to stderr when each run is started, and another if a
+// shorter form is found.  When all are finished, the report lists each run
+// that has a shorter form, as it is now and as found; the number of the
+// ROM's instructions the shorter forms would save; and then the loops.
+// ONLY works as above.  The program fails if no run was searched.
 //
 
 #include <sys/mman.h>
@@ -62,9 +71,10 @@
 #include "work.h"
 
 static cut_image IMAGE;
-static double* work;                    // how often each of the image's instructions ran
+static double* work;                    // the number of times each of the image's instructions ran
 static loop* LOOPS;
 
+// Returns the total of the counts of a loop's instructions.
 static double work_in(const loop* l) {
     double is = 0;
     for(long at=l->head; at <= l->tail; at++) is += work[at];
@@ -76,6 +86,7 @@ static int by_work(const void* a, const void* b) {
     return(x < y ? 1 : x > y ? -1 : *(const int*)a - *(const int*)b);
 }
 
+// Returns 1 if `name` is one of the names in a list separated by commas.
 static int named_in(const char* list, const char* name) {
     size_t len = strlen(name);
     for(const char* at = list; at && *at; at = strchr(at, ',') ? strchr(at, ',') + 1 : NULL) {
@@ -84,9 +95,10 @@ static int named_in(const char* list, const char* name) {
     return(0);
 }
 
-// A search as it is made, a line to stderr (turns.h, a_search).
-static const char* searching_in;        // the loop: its word and places
-static long searches;                   // made of it so far
+// a_search_said() writes one line to stderr for each search as it is
+// made.  turns.h calls it through `a_search`.
+static const char* searching_in;        // the loop being searched: its word and its addresses
+static long searches;                   // the number of searches made for that loop so far
 
 static void a_search_said(int how, int length, int of, int given_up) {
     static const char* const WAYS[] = {
@@ -96,7 +108,7 @@ static void a_search_said(int how, int length, int of, int given_up) {
             given_up ? ": given up" : "");
 }
 
-// A way that fewer instructions do a turn, as a line of the report.
+// Writes one shorter form of a turn as a line of the report.
 static void say_way(FILE* out, const a_turn* t, const way* w) {
     char* text = run_said(w->code, w->len, 1);
     char* where;
@@ -125,14 +137,15 @@ static void say_way(FILE* out, const a_turn* t, const way* w) {
 
 // ---- a kernel's ROM, a run at a time
 
-#define ROM_ENDS (KROM_BYTES / (long)sizeof(uint16_t))  // the instruction its ROM ends before
-#define PART 8                          // the longest part of a run that is looked at by itself: chosen, and not the
-                                        // machine's, as survey.c's longest run is
+#define ROM_ENDS (KROM_BYTES / (long)sizeof(uint16_t))  // the address of the first instruction after the ROM
+#define PART 8                          // the longest part of a run that is searched by itself.  It is a choice and not
+                                        // a property of the machine, like the longest run in survey.c
 
-// The instructions a return can be folded into (cross.fs, fold-exit): one
-// with the return in it leaves what the instruction and then a return
-// leave.  That is asked of the step, for each that has not the return's
-// fields in use already.
+// TAKES_RETURN[ins] is 1 for each instruction a return can be folded into
+// (cross.fs, fold-exit): the instruction with the return's fields set is
+// equivalent to the instruction followed by a return.  list_returns()
+// fills it in.  It asks the step about every ALU instruction that does not
+// already use the return's fields.
 static unsigned char TAKES_RETURN[EVERY_WORD];
 
 static void list_returns(void) {
@@ -148,28 +161,34 @@ static void list_returns(void) {
     forget();
 }
 
-// What is after a run: more of the word; a branch, which asks only whether
-// the top is nothing; or the word's return, which is in the run's last
-// instruction or is an instruction of its own after it.
+// What follows a run: more of the word (GOES_ON); a branch, which tests
+// only whether the top is zero (BRANCHES); or the word's return (RETURNS),
+// which is either in the run's last instruction or a separate instruction
+// after it.
 enum { GOES_ON, BRANCHES, RETURNS };
 
 typedef struct {
-    uint16_t code[LAID_MOST + 1];       // without the return
+    uint16_t code[LAID_MOST + 1];       // the run's instructions, without the return
     int len;
-    int after;                          // one of those,
-    int own_return;                     // and whether a return is an instruction of its own
+    int after;                          // GOES_ON, BRANCHES or RETURNS
+    int own_return;                     // 1 if the return is a separate instruction
 } a_run;
 
+// Returns the number of instructions a run takes, counting a separate
+// return.
 static int cost_of(const a_run* r) { return(r->len + (r->after == RETURNS && r->own_return)); }
 
 static wanted OF_RUN;
 
-// Fewer instructions that leave what a run leaves, with everything where
-// it is: the run is made those, and what it then costs is given, which is
-// what it cost if no fewer were found.  They are looked for from the fewest
-// up; for a run that returns, with the return in the last instruction and
-// then by itself.  What is found is run on vm.c beside the run.  Less than
-// nothing if the step does not say what the run leaves.
+// Searches for fewer instructions that reach a run's final state, with
+// every value in its present cell.  If it finds them, it replaces the run
+// with them.  Returns the run's cost afterwards, which is its old cost if
+// the search found no replacement.  Lengths are tried from the shortest up.  For
+// a run that returns, each length is tried with the return in the last
+// instruction and then with a separate return.  An answer is accepted only
+// if it agrees with the run when both are run on vm.c.  Returns -1 if the
+// step cannot give the run's final state.  `*searched` and `*given_up` are
+// increased by the number of searches made and the number that gave up.
 static int fewer_for(a_run* r, long* searched, long* given_up) {
     named left;
     int now = cost_of(r), tops = r->after == BRANCHES, returns = r->after == RETURNS;
@@ -196,9 +215,11 @@ static int fewer_for(a_run* r, long* searched, long* given_up) {
     return(now);
 }
 
-// The same a part at a time: any part of the run, of no more than PART
-// instructions, that fewer do the same as, the longest first, until none is
-// found.  The whole is not a part: it was looked for whole.
+// Does the same a part at a time.  It searches each part of the run that
+// has at most PART instructions, longest first, and replaces a part when a
+// shorter equivalent is found.  It repeats until no part can be shortened.
+// The whole run is not tried as a part, because fewer_for() has already
+// searched it whole.  Returns the run's cost afterwards.
 static int fewer_by_parts(a_run* r, long* searched, long* given_up) {
     for(int again=1; again; ) {
         again = 0;
@@ -223,7 +244,7 @@ static int fewer_by_parts(a_run* r, long* searched, long* given_up) {
     return(cost_of(r));
 }
 
-// A run as it is said, with what is after it.
+// Returns a run as text, with what follows it.  The caller frees the text.
 static char* a_run_said(const a_run* r) {
     static const char* const AFTER[] = { [GOES_ON] = "", [BRANCHES] = "  (a branch asks of the top)" };
     char* text = run_said(r->code, r->len, 1);
@@ -233,9 +254,10 @@ static char* a_run_said(const a_run* r) {
     return(strcat(text, ends));
 }
 
-// Does a word read where it returns to, before it has put anything of its
-// own over that?  Such a word may take what follows its call as its own:
-// inline: copies the instruction there (nuc.fs), and nothing runs it.
+// Returns 1 if the word at an address reads or drops its return address
+// before it has pushed anything of its own on the return stack.  Such a
+// word may use the instruction after its call as data: `inline:` copies
+// that instruction (nuc.fs), and it is never run where it is.
 static int reads_its_return(long at) {
     int above = 0;
     for(long a=at; a >= 0 && a < IMAGE.instructions; a++) {
@@ -250,7 +272,10 @@ static int reads_its_return(long at) {
     return(0);
 }
 
-// A run that is to be looked at, where it is, and what was found of one.
+// A to_do is a run to be searched: its item in the image, its address and
+// length, the word it is in, and the run itself.  A done is the result for
+// the nth to_do: its cost now, the fewest found, the searches made and
+// given up, and the run as found.
 typedef struct { long item, at, len; int in_word; a_run is; } to_do;
 typedef struct { long nth; int now, fewest; long searched, given_up; a_run found; } done;
 
@@ -268,12 +293,14 @@ static int by_item(const void* a, const void* b) {
     return(x < y ? -1 : x > y);
 }
 
-// Every run of the ROM's words, and what fewer instructions do each: how
-// many runs were looked at.  The searches of one run have nothing to do
-// with another's, so as many runs are looked at at once as the computer
-// has processors, each by a copy of this program, the longest first: a
-// copy takes the next run there is, and leaves what it found in a file of
-// its own, which is read when all are done.
+// Searches every run of the ROM's words for a shorter equivalent, and
+// writes what it finds to the report.  Returns the number of runs
+// searched.  The searches for one run are independent of the searches for
+// another, so the work is shared among as many child processes as the
+// computer has processors.  The runs are taken longest first.  Each child
+// takes the next run that has not been taken, and writes its results to a
+// temporary file of its own.  The parent reads those files when every
+// child has finished.
 static long rom_runs(FILE* out, const char* only) {
     uint16_t exits = ins_named("exit");
     long todos = 0, room = 0;
@@ -284,7 +311,7 @@ static long rom_runs(FILE* out, const char* only) {
         static a_run is;
         long at = it->at, len = it->len;
         if (!it->run || at >= ROM_ENDS) continue;
-        // what a word that reads where it returns to was called before is that word's, and no part of the run
+        // the instruction after a call to a word that reads its return address belongs to that word, and is not part of the run
         if (before && !before->run && before->at + before->len == at && before->to >= 0 &&
             ins_of(IMAGE.code[at - 1]).jmp.op_type == OP_TYPE_CALL && reads_its_return(before->to)) at++, len--;
         if (len < 1 || len > LAID) continue;
@@ -301,13 +328,13 @@ static long rom_runs(FILE* out, const char* only) {
             is.after = RETURNS, is.own_return = 1, is.len--;
         } else if (!ins_of(last).lit.lit_f && ins_of(last).alu.r_eip) {
             is.code[is.len - 1] = unfolded(last, &returned);
-            if (!returned) continue;                    // it returns some other way, which the step is not asked of
+            if (!returned) continue;                    // it returns in some other way, which this search does not cover
             is.after = RETURNS;
         } else if (next && !next->run && next->at == at + len &&
                    ins_of(IMAGE.code[next->at + next->len - 1]).jmp.op_type == OP_TYPE_CJMP) {
             is.after = BRANCHES;
         }
-        if (cost_of(&is) < 2) continue;                 // nothing fewer than one instruction does its work
+        if (cost_of(&is) < 2) continue;                 // a run of one instruction cannot be made shorter
         ONE_MORE(TO_DO, todos, room);
         TO_DO[todos++] = (to_do){ idx, at, len, in_word, is };
     }
@@ -327,7 +354,7 @@ static long rom_runs(FILE* out, const char* only) {
         from[k] = tmpfile();
         if (!from[k] || (by[k] = fork()) < 0) { perror("shorter"); exit(EXIT_FAILURE); }
         if (by[k]) continue;
-        for(;;) {                                       // a copy: the next run there is, until there is none
+        for(;;) {                                       // the child: take the next run, until none is left
             long nth = __atomic_fetch_add(next, 1, __ATOMIC_SEQ_CST);
             if (nth >= todos) break;
             const to_do* t = &TO_DO[nth];
@@ -366,8 +393,8 @@ static long rom_runs(FILE* out, const char* only) {
     qsort(order, todos, sizeof(long), by_item);
 
     long looked = 0, shorter_runs = 0, saved = 0, searched = 0, given_up = 0, not_said = 0;
-    fprintf(out, "\nThe runs of the ROM's words, each with everything where it is: whole, and then a part of no more than "
-            "%d instructions at a time.\n\n", PART);
+    fprintf(out, "\nThe runs of the ROM's words, each with everything where it is: whole, and then in parts of at most "
+            "%d instructions.\n\n", PART);
     for(long idx=0; idx < todos; idx++) {
         const to_do* t = &TO_DO[order[idx]];
         const done* d = &found[order[idx]];
@@ -411,15 +438,15 @@ int main(int argc, char *argv[]) {
     const char* report = argc > 4 ? argv[4] : "build/shorter.txt";
     const char* only = getenv("ONLY");
     int rom = !strcmp(argv[3], "--rom");
-    machine_from(argv[1]);              // the cell is the image's, before anything is asked of it
+    machine_from(argv[1]);              // take the cell size from the image before the step is used
     get_ready();
     list_kinds();
     fewer_ready();
     cut(&IMAGE, argv[1], argv[2]);
     long n = IMAGE.instructions;
-    work = room_for(n, sizeof(double));                 // nothing, for an instruction the counts are not of
+    work = room_for(n, sizeof(double));                 // 0 for an instruction the counts do not cover
     if (rom) {
-        for(long at=0; at < n && at < ROM_ENDS; at++) work[at] = 1;     // every loop of it, as if each had run once
+        for(long at=0; at < n && at < ROM_ENDS; at++) work[at] = 1;     // search every loop of the ROM, as if each had run once
     } else {
         double* counts;
         long counted = work_read(argv[3], &counts, NULL);
@@ -429,7 +456,7 @@ int main(int argc, char *argv[]) {
     }
     FILE* out = fopen(report, "w");
     if (!out) { perror(report); return(1); }
-    setvbuf(out, NULL, _IOLBF, 0);                      // a line at a time, to be read while the rest is looked for
+    setvbuf(out, NULL, _IOLBF, 0);                      // write a line at a time, so the report can be read while the search goes on
     a_search = rom ? NULL : a_search_said;
 
     int loops = loops_of(&IMAGE, &LOOPS), ran_loops = 0, looked = 0;
@@ -439,8 +466,9 @@ int main(int argc, char *argv[]) {
     for(int idx=0; idx < loops; idx++) if (work[LOOPS[idx].tail] >= 1) order[ran_loops++] = idx;
     qsort(order, ran_loops, sizeof(int), by_work);
     if (rom) {
-        // The runs here, while a copy of this looks at the loops, and
-        // leaves what it says of them in a file until the runs are said.
+        // The parent searches the runs.  A child process searches the
+        // loops and writes its part of the report to a temporary file,
+        // which the parent appends after its own part.
         fprintf(out, "%s: the kernel's ROM.  A search is given up after %ld states.\n", argv[1], (long)SEARCH_STATES);
         FILE* of_loops = tmpfile();
         fflush(NULL);
@@ -473,7 +501,7 @@ int main(int argc, char *argv[]) {
         int in_word = holding(&IMAGE, l->head);
         const char* word = in_word >= 0 ? IMAGE.words[in_word].name : "?";
         double turns = work[l->tail];
-        char title[sizeof(IMAGE.words[0].name) + 64];   // a word's name, two places and a count
+        char title[sizeof(IMAGE.words[0].name) + 64];   // room for a word's name, two addresses and a count
         char* text;
         static shortened s;
         turn is;
@@ -487,7 +515,7 @@ int main(int argc, char *argv[]) {
         }
         if (is.bodies + is.tests > LAID) {
             fprintf(out, "%s, %d instructions a turn: not looked at (with the words it calls in place it is %d, and a run "
-                    "vm.c is given is no more than %d: fuse.h, LAID)\n", title, turn_now(&is), is.bodies + is.tests, LAID);
+                    "vm.c is given has at most %d: fuse.h, LAID)\n", title, turn_now(&is), is.bodies + is.tests, LAID);
             free(is.own);
             continue;
         }
@@ -523,10 +551,10 @@ int main(int argc, char *argv[]) {
             if (!s.searched[how]) continue;
             if (s.gave_up[how]) {
                 fprintf(out, "    (%s: %ld searches, %ld of them given up%s)\n", WAY[how], s.searched[how], s.gave_up[how],
-                        found ? "" : ", so fewer may do");
+                        found ? "" : ", so a replacement may exist");
             } else {
                 fprintf(out, "    (%s: %ld searches, every one to the end%s)\n", WAY[how], s.searched[how],
-                        found ? "" : ": no fewer do it");
+                        found ? "" : ", and none found a replacement");
             }
         }
         for(int w=0; w < s.n; w++) say_way(out, &s.turn, &s.found[w]);
@@ -539,7 +567,7 @@ int main(int argc, char *argv[]) {
         printf("\n%d loops of the ROM, and %d were looked at; the fewest found would save %.0f instructions a turn.\n",
                ran_loops, looked, saved);
         fflush(NULL);
-        _exit(0);                       // the copy that looked at the loops: the other says the rest
+        _exit(0);                       // this is the child that searched the loops; the parent writes the rest
     }
     fprintf(out, "\nInstructions that the fewest found would save: %.0f of %.0f.\n", saved, all);
     fclose(out);

@@ -161,7 +161,7 @@ nearby
 : reading ( -- ) \ the block that blk says
     blk @ >r
     begin
-        blk @ block drop  \ the last word may have read another
+        blk @ block drop  \ the block being read, in the buffer
         begins? if begins then
         parse-name dup
     while

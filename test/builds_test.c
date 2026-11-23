@@ -1,50 +1,57 @@
 //
 // builds_test PLAIN.hex PLAIN.tables IMAGE.hex IMAGE.tables
 //
-// The image cross.fs makes with its peephole, against the image it makes
-// without: every straight-line run of the one must leave what the same
-// run of the other leaves, and every call, jump and branch must go to the
-// same place.  It is what is run after any change to a compiler or a
-// peephole.
+// Compares the image cross.fs builds with its peephole on against the
+// image it builds with the peephole off.  Every straight-line run of one
+// must end in the same state as the same run of the other, and every
+// call, jump and branch must go to the same place.  Run it after any
+// change to a compiler or a peephole.
 //
-// Both images are cut into runs and the instructions that leave a run
-// (cut.h).  They are to be the same words, and in each word the same runs
-// and the same calls in the same order: the words themselves need not be
-// in the same order of place, since the image that is run may go back to
-// a page and this one's other never does.  Whether two runs leave the same is asked of the machine: the
-// step on terms says what each leaves in every cell (fuse.h), and two that
-// leave the same terms leave the same from every state.
+// Both images are cut into runs and into the instructions that leave a run
+// (cut.h).  The two must have the same words, and each word must have the
+// same runs and the same calls in the same order.  The words themselves
+// need not be in the same address order: the image built with the peephole
+// can go back to an earlier page to place code, and the plain image never
+// does.  The machine decides whether two runs are equivalent: the step on
+// terms gives the term in every cell after each run (fuse.h), and two runs
+// that end with the same terms end in the same state from every starting
+// state.
 //
-//   A run that a conditional branch comes after need only leave the same
-//   but for the top, and the top nothing when the other leaves it nothing:
-//   so `0 =` is put after both, which is what the branch asks.
+//   A run followed by a conditional branch only has to match the other
+//   run in everything but the top of the stack, and to leave the top zero
+//   exactly when the other does.  So `0 =` is appended to both runs before
+//   they are compared, which is the test the branch makes.
 //
-//   Code is not at the same place in the two images.  A number in the
-//   plain run that is a place something starts at in the plain image may
-//   be that place, pushed, or may be a number that happens to be it: so a
-//   run is tried as it is, and then with each such number made the place
-//   in the other image, every way that can be done.
+//   Code is not at the same addresses in the two images.  A number in the
+//   plain run that equals the address of something in the plain image may
+//   be that address, pushed, or may be an unrelated number that happens to
+//   equal it.  So a run is tried as it is, and then with each such number
+//   replaced by the corresponding address in the other image, in every
+//   combination.
 //
-//   The step says nothing of a read or a write of a port.  A run with one
-//   in it is taken a piece at a time: the pieces between the ports, which
-//   are to be the same instructions in both, but that the last may have
-//   the return in it that is an exit after it in the plain run.
+//   The step does not model a read or a write of a port.  A run that
+//   contains one is compared in pieces: the stretches between the port
+//   instructions.  The port instructions themselves must be identical in
+//   both runs, except that the last one may have a return folded into it
+//   where the plain run has an exit after it.
 //
-// It says how many runs and how many calls, jumps and branches it
-// compared, and fails if a pair is not shown to be the same, if there was
-// nothing to compare, or if the two images are as many instructions: then
-// the one built without the peephole was not built.
+// It prints how many runs and how many calls, jumps and branches it
+// compared.  It fails if a pair is not shown to be equivalent, if there
+// was nothing to compare, or if the two images have the same number of
+// instructions, because then the peephole was not off for the plain one.
 //
 
 #include "../util/fuse.h"
 #include "../util/cut.h"
 
 static cut_image PLAIN, BUILT;
-static uint16_t EXIT;                   // the instruction that is an exit
+static uint16_t EXIT;                   // the exit instruction
 
-#define MAY_BE_PLACES 12                // numbers of a run that may be places: more are not tried every way,
-                                        // since each way of taking them is tried.  Chosen, and not the machine's
+#define MAY_BE_PLACES 12                // the most numbers in a run that are tried as addresses.  Every combination
+                                        // of them is tried, so the limit is a choice made here, not the machine's
 
+// Returns 1 if two runs are identical, or the step shows that they end in
+// the same state.
 static int leave_the_same(const uint16_t* a, int alen, const uint16_t* b, int blen) {
     if (alen == blen && !memcmp(a, b, alen * sizeof(uint16_t))) return(1);
     named x, y;
@@ -53,10 +60,11 @@ static int leave_the_same(const uint16_t* a, int alen, const uint16_t* b, int bl
     return(left && names(b, blen, &y) == left && same_named(&x, &y));
 }
 
-// The same, where a conditional branch comes after: with what the branch
-// asks after each.
+// The same test, for two runs that are each followed by a conditional
+// branch: the branch's test, `0 =`, is appended to both first.
 static int leave_the_same_to_a_branch(const uint16_t* a, int alen, const uint16_t* b, int blen) {
-    // each with room for itself, a number (fuse.h says how long one can be) and what asks
+    // Each copy has room for the run, a literal (NUMBER_ROOM in fuse.h is
+    // the most instructions one takes) and the `=`.
     uint16_t* x = room_for(alen + NUMBER_ROOM + 1, sizeof(uint16_t));
     uint16_t* y = room_for(blen + NUMBER_ROOM + 1, sizeof(uint16_t));
     memcpy(x, a, alen * sizeof(uint16_t));
@@ -70,21 +78,25 @@ static int leave_the_same_to_a_branch(const uint16_t* a, int alen, const uint16_
     return(same);
 }
 
-// Is an instruction a read or a write of a port, of which the step says nothing?
+// Returns an instruction with its return removed.
 static uint16_t without_return(uint16_t w) {
     instruction ins = ins_of(w);
     ins.alu.r_eip = 0;
     ins.alu.rstack = 0;
     return(*(uint16_t*)&ins);
 }
+// Returns 1 if an instruction reads or writes a port, which the step does
+// not model.
 static int of_a_port(uint16_t w) {
     instruction ins = ins_of(w);
     return(!ins.lit.lit_f && ins.alu.op_type == OP_TYPE_ALU && alu_at[w] < 0 && alu_at[without_return(w)] < 0);
 }
 
-// The same, a piece at a time: the pieces between the instructions of
-// ports.  Those are to be the same instructions in the same order; the
-// last may have the return in it, where the plain run has an exit after.
+// Compares two runs piece by piece, where the pieces are the stretches
+// between port instructions.  The port instructions must be identical and
+// in the same order in both runs.  The exception is the last one: `b` may
+// have it with a return folded in where `a`, the plain run, has it
+// followed by an exit.
 static int same_in_pieces(const uint16_t* a, int alen, const uint16_t* b, int blen, int branch) {
     int i = 0, j = 0;
     for(;;) {
@@ -102,6 +114,9 @@ static int same_in_pieces(const uint16_t* a, int alen, const uint16_t* b, int bl
     }
 }
 
+// Compares two runs as they are: whole, then with the branch's test
+// appended, then in pieces.  `*pieces` is set to 1 if the last of those
+// was needed.
 static int same_one_way(const uint16_t* a, int alen, const uint16_t* b, int blen, int branch, int* pieces) {
     *pieces = 0;
     if (leave_the_same(a, alen, b, blen)) return(1);
@@ -110,7 +125,7 @@ static int same_one_way(const uint16_t* a, int alen, const uint16_t* b, int blen
     return(same_in_pieces(a, alen, b, blen, branch));
 }
 
-// Is a number one that a run pushes?
+// Returns 1 if a run pushes a given number.
 static int pushed_in(const uint16_t* run, int len, long number) {
     for(int at=0; at < len; ) {
         int end = at + 1;
@@ -125,11 +140,13 @@ static int pushed_in(const uint16_t* run, int len, long number) {
     return(0);
 }
 
-// The numbers of a plain run that are places in the plain image: where
-// each is in the run, and the place it would be in the other image.  If
-// the other run is given, only those whose place there is a number that
-// run pushes: a number that is a place is that place there, and one that
-// only happens to be a place's number is itself there.
+// Finds the numbers in a plain run that equal an address in the plain
+// image.  For each it records where the number is in the run, and the
+// corresponding address in the other image.  If the other run is given,
+// it keeps only the numbers whose corresponding address the other run
+// pushes: a number that really is an address appears in the other run as
+// the new address, and a number that only happens to equal one appears
+// there unchanged.
 typedef struct { int from, upto; long there; } spot;
 
 static int places_in(const uint16_t* run, int len, const uint16_t* other, int other_len, spot* out) {
@@ -152,7 +169,9 @@ static int places_in(const uint16_t* run, int len, const uint16_t* other, int ot
     return(n);
 }
 
-// The run with some of those numbers made the places: the ones `which` has a bit for.
+// Writes to `out` the run with some of those numbers replaced by their
+// addresses in the other image: the ones whose bit is set in `which`.
+// Returns the new length.
 static int with_places(const uint16_t* run, int len, const spot* places, int n, unsigned which, uint16_t* out) {
     int made = 0, p = 0;
     for(int at=0; at < len; ) {
@@ -166,17 +185,18 @@ static int with_places(const uint16_t* run, int len, const spot* places, int n, 
     return(made);
 }
 
-// Do two runs leave the same?  And was it found a piece at a time?
+// Returns 1 if two runs are shown to be equivalent, and sets `*pieces` to
+// 1 if that was shown piece by piece.
 //
-// A run of a great many numbers (one that sets a table of variables) has
-// more that happen to be a place's number than are tried every way, and
-// the one that is a place may come after them all.  So where the first
-// that are found are as many as are tried, the ones the other run has the
-// place of are tried too.
+// A run with a great many numbers in it (one that sets a table of
+// variables) can have more numbers that happen to equal an address than
+// MAY_BE_PLACES, with the number that really is an address after all of
+// them.  So when the first search reaches that limit, a second search
+// tries the numbers whose corresponding address the other run pushes.
 static int runs_leave_the_same(const uint16_t* plain, int plen, const uint16_t* built, int blen, int branch, int* pieces) {
     if (same_one_way(plain, plen, built, blen, branch, pieces)) return(1);
     spot places[MAY_BE_PLACES];
-    // the run, with room for each of those numbers written as a place's is
+    // room for the run with each of those numbers rewritten as an address
     uint16_t* tried = room_for(plen + MAY_BE_PLACES * NUMBER_ROOM, sizeof(uint16_t));
     int same = 0;
     for(int likely=0; likely < 2 && !same; likely++) {
@@ -185,18 +205,19 @@ static int runs_leave_the_same(const uint16_t* plain, int plen, const uint16_t* 
             int len = with_places(plain, plen, places, n, which, tried);
             same = same_one_way(tried, len, built, blen, branch, pieces);
         }
-        if (n < MAY_BE_PLACES) break;       // every one of them was tried
+        if (n < MAY_BE_PLACES) break;       // the limit was not reached, so every candidate was tried
     }
     free(tried);
     return(same);
 }
 
-// Do two instructions that leave a run go to the same place?  The same
-// item of each image; or, where it is no item of either, the same number.
+// Returns 1 if two instructions that leave a run go to the same place:
+// the same item in each image, or, if the target is an item in neither
+// image, the same address.
 static int go_to_the_same(long idx) {
     const item* p = &PLAIN.items[idx];
     const item* q = &BUILT.items[idx];
-    // its last instruction is the call, the jump or the branch
+    // an item's last instruction is its call, jump or branch
     if (ins_of(PLAIN.code[p->at + p->len - 1]).jmp.op_type != ins_of(BUILT.code[q->at + q->len - 1]).jmp.op_type) return(0);
     long pi = item_at(&PLAIN, p->to), qi = item_at(&BUILT, q->to);
     if (pi >= 0 || qi >= 0) return(pi == qi);
@@ -208,7 +229,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "usage: builds_test PLAIN.hex PLAIN.tables IMAGE.hex IMAGE.tables\n");
         return(1);
     }
-    machine_from(argv[3]);              // the cell is the image's, before anything is asked of it
+    machine_from(argv[3]);              // take the cell size from the image before the step is used
     get_ready();
     EXIT = ins_named("exit");
     if (!EXIT) {
@@ -245,7 +266,7 @@ int main(int argc, char *argv[]) {
         const uint16_t* plain = PLAIN.code + p->at;
         const uint16_t* built = BUILT.code + q->at;
         if (p->len == q->len && !memcmp(plain, built, p->len * sizeof(uint16_t))) { alike++; continue; }
-        // does a conditional branch come straight after it?
+        // check whether a conditional branch follows the run directly
         const item* next = idx + 1 < BUILT.count ? &BUILT.items[idx + 1] : NULL;
         int branch = next && !next->run && next->at == q->at + q->len && ins_of(BUILT.code[next->at]).jmp.op_type == OP_TYPE_CJMP;
         int pieces;

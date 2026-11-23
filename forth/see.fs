@@ -315,14 +315,13 @@ target
     >r sb sbn @ r> tok
 ;
 
-\ fused.fs's table is fields of sixteen bits, one after another
-\ in cells, the first of a cell its lowest: an instruction, how
-\ many words it is, and the header of each.  A field that is
-\ nothing ends it.
+\ fused.fs's table is fields of sixteen bits, the first of a
+\ cell its lowest: an instruction, how many words it is, and
+\ each word's header.  A field that is zero ends it.
 : ffield ( n -- u ) \ its nth field
     2* fused-at @ swap ifield ;
 
-\ an instruction's words: the field that says how many, which
+\ an instruction's words: the field that has how many, which
 \ the header of each comes after
 : fused? ( w -- n|0 )
     >r d# 0                                 ( n ) ( R: w )
@@ -959,11 +958,9 @@ create hovoy 0 ,
     ['] words-moved 'moved !  ['] hov-overlay 'overlay !
 ;
 
-\ A word may have more headers than one (1+ and cell+), so the
-\ choice is not found from the word shown while it is a header
-\ of that word: only when it is not, as when a link was followed
-\ or a word defined since.
-: wchosen ( -- ) \ wsel, for the word shown
+\ wsel is kept while it is a header of the word shown, and found
+\ from the word when it is not
+: wchosen ( -- )
     wsel @ dup 0< if drop else
         nth ?dup if hxt wxt @ = if exit then then
     then

@@ -1,26 +1,31 @@
 //
-// What the desktop is checked for, whatever machine it is running on
-// (deskcheck.h says what a machine is).
+// The desktop's checks, which run on any machine that implements
+// deskcheck.h.
 //
-// A check is a row of the table below: what is done, with the keys and
-// the pointer, and what is then to be on the screen.  What is done is said
-// in a few words of this file's own (does(), below).  What is to be seen is
-// mostly text: the windows that hold text on a grid are read back a
-// character cell at a time, by matching each cell against the glyphs of
-// the fixed-width font, which is read from the Forth that says it
-// (tables.h).  The rest is looked at by a function of its own: the picture
-// against a dither done here of the same file (dither.c), and against the
-// same kept as gray and drawn through a mask as its menu asks (gray.h), HexaPaint's
-// canvas against what its tools are to draw, drawn here a pixel at a time,
-// and the menu, a window's title, and what may not change.
+// A check is a row of the table below: the actions to perform with the
+// keys and the pointer, and what must then be on the screen.  The actions
+// are written in a small notation of this file's own (does(), below).
+// Most of what is checked is text.  The windows that hold text on a grid
+// are read back one character cell at a time, by matching each cell
+// against the glyphs of the fixed-width font, which is read from the Forth
+// source that defines it (tables.h).  Everything else has a function of
+// its own:
 //
-// The checks are in order, each from where the last left the desktop.  The
-// test keeps where it expects each window to be and which is in front, as
-// the checks move them, and finds every place it clicks or looks from that.
-// Where the windows start is read from forth/desk.fs.
+//   the picture, compared with a dither of the same file done here
+//   (dither.c), and with the same file stored as gray and drawn through a
+//   mask as its menu requests (gray.h)
+//   HexaPaint's canvas, compared with what its tools should draw, drawn
+//   here one pixel at a time
+//   the menu, a window's title, and the areas that must not change
 //
-// The screen as it was at each check is kept as a file, for whoever wants
-// to look.
+// The checks run in order, each starting from the state the previous one
+// left the desktop in.  The test tracks where it expects each window to be
+// and which window is in front, as the checks move them, and works out
+// every position it clicks or examines from that.  The windows' starting
+// positions are read from forth/desk.fs.
+//
+// The screen at each check is saved to a file, for anyone who wants to
+// look at it.
 //
 
 #include <ctype.h>
@@ -41,31 +46,31 @@
 #define W       DISP_W
 #define H       DISP_H
 #define SCREEN  ((size_t)W * H)
-#define ROWS    16              // the rows of a window's text, and of a glyph
+#define ROWS    16              // the height in pixels of a line of a window's text, and of a glyph
 #define COLS    64              // the most columns a window's text has
-#define MOST_LINES (H / ROWS)   // the most lines of text a window can show: as many as the screen
-#define SCREEN_ROOM ((size_t)DISP_W_MOST * DISP_H_MOST)     // room for the screen of any machine,
-#define LINES_ROOM  (DISP_H_MOST / ROWS)                    // and for its lines
+#define MOST_LINES (H / ROWS)   // the most lines of text a window can show: the number that fit on the screen
+#define SCREEN_ROOM ((size_t)DISP_W_MOST * DISP_H_MOST)     // enough pixels for the screen of any machine
+#define LINES_ROOM  (DISP_H_MOST / ROWS)                    // enough lines for the screen of any machine
 
 typedef struct {
-    const char* grid;           // where: a window's text (GRIDS, below)
+    const char* grid;           // which window's text to read (GRIDS, below)
     int row;                    // which row of it
-    char how;                   // = it is the text; ^ it starts with it; $ it ends with it; ~ it has it
-    const char* text;           // %1 and %2 are the second and the third word of the machine's dictionary,
-} seen;                         // and %b the first line of block 1 of its disk
+    char how;                   // how the row must match: = equals the text; ^ starts with it; $ ends with it; ~ contains it
+    const char* text;           // the text; %1 and %2 stand for the second and third words of the machine's dictionary,
+} seen;                         // and %b for the first line of block 1 of its disk
 
-enum { ALWAYS, NAMES, NO_NAMES };       // whether the disk has the tables of names
+enum { ALWAYS, NAMES, NO_NAMES };       // when a check applies: always, only with the tables of names on the disk, or only without
 
 typedef struct {
     const char* label;
-    const char* does;           // what is done first: see does()
-    const char* shot;           // the name the screen is kept under when it has been done
-    seen sees[3];               // what is then to be read on the screen,
-    bool (*also)(char* why);    // and what else is to be so: it says why not
+    const char* does;           // the actions to perform first, in the notation of does()
+    const char* shot;           // the name the screen is saved under afterwards, or NULL
+    seen sees[3];               // the text that must then be on the screen
+    bool (*also)(char* why);    // a further test, or NULL; on failure it writes the reason to `why`
     int when;
 } check;
 
-#define WHY 400                 // the most a check says of why it failed
+#define WHY 400                 // the size of the buffer for a check's reason for failing
 
 static bool came_up(char* why), saved(char* why), dithered(char* why), moved(char* why), bold(char* why);
 static bool fused_told(char* why), a_number(char* why), word_told(char* why), box_gone(char* why);
@@ -74,7 +79,7 @@ static bool one_cursor(char* why), prints_behind(char* why), keep(char* why), ot
 static bool remember(char* why), lights_right(char* why);
 static bool last_dragged(char* why);
 static bool sees_all(char* why), memory(char* why), menu_down(char* why), line_shown(char* why);
-static bool sees_label(char* why), data_place(char* why), see_blocks(char* why);
+static bool sees_label(char* why), sees_shared(char* why), data_place(char* why), see_blocks(char* why);
 static bool calc_picked(char* why), words_held(char* why), menu_whole(char* why), menu_away(char* why);
 static bool menu_gone(char* why), forth_closed(char* why), words_reopened(char* why);
 static bool paint_front(char* why), canvas_right(char* why), shape_shown(char* why);
@@ -86,26 +91,28 @@ static void picture_picked(int line), picture_made(void);
 
 static check CHECKS[] = {
     {"the desktop comes up", "", "1-desktop", .also = came_up},
-    // The machine has two disks, each a floppy: the bar has a light for each.
+    // The machine has two disks, each a floppy, and the bar has a light for each.
     {"the bar has a light for each of the machine's two disks, and for no more", "", NULL, .also = lights_right},
 
-    // The Forth window: text is inset by 2 from its content.
+    // The Forth window.  Its text is inset 2 pixels from the edge of its content.
     {"the Forth window opens with a prompt", "'2 3 + .\r' ': sq dup * ; 12 sq .\r' 'nosuch\r'", "2-forth",
      {{"forth", 0, '=', "ok"}}},
     {"the Forth window evaluates", "", NULL, {{"forth", 1, '=', "2 3 + ."}, {"forth", 2, '=', "5  ok"}}},
     {"the Forth window compiles", "", NULL, {{"forth", 4, '=', "144  ok"}}},
     {"the Forth window reports errors", "", NULL, {{"forth", 6, '^', "? -13"}}},
 
-    // The calculator: its title is clicked to bring it forward, then keys
-    // and two of its buttons, 7 and *.
+    // The calculator.  A click on its title brings it to the front.  Then
+    // keys are typed and two of its buttons are clicked, 7 and *.
     {"the calculator computes (12+34)*7", "front:calc '12\r34+' click:calc+17+108 click:calc+119+132",
      "3-calculator", {{"calc", 3, '~', "322"}}},
 
-    // The editor: brought forward, typed in on the second line of block 1, and saved.
+    // The editor.  It is brought to the front, text is typed on the second
+    // line of block 1, and the block is saved.
     {"the editor shows block 1", "front:editor ^s", "4-editor", {{"editor", 0, '=', "%b"}}},
     {"the editor saves to the disk", "down '( edited )' ^s", "5-edited", .also = saved},
 
-    // The picture: brought forward, and compared with a dither done here.
+    // The picture.  The viewer is brought to the front, and the picture is
+    // compared with a dither done here.
     {"the viewer shows the picture as it is dithered a pixel at a time", "front:viewer away", "6-viewer",
      .also = dithered},
     // Once dithered, the bitmap is written to the disk and painted from there.
@@ -115,13 +122,14 @@ static check CHECKS[] = {
     {"while a window is dragged, a gray outline of it follows the pointer", "grab:viewer+40+42", "7-dragging",
      .also = outlined},
     {"a window moves when it is dragged by its title", "drop away", "7-dragged", .also = moved},
-    // While the viewer is in front its menu is in the bar after the
-    // windows', with a mark by how the picture is drawn.  A line of it has
-    // the viewer's task make the picture again, a part at each of its
-    // turns, while the desktop goes on: kept as gray and drawn through blue
-    // noise, darker, through Bayer's mask, coarser, lighter and finer
-    // again, and dithered again.  Each is compared with the same made here
-    // a pixel at a time (gray.h).
+    // While the viewer is in front, its menu is in the bar after the
+    // windows' menu, with a mark beside the way the picture is currently
+    // drawn.  Picking a line makes the viewer's task remake the picture, a
+    // part on each of its turns, while the desktop keeps running.  The
+    // checks pick, in order: stored as gray and drawn through blue noise;
+    // darker; through Bayer's mask; coarser; lighter and finer again; and
+    // dithered again.  Each result is compared with the same picture made
+    // here one pixel at a time (gray.h).
     {"the picture's menu is in the bar, and marks how the picture is drawn", "pmenu away", "7-menu",
      .also = picture_marked},
     {"a line of it has the picture kept as gray and drawn through blue noise",
@@ -133,16 +141,17 @@ static check CHECKS[] = {
     {"and the mark is by the line picked", "pmenu away", "7-marked", .also = picture_marked},
     {"and dithered again", "backspace picture:atkinson away", "7-dithered", .also = as_picked},
 
-    // ^W brings the window at the back to the front, until it is the Words
-    // window.  Its list is 2 in from its content and the definition 112.
-    // The list is the dictionary in the order it is searched in.  sq,
-    // defined in the Forth window above, is the newest word and so the
-    // first listed; the two after it are whatever the machine's dictionary
-    // has next (%1, %2), which is asked of the machine.  A click on a name
-    // shows it.
+    // ^W brings the window at the back to the front, and is repeated until
+    // the Words window is in front.  Its list is inset 2 pixels from the
+    // edge of its content, and the definition 112 pixels.  The list is the
+    // dictionary in the order it is searched.  sq, defined in the Forth
+    // window above, is the newest word and so is listed first.  The two
+    // after it are whatever the machine's dictionary has next (%1, %2),
+    // which the test reads from the machine.  A click on a name shows that
+    // word's definition.
     {"the Words window lists the dictionary", "cycle:words click:words+10+8 away", "8-words",
      {{"names", 0, '=', "sq"}, {"names", 1, '=', "%1"}, {"names", 2, '=', "%2"}}},
-    // What is inside a definition is indented three columns a level.
+    // The body of a definition is indented three columns for each level.
     {"the Words window decompiles", "", NULL,
      {{"source", 0, '=', ": sq"}, {"source", 1, '=', "   dup *"}, {"source", 2, '=', ";"}}, words_marked},
     {"a word in a definition is a link", "click:words+140+24 away", "9-link",
@@ -150,29 +159,32 @@ static check CHECKS[] = {
     {"Backspace goes back", "backspace", "10-back",
      {{"source", 0, '=', ": sq"}, {"source", 1, '=', "   dup *"}, {"source", 2, '=', ";"}}},
     {"Down moves to the next word", "down", "10-down", {{"source", 0, '=', ": %1"}}},
-    // A definition longer than the window: PgDn shows it from a window
-    // less a line further down, or as far down as fills the window, and
-    // PgUp from where it was.  [PGDN] ends its last row while more of it
-    // is below, and [PGUP] its first while more is above.  words-key, a
-    // few lines for each key the Words window takes, is longer than the
-    // window on either screen.
+    // A definition longer than the window.  PgDn scrolls it down by one
+    // line less than the window's height, or as far as still fills the
+    // window, and PgUp scrolls it back to where it was.  The last row ends
+    // with [PGDN] while more of the definition is below, and the first row
+    // ends with [PGUP] while more is above.  words-key, which has a few
+    // lines for each key the Words window handles, is longer than the
+    // window on either screen size.
     {"a definition longer than the window is shown from its start", "find:words-key name:words-key",
      "10-long", {{"source", 0, '=', ": words-key"}}, remember},
     {"and says that more of it is below", "", NULL, .also = words_marked},
     {"PgDn scrolls it", "pgdn", "10-pgdn", .also = scrolled_down},
     {"and says that more of it is above", "", NULL, .also = words_marked},
     {"and PgUp scrolls it back", "pgup", "10-pgup", .also = box_gone},
-    // A word may have more headers than one: 1+ and cell+ are one body
-    // (nuc.fs).  The one that is clicked is the one chosen, so Down from
-    // it shows the word listed after it, and not the one after the other.
+    // A word can have more than one header: 1+ and cell+ share one body
+    // (nuc.fs).  The name that is clicked is the one selected, so Down
+    // from it shows the word listed after that name, not the word listed
+    // after the other name.
     {"a word of two names is chosen by the one clicked, and Down goes on from it", "find:cell+ name:cell+ down",
      "10-two-names", .also = went_on},
-    // Two words of the dither, each paged to: dither-row has fused
-    // instructions in it, and dither-start a variable that has no header
-    // and a plain word that is one instruction.
+    // Two words of the dither, each reached by paging the list.
+    // dither-row has fused instructions in it.  dither-start has a
+    // variable with no header, and a plain word that is one instruction.
     {"the list is paged to a word, wherever in the dictionary it is", "find:dither-row", "10-list", .also = was_found},
-    // Words in bold are one instruction between them.  With the pointer on
-    // them a box by them says which: its number, and its fields.
+    // Words shown in bold are together one instruction.  With the pointer
+    // on them, a box beside them shows that instruction: its value and its
+    // fields.
     {"a fused instruction is shown as its words, in bold", "name:dither-row", "10-fused",
      {{"source", 0, '=', ": dither-row"}}, bold},
     {"the pointer on a fused instruction shows the machine's form of it", "", NULL, .also = fused_told},
@@ -183,34 +195,37 @@ static check CHECKS[] = {
     {"and on a word that is one instruction", "", NULL, .also = word_told},
     {"and the box goes when the pointer does", "away", "10-hover-off", .also = box_gone},
 
-    // ^W again, to the Forth window.
+    // ^W again, until the Forth window is in front.
     {"^W cycles the windows, and the Forth window's stack is as it was",
      "cycle:forth 'depth . 7 8\r' '+ . depth .\r'", "11-cycled",
      {{"forth", 8, '=', "0  ok"}, {"forth", 10, '=', "15 0  ok"}}},
-    // The Forth window is filled so that it scrolls.  The text is moved on
-    // the screen, not drawn again, so what is there is looked at: the last
-    // lines, the first, and that the only solid cell is the cursor.  The
-    // first row ends with [PGUP] now, since more is above.
+    // The Forth window is filled until it scrolls.  A scroll moves the
+    // text on the screen and does not redraw it, so the check reads what
+    // is actually there: the last lines, the first line, and that the only
+    // solid cell is the cursor.  The first row now ends with [PGUP],
+    // because more text is above.
     {"the Forth window scrolls", "'0 .\r' '1 .\r' '2 .\r' '3 .\r' '4 .\r' '5 .\r' '6 .\r' '7 .\r'", "11-scrolled",
      {{"forth", 13, '=', "7 ."}, {"forth", 14, '=', "7  ok"}, {"forth", 0, '^', "0  ok"}}, one_cursor},
     {"and says that more of its text is above", "", NULL, .also = more_above},
-    // The Forth window is a task of its own.  A word is started in it that
-    // waits, taking turns, until another window comes to the front, and
-    // then prints twenty lines.  The viewer is brought to the front: since
-    // it was dragged it covers the right of the Forth window, which now
-    // scrolls behind it.  The picture where it lies over the Forth window
-    // must be untouched.  (The word has no name, so that the Words window
-    // stays as it is.)
+    // The Forth window is a task of its own.  The check starts a word in
+    // it that waits, yielding its turns, until another window comes to the
+    // front, and then prints twenty lines.  Then the viewer is brought to
+    // the front.  Because the viewer was dragged earlier, it covers the
+    // right side of the Forth window, which now scrolls behind it.  The
+    // part of the picture that lies over the Forth window must not change.
+    // (The word has no name, so that the Words window's list stays as it
+    // is.)
     {"a window behind can print and scroll",
      "':noname top begin pause dup top <> until drop 20 0 do i . cr loop ;\r' 'execute\r' front:viewer away",
      "11-behind", .also = prints_behind},
     {"the Forth window runs as a task", "front:forth", "11-task",
      {{"forth", 12, '=', "18"}, {"forth", 13, '=', "19"}, {"forth", 14, '=', " ok"}}, keep},
-    // What is printed is kept as lines of their own lengths, and when there
-    // is no more room the first go.  Thirty lines of forty-odd characters
-    // are more than the window keeps on any machine.  Forty short lines
-    // are not: PgUp shows the lines a window less a line further back,
-    // with [PGDN] at the end of the last row, and PgDn the last again.
+    // Printed text is kept as lines of their own lengths, and when the
+    // room for it is full the oldest lines are dropped.  Thirty lines of
+    // forty-odd characters are more than the window keeps on any machine.
+    // Forty short lines are not.  After those, PgUp shows the lines one
+    // line less than a window's height further back, with [PGDN] at the
+    // end of the last row, and PgDn shows the last lines again.
     {"the Forth window keeps its last lines",
      "':noname 30 0 do i . 40 0 do 42 emit loop cr loop ;\r' 'execute\r'", "11-rolled",
      {{"forth", 12, '^', "28 ****"}, {"forth", 13, '^', "29 ****"}, {"forth", 14, '=', " ok"}}, more_above},
@@ -218,80 +233,88 @@ static check CHECKS[] = {
      {{"forth", 0, '^', "11"}, {"forth", 13, '^', "24"}, {"forth", 14, '^', "25"}}, more_both},
     {"and PgDn the last again", "pgdn", "11-forth",
      {{"forth", 13, '^', "39"}, {"forth", 14, '=', " ok"}}, more_above},
-    // The whole screen is put out of date from the prompt.  Every window is
-    // painted again, each only where it can be seen, so nothing outside the
-    // Forth window may change, except the disk light in the bar.
+    // The whole screen is invalidated from the prompt.  Every window is
+    // repainted, each only where it is visible, so nothing outside the
+    // Forth window may change except the disk light in the bar.
     {"a full repaint leaves the other windows as they were", "'0 0 %W %H inval-rect\r'", "12-repainted",
      .also = others_same},
 
-    // The tables of names for the decompiler are on the disk, and are read
-    // through a buffer that is kept only if they are this image's, and then
-    // given back.  A disk without them says so.
+    // The decompiler's tables of names are on the disk.  They are read
+    // into a buffer, which is kept only if the tables belong to this
+    // image, and which is freed when they are unloaded.  With no tables on
+    // the disk, names? is false after loading.
     {"the tables of names load from the disk and unload", "'names-load names? . names-unload names? .\r'",
      "13-names", {{"forth", 14, '=', "-1 0  ok"}}, .when = NAMES},
     {"with no tables of names on the disk, none are loaded", "'names-load names? . names-unload names? .\r'",
      "13-names", {{"forth", 14, '=', "0 0  ok"}}, .when = NO_NAMES},
-    // see has them in for as long as it runs, and what it prints
-    // scrolls the window, which wants memory of its own for as long as a
-    // scroll takes: there has to be room for both.  The word decompiled is
-    // long enough to scroll, and near its end calls a word with no header,
-    // which is shown by its name only if the names are in: words-key ends
-    // with wall.
+    // `see` keeps the names loaded for as long as it runs.  Its output
+    // scrolls the window, and a scroll needs memory of its own while it
+    // lasts, so there must be room for both.  The word decompiled is long
+    // enough to scroll the window.  Near its end it calls a word with no
+    // header, which is shown by name only if the names are loaded:
+    // words-key ends with wall.
     {"see prints a word longer than the window, with the names in memory", "'see words-key\r'", "13-see",
      {{"forth", 14, '$', " ok"}}, sees_all},
-    // Where memory has got to: the next cell that would be given out, with
-    // the names out and in.  see scrolled the window while it had the names
-    // in, and gave them back after: if it had not, they would be in still,
-    // and loading them here would have taken no memory.
+    // This check prints the next cell that would be allocated, first with
+    // the names unloaded and then with them loaded.  `see` scrolled the
+    // window while it had the names loaded, and freed them afterwards.  If
+    // it had not freed them, they would still be loaded, and loading them
+    // here would take no memory.
     {"see gives the names' memory back, though the window scrolled while it had them",
      "'0 halloc . names-load 0 halloc . names-unload\r'", "13-memory", .also = memory, .when = NAMES},
     {"with no tables of names on the disk, loading them takes no memory",
      "'0 halloc . names-load 0 halloc . names-unload\r'", "13-memory", .also = memory, .when = NO_NAMES},
-    // see finds a word with no header by its label, which is on the disk,
-    // and for a label on data says where the data is.
+    // `see` finds a word with no header by its label, which is on the
+    // disk.  For a label on data it prints the data's address.
     {"see finds a word with no header by its label", "'see in-port\r'", "13-see-label", .also = sees_label,
      .when = NAMES},
     {"and a label on data by where the data is", "'see img\r'", "13-see-data", .also = data_place, .when = NAMES},
-    // What it reads of the disk to show a word, which blk-moved counts.
+    // A word with no instructions is another name for the word it falls
+    // through into: `again` is one, for `code,`, which has no header.
+    // `until` ends with that word, and `see` shows it by its label.
+    {"see says a word by its label where a header's word runs on into it", "'see until\r'", "13-see-shared",
+     .also = sees_shared, .when = NAMES},
+    // The number of blocks `see` reads from the disk to show a word, which
+    // blk-moved counts.
     {"see reads the disk for the names", "'blk-moved @ see words-key blk-moved @ swap - .\r'", "13-see-blocks",
      .also = see_blocks, .when = NAMES},
     {"with no tables of names on the disk, a word with no header is not found", "'see in-port\r'",
      "13-see-label", {{"forth", 14, '^', "? -13"}}, .when = NO_NAMES},
-    // The picture was read and dithered by a task of its own, a row at a
-    // turn, which took itself out of the ring when the last row was made.
-    // The tasks round the ring are counted: the desktop's and the Forth
-    // window's.
+    // The picture was read and dithered by a task of its own, one row on
+    // each turn, and that task removed itself from the ring when the last
+    // row was done.  The check counts the tasks in the ring, which must be
+    // two: the desktop's and the Forth window's.
     {"the picture's task has left the ring",
      "':noname up @ 0 begin 1+ swap @ swap over up @ = until nip ;\r' 'execute .\r'", "14-tasks",
      {{"forth", 14, '=', "2  ok"}}},
 
-    // The title in the bar is a menu of the windows, in the order they
-    // were made, the last first, a line of 16 pixels each from just under
-    // the bar: in bold if the window is open, and plain if it is closed.
-    // A click on the title brings it down and it stays; a click on a line
-    // brings that window to the front, opening it if it was closed, and
-    // takes the menu away.
+    // The title in the bar is a menu of the windows.  They are listed in
+    // the order they were created, newest first, on lines 16 pixels high
+    // starting just under the bar.  A window's line is bold if the window
+    // is open and plain if it is closed.  A click on the title opens the
+    // menu, which stays open.  A click on a line brings that window to the
+    // front, reopening it if it was closed, and closes the menu.
     {"the title is a menu of the windows, in bold while they are open", "menu away", "15-menu", .also = menu_down},
     {"the line the pointer is on is shown so", "over:words", "15-menu-line", .also = line_shown},
     {"a click on a line brings its window to the front", "pick:calc away", "15-picked", .also = calc_picked},
-    // Held down and dragged: the button goes down on the title and up on a line.
+    // The same by dragging: the button is pressed on the title and released on a line.
     {"and so does letting the button go on one", "hold:words away", "15-dragged", .also = words_held},
-    // A window under the menu does not draw where it is.  The Forth window
-    // is brought to the front and given a word that waits for the menu to
-    // be down and then prints twenty lines, so that it scrolls under it:
-    // the menu must be whole, and the text beside it moved.  When the menu
-    // is taken away, by a press that is not on it, what was under it is
-    // painted as it now is.
+    // A window under the open menu must not draw over it.  The Forth
+    // window is brought to the front and given a word that waits until the
+    // menu is open and then prints twenty lines, so that the window scrolls
+    // under the menu.  The menu must stay intact, and the text beside it
+    // must have moved.  When a press outside the menu closes it, the area
+    // that was under it is repainted with its current contents.
     {"a window under the menu prints and scrolls without drawing on it",
      "front:forth ':noname begin pause menu-open @ until 20 0 do i . cr loop ;\r' 'execute\r' menu away",
      "15-over", {{"forth", 12, '=', "18"}, {"forth", 13, '=', "19"}, {"forth", 14, '=', " ok"}}, menu_whole},
     {"a press off the menu takes it away, and what was under it is painted", "click:forth-40-40 away", "15-away",
      {{"forth", 0, '^', "6"}, {"forth", 1, '=', "7"}, {"forth", 2, '=', "8"}}, menu_away},
     {"and so does a key", "menu backspace away", "15-key", .also = menu_gone},
-    // The x at the right of a window's title bar closes it when the button
-    // goes up over it, and so does ^Q for the window in front.  In the menu
-    // a closed window is plain and an open one is in bold, and picking a
-    // closed one opens it again.
+    // The x at the right of a window's title bar closes the window when
+    // the button is released over it.  ^Q closes the window in front.  In
+    // the menu a closed window is plain and an open one is bold, and
+    // picking a closed window opens it again.
     {"pressing on the x and sliding off does not close the window", "slide:forth away", "15-slide",
      .also = menu_away},
     {"the x in a window's title bar closes it, leaving the one behind in front", "close:forth away", "15-closed",
@@ -302,9 +325,9 @@ static check CHECKS[] = {
      {{"forth", 14, '=', " ok"}}, words_reopened},
 
     // HexaPaint.  It is at the back, and is brought to the front from the
-    // menu.  What is drawn in it with the pointer is drawn here too, a
-    // pixel at a time, and every pixel of the canvas on the screen is
-    // compared with that.  The pencil is in hand to start with, and black.
+    // menu.  Everything drawn in it with the pointer is also drawn here,
+    // one pixel at a time, and every pixel of the canvas on the screen is
+    // compared with that.  It starts with the pencil selected, in black.
     {"HexaPaint comes to the front from the menu, with nothing drawn", "menu pick:paint away", "16-paint",
      .also = paint_front},
     {"the pencil draws where the pointer is pulled", "pull:10,10,60,40 away", "16-pencil", .also = canvas_right},
@@ -315,44 +338,47 @@ static check CHECKS[] = {
      "tool:1 pattern:3 pull:20,60,100,70 tool:5 pattern:5 pull:120,20,200,90 tool:6 pull:30,80,110,140 "
      "tool:7 pattern:4 pull:130,100,220,145 tool:3 pull:5,145,230,5 tool:2 pull:60,30,150,120 "
      "tool:4 pull:200,60,150,10 away", "16-drawn", .also = canvas_right},
-    // A shape is shown while it is pulled out, and is not in the canvas
-    // until the button goes up.
+    // A shape is shown while it is being pulled out, and is not part of
+    // the canvas until the button is released.
     {"a shape is shown as it is pulled out", "tool:6 press:40,20,100,50", "16-pulling", .also = shape_shown},
     {"and is drawn when the button goes up", "release away", "16-let-go", .also = canvas_right},
-    // The canvas's place is the disk, and it is in memory only while
-    // HexaPaint is in front.  Another window comes to the front: the disk
-    // has what was drawn, every pixel.  That window is then pulled over the
-    // canvas and back, so that some of the canvas is painted again, behind
-    // it: which is from the disk, since it is no longer in memory.
+    // The canvas is stored on the disk, and is in memory only while
+    // HexaPaint is in front.  When another window comes to the front, the
+    // disk must have every pixel that was drawn.  That window is then
+    // dragged over the canvas and back, so that part of the canvas is
+    // repainted behind it.  The repaint must come from the disk, because
+    // the canvas is no longer in memory.
     {"the canvas is written to the disk when another window comes to the front", "front:calc", NULL,
      .also = on_disk},
     {"behind another window it is painted from the disk", "", "16-behind", .also = from_disk},
     {"what was drawn is there when the window has been under another", "menu pick:paint away", "16-again",
      .also = paint_front},
-    // The names' buffer is memory while the Words window is drawn, and
-    // the canvas is while HexaPaint is in front.  The Words window, brought
-    // to the front, has its names.
+    // The buffer for the names uses memory while the Words window is
+    // being drawn, and the canvas uses memory while HexaPaint is in front.
+    // The Words window, brought to the front, must still show its names.
     {"there is room for the canvas and the tables of names", "menu pick:words away", "17-names",
      {{"source", 1, '$', " img !"}}, .when = NAMES},
 
-    // A window that goes behind or is closed while the button is down in it
-    // is not to be followed after that.  HexaPaint gives its canvas back
-    // when another window comes in front, so its pencil, held down when ^W
-    // or ^Q takes it from the front and then moved, would draw where the
-    // canvas was: from address 0.  The last window, dragged by its title
-    // when ^Q closes it, would be moved at address 0 when the button is let
-    // go.  The test's machine stops at a store into the kernel (ROM_BYTES,
-    // cmake/machines.cmake).
+    // A window that goes behind another, or is closed, while the button is
+    // held down in it must stop receiving the pointer.  HexaPaint frees its
+    // canvas when another window comes to the front.  So if its pencil is
+    // held down when ^W or ^Q takes it from the front, and the pointer then
+    // moves, a bug here would draw where the canvas was: at address 0.
+    // Likewise, if the last window is being dragged by its title when ^Q
+    // closes it, a bug would move a window at address 0 when the button is
+    // released.  The test's machine stops at any store into the kernel
+    // (ROM_BYTES, cmake/machines.cmake), so either bug stops it.
     {"the pencil held down when ^W brings another window in front, and moved",
      "menu pick:paint away tool:0 press:10,10,60,40 ^w point:300,300 release away", "18-held-w"},
     {"the pencil held down when ^Q closes HexaPaint, and moved",
      "menu pick:paint away tool:0 press:10,10,60,40 ^q point:300,300 release away", "18-held-q"},
     {"the last window dragged by its title when ^Q closes it, and let go", "", "18-dragged-q",
      .also = last_dragged},
-    // With every window closed, the Forth window is opened again from the
-    // menu and three windows are made from it, out of its way: nine windows
-    // made, of which four are open, and memory given back when HexaPaint
-    // was closed taken again.  The Forth window, in front again, answers.
+    // With every window closed, the Forth window is reopened from the menu
+    // and creates three windows, placed where they do not cover it.  That
+    // makes nine windows created, four of them open, and it reuses the
+    // memory freed when HexaPaint was closed.  The Forth window, in front
+    // again, must still respond.
     {"three windows made from the Forth window opened again",
      "menu pick:forth away ':noname drop ; constant dr  :noname 2drop ; constant ky\r' "
      "': mk 420 290 80 40 t-words dr ky 0 window drop ; mk mk mk\r' front:forth '1 2 + .\r'", "18-windows",
@@ -361,21 +387,22 @@ static check CHECKS[] = {
 
 // ---- the machine, and its screen
 
-static const desk* machine;     // what is so of the machine the checks are run on
-static const char* boot;        // what its console said as the desktop came up
-static const uint8_t* shot;     // its screen, as it was last looked at,
-static char* shot_path;         // the file it was kept in, if look() was given a name,
-static uint8_t* kept;           // and a screen that was kept, to compare a later one with
-const char* desk_checking;      // the check being run,
-const char* desk_doing;         // and the step of does() in hand
+static const desk* machine;     // the facts about the machine the checks run on
+static const char* boot;        // what its console printed as the desktop came up
+static const uint8_t* shot;     // its screen at the last look()
+static char* shot_path;         // the file that screen was saved to, if look() was given a name
+static uint8_t* kept;           // a saved copy of a screen, to compare a later screen with
+const char* desk_checking;      // the check being run
+const char* desk_doing;         // the action of does() being performed
 
 static bool on_screen(int x, int y) { return(x >= 0 && x < W && y >= 0 && y < H); }
 static bool black(int x, int y) { return(on_screen(x, y) && shot[(size_t)y * W + x]); }
 static int low(int a, int b) { return(a < b ? a : b); }
 static int high(int a, int b) { return(a > b ? a : b); }
 
-// The screen, when the desktop has had time to do what was asked of it;
-// kept as a file if it is given a name: a bitmap, a bit a pixel.
+// Reads the screen, after giving the desktop time to finish what it was
+// asked to do.  If a name is given, the screen is also saved to a file as
+// a binary PBM.
 static void look(const char* name) {
     desk_turns(12);
     shot = desk_screen();
@@ -420,17 +447,17 @@ static void drag(int x0, int y0, int x1, int y1) {
     desk_turns(6);
 }
 
-static void away(void) {        // the pointer where it is off everything
+static void away(void) {        // moves the pointer to a position that is over nothing
     desk_pointer(W - 12, 24);
 }
 
 // ---- text on the screen
 
 static font mono, sans;
-static uint8_t glyphs[128][ROWS];       // the fixed-width font: each character's rows, a byte a row
+static uint8_t glyphs[128][ROWS];       // the fixed-width font: one byte for each row of each character
 
-// The sixteen bytes of the character cell at a place of the screen, a bit
-// set where a pixel is black or is off the screen.
+// Reads the character cell at a screen position into sixteen bytes, one
+// per row.  A bit is set where the pixel is black or is off the screen.
 static void cell_at_screen(int x, int y, uint8_t* cell) {
     for(int row=0; row < ROWS; row++) {
         cell[row] = 0;
@@ -440,15 +467,17 @@ static void cell_at_screen(int x, int y, uint8_t* cell) {
     }
 }
 
-// A glyph as it is drawn in a style: plain; bold, each pixel and the one to
-// its right; or leaning, the top half a pixel to the right.
+// Returns one row of a glyph as it is drawn in a style: p is plain; b is
+// bold, where each pixel is drawn together with the pixel to its right;
+// i is italic, where the top half is shifted one pixel right.
 static uint8_t styled(int c, int row, char style) {
     uint8_t is = glyphs[c][row];
     return(style == 'b' ? is | is >> 1 : style == 'i' && row < ROWS / 2 ? is >> 1 : is);
 }
 
-// The character whose glyph a cell is, in a style, looking at so many of
-// its rows; or 0.  Of two with the same rows it is the later.
+// Returns the character whose glyph, in a style, matches a cell over its
+// first `rows` rows, or 0 if none matches.  If two characters match, it
+// returns the one with the higher code.
 static int matched(const uint8_t* cell, char style, int rows) {
     for(int c=126; c >= 32; c--) {
         int row = 0;
@@ -458,9 +487,10 @@ static int matched(const uint8_t* cell, char style, int rows) {
     return(0);
 }
 
-// The character in a cell: as it is, or white on black; or, less its
-// bottom row, underlined (a link), in bold (a fused word) or leaning (a
-// label).  ? where nothing matches.
+// Returns the character in the cell at a screen position.  It tries the
+// plain glyph, then the glyph in white on black.  Then, ignoring the
+// bottom row, it tries the glyph underlined (a link), in bold (a fused
+// word) and in italic (a label).  Returns ? if nothing matches.
 static int read_cell(int x, int y) {
     uint8_t cell[ROWS], inverse[ROWS];
     cell_at_screen(x, y, cell);
@@ -473,16 +503,18 @@ static int read_cell(int x, int y) {
     return(c ? c : '?');
 }
 
-// A row of character cells from a place, less the blanks at its end.
+// Reads a row of `cols` character cells starting at a screen position
+// into `text`, without trailing spaces.
 static void read_row(int x, int y, int cols, char* text) {
     for(int c=0; c < cols; c++) text[c] = (char)read_cell(x + c * 8, y);
     while (cols && text[cols - 1] == ' ') cols--;
     text[cols] = '\0';
 }
 
-// Is this text on the screen at a place, in a font?  For text that is not
-// on a grid: every pixel of every glyph is to be as the glyph has it, in
-// bold if `is_bold`, or with `inverse` the other.
+// Returns true if text is on the screen at a position, in a font.  This
+// is for text that is not on a grid.  Every pixel of every glyph must
+// match the glyph, drawn in bold if `is_bold`, and with black and white
+// swapped if `inverse`.
 static bool shows_text(const char* text, int x, int y, const font* f, bool is_bold, bool inverse) {
     for(; *text; text++) {
         int width, start = glyph_of(f, (unsigned char)*text, &width);
@@ -502,14 +534,16 @@ static bool shows(const char* text, int x, int y, const font* f, bool inverse) {
     return(shows_text(text, x, y, f, false, inverse));
 }
 
-// The disk lights (wm.fs): a floppy at the right of the bar for each disk
-// the machine has, the first disk's rightmost and each next one a light's
-// width to its left, which is the first number of disk-corner.  A floppy is
-// one of the first four glyphs of the font spin, a quarter turn apart, ten
-// pixels in from the left of its light and two down.  The machine has two
-// disks, the one it is given or starts from and the pictures': so there is
-// to be a floppy for each of those, and not a pixel where a third's would
-// be.  (A machine once showed sixteen, and nothing looked.)
+// Checks the disk lights (wm.fs).  There is a floppy at the right end of
+// the bar for each disk the machine has.  The first disk's is rightmost,
+// and each later disk's is one light's width further left; that width is
+// the first number of disk-corner.  A floppy is one of the first four
+// glyphs of the font spin, which are a quarter turn apart.  It is drawn
+// ten pixels in from the left edge of its light and two pixels down.  The
+// machine has two disks: the one it is given or starts from, and the
+// pictures' disk.  So there must be a floppy for each of those, and no
+// black pixel where a third disk's floppy would be.  (A machine once
+// showed sixteen lights, and no test noticed.)
 static bool lights_right(char* why) {
     enum { IN = 10, DOWN = 2, TURNS = 4, DISKS = 2 };
     static font spin;
@@ -543,9 +577,10 @@ static bool lights_right(char* why) {
 
 // ---- where the windows are
 
-// The windows, in the order desk.fs says where each goes; their titles;
-// and where each is expected to be, and which are open and in front of
-// which, as the checks move, close and open them.
+// The windows, in the order desk.fs lists their positions; their titles;
+// and the test's record of where each window should be, which windows are
+// open, and their back-to-front order, kept up to date as the checks move,
+// close and open them.
 enum { VIEWER, EDITOR, WORDS, CALC, FORTH, PAINT, WINDOWS };
 static const char* NAMED[] = { "viewer", "editor", "words", "calc", "forth", "paint" };
 static const char* TITLES[] = { "Mandrill", "Editor", "Words", "Calculator", "Forth", "HexaPaint" };
@@ -554,6 +589,8 @@ static struct { int x, y, w, h; } rect[WINDOWS];
 static int order[WINDOWS];      // the open windows, from the back to the front
 static int open_wins;
 
+// Returns the index of the window with a given name, and exits if there
+// is none.
 static int window(const char* name, size_t len) {
     for(int n=0; n < WINDOWS; n++) {
         if (strlen(NAMED[n]) == len && !strncmp(NAMED[n], name, len)) return(n);
@@ -562,7 +599,8 @@ static int window(const char* name, size_t len) {
     exit(EXIT_FAILURE);
 }
 
-// The top left of what is inside a window's frame, under its title.
+// Return the top left corner of a window's content: the area inside its
+// frame, under its title.
 static int content_x(int n) { return(rect[n].x + 1); }
 static int content_y(int n) { return(rect[n].y + 19); }
 
@@ -594,22 +632,25 @@ static void close_win(int n) {
     for(; at < open_wins; at++) order[at] = order[at + 1];
 }
 
-// A window's line of the menu: in the order they were made, the last first.
+// Returns the line of the menu a window is on.  The menu lists the
+// windows in the order they were created, newest first.
 static int menu_line(int n) {
     int at = 0;
     while (BACK_TO_FRONT[WINDOWS - 1 - at] != n) at++;
     return(at);
 }
 
-// Is a place of the screen under a window, or just outside its frame?
+// Returns true if a screen position is under a window, or just outside
+// its frame.
 static bool under(int x, int y, int n) {
     return(x >= rect[n].x - 2 && x < rect[n].x + rect[n].w + 4 && y >= rect[n].y - 2 && y < rect[n].y + rect[n].h + 4);
 }
 
-// A point of a window's title bar, left of its x, that no window in front
-// covers, from which the pointer can go dx and dy further and still be on
-// the screen.  The bar is 18 rows under the frame's top, and a press on any
-// of them is on the title: its middle row is tried first, then the others.
+// Finds a point on a window's title bar, left of its x, that no window in
+// front covers, and from which the pointer can move a further dx and dy
+// and stay on the screen.  The title bar is the 18 rows under the top of
+// the frame, and a press on any of them is on the title.  The middle row
+// is tried first, then the others.
 static void title_of(int n, int dx, int dy, int* tx, int* ty) {
     static const int ROWS_OF_TITLE[] = { 8, 4, 12, 2, 16 };
     int at = 0;
@@ -632,7 +673,8 @@ static void title_of(int n, int dx, int dy, int* tx, int* ty) {
     exit(EXIT_FAILURE);
 }
 
-// Is a window's title, with its x, shown as that of the window in front is?
+// These return true if a window's title, and its x, are drawn the way
+// they are for the window in front.
 static bool title_shown(int n) {
     return(shows(TITLES[n], rect[n].x + 8, rect[n].y + 2, &sans, true));
 }
@@ -643,10 +685,11 @@ static bool shown_in_front(int n) {
     return(title_shown(n) && x_shown(n));
 }
 
-// Where the windows start: desk.fs has two arrangements, for a big screen
-// and a small, each a row a window of left, top, width and height.  The
-// one this machine has is the one whose Forth window is where the screen
-// shows a window in front.  HexaPaint is at the back, and the rest are
+// Finds where the windows start.  desk.fs has two arrangements, one for a
+// large screen and one for a small screen, each with a row of left, top,
+// width and height for every window.  This machine uses the arrangement
+// whose Forth window is at a position where the screen shows a window in
+// front.  HexaPaint starts at the back, and the other windows are stacked
 // from the back in the table's order.
 static bool windows_start(void) {
     static const char* ARRANGED[] = { "big-desk", "small-desk" };
@@ -670,16 +713,16 @@ static bool windows_start(void) {
 typedef struct {
     const char* name;
     int window;
-    int dx, dy;                 // where its first cell is, from the window's content
-    int cols, rows;             // rows: 0 for as many as the window is tall
+    int dx, dy;                 // the offset of its first cell from the top left of the window's content
+    int cols, rows;             // its size in cells; rows is 0 for as many rows as fit in the window
 } grid;
 
 static const grid GRIDS[] = {
     {"forth", FORTH, 2, 2, 50, 16},
     {"calc", CALC, 6, 4, 14, 5},
     {"editor", EDITOR, 2, 2, 64, 16},
-    {"names", WORDS, 2, 0, 13, 0},          // the Words window's list,
-    {"source", WORDS, 112, 0, 45, 0},       // and the definition beside it
+    {"names", WORDS, 2, 0, 13, 0},          // the Words window's list
+    {"source", WORDS, 112, 0, 45, 0},       // the definition beside the list
     {NULL}};
 
 static const grid* grid_named(const char* name) {
@@ -693,8 +736,8 @@ static const grid* grid_named(const char* name) {
 static int grid_x(const grid* g) { return(content_x(g->window) + g->dx); }
 static int grid_y(const grid* g) { return(content_y(g->window) + g->dy); }
 
-// The rows a window's text has: as many as it says, or as many lines as
-// its content is tall.
+// Returns the number of rows a window's text has: the number in its grid,
+// or the number of lines that fit in its content.
 static int grid_rows(const grid* g) {
     int rows = g->rows ? g->rows : (rect[g->window].h - 20) / ROWS;
     return(rows < MOST_LINES ? rows : MOST_LINES);
@@ -705,9 +748,10 @@ static void read_grid(const char* name, int row, char* text) {
     read_row(grid_x(g), grid_y(g) + row * 16, g->cols, text);
 }
 
-// ---- HexaPaint's canvas, drawn in as paint.fs draws in it
+// ---- HexaPaint's canvas, drawn here the way paint.fs draws it
 
-// The patterns along the bottom of its window, in their order there.
+// The patterns along the bottom of its window, in the order they appear
+// there.
 static const char* PATTERNS[][2] = { {"display.fs", "p-white"}, {"display.fs", "p-black"},
                                      {"display.fs", "p-dkgray"}, {"display.fs", "p-gray"},
                                      {"display.fs", "p-ltgray"}, {"paint.fs", "p-brick"},
@@ -716,28 +760,31 @@ enum { WHITE, BLACK };
 #define PATTERNS_THERE ((int)(sizeof(PATTERNS) / sizeof(PATTERNS[0])))
 static pattern patterns[PATTERNS_THERE];
 
-// The tools, two to a row down the left of its window.
+// The tools, which are two to a row down the left side of its window.
 enum { PENCIL, BRUSH, ERASER, LINE, RECT, RECT_FILLED, OVAL, OVAL_FILLED };
 
-static int cw, ch;              // the canvas, in pixels;
-static uint8_t* canvas;         // its pixels as they should be, 1 if black;
-static uint8_t* shaped;         // and the same with a shape that is being pulled out
-static uint8_t* drawn;          // the one being drawn in
-static const pattern* fill;     // what a run is filled with,
-static int pen;                 // and how many pixels across and down a dot is
-static int tool, in_hand = BLACK;       // the tool and the pattern in hand
-static int from_x, from_y, to_x, to_y;  // a shape that is being pulled out
+static int cw, ch;              // the canvas's width and height in pixels
+static uint8_t* canvas;         // the pixels the canvas should have, 1 for black
+static uint8_t* shaped;         // the same, plus a shape that is being pulled out
+static uint8_t* drawn;          // whichever of those two is being drawn into
+static const pattern* fill;     // the pattern a span is filled with
+static int pen;                 // the width and height of a dot in pixels
+static int tool, in_hand = BLACK;       // the selected tool and the selected pattern
+static int from_x, from_y, to_x, to_y;  // the two corners of a shape that is being pulled out
 
-// The pixels of a row from x0 up to x1, in the pattern.
+// Fills the pixels of row y from x0 up to but not including x1 with the
+// pattern.
 static void span(int x0, int x1, int y) {
     if (y < 0 || y >= ch) return;
     for(int x=high(x0, 0); x < low(x1, cw); x++) drawn[y * cw + x] = pattern_pixel(fill, x, y);
 }
 
+// Draws one dot of the pen with its top left at x, y.
 static void dot(int x, int y) {
     for(int row=y; row < y + pen; row++) span(x, x + pen, row);
 }
 
+// Draws a line of dots from x0, y0 to x1, y1.
 static void line_of_dots(int x0, int y0, int x1, int y1) {
     int dx = abs(x1 - x0), sx = x1 < x0 ? -1 : 1;
     int dy = -abs(y1 - y0), sy = y1 < y0 ? -1 : 1;
@@ -751,11 +798,12 @@ static void line_of_dots(int x0, int y0, int x1, int y1) {
     }
 }
 
-// The rectangle two corners make, and an oval in it: half its width and
-// height, its middle, and how far it reaches at each row from the middle.
+// box() sets up the rectangle between two corners, and the oval inscribed
+// in it: half its width and height, its centre, and how far the oval
+// extends sideways at each row above or below the centre.
 static int bx0, by0, bx1, by1;
 static int half_w, half_h, mid_x, mid_y;
-static int* reach;              // a row each, from the middle to the edge and one more
+static int* reach;              // one entry per row, from the centre row to the edge, plus one more
 static void box(int x0, int y0, int x1, int y1) {
     bx0 = low(x0, x1), by0 = low(y0, y1), bx1 = high(x0, x1), by1 = high(y0, y1);
     half_w = (bx1 - bx0) >> 1, half_h = (by1 - by0) >> 1;
@@ -802,7 +850,7 @@ static void oval_frame(void) {
     }
 }
 
-// A shape's outline, which is black and a pixel wide.
+// Draws a shape's outline, which is black and one pixel wide.
 static void outline(int how, int x0, int y0, int x1, int y1) {
     fill = &patterns[BLACK], pen = 1;
     box(x0, y0, x1, y1);
@@ -811,8 +859,9 @@ static void outline(int how, int x0, int y0, int x1, int y1) {
     else oval_frame();
 }
 
-// What a tool does, pulled from a place to another with a pattern in hand.
-// The pencil, the brush and the eraser leave a line of dots.
+// Draws what a tool draws when it is pulled from one position to another
+// with a pattern selected.  The pencil, the brush and the eraser draw a
+// line of dots.
 static void pulled(int how, int with, int x0, int y0, int x1, int y1) {
     if (how < LINE) {
         fill = &patterns[how == PENCIL ? BLACK : how == BRUSH ? with : WHITE];
@@ -828,13 +877,14 @@ static void pulled(int how, int with, int x0, int y0, int x1, int y1) {
     outline(how, x0, y0, x1, y1);
 }
 
-// A place of the canvas, on the screen: the tools are 45 across.
+// Convert a canvas position to a screen position.  The tools take up the
+// 45 pixels to the left of the canvas.
 static int canvas_x(int x) { return(content_x(PAINT) + 45 + x); }
 static int canvas_y(int y) { return(content_y(PAINT) + y); }
 
-// The pixels of the canvas on the screen that are not as they should be,
-// but for a box round a place if one is given, and for what is under a
-// window if one is given.
+// Returns the number of canvas pixels on the screen that differ from
+// `should`.  If `but` is set, a small box around but_x, but_y is ignored.
+// If `covering` is a window, the pixels under that window are ignored.
 static int canvas_wrong(const uint8_t* should, bool but, int but_x, int but_y, int covering) {
     int wrong = 0;
     for(int y=0; y < ch; y++) {
@@ -847,12 +897,12 @@ static int canvas_wrong(const uint8_t* should, bool but, int but_x, int but_y, i
     return(wrong);
 }
 
-// ---- what is done
+// ---- performing a check's actions
 
-static char names[LINES_ROOM][COLS + 1];        // the Words window's list, when it was last looked for names in
-static bool found;                              // and whether the name looked for was then in it
+static char names[LINES_ROOM][COLS + 1];        // the Words window's list, as last read
+static bool found;                              // true if the name searched for was in that list
 
-static int listed(const char* name) {   // the row a name is on, or -1
+static int listed(const char* name) {   // returns the row a name is on, or -1
     for(int row=0; row < grid_rows(grid_named("names")); row++) {
         if (!strcmp(names[row], name)) return(row);
     }
@@ -860,15 +910,16 @@ static int listed(const char* name) {   // the row a name is on, or -1
 }
 
 // The machine's dictionary.  The Words window lists it in the order it is
-// searched in: what was defined on the machine, the newest first, and then
-// the image's words as cross.fs linked them, which is by how often the
-// source says each (headers-ordered).  So which word is where in the list
-// is not known here, and is asked of the machine: its memory is read, and
-// its headers gone through as the tools go through an image's
+// searched: first the words defined on the machine, newest first, and
+// then the image's words in the order cross.fs linked them, which is by
+// how often the source uses each name (headers-ordered).  So this file
+// cannot know which word is where in the list.  It reads the machine's
+// memory and walks the headers the way the tools walk an image's
 // (vm_opcodes.c).
-static char (*words)[NAME_ROOM];        // the names, in that order,
-static long nwords, words_room;         // and how many
+static char (*words)[NAME_ROOM];        // the names, in search order
+static long nwords, words_room;         // the number of names, and the allocated size
 
+// Reads the dictionary's names from the machine's memory.
 static void words_read(void) {
     size_t len;
     const uint8_t* memory = desk_memory(&len);
@@ -880,14 +931,15 @@ static void words_read(void) {
     }
 }
 
-static long word_at(const char* name) { // where a name is in the dictionary, or less than nothing
+static long word_at(const char* name) { // returns a name's index in the dictionary, or -1
     for(long n=0; n < nwords; n++) if (!strcmp(words[n], name)) return(n);
     return(-1);
 }
 
-// The list's rows are read, and which word of the dictionary its first row
-// has: less than nothing, if its rows are not words of the dictionary one
-// after another.  A row has as much of a name as the list is wide.
+// Reads the rows of the Words window's list.  Returns the dictionary index
+// of the word in its first row, or -1 if the rows are not consecutive
+// words of the dictionary.  A row shows only as much of a name as the list
+// is wide.
 static long list_read(void) {
     const grid* g = grid_named("names");
     const int rows = grid_rows(g);
@@ -902,7 +954,8 @@ static long list_read(void) {
     return(-1);
 }
 
-// Numbers after a word, with commas between or signs before.
+// Parses the numbers that follow an action's name.  They are separated by
+// commas, or each has a sign.  Returns how many there are.
 static int numbers(const char* at, int* out, int most) {
     int n = 0;
     while (n < most && (*at == '+' || *at == '-' || *at == ',' || isdigit((unsigned char)*at))) {
@@ -914,40 +967,41 @@ static int numbers(const char* at, int* out, int most) {
     return(n);
 }
 
-// A window being dragged (grab:): which, where the pointer pressed on its
-// title, how far it was moved, and the screen just before the press.
+// The window being dragged by grab: its index, the position on its title
+// where the button was pressed, the distance it has been moved, and the
+// screen just before the press.
 static struct { int w, x, y, dx, dy; uint8_t before[SCREEN_ROOM]; } grabbed;
 
-// What a check does, a word at a time:
+// Performs a check's actions, one word at a time.  The actions are:
 //
-//   'text'             typed, a key a character; \r is the return key
-//   ret down backspace pgdn ...    a key, by its name
-//   ^s                 a key with Ctrl held
-//   front:NAME         a window's title is clicked, which brings it to the front
-//   cycle:NAME         ^W, which brings the window at the back, until it is that one
-//   drag:NAME+DX+DY    a window is dragged by its title
-//   grab:NAME+DX+DY    the same, but the button is still down
-//   drop               and it goes up
-//   click:NAME+X+Y     a click in a window, from the top left of its content;
-//   click:NAME-X-Y     or back from the bottom right of its frame
-//   point:X,Y          the pointer is put at a place of the screen
-//   at:NAME+X+Y        or of a window, from the top left of its content
-//   away               the pointer is put where it is off everything
-//   menu               the title in the bar is clicked, which brings the menu down
-//   pick:NAME          a window's line of the menu is clicked
-//   hold:NAME          the button goes down on the title and up on a window's line
-//   over:NAME          the pointer is put on a window's line of the menu
-//   pmenu              the picture's title in the bar is clicked, which brings its menu down
-//   picture:LINE       a line of the picture's menu is picked (atkinson, ordered, blue, finer,
-//                      coarser, darker or lighter), and the picture looked at until it is so
-//   find:A             Right or Left, as often as brings a name into the Words window's list
-//   name:A             a name in the Words window's list is clicked
-//   tool:N pattern:N   HexaPaint's tool or pattern is clicked
-//   pull:X0,Y0,X1,Y1   the button down at a place of the canvas, the pointer to another, the button up
-//   press:X0,Y0,X1,Y1  the same, and the button is still down
-//   release            and it goes up
+//   'text'             types the text, one key per character; \r is the Return key
+//   ret down backspace pgdn ...    presses a key, given by name
+//   ^s                 presses a key with Ctrl held
+//   front:NAME         clicks a window's title, which brings it to the front
+//   cycle:NAME         presses ^W, which brings the back window forward, until NAME is in front
+//   drag:NAME+DX+DY    drags a window by its title
+//   grab:NAME+DX+DY    the same, but leaves the button held down
+//   drop               releases the button after grab:
+//   click:NAME+X+Y     clicks in a window, at an offset from the top left of its content
+//   click:NAME-X-Y     clicks at an offset back from the bottom right of its frame
+//   point:X,Y          moves the pointer to a screen position
+//   at:NAME+X+Y        moves the pointer to an offset from the top left of a window's content
+//   away               moves the pointer to a position that is over nothing
+//   menu               clicks the title in the bar, which opens the menu
+//   pick:NAME          clicks a window's line in the menu
+//   hold:NAME          presses the button on the title and releases it on a window's line
+//   over:NAME          moves the pointer onto a window's line in the menu
+//   pmenu              clicks the picture's title in the bar, which opens its menu
+//   picture:LINE       picks a line of the picture's menu (atkinson, ordered, blue, finer,
+//                      coarser, darker or lighter), and waits until the picture has been remade
+//   find:A             presses Right or Left until a name is in the Words window's list
+//   name:A             clicks a name in the Words window's list
+//   tool:N pattern:N   clicks one of HexaPaint's tools or patterns
+//   pull:X0,Y0,X1,Y1   presses the button at one canvas position, moves to another, and releases
+//   press:X0,Y0,X1,Y1  the same, but leaves the button held down
+//   release            releases the button after press:
 //
-// %W and %H in what is typed are the screen's width and height.
+// In typed text, %W and %H are replaced by the screen's width and height.
 static void does(const char* said) {
     for(const char* at = said; ; ) {
         while (*at == ' ') at++;
@@ -955,8 +1009,9 @@ static void does(const char* said) {
             desk_doing = NULL;
             return;
         }
-        // a word of it, with room for all that is said and for each %W or
-        // %H as a number, which is no more digits than three a byte
+        // The buffer for one word of the actions.  It has room for the
+        // whole text, with every %W or %H expanded to a number, which has
+        // at most three digits for each byte of an int.
         static char* word;
         const size_t room = strlen(said) * (1 + 3 * sizeof(int)) + 1;
         desk_doing = NULL;
@@ -992,7 +1047,7 @@ static void does(const char* said) {
         desk_doing = word;
         at += len;
 
-        const char* of = strchr(word, ':');     // what the word is done to: a name, or numbers, or both
+        const char* of = strchr(word, ':');     // the action's argument, after the colon: a name, numbers, or both
         of = of ? of + 1 : "";
         size_t name = isdigit((unsigned char)of[0]) ? 0 : strcspn(of, "+-,");
         int n[4] = { 0 }, count = numbers(of + name, n, 4);
@@ -1075,17 +1130,18 @@ static void does(const char* said) {
         } else if (!strncmp(word, "over:", 5)) {
             desk_pointer(80, 20 + 16 * menu_line(window(of, name)) + 8);
         } else if (!strncmp(word, "find:", 5)) {
-            // Where the list is and where the word is are both asked: the
-            // screen says which word the list's first row has, and the
-            // machine's dictionary which word is where.  The first row is
-            // clicked, which chooses its word and leaves the list where it
-            // is.  Right and Left move the choice a window of lines, and the
-            // list follows it: on by Right until the choice is its last
-            // row, and back by Left until it is its first (see.fs, wpick).
-            // So the word is in the list after as many of them as there are
-            // windows of lines between it and the choice, in whole windows.
-            // The pointer is put off the list before it is read: it is on
-            // the screen, and a row under it does not read as its word.
+            // Find both where the list is and where the word is.  The
+            // screen shows which word is in the list's first row, and the
+            // machine's dictionary gives every word's position.  A click
+            // on the first row selects its word without moving the list.
+            // Right and Left move the selection by one window of lines, and
+            // the list follows it: Right moves on until the selection is in
+            // the last row, and Left moves back until it is in the first
+            // (see.fs, wpick).  So the word is in the list after one key
+            // press for each whole window of lines between it and the
+            // selection.  The pointer is moved off the list before the list
+            // is read, because the pointer is drawn on the screen and a row
+            // under it would not read as its word.
             const grid* g = grid_named("names");
             const int rows = grid_rows(g);
             away();
@@ -1093,12 +1149,13 @@ static void does(const char* said) {
             words_read();
             long top = list_read(), wanted = word_at(of);
             found = false;
-            if (wanted < 0) {                   // a word the dictionary has not is nothing a list is gone through to
+            if (wanted < 0) {                   // the dictionary has no such word, so there is nothing to page to
                 fprintf(stderr, "deskcheck: find:%s, and the machine's dictionary has no word of that name\n", of);
                 exit(EXIT_FAILURE);
             }
-            // Where the word is not come to, the check after this fails, and
-            // what the dictionary and the screen said is why: it is said.
+            // If the word is not reached, the check after this action
+            // fails.  The state of the dictionary and of the screen is
+            // printed here to explain that failure.
             if (top >= 0) {
                 click(grid_x(g) + 8, grid_y(g) + 8);
                 away();
@@ -1121,8 +1178,9 @@ static void does(const char* said) {
                 for(int row=0; row < rows; row++) printf(" [%s]", names[row]);
                 printf("\n");
             }
-            // What works a desktop and checks nothing has no check after
-            // this to fail (bench/profile.c): it stops here.
+            // A program that drives a desktop without checking it
+            // (bench/profile.c) has no check that would fail afterwards, so
+            // it stops here.
             if (!found && !desk_checking) {
                 fprintf(stderr, "deskcheck: find:%s did not come to the word, and no check is being run that would fail for it\n", of);
                 exit(EXIT_FAILURE);
@@ -1156,7 +1214,7 @@ static void does(const char* said) {
     }
 }
 
-// ---- what else is to be so
+// ---- the further tests of the checks
 
 static bool came_up(char* why) {
     snprintf(why, WHY, "the console said: %.200s", boot);
@@ -1171,17 +1229,18 @@ static bool saved(char* why) {
     return(!memcmp(block + DISK_LINE, "( edited )", 10));
 }
 
-// The picture as it is to be shown.  A window smaller than its picture
-// shows it at half its size, each pixel the gray of four, to the nearest.
-// If that is still more than the window shows, it shows the middle: the
-// rows in the middle, and across from the middle or the start of the cell
-// of the display that is in.
-static uint8_t* dither_black;   // a byte a pixel of the picture, 1 if black;
-static int pw, ph;              // how big it is, at the size it is shown;
-static int kw, kh, px0, py0;    // and the part of it that the window shows
-static bool half;               // whether it is shown at half its size
-static uint8_t* shown_black;    // the picture as it is to be shown now: as dithered, or as the menu has it
+// The picture as it should be shown.  A window smaller than its picture
+// shows the picture at half size, where each pixel is the average gray of
+// four, rounded to the nearest.  If even that is larger than the window,
+// the window shows the middle of it: the middle rows, and the middle
+// columns, starting at the display cell that contains the first of them.
+static uint8_t* dither_black;   // the dithered picture: one byte per pixel, 1 for black
+static int pw, ph;              // its size in pixels, at the size it is shown
+static int kw, kh, px0, py0;    // the part of it the window shows: its size, and its top left in the picture
+static bool half;               // true if it is shown at half size
+static uint8_t* shown_black;    // the picture as it should be shown now: dithered, or as the menu last drew it
 
+// Computes the picture as it should be shown, the first time it is called.
 static void picture(void) {
     if (dither_black) return;
     tiff file = read_tiff(machine->picture);
@@ -1196,9 +1255,10 @@ static void picture(void) {
     shown_black = dither_black;
 }
 
-// The pixels of the picture, between two corners of the screen, that are
-// not as it is to be shown; and where they are in the picture as shown:
-// the first, and the least and most of each way.
+// picture_wrong() returns the number of pixels of the picture, inside a
+// rectangle of the screen, that differ from what should be shown.
+// wrong_at records where they are in the picture: the first wrong pixel,
+// and the bounding box of all of them.
 static struct { int x, y, x0, y0, x1, y1; } wrong_at;
 
 static int picture_wrong(int x0, int y0, int x1, int y1) {
@@ -1225,9 +1285,9 @@ static bool dithered(char* why) {
     return(!wrong && kw > 0 && kh > 0);
 }
 
-// The viewer's bitmap on the disk, from DISK_VIEW_BLOCK: as many whole rows
-// to a block as fit, laid out as the display is.  Every pixel is compared
-// with the part of the dither the window shows.
+// Checks the viewer's bitmap on the disk, which starts at DISK_VIEW_BLOCK.
+// Each block holds as many whole rows as fit, in the display's layout.
+// Every pixel is compared with the part of the dither the window shows.
 static bool view_on_disk(char* why) {
     picture();
     int stride = (kw + CELL_BITS - 1) / CELL_BITS;
@@ -1253,11 +1313,12 @@ static bool view_on_disk(char* why) {
     return(!differ);
 }
 
-// The picture's menu (the end of forth/view.fs), as the checks pick its lines: how
-// the picture is drawn (dithered, through Bayer's mask, or through blue
-// noise), how many of its pixels a side a sample of the gray is as drawn,
-// as a shift, and what is added to the mask's thresholds.  A sample is 4
-// by 4 of the picture's pixels to start with.
+// The state of the picture's menu (the end of forth/view.fs), updated as
+// the checks pick its lines: how the picture is drawn (dithered, through
+// Bayer's mask, or through blue noise); the size of a gray sample as
+// drawn, as a shift, so that a sample is 1 << pic_d pixels a side; and the
+// amount added to the mask's thresholds.  A sample starts as 4 by 4 of the
+// picture's pixels.
 static const char* PICTURE_LINES[] = { "atkinson", "ordered", "blue", "finer", "coarser", "darker", "lighter" };
 enum { PICTURE_LINE_COUNT = sizeof(PICTURE_LINES) / sizeof(PICTURE_LINES[0]) };
 static int pic_mode, pic_d = -1, pic_br;
@@ -1272,15 +1333,18 @@ static int text_width(const char* text, const font* f) {
     return(w);
 }
 
-// Where the picture's title starts in the bar: after the windows'.
+// Returns the x position where the picture's title starts in the bar,
+// which is after the windows' title.
 static int picture_title(void) { return(text_width("hexaforth", &sans) + 16); }
 
+// Returns the index of a line of the picture's menu, by name.
 static int picture_line(const char* name) {
     for(int line=0; line < PICTURE_LINE_COUNT; line++) if (!strcmp(name, PICTURE_LINES[line])) return(line);
     fprintf(stderr, "deskcheck: the picture's menu has no line %s\n", name);
     exit(EXIT_FAILURE);
 }
 
+// Updates the expected state of the picture's menu for a picked line.
 static void picture_picked(int line) {
     picture();
     if (pic_d < 0) pic_d = half ? 1 : 2;
@@ -1290,11 +1354,12 @@ static void picture_picked(int line) {
     else pic_br = high(low(pic_br + (line == 5 ? 1 : -1), 15), -15);
 }
 
-// The picture as the menu has it drawn: kept as gray at its own size, a
-// sample to 1 << (d + half) of its pixels a side, in 4 bits, and drawn
-// through the mask, a sample to 1 << d pixels a side.  Blue noise is of 64
-// by 64, or 32 by 32 where a cell is 16 bits: its thresholds as what makes
-// the disk makes them (util/bluenoise.h), and not as the disk has them.
+// Computes the picture as the menu should have drawn it.  The picture is
+// stored as gray from its full size, one 4-bit sample for each square of
+// 1 << (d + half) of its pixels a side, and is drawn through the mask with
+// each sample 1 << d pixels a side.  The blue noise is 64 by 64, or 32 by
+// 32 where a cell is 16 bits.  Its thresholds come from the code that
+// makes the disk (util/bluenoise.h), not from the disk itself.
 static void picture_expected(void) {
     picture();
     if (pic_mode == 0) {
@@ -1306,7 +1371,7 @@ static void picture_expected(void) {
     int* gray = grays_of(file.bytes, file.w, file.h, file.samples, false, &fw, &fh);
     int* level = gray_kept(gray, fw, fh, pic_d + half, 4, &gw, &gh);
     int n = pic_mode == 1 ? 8 : CELL_BITS > 16 ? 64 : 32;
-    static uint8_t* masks[65];      // by n, made once
+    static uint8_t* masks[65];      // indexed by n; each is made once
     if (!masks[n]) {
         masks[n] = malloc((size_t)n * n);
         if (pic_mode == 1) {
@@ -1324,9 +1389,10 @@ static void picture_expected(void) {
     free(file.bytes), free(gray), free(level);
 }
 
-// The picture is made again by the viewer's task while the desktop goes
-// on: it is looked at until it is as picked, which is when the task has
-// made its last rows and left the ring, or until it has had so many turns.
+// Waits for the picture to be remade.  The viewer's task remakes it while
+// the desktop keeps running.  This reads the screen until the picture
+// matches the picked line, which happens when the task has made its last
+// rows and left the ring, or until a fixed number of tries have passed.
 static void picture_made(void) {
     picture_expected();
     for(int tries=0; tries < 100; tries++) {
@@ -1347,7 +1413,8 @@ static bool as_picked(char* why) {
     return(!wrong && kw > 0 && kh > 0);
 }
 
-// The menu down, with a mark by how the picture is drawn and by no other line.
+// Returns true if the picture's menu is open, with a mark beside the line
+// for the way the picture is drawn and beside no other line.
 static bool picture_marked(char* why) {
     picture();
     int x = picture_title(), marks = 0, at = -1;
@@ -1362,11 +1429,12 @@ static bool picture_marked(char* why) {
     return(titled && marks == 1 && at == pic_mode);
 }
 
-// While a window is grabbed, the screen is as it was before the press,
-// except on the one-pixel frame of the window moved by how far the pointer
-// went, where it is inverted wherever the gray pattern has ink (wm.fs,
-// frame-xor).  The pointer, before and after it moved, and the disk light
-// are left out.
+// While a window is being dragged, the screen must be the same as before
+// the press, except along a one-pixel outline of the window at the
+// position it has been dragged to.  On that outline the screen is inverted
+// wherever the gray pattern is black (wm.fs, frame-xor).  The comparison
+// leaves out the pointer, at both its old and its new position, and the
+// disk light.
 static bool in_box(int x, int y, int bx, int by, int bw, int bh) {
     return(x >= bx && x < bx + bw && y >= by && y < by + bh);
 }
@@ -1406,7 +1474,8 @@ static bool was_found(char* why) {
     return(found);
 }
 
-// The first character in bold of the definition: its row and column.
+// The row and column of the first bold character in the definition, which
+// bold() finds.
 static int bold_row = -1, bold_col;
 static bool bold(char* why) {
     const grid* g = grid_named("source");
@@ -1423,11 +1492,13 @@ static bool bold(char* why) {
     return(bold_row >= 0);
 }
 
-// The pointer is put on a word of the definition, and the box that says
-// what instruction it is is read.  The box is a line down, or on the last
-// two lines over the word, and starts under the word unless that would
-// take it past the edge of the window, so its text is looked for from
-// there leftwards.  Is what it says the machine's form of an instruction?
+// Moves the pointer onto a word of the definition and reads the box that
+// shows the word's instruction.  The box is on the line below the word,
+// or on the line above it when the word is in the last two lines.  It
+// starts under the word unless that would put it past the edge of the
+// window, so its text is searched for from that position leftwards.
+// Returns true if the text matches `form`, a regular expression for an
+// instruction's value and fields.
 static bool told(int row, int col, const char* shot_name, const char* form, char* why) {
     const grid* g = grid_named("source");
     char text[COLS + 1] = "";
@@ -1451,8 +1522,9 @@ static bool fused_told(char* why) {
     return(bold_row >= 0 && told(bold_row, bold_col, "10-hover", "^[0-9A-F]{4} [^ ]*->IN [^ ]+ ->[^ ]+", why));
 }
 
-// The definition shown is of the word the dictionary has after cell+,
-// which was chosen and then left by Down.
+// Returns true if the definition shown is that of the word that follows
+// cell+ in the dictionary.  cell+ was selected, and Down then moved off
+// it.
 static bool went_on(char* why) {
     char row[COLS + 1];
     long at = word_at("cell+");
@@ -1463,8 +1535,9 @@ static bool went_on(char* why) {
     return(next && row[0] == ':' && row[1] == ' ' && !strcmp(row + 2, next));
 }
 
-// The definition as it is, to look in and to see that it is so again; and
-// the screen as it is, to see what of it changes.
+// remember() saves the definition's rows as they are now, for later tests
+// to search and to compare with.  keep() saves the whole screen, so that a
+// later test can see what changed.
 static char source[LINES_ROOM][COLS + 1];
 static bool remember(char* why) {
     (void)why;
@@ -1488,8 +1561,8 @@ static bool a_number(char* why) {
     return(numbered);
 }
 
-// A word that is an instruction by itself says so too: the dup that the
-// first line of dither-start has.
+// A word that is a single instruction on its own also gets a box.  This
+// checks the `dup` in the first line of dither-start.
 static bool word_told(char* why) {
     const char* dup = strstr(source[1], "dup");
     snprintf(why, WHY, "the first line has no dup: %s", source[1]);
@@ -1497,7 +1570,8 @@ static bool word_told(char* why) {
 }
 
 // A window that shows part of a text ends its first row with [PGUP] when
-// more of the text is above, and its last with [PGDN] when more is below.
+// more of the text is above, and its last row with [PGDN] when more is
+// below.
 static const char PGUP[] = "[PGUP]", PGDN[] = "[PGDN]";
 
 static bool ends_with(const char* text, const char* end) {
@@ -1505,7 +1579,8 @@ static bool ends_with(const char* text, const char* end) {
     return(n >= e && !strcmp(text + n - e, end));
 }
 
-// The first n columns of two rows, where a row that is shorter has spaces.
+// Returns true if two rows are the same in their first n columns.  A
+// shorter row is treated as padded with spaces.
 static bool same_to(const char* a, const char* b, int n) {
     for(int col=0; col < n; col++) {
         char ca = *a ? *a++ : ' ', cb = *b ? *b++ : ' ';
@@ -1514,9 +1589,10 @@ static bool same_to(const char* a, const char* b, int n) {
     return(true);
 }
 
-// The marks the Words window's definition has are where more of it is:
-// [PGUP] if its first line, the colon's, is not shown, and [PGDN] if its
-// last, the semicolon's, is not.
+// Returns true if the Words window's definition has its marks exactly
+// where more of it is hidden: [PGUP] if its first line (the one with the
+// colon) is not shown, and [PGDN] if its last line (the one with the
+// semicolon) is not shown.
 static bool words_marked(char* why) {
     const grid* g = grid_named("source");
     const int rows = grid_rows(g);
@@ -1534,10 +1610,12 @@ static bool words_marked(char* why) {
     return(up == !start && down == !end);
 }
 
-// The definition from further down: a window less a line, so that its
-// last row is now its first, if more of it is still below; or else as far
-// as fills the window, with its semicolon on the last row.  The rows are
-// compared but for the columns a mark may be in.
+// Returns true if the definition has scrolled down correctly.  If more of
+// it is still below, it must have moved by one line less than the
+// window's height, so that the old last row is now the first.  Otherwise
+// it must have moved as far as still fills the window, with its semicolon
+// on the last row.  Rows are compared without the columns where a mark
+// can be.
 static bool scrolled_down(char* why) {
     const grid* g = grid_named("source");
     const int rows = grid_rows(g), upto = g->cols - (int)strlen(PGUP);
@@ -1555,7 +1633,8 @@ static bool scrolled_down(char* why) {
     return(by > 0 && (more ? by == rows - 1 : now[rows - 1][0] == ';'));
 }
 
-// The marks the Forth window has: [PGUP] and [PGDN], as they are to be.
+// Returns true if the Forth window has [PGUP] and [PGDN] exactly as `up`
+// and `down` say.
 static bool forth_marked(bool up, bool down, char* why) {
     const grid* g = grid_named("forth");
     char first[COLS + 1], last[COLS + 1];
@@ -1577,8 +1656,8 @@ static bool box_gone(char* why) {
     return(true);
 }
 
-// The only cell of the Forth window that is all black is the cursor, and
-// the last row has nothing on it.
+// Returns true if exactly one cell of the Forth window is solid black,
+// which is the cursor, and the last row is empty.
 static bool one_cursor(char* why) {
     const grid* g = grid_named("forth");
     char last[COLS + 1];
@@ -1599,7 +1678,7 @@ static bool one_cursor(char* why) {
 static bool prints_behind(char* why) {
     const grid* g = grid_named("forth");
     int wrong = picture_wrong(rect[FORTH].x, rect[FORTH].y, rect[FORTH].x + rect[FORTH].w, rect[FORTH].y + rect[FORTH].h);
-    int cols = low(g->cols, (rect[VIEWER].x - grid_x(g)) / 8);     // of the Forth window, left of the viewer
+    int cols = low(g->cols, (rect[VIEWER].x - grid_x(g)) / 8);     // the Forth window's columns that are left of the viewer
     char text[3][COLS + 1] = { "", "", "" };
     for(int row=0; cols > 0 && row < 3; row++) read_row(grid_x(g), grid_y(g) + (12 + row) * 16, cols, text[row]);
     snprintf(why, WHY, "%d pixels of the picture differ; %d columns can be seen, and rows 12 to 14 are: %s | %s | %s",
@@ -1608,7 +1687,8 @@ static bool prints_behind(char* why) {
 }
 
 // The disk light at the right of the bar changes whenever blocks are read
-// or written, so it is left out.  Its size is disk-corner in wm.fs.
+// or written, so the comparison leaves it out.  Its size is disk-corner in
+// wm.fs.
 static bool others_same(char* why) {
     int64_t* corner;
     table("wm.fs", "disk-corner", &corner, 2);
@@ -1631,7 +1711,7 @@ static bool sees_all(char* why) {
     for(int row=0; row < ROWS; row++) {
         char text[COLS + 1];
         read_grid("forth", row, text);
-        if (strstr(text, "? -")) error = true;          // an error is ? and its number
+        if (strstr(text, "? -")) error = true;          // an error is printed as ? and its number
         if (strstr(text, "wall")) label = true;
     }
     snprintf(why, WHY, "%s", error ? "an error was printed" : "wall, which has no header, is not shown by its name");
@@ -1650,7 +1730,22 @@ static bool sees_label(char* why) {
     return(!error && named);
 }
 
-// The last line is a number, and then ok.
+// Returns true if, after the line `: until`, some line contains `code,`.
+static bool sees_shared(char* why) {
+    bool error = false, within = false, labelled = false;
+    for(int row=0; row < ROWS; row++) {
+        char text[COLS + 1];
+        read_grid("forth", row, text);
+        if (strstr(text, "? -")) error = true;
+        if (!strcmp(text, ": until")) within = true;
+        else if (within && strstr(text, "code,")) labelled = true;
+    }
+    snprintf(why, WHY, "%s", error ? "an error was printed" : !within ? "no line is : until" :
+             "until's last word is not shown as code,");
+    return(!error && labelled);
+}
+
+// Returns true if the last line is a number followed by ok.
 static bool data_place(char* why) {
     char text[COLS + 1];
     regex_t is;
@@ -1662,7 +1757,8 @@ static bool data_place(char* why) {
     return(placed);
 }
 
-// The last line ends with how many blocks were read, and then ok.
+// Returns true if the last line ends with the number of blocks read,
+// followed by ok.
 static bool see_blocks(char* why) {
     char text[COLS + 1];
     read_grid("forth", 14, text);
@@ -1679,6 +1775,9 @@ static bool see_blocks(char* why) {
     return(true);
 }
 
+// Reads the two allocation addresses the check printed.  Returns true if
+// loading the names took memory when the disk has them, and took none when
+// it does not.
 static bool memory(char* why) {
     char text[COLS + 1];
     long long out = 0, in = 0;
@@ -1694,9 +1793,9 @@ static bool memory(char* why) {
     return(machine->names ? in > out : in == out);
 }
 
-// The menu's lines that are on the screen, each where its window's is to
-// be, in bold if the window is open and plain if it is closed: how many of
-// them, and whether they are all of them.
+// Returns how many of the menu's lines are on the screen, each at its
+// window's position in the menu, in bold if the window is open and plain
+// if it is closed.
 static int menu_lines(void) {
     int lines = 0;
     for(int at=0; at < WINDOWS; at++) {
@@ -1775,7 +1874,8 @@ static bool paint_front(char* why) {
     return(canvas_right(why) && shown_in_front(PAINT));
 }
 
-// The pointer is on the shape's corner, so that is left out.
+// The pointer is drawn over the shape's corner, so the comparison leaves
+// that corner out.
 static bool shape_shown(char* why) {
     memcpy(shaped, canvas, (size_t)cw * ch);
     drawn = shaped;
@@ -1785,15 +1885,16 @@ static bool shape_shown(char* why) {
     return(!wrong);
 }
 
-static uint64_t disk_cell(const uint8_t* bytes, size_t n) {     // a cell of the disk's, its lowest byte first
+static uint64_t disk_cell(const uint8_t* bytes, size_t n) {     // returns cell n of some disk bytes; a cell is stored lowest byte first
     uint64_t cell = 0;
     for(int idx=CELL_BYTES - 1; idx >= 0; idx--) cell = cell << 8 | bytes[n * CELL_BYTES + idx];
     return(cell);
 }
 
-// The canvas as the disk has it.  A block says it is there, and its size;
-// then its rows, as many whole rows to a block as a block holds, a row a
-// whole number of cells with its pixels as the display has them.
+// Checks the canvas stored on the disk.  The first block records that a
+// canvas is there, and its size.  The rows follow, as many whole rows to
+// a block as fit.  A row is a whole number of cells, with its pixels in
+// the display's layout.
 static bool on_disk(char* why) {
     int stride = (cw + CELL_BITS - 1) / CELL_BITS;
     int rows_a_block = DISK_BLOCK / CELL_BYTES / stride;
@@ -1820,15 +1921,16 @@ static bool on_disk(char* why) {
     return(!differ);
 }
 
-// The calculator, which is in front, is pulled to where it is over the
-// middle of what was drawn, and back.
+// Drags the calculator, which is in front, to a position over the middle
+// of the drawing, and back again.  Then checks that the canvas is
+// repainted correctly where the calculator no longer covers it.
 static bool from_disk(char* why) {
     int dx = canvas_x(100) - rect[CALC].x, dy = content_y(PAINT) - 5 - rect[CALC].y;
     int x, y, under_it = 0, seen = 0;
     title_of(CALC, 0, 0, &x, &y);
     drag(x, y, x + dx, y + dy);
     rect[CALC].x += dx, rect[CALC].y += dy;
-    for(int cy=0; cy < ch; cy++) {              // of the drawing, what the window is over
+    for(int cy=0; cy < ch; cy++) {              // count the black pixels of the drawing that the window covers
         for(int cx=0; cx < cw; cx++) under_it += canvas[cy * cw + cx] && under(canvas_x(cx), canvas_y(cy), CALC);
     }
     title_of(CALC, -dx, -dy, &x, &y);
@@ -1845,11 +1947,12 @@ static bool from_disk(char* why) {
     return(under_it > 500 && seen > 5000 && !wrong);
 }
 
-// ---- the checks, run
+// ---- running the checks
 
 // The first line of block 1 of the machine's disk, as it was when the
-// desktop came up: what the editor opens on.  It is the disk's to say: a
-// disk the machine starts from has there what its boot loads.
+// desktop came up.  The editor opens on that block.  The line is read
+// from the disk and not assumed, because a disk the machine starts from
+// has its boot source there.
 static char first_line[DISK_LINE + 1];
 
 static void block1_read(void) {
@@ -1861,9 +1964,9 @@ static void block1_read(void) {
     first_line[wide] = '\0';
 }
 
-// A text a check has, with what the machine says of itself in it: the
-// second and the third word of its dictionary as it now is, which is read
-// for them, and the first line of its disk's block 1.
+// Copies a check's text to `out`, replacing %1 and %2 with the second and
+// third words of the machine's dictionary as it is now (which is read if
+// they are needed), and %b with the first line of block 1 of its disk.
 static void with_names(const char* text, char* out, size_t len) {
     size_t n = 0;
     bool read = false;
@@ -1880,8 +1983,10 @@ static void with_names(const char* text, char* out, size_t len) {
     out[n < len ? n : len - 1] = '\0';
 }
 
-// (What is wanted is no longer than the text it is wanted of is wide: a
-// name of the dictionary's may be, and the list has as much of it as fits.)
+// Returns true if a row of a window's text matches what a check expects.
+// The expected text is cut to the width of the window's text, because a
+// name from the dictionary can be longer than the list is wide, and the
+// list shows only as much of it as fits.
 static bool is_seen(const seen* s, char* why) {
     char text[COLS + 1], want[COLS + 1];
     read_grid(s->grid, s->row, text);
@@ -1899,8 +2004,8 @@ static bool is_seen(const seen* s, char* why) {
     return(is);
 }
 
-// What is read from the Forth before anything is looked at: the fonts and
-// the patterns.
+// Reads the fonts and the patterns from the Forth source.  This runs
+// once, before the screen is examined.
 static void begin(const desk* on) {
     if (machine) return;
     machine = on;
@@ -1933,18 +2038,19 @@ bool desk_begins(const desk* on) {
     block1_read();
     desk_checking = NULL;
     if (!windows_start()) return(false);
-    // The canvas is HexaPaint's content, less its tools down the left and
-    // its patterns along the bottom.
+    // The canvas is HexaPaint's content area without the tools down its
+    // left side and the patterns along its bottom.
     cw = rect[PAINT].w - 2 - 45, ch = rect[PAINT].h - 20 - 21;
     canvas = calloc((size_t)cw * ch, 1);
     shaped = calloc((size_t)cw * ch, 1);
     return(true);
 }
 
-// Every window closed but one, which is then held by its title as it is to
-// be dragged, closed with ^Q, and let go.  Which one is left is what the
-// checks before left in front.  The machine is to go on: no window is
-// moved, and nothing is stored where none is.
+// Closes every window except one.  That window is then held by its title
+// as if to drag it, closed with ^Q, and the button is released.  The
+// window left is whichever one the earlier checks left in front.  The
+// machine must keep running: it must not move a window, and must not
+// store through a window that no longer exists.
 static bool last_dragged(char* why) {
     while (open_wins > 1) does("^q");
     char said[64];
@@ -1982,6 +2088,6 @@ int desk_checks(const desk* on) {
         printf("\n");
     }
     desk_checking = NULL;
-    if (!checks) failed++;      // nothing was checked
+    if (!checks) failed++;      // no check ran, which is a failure
     return(failed);
 }

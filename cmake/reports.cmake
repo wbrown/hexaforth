@@ -54,9 +54,7 @@ report(screenshot
 # in it).  What that work costs is then said three ways from the counts
 # (bench/costs.c): each word with all it calls, the loops, and the
 # variables, of every source file or of those PROFILE_FILES names.  Last
-# the encoding is laid out against the work (util/survey.c), and the loops
-# that ran are each looked at for fewer instructions that do a turn
-# (bench/shorter.c).
+# the encoding is laid out against the work (util/survey.c).
 set(PROFILE ${BUILD}/profile)
 set(PROFILE_FILES "" CACHE STRING "the source files whose variables the profile says the cost of: all, if none")
 stepping_tool(survey util/survey.c util/image.c)
@@ -70,11 +68,26 @@ report(profile
                             2> ${PROFILE}/costs.log
         COMMAND           survey ${NUC} ${TABLES} ${PROFILE}/desktop.counts ${PROFILE}/survey.txt
                             2> ${PROFILE}/survey.log
-        COMMAND           shorter ${NUC} ${TABLES} ${PROFILE}/desktop.counts ${PROFILE}/shorter.txt
-                            2> ${PROFILE}/shorter.log
         COMMAND           ${KEEP} profile ${NUC} ${PROFILE}/profile.txt ${PROFILE}/desktop.counts ${PROFILE}/paths.txt
-                            ${PROFILE}/loops.txt ${PROFILE}/vars.txt ${PROFILE}/survey.txt ${PROFILE}/shorter.txt
+                            ${PROFILE}/loops.txt ${PROFILE}/vars.txt ${PROFILE}/survey.txt
         COMMENT           "The desktop's work, by place (${PROFILE}/profile.log says what went wrong, if anything did)")
+# The profile makes desktop.counts, the work by place.  A target that reads
+# that file runs the profile first.
+owned(profile ${PROFILE}/desktop.counts)
+
+# `shorter-loops`: for each loop that ran in that work, a search for the
+# fewest instructions that do one turn, with the words the loop calls
+# inlined and the values kept wherever is shortest (bench/shorter.c).  It
+# is a separate target because its searches are slow.  It writes each
+# result to build/shorter-loops/shorter.txt as it finds it, and the loop it
+# is searching to shorter.log there.
+set(LOOPS ${BUILD}/shorter-loops)
+report(shorter-loops
+        COMMAND           ${MKDIR} ${LOOPS}
+        COMMAND           shorter ${NUC} ${TABLES} ${PROFILE}/desktop.counts ${LOOPS}/shorter.txt
+                            2> ${LOOPS}/shorter.log
+        COMMAND           ${KEEP} shorter-loops ${NUC} ${LOOPS}/shorter.txt
+        COMMENT           "The loops that ran in the desktop's work, searched for fewer instructions (${LOOPS}/shorter.log says how far it has got)")
 
 # `subtracts`: where the desktop's work takes one number from another, how
 # often, and what is taken away (bench/uses.c, which says how it finds a
@@ -123,8 +136,6 @@ report(subtracts
 #   and each instruction it made is looked for in the decompiler's table,
 #     which is made of what cross.fs put in the image (bench/typed.c, shown)
 set(PEEPHOLE ${BUILD}/peephole)
-machine_tool(runs bench/runs.c)
-machine_tool(typed bench/typed.c)
 tool(weigh bench/weigh.c vm_opcodes.c vm_debug.c)
 report(peephole
         COMMAND           ${MKDIR} ${PEEPHOLE}/desktop
@@ -149,7 +160,7 @@ report(peephole
         COMMAND           weigh ${PEEPHOLE}/typed.txt ${SIZES} ${PEEPHOLE} desktop draw
                             > ${PEEPHOLE}/peephole.txt 2> ${PEEPHOLE}/weigh.log
         COMMAND           pair-rules seen ${NUC} ${PEEPHOLE}/typed.txt > ${PEEPHOLE}/seen.txt 2> ${PEEPHOLE}/seen.log
-        COMMAND           typed shown ${PEEPHOLE}/typed.txt forth/fused.fs
+        COMMAND           typed shown ${PEEPHOLE}/typed.txt ${TABLE_OF_${FIRST}}
                             > ${PEEPHOLE}/shown.txt 2> ${PEEPHOLE}/shown.log
         COMMAND           ${CAT} ${PEEPHOLE}/peephole.txt ${PEEPHOLE}/seen.txt ${PEEPHOLE}/shown.txt
         COMMAND           ${KEEP} peephole ${NUC} ${PEEPHOLE}/peephole.txt ${PEEPHOLE}/seen.txt ${PEEPHOLE}/shown.txt

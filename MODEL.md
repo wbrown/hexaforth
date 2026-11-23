@@ -260,9 +260,9 @@ Hercules card has four banks: with 16-bit cells its rows are 45 cells long
 and its banks are 4,096 cells apart.
 
 The Forth system assumes no particular pixel order, polarity or row layout.
-The toolchain takes them from the machine definition: fonts are laid down
-with their pixels in the machine's order, and three words are defined to
-match, on which all drawing is built: the address of a row, the mask for a
+The toolchain takes them from the machine definition. Fonts are compiled
+with their pixels in the machine's order, and all drawing is built on three
+words that are defined to match: the address of a row, the mask for a
 pixel, and setting or clearing ink. No drawing code moves from one row to
 the next by adding to an address.
 
@@ -277,8 +277,8 @@ The bitmap starts at a cell address that is a single shifted literal, a
 12-bit value shifted left by 12, so that loading the address is one
 instruction and adding it to an offset is one instruction. On the hosted
 machine it is cell `0x4000`, which is 4 shifted by 12 and is the first cell
-after the 128KB image. It is 6,912 cells long, and what the system gives
-out at run time (`halloc`) starts after it.
+after the 128KB image. It is 6,912 cells long, and the memory the system
+allocates at run time (`halloc`) starts after it.
 
 The Forth system draws this way, in `display.fs`. Of the implementations,
 the AArch64 kernels show the bitmap on QEMU through the bridge in
@@ -312,44 +312,45 @@ and then waits for one.
 
 ## Other devices
 
-A device is not part of the machine. It is reached through ports by a
-driver written in Forth, and a machine of any kind (the reference VM, QEMU,
-the Verilog, hardware) has the devices it has. The keyboard, pointer and
-disk of the machine the AArch64 kernels run on are QEMU's virtio devices,
-reached through the last two rows above (`virtio-disk.fs`, which is in
-that machine's ROM, and `virtio.fs` and `virtio-input.fs`). What the system needs from a keyboard and a pointer is
-a word that passes their events to `on-event` (`wm.fs`).
+A device is not part of the machine. A driver written in Forth reaches it
+through ports, and each kind of machine (the reference VM, QEMU, the
+Verilog, hardware) has its own devices. The machine the AArch64 kernels run
+on has QEMU's virtio keyboard, pointer and disk, reached through the last
+two rows above (`virtio-disk.fs`, which is in that machine's ROM, and
+`virtio.fs` and `virtio-input.fs`). From a keyboard and a pointer, the
+system needs a word that passes their events to `on-event` (`wm.fs`).
 
-What the system needs from a disk is two words, to read and to write a
-1,024-byte block, which are put in the kernel's vectors `'blk-read` and
-`'blk-write` (`nuc.fs`); `blocks.fs` builds on them. A disk is no more
-than 1,024 blocks, what an 8-inch floppy holds, and a machine may have
-several: the one it starts from, and others, which the pictures are on. A
-machine has the disks it has, and its ROM has the driver for the one it
-starts from: a file of its own, which
-the build of that machine's image names and the nucleus does not
-(`port-disk.fs` for the controller below; `virt-disk.fs`, with
-`virtio-disk.fs`, for QEMU's). When the machine starts it asks that driver
-whether the disk is there, reads the image through it, and puts its words
-in the vectors. Nothing in the nucleus or the system names a controller.
+From a disk, the system needs two words: one to read a 1,024-byte block and
+one to write it. They are stored in the kernel's vectors `'blk-read` and
+`'blk-write` (`nuc.fs`), and `blocks.fs` builds on them. A disk has at most
+1,024 blocks, the capacity of an 8-inch floppy. A machine can have several
+disks: the one it starts from, and others, which hold the pictures. A
+machine's ROM has the driver for the disk it starts from. The driver is a
+file of its own. The build of that machine's image names the file, and the
+nucleus does not (`port-disk.fs` for the controller below; `virt-disk.fs`,
+with `virtio-disk.fs`, for QEMU's). When the machine starts, it asks that
+driver whether the disk is present, reads the image through it, and stores
+the driver's words in the vectors. No code in the nucleus or the system
+names a controller.
 
-A machine may have several disks, and a block's number says which disk as
-well: it is 16 bits, the top four the disk and the other twelve the block
-on it (`vm_constants.h`). So a number with no disk in it is of disk 0,
-there are at most sixteen disks, and a disk is at most 4,096 blocks. A
-driver is given such a number, and reading a block of a disk that is not
-there gives 1,024 bytes of nothing.
+A block's number also selects the disk. The number is 16 bits: the top four
+are the disk, and the other twelve are the block on that disk
+(`vm_constants.h`). So a plain block number means disk 0, there are at most
+sixteen disks, and a number reaches at most 4,096 blocks of a disk. A
+driver is given such a number. Reading a block of a disk that is not
+present gives 1,024 zero bytes.
 
-One such controller is three ports, which the reference VM (`vm.c`) has,
-with a file it is given as each disk. Port `0xb0` holds a block's number,
-disk and all, and reads as the number of blocks on the disk that number is
-of. Writing a cell address to port `0xb1` reads that block into the 1,024
-bytes starting at that cell; writing one to port `0xb2` writes the block
-from there. A machine without the controller reads them as zero and
-writing them does nothing, as with any port a machine doesn't have.
+One such controller is three ports. The reference VM (`vm.c`) has it, with
+a file for each disk. Port `0xb0` holds a block's number, including the
+disk, and reads as the number of blocks on the disk that number selects.
+Writing a cell address to port `0xb1` reads that block into the 1,024 bytes
+starting at that cell. Writing a cell address to port `0xb2` writes the
+block from there. A machine without the controller reads these ports as
+zero, and writing them does nothing, as with any port a machine doesn't
+have.
 
 Two more ports are specific to this VM, for debugging: port `0xf0`, and port
-`0xe0` when written (`8emit` and `.s` in `vm_opcodes.h`). Neither yet does
-quite what it is meant to. A cell written to the first sends its low byte
-followed by bytes that aren't from the cell, and anything written to the
-second prints one cell of each stack.
+`0xe0` when written (`8emit` and `.s` in `vm_opcodes.h`). Neither works as
+intended yet. A cell written to the first sends its low byte followed by
+bytes that aren't from the cell, and anything written to the second prints
+one cell of each stack.

@@ -1,31 +1,33 @@
 //
 // dither_test IMAGE.hex [SEED]
 //
-// The dither of forth/atkinson.fs, against a dither a pixel at a time.
+// Tests the dither in forth/atkinson.fs against a dither that works one
+// pixel at a time.
 //
-// It is a contrastive test: the dither it is compared with (dither.c) is
-// made apart from the machine's, and nothing is built from it.  The
-// machine works a cell of lanes at a time and that a pixel at a time, as
-// the dither is described, and the two are to make the same bitmap, every
-// cell of it.
+// It is a contrastive test.  The reference dither (dither.c) was written
+// independently of the machine's, and nothing is built from it.  The
+// machine works on a cell of lanes at a time.  The reference works on one
+// pixel at a time, directly from the description of the algorithm.  The
+// two must produce the same bitmap, in every cell.
 //
-// The machine is the nucleus on vm.c, typed at (nucleus.h).  For each test
-// the machine is started again, a picture's bytes are put in the memory it
-// is about to give out, and what dithers it is typed at the prompt: image-is,
-// and then atkinson, or dither-part or dither-half and dither-row.  What
-// the typing leaves on the data stack says where the bitmap is, and the
-// bitmap is read out of the machine's memory.
+// The machine is the nucleus on vm.c (nucleus.h).  For each test the
+// machine is restarted, a picture's bytes are copied into the memory the
+// machine is about to allocate, and the words that dither it are typed at
+// the prompt: image-is, and then atkinson, or dither-part or dither-half
+// followed by dither-row.  The typed lines leave the bitmap's address on
+// the data stack, and the bitmap is read out of the machine's memory.
 //
-// The pictures are of one sample and of three, and of widths that are and
-// are not whole cells of the image's own bytes, of lanes and of pixels, so
-// that both ways the grays are had and every end of a row are tried.  They
-// are dithered whole, a part of them, and at half their size, and two a
-// row of each in turn, each with its own image and its own dither.  A
-// picture's bytes are taken by chance, the same every time for a seed.
+// The pictures have one sample per pixel or three.  Their widths are
+// chosen to be, and not to be, a whole number of cells of the picture's
+// bytes, of lanes, and of pixels.  That tests both ways the machine reads
+// grays, and every case at the end of a row.  A picture is dithered whole,
+// in part, and at half size.  Two pictures are also dithered a row at a
+// time in turn, each with its own image and its own dither state.  A
+// picture's bytes are random, and the same every time for a given seed.
 //
-// It says how many pictures and how many cells of bitmap it compared, and
-// how many of the pictures the machine had the grays of a cell at a time.
-// It fails if either is none: then it found nothing to test.
+// It prints how many pictures and how many bitmap cells it compared, and
+// for how many pictures the machine read the grays a cell at a time.  It
+// fails if either of the last two is 0, because then it tested nothing.
 //
 
 #include <stdbool.h>
@@ -39,7 +41,8 @@
 #define BITS    CELL_BITS
 #define BYTES   CELL_BYTES
 
-// An image: pixels across and down, and the samples of a pixel, one or three.
+// A picture: its width and height in pixels, and its samples per pixel,
+// one or three.
 typedef struct {
     int w, h;
     int samples;
@@ -48,17 +51,17 @@ typedef struct {
 typedef struct {
     const char* label;
     picture a;
-    bool half;                  // it is dithered at half its size
-    int px, py, pw, ph;         // the part of what is dithered that is kept: all of it, if pw is 0
-    picture b;                  // another, dithered a row in turn with the first, if it has a width
+    bool half;                  // true if it is dithered at half size
+    int px, py, pw, ph;         // the part of the dithered picture that is kept; all of it if pw is 0
+    picture b;                  // a second picture, dithered row by row in turn with the first; unused if its width is 0
 } dither_test;
 
-// The tests are of the machine's cell, which is known when this runs: so
-// they are said then (tests_said).
+// The tests depend on the machine's cell size, which is known only when
+// the program runs.  So tests_said() fills the table then.
 static dither_test TESTS[64];
 static void tests_said(void) {
   const dither_test now[] = {
-    // Whole, at their own size.
+    // Whole pictures, at full size.
     {.label = "three samples, eight pixels to three cells", .a = {64, 10, 3}},
     {.label = "three samples, a width that is whole cells", .a = {40, 9, 3}},
     {.label = "three samples, an odd width", .a = {37, 11, 3}},
@@ -79,12 +82,12 @@ static void tests_said(void) {
     {.label = "one sample, a cell more than two cells of pixels", .a = {2 * BITS + BYTES, 4, 1}},
     {.label = "one sample, a pixel more than whole cells", .a = {5 * BYTES + 1, 6, 1}},
 
-    // Two at once.
+    // Two pictures at once.
     {.label = "two at once, of three samples and of one", .a = {48, 7, 3}, .b = {30, 7, 1}},
     {.label = "two at once, both of three samples", .a = {64, 5, 3}, .b = {64, 5, 3}},
     {.label = "two at once, both of one sample", .a = {6 * BYTES, 7, 1}, .b = {9 * BYTES, 7, 1}},
 
-    // A part: where it starts across is where a cell of the bitmap starts.
+    // A part of a picture.  Its left edge is at the start of a bitmap cell.
     {.label = "a part, three samples",
      .a = {3 * BITS + 7, 12, 3}, .px = BITS, .py = 3, .pw = BITS + 9, .ph = 5},
     {.label = "a part that is one cell across, three samples",
@@ -94,8 +97,8 @@ static void tests_said(void) {
     {.label = "a part, one sample in whole cells",
      .a = {3 * BITS, 9, 1}, .px = BITS, .py = 2, .pw = BITS + 9, .ph = 5},
 
-    // At half their size.  A row of an odd number of pixels has one over,
-    // and an odd number of rows a row.
+    // At half size.  A row with an odd number of pixels has one pixel left
+    // over, and a picture with an odd number of rows has one row left over.
     {.label = "at half its size, three samples", .a = {4 * BITS, 10, 3}, .half = true},
     {.label = "at half its size, three samples, a pixel and a row over",
      .a = {4 * BITS + 6 + 1, 9, 3}, .half = true, .px = BITS, .py = 1, .pw = BITS + 3, .ph = 3},
@@ -113,9 +116,10 @@ static void tests_said(void) {
   memcpy(TESTS, now, sizeof(now));
 }
 
-static uint64_t room;           // the cell the machine gives out first
+static uint64_t room;           // the address of the first cell the machine allocates
 
-// Bytes by chance, the same every time.
+// Returns a pseudo-random byte.  The sequence is the same on every run
+// with the same seed.
 static uint64_t seed;
 static uint8_t chance(void) {
     seed ^= seed << 13;
@@ -124,9 +128,10 @@ static uint8_t chance(void) {
     return(seed >> 32);
 }
 
-// The cells a bitmap should be: of a picture's bytes, dithered whole or at
-// half its size a pixel at a time (dither.c), the part that is kept.
-// Returns how many cells there are, a row being *stride of them.
+// Computes the cells the bitmap should contain: the picture's bytes
+// dithered one pixel at a time (dither.c), whole or at half size, and then
+// the part that is kept.  Returns the number of cells, and sets `*stride`
+// to the number of cells in a row.
 static int expected(const dither_test* test, const picture* p, const uint8_t* bytes,
                     uint64_t** cells, int* stride) {
     int w, h;
@@ -146,8 +151,8 @@ static int expected(const dither_test* test, const picture* p, const uint8_t* by
 
 static int pictures, compared, by_cell, failed;
 
-// One test: its pictures put in the machine's memory and dithered there,
-// and each bitmap looked at.
+// Runs one test: copies its pictures into the machine's memory, has the
+// machine dither them, and compares each bitmap.
 static void run(const dither_test* test) {
     const picture* p[2] = { &test->a, &test->b };
     int count = test->b.w ? 2 : 1;
@@ -160,8 +165,9 @@ static void run(const dither_test* test) {
         for(size_t idx=0; idx < len[n]; idx++) bytes[n][idx] = chance();
     }
 
-    // The pictures are one after the other in what the machine gives out
-    // first, each from where a cell starts, a cell's lowest byte its first.
+    // The pictures are placed one after the other in the memory the
+    // machine allocates first.  Each starts at the start of a cell, and a
+    // cell's lowest byte is its first byte.
     start();
     if (!in_memory(room, cells[0] + cells[1])) {
         fprintf(stderr, "dither_test: %s: the machine has no room for it\n", test->label);
@@ -190,9 +196,10 @@ static void run(const dither_test* test) {
     } else {
         line("b0 i0 atkinson");
     }
-    // Left on the stack: where the pictures are, and of each whether its
-    // grays are had a cell at a time, where its bitmap is, and the cells
-    // of a row of that.
+    // The lines leave on the stack the address of the pictures, and then
+    // for each picture: whether the machine reads its grays a cell at a
+    // time, the address of its bitmap, and the number of cells in a row of
+    // the bitmap.
     line("r0");
     for(int n=0; n < count; n++) {
         line("i%d image! pixels %s @ 0<>  b%d @  b%d 1+ @", n, test->half ? "'pairs" : "'grays", n, n);
@@ -251,14 +258,15 @@ int main(int argc, char *argv[]) {
     }
     int given = argc > 2 ? atoi(argv[2]) : 1;
     seed = 0x9e3779b97f4a7c15ull * (uint64_t)(given + 1);
-    if (!seed) seed = 1;        // nothing comes of nothing
-    alarm(600);                 // a machine that does not stop is stopped
+    if (!seed) seed = 1;        // a zero seed would produce only zeros
+    alarm(600);                 // kill the test if the machine never stops
 
     nucleus_is(argv[1]);
     tests_said();
 
-    // What the machine gives out first is where it puts a picture, and is
-    // the same every time it is started.
+    // Find the address of the memory the machine allocates first.  That
+    // is where a picture goes, and it is the same every time the machine
+    // is started.
     start();
     line("0 halloc");
     type();

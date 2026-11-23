@@ -1,17 +1,19 @@
 //
 // grays PICTURE.tiff GRAYS.tiff SMALL.tiff
 //
-// A picture's grays as a one-sample TIFF (GRAYS.tiff), and its grays at
-// half size (SMALL.tiff).  The grays are the dither's own (test/dither.c),
-// so the colour and gray files dither to the same bitmap, and the
-// half-size grays dither to the picture dithered at half size.
+// Writes a picture's grays as a one-sample TIFF (GRAYS.tiff), and its
+// grays at half size (SMALL.tiff).  The grays are computed the way the
+// reference dither computes them (test/dither.c).  So the colour file and
+// the gray file dither to the same bitmap, and the half-size grays dither
+// to the same bitmap as the picture dithered at half size.
 //
-// The benchmarks dither all three, and each is on a disk a machine is
-// given, under a label: the Mandrill on the pictures' disk, as the desktop
-// has it, and these two on a disk of their own (cmake/bench.cmake, which has
-// mkdisk --disk make it).  A disk is no more than a floppy holds, which
-// the three together are more than.  bench/pictures.fs, typed at the
-// machine, finds each by its label.
+// The benchmarks dither all three pictures.  Each is on a disk the machine
+// is given, under a label.  The Mandrill is on the pictures' disk, where
+// the desktop has it.  These two are on a disk of their own, which
+// cmake/bench.cmake makes with mkdisk --disk, because a disk holds no more
+// than a floppy and the three pictures together are larger than that.
+// bench/pictures.fs, typed at the machine, finds each picture by its
+// label.
 //
 
 #include <stdio.h>
@@ -20,8 +22,8 @@
 #include "../test/dither.h"
 #include "tiff.h"
 
-// A picture's grays as a one-sample TIFF, at full size or half size.
-// Returns the file, which the caller frees, and sets *len to its length.
+// Returns a picture's grays as a one-sample TIFF file in memory, at full
+// size or half size, and sets `*len` to its length.  The caller frees it.
 static uint8_t* grays_file(const tiff* picture, bool half, size_t* len) {
     int w, h;
     int* gray = grays_of(picture->bytes, picture->w, picture->h, picture->samples, half, &w, &h);

@@ -1,36 +1,40 @@
 //
 // tiff_test IMAGE.hex [SEED]
 //
-// The TIFF reader of forth/tiff.fs, which reads a file from the disk a row
-// at a time, against the file's bytes read here.
+// Tests the TIFF reader in forth/tiff.fs, which reads a file from the disk
+// a row at a time, against the file's bytes read here.
 //
-// The disk is bytes taken by chance, the same every time for a seed, and a
-// file on it is only its header and its directory, written over them: its
-// pixels are whatever the disk holds where its strips say they are.  So a
-// file of any size is had, with strips wherever the test says.
+// The disk is filled with random bytes, the same every time for a given
+// seed.  A file on it is only a header and a directory written over those
+// bytes: its pixels are whatever the disk holds where its strips are said
+// to be.  That gives a file of any size, with strips wherever the test
+// wants them.
 //
-// A check is a file: how big it is, how many samples a pixel has, how its
-// rows are cut into strips and where those are, and how its directory says
-// so.  The files are of either byte order, of one sample, two and three,
-// with strips that are and are not where blocks and cells start, next to
-// each other, apart and out of order, their places LONGs and SHORTs, in
-// the entry and out of it, and one has its directory across the end of a
-// block.  The machine is the nucleus on vm.c, typed at (nucleus.h), with
-// that disk: each file is opened and dithered there (tiff-open, atkinson),
-// and the bitmap is read out of the machine's memory.
+// A check is a file: its size, its samples per pixel, how its rows are
+// divided into strips and where the strips are, and how its directory
+// records all that.  The files cover both byte orders; one, two and three
+// samples; strips that start on block and cell boundaries and strips that
+// do not; strips that are adjacent, apart, and out of order; strip offsets
+// stored as LONGs and as SHORTs, inside the directory entry and outside
+// it; and one file whose directory spans the end of a block.  The machine
+// is the nucleus on vm.c (nucleus.h) with that disk.  Each file is opened
+// and dithered on the machine (tiff-open, atkinson), and the bitmap is
+// read out of the machine's memory.
 //
-// It is a contrastive test: the grays are made here of the same bytes, by
-// what TIFF says a file's fields mean, and dithered a pixel at a time
-// (dither.c).  Nothing is built from either.
+// It is a contrastive test.  The grays are computed here from the same
+// bytes, following what TIFF defines each field to mean, and are dithered
+// one pixel at a time (dither.c).  Nothing is built from either
+// implementation.
 //
-// Then one file is dithered twice; two are dithered a row of each in
-// turn; all of them are opened before any is dithered; and one of 512 by
-// 342 of three samples is dithered, which is 525KB, on a machine that
-// with cells of 16 bits has 128KB.  When that is done memory is asked for
-// until there is none, which is to be refused and not given.
+// After the single files, it dithers one file twice; dithers two files a
+// row at a time in turn; opens all the files before dithering any; and
+// dithers one file of 512 by 342 pixels with three samples, which is
+// 525KB, on a machine that has 128KB when its cells are 16 bits.  After
+// that it allocates memory until none is left.  The request that cannot be
+// met must be refused with an error, not granted.
 //
-// It says how many files and how many cells of bitmap it compared, and
-// fails if that is none: then it found nothing to test.
+// It prints how many files and how many bitmap cells it compared.  It
+// fails if it compared none, because then it tested nothing.
 //
 
 #include <stdbool.h>
@@ -41,29 +45,29 @@
 #include "nucleus.h"
 #include "dither.h"
 
-#define SPACING     64          // a file is this many blocks of the disk after the one before it
-#define FILES       16          // the most files a check has, and
-#define BIG         640         // the blocks kept after them for the last, which is big
+#define SPACING     64          // each file starts this many blocks after the one before it
+#define FILES       16          // the most files in one check
+#define BIG         640         // the blocks reserved after them for the last file, which is big
 #define DISK_BLOCKS ((FILES + 1) * SPACING + BIG)
-#define STRIPS      64          // the most strips a file here has
-#define UNDER       12345       // what is under what a check leaves
-#define REFUSED     (-8)        // what is thrown when there is not the memory asked for
+#define STRIPS      64          // the most strips a file in this test has
+#define UNDER       12345       // the number pushed under whatever a check leaves
+#define REFUSED     (-8)        // the error thrown when a memory request cannot be met
 
-// A file.
+// The description of one test file.
 typedef struct {
     const char* label;
     int w, h, samples;
-    int rows;                   // rows to a strip; with none, it is one strip and the file does not say,
-    long says;                  // or says this, which is more rows than it has
-    int first;                  // where in the file its first strip is,
-    int further;                // or up to this much further on, by chance,
-    int gap;                    // and the bytes between one strip and the next
+    int rows;                   // rows per strip; if 0, the file is one strip, and has no RowsPerStrip unless `says` is set
+    long says;                  // with `rows` 0: the RowsPerStrip the file records, which is more rows than the file has
+    int first;                  // the offset in the file of its first strip
+    int further;                // if nonzero, a random amount below this is added to that offset
+    int gap;                    // the bytes between one strip and the next
     bool big_endian;
-    bool white_is_zero;         // of one sample: nothing is white, and not black
-    bool shorts;                // the strips' places are SHORTs, and not LONGs
-    bool backwards;             // the strips are in the file in the other order from the rows they are
-    bool odd;                   // its first strip is at an odd byte
-    int directory;              // where its directory is: after the header, if it is not said
+    bool white_is_zero;         // for one sample: 0 is white, not black
+    bool shorts;                // the strip offsets are SHORTs, not LONGs
+    bool backwards;             // the strips are in the file in the reverse order of their rows
+    bool odd;                   // its first strip starts at an odd byte
+    int directory;              // the offset of its directory; if 0, it follows the header
 } tiff_file;
 
 static tiff_file TESTS[] = {
@@ -87,22 +91,23 @@ static tiff_file TESTS[] = {
      .first = 1100, .gap = 2000 - 432, .backwards = true},
     {.label = "one sample, a strip of two rows, strips apart", .w = 37, .h = 20, .samples = 1, .rows = 2,
      .first = 900, .gap = 11},
-    // What a file that does not say is taken to say: the most a LONG can.
+    // RowsPerStrip set to its default for a file that omits it: the
+    // largest value a LONG can hold.
     {.label = "one strip, and more rows to a strip than it has", .w = 50, .h = 9, .samples = 1,
      .says = 0xffffffff, .first = 1500, .further = 64},
     {.label = "one strip of three samples, and a row more to a strip than it has", .w = 40, .h = 6,
      .samples = 3, .says = 7, .first = 3000, .further = 64},
     {.label = ""}};
 
-// The two that are dithered a row of each in turn, which are as many rows;
-// the one dithered twice; and the big one.
+// The two files that are dithered a row at a time in turn, which have the
+// same number of rows; the file that is dithered twice; and the big file.
 #define TURN_A  0
 #define TURN_B  10
 #define TWICE   1
 static tiff_file LARGE = {.label = "an image bigger than a small machine's memory",
                           .w = 512, .h = 342, .samples = 3, .rows = 64, .first = 1024, .further = 4};
 
-// ---- chance
+// ---- random numbers
 
 static uint64_t seed;
 static uint32_t chance(void) {
@@ -114,20 +119,20 @@ static uint32_t chance(void) {
 
 // ---- the disk, and a file on it
 
-static uint8_t* bytes;          // the disk's bytes as chance had them,
-static uint8_t* disk;           // and the disk: those, with the files that are on it
+static uint8_t* bytes;          // the disk's random bytes
+static uint8_t* disk;           // the disk: those bytes, with the test's files written over them
 
-// A file as it is on the disk.
+// A file as it was written to the disk.
 typedef struct {
     const tiff_file* file;
-    long block;                 // the block it starts at,
-    int strips;                 // its strips,
-    long place[STRIPS];         // where in the file each is,
-    long length[STRIPS];        // and how many bytes
+    long block;                 // the block it starts at
+    int strips;                 // its number of strips
+    long place[STRIPS];         // the offset of each strip in the file
+    long length[STRIPS];        // the length of each strip in bytes
 } laid;
 
-static bool big_endian;         // of the file being written
-static uint8_t* writing;        // where it starts
+static bool big_endian;         // the byte order of the file being written
+static uint8_t* writing;        // the address where that file starts
 
 static void put2(long at, unsigned v) {
     writing[at + (big_endian ? 0 : 1)] = v >> 8;
@@ -139,9 +144,10 @@ static void put4(long at, unsigned long v) {
     put2(at + (big_endian ? 2 : 0), v & 0xffff);
 }
 
-// An entry of the directory: a tag, SHORTs or LONGs, and their values.
-// Values that fit in four bytes are in the entry, and more are after the
-// directory, where the entry says; *after is where the next such go.
+// Writes one directory entry: a tag, the type (SHORT or LONG), the count,
+// and the values.  Values that fit in four bytes go in the entry itself.
+// Otherwise they go after the directory, at the offset the entry records.
+// `*after` is the offset where the next such values go.
 static void entry(long at, int tag, bool shorts, int count, const long* values, long* after) {
     int size = shorts ? 2 : 4;
     long to = at + 8;
@@ -159,8 +165,8 @@ static void entry(long at, int tag, bool shorts, int count, const long* values, 
     }
 }
 
-// The file's header and directory, written over the disk from a block.
-// Returns where it is and where its strips are.
+// Writes a file's header and directory over the disk, starting at a
+// block.  Returns the file's block and the offsets of its strips.
 static laid lay(const tiff_file* f, long block) {
     laid l = { f, block };
     long row = (long)f->w * f->samples;
@@ -173,7 +179,7 @@ static laid lay(const tiff_file* f, long block) {
     long at = f->first + (f->further ? chance() % f->further : 0);
     if (f->odd) at |= 1;
     for(int idx=0; idx < l.strips; idx++) {
-        int n = f->backwards ? l.strips - 1 - idx : idx;        // the strip that is here in the file
+        int n = f->backwards ? l.strips - 1 - idx : idx;        // the strip at this position in the file
         int left = f->h - n * rows;
         l.place[n] = at;
         l.length[n] = row * (left < rows ? left : rows);
@@ -216,10 +222,11 @@ static laid lay(const tiff_file* f, long block) {
     return(l);
 }
 
-// The cells the file's bitmap should be: its grays, made of its bytes as
-// they are on the disk, dithered a pixel at a time.  A pixel of three
-// samples is red, green and blue; of one or two its first sample is its
-// gray, or what is left of white if nothing is white in the file.
+// Computes the cells the file's bitmap should contain: its grays,
+// computed from its bytes as they are on the disk, dithered one pixel at a
+// time.  A pixel with three samples is red, green and blue.  With one or
+// two samples, the first sample is the gray, or 255 minus the gray if 0 is
+// white in the file.
 static int expected(const laid* l, uint64_t** cells, int* stride) {
     const tiff_file* f = l->file;
     const uint8_t* file = disk + l->block * DISK_BLOCK;
@@ -244,12 +251,13 @@ static int expected(const laid* l, uint64_t** cells, int* stride) {
 
 static int files, compared, failed;
 
-// The disk as chance had it, with nothing on it.
+// Restores the disk to its random bytes, with no files on it.
 static void disk_start(void) {
     memcpy(disk, bytes, (size_t)DISK_BLOCKS * DISK_BLOCK);
 }
 
-// The machine started, with the disk, which it finds when it starts.
+// Starts the machine with the disk attached.  The machine finds the disk
+// when it starts.
 static FILE* machine_start(void) {
     start();
     machine.DISKS[0] = fmemopen(disk, (size_t)DISK_BLOCKS * DISK_BLOCK, "rb");
@@ -257,8 +265,9 @@ static FILE* machine_start(void) {
     return(machine.DISKS[0]);
 }
 
-// A bitmap in the machine's memory, at a place and of so many cells to a
-// row, against what a file's should be.
+// Compares a bitmap in the machine's memory with the bitmap a file should
+// give.  `bitmap` is its address, and `row` is its number of cells per
+// row.
 static void look(const char* how, const laid* l, uint64_t bitmap, uint64_t row) {
     uint64_t* want;
     int stride;
@@ -290,8 +299,8 @@ static void look(const char* how, const laid* l, uint64_t bitmap, uint64_t row) 
     free(want);
 }
 
-// What was typed left, over the number that is under it, a bitmap's place
-// and its cells to a row for each of `count` bitmaps: are they there?
+// Returns true if the typed lines left what they should: UNDER, and above
+// it the address and the cells per row of each of `count` bitmaps.
 static bool left_bitmaps(const char* what, int count) {
     if (machine.SP == 1 + 2 * count && left(2 * count) == UNDER) return(true);
     printf("FAIL %s: the machine did not do as it was asked.  It said:\n%s\n", what, said);
@@ -300,8 +309,8 @@ static bool left_bitmaps(const char* what, int count) {
     return(false);
 }
 
-// A file by itself: opened and dithered, and with `twice` dithered again
-// to another bitmap.
+// Tests one file on its own: opens it and dithers it, and with `twice`
+// dithers it a second time into another bitmap.
 static void alone(const tiff_file* f, bool twice) {
     disk_start();
     laid l = lay(f, SPACING);
@@ -323,7 +332,8 @@ static void alone(const tiff_file* f, bool twice) {
     }
 }
 
-// Two at once, a row of each in turn: each has its own window.
+// Tests two files at once, dithered a row at a time in turn.  Each has
+// its own window.
 static void in_turn(const tiff_file* a, const tiff_file* b) {
     disk_start();
     laid la = lay(a, SPACING), lb = lay(b, 2 * SPACING);
@@ -340,8 +350,9 @@ static void in_turn(const tiff_file* a, const tiff_file* b) {
     look("two at once, the second: ", &lb, left(1), left(0));
 }
 
-// All of them opened, and then each dithered, the last opened first: an
-// image is a record, and what one has in hand is not another's.
+// Opens all the files, and then dithers each, the last one opened first.
+// An image is a record, and the state of one image must not be shared
+// with another.
 static void together(void) {
     laid l[FILES];
     int count = 0;
@@ -363,8 +374,9 @@ static void together(void) {
     }
 }
 
-// The big one; and then memory is taken a block at a time until there is
-// none, which is thrown and caught.  Returns whether it was.
+// Tests the big file.  Then it allocates memory a block at a time until
+// none is left, which must throw an error that the test catches.  Returns
+// true if that error was thrown.
 static bool large(void) {
     disk_start();
     laid l = lay(&LARGE, (FILES + 1) * SPACING);
@@ -395,8 +407,8 @@ int main(int argc, char *argv[]) {
     }
     int given = argc > 2 ? atoi(argv[2]) : 1;
     seed = 0x9e3779b97f4a7c15ull * (uint64_t)(given + 1);
-    if (!seed) seed = 1;        // nothing comes of nothing
-    alarm(1200);                // a machine that does not stop is stopped
+    if (!seed) seed = 1;        // a zero seed would produce only zeros
+    alarm(1200);                // kill the test if the machine never stops
 
     nucleus_is(argv[1]);
     size_t len = (size_t)DISK_BLOCKS * DISK_BLOCK;

@@ -1,21 +1,17 @@
 //
-// layout.h - how an image is laid out, for the tools that have this in
-// them: its pages of code, and what the rest of it is.  It has words.h in
-// it, and bench/files.h.
+// layout.h - describes how an image is laid out, for the tools that
+// include it: its pages of code, and what the rest of it holds.  It
+// includes words.h and bench/files.h.
 //
-// Code is paged, 4,096 instructions to a page, and page 0 is the kernel's:
-// the first KROM_BYTES of it are the kernel's ROM.  What a page has is its
-// words, and after the last of them the nucleus's tables, which are laid
-// down after the code of their page and are not code (join.fs, and
-// words.h, which finds them).  A table is as long as where it lies: some
-// of what is in one is nothing, as a count is until it is counted.
+// Code is in pages of 4,096 instructions.  Page 0 is the kernel's, and its
+// first KROM_BYTES bytes are the kernel's ROM.
 //
 // The rest of an image is cells.  The dictionary's headers are found by
-// going through it as a search does (words.h).  The data starts at the cell
-// VAR_BASE, and the nucleus keeps where it has got to, in bytes, in dp.
-// What is not nothing past that, outside the headers and the pages of
-// code, is data that was laid down in a place of its own: what cross.fs
-// calls bulk, and high.
+// walking the dictionary as a search does (words.h).  The data starts at
+// the cell VAR_BASE, and the nucleus's variable `dp` holds the byte where
+// the data ends.  Any non-zero cell past that point, outside the headers
+// and the code pages, is data that was placed in an area of its own: what
+// cross.fs calls bulk and high.
 //
 
 #ifndef HEXAFORTH_LAYOUT_H
@@ -26,31 +22,29 @@
 #include "../bench/files.h"
 
 typedef struct {
-    long words;                 // the words that start on it
-    long code;                  // its instructions that are in a word
-    long code_end;              // where on it the last word ends,
-    long end;                   // and the last instruction that is not nothing
-    long tables;                // the instructions between those two
+    long words;                 // the number of words that start on it
+    long code;                  // the number of its instructions that are in a word
+    long code_end;              // the offset on the page where the last word ends
+    long end;                   // the offset just past the last non-zero instruction
 } code_page;
 
 typedef struct {
-    uint8_t* bytes;             // the image as it is,
-    uint8_t* plain;             // and with the nucleus's tables made nothing
+    uint8_t* bytes;             // the image as loaded
     size_t len;
-    long instructions;          // how many instructions that is
-    word* words;                // its words, each as long as its code is
+    long instructions;          // its length in instructions
+    word* words;                // its words, each with the length of its code
     int n;
-    code_page* pages;           // a page for every one its length has
+    code_page* pages;           // one entry for each page the image spans
     long npages;
-    long kernel;                // the instructions of the kernel: what page 0 has in its ROM
-    size_t headers_from, headers_to;    // bytes: the dictionary,
-    int headers;                        // and how many words have a header
-    size_t data_from, data_to;          // bytes: the data, as far as the data pointer
-    size_t past;                        // bytes that are not nothing in cells past it
+    long kernel;                // the kernel's length in instructions: the code of page 0 that is in its ROM
+    size_t headers_from, headers_to;    // the dictionary, as byte offsets
+    int headers;                        // the number of words with a header
+    size_t data_from, data_to;          // the data, as byte offsets, up to the data pointer
+    size_t past;                        // the number of non-zero bytes in cells past the data pointer
 } layout;
 
-// What a word that only pushes a number pushes: a word made with create
-// pushes where its data is.
+// Returns the number pushed by a word that only pushes a number.  A word
+// made with `create` pushes the address of its data.
 static uint64_t pushed_by(const uint8_t* image, long at) {
     uint64_t pushed = 0;
     for(const instruction* ins = (const instruction*)image + at; ins->lit.lit_f; ins++) {
@@ -59,27 +53,18 @@ static uint64_t pushed_by(const uint8_t* image, long at) {
     return(pushed);
 }
 
-// Is a byte of the image on a page that has code?
+// Returns 1 if a byte of the image is on a page that has code.
 static int on_a_code_page(const layout* m, size_t byte) {
     long page = (long)(byte / sizeof(instruction)) / PAGE;
     return(page < m->npages && m->pages[page].words);
 }
 
-// An image, laid out.
+// Loads an image and fills in its layout.
 static void lay_out(layout* m, const char* hex, const char* tables) {
     memset(m, 0, sizeof(*m));
     m->len = load_image(hex, &m->bytes);
     m->instructions = m->len / sizeof(instruction);
-    m->plain = room_for(m->len + CELL_BYTES, 1);
-    memcpy(m->plain, m->bytes, m->len);
-
-    // The words are as long as their code is once the tables are nothing:
-    // the last word of a page is as long as what the page has after it.
-    word* with_tables;
-    int had = words_of(m->bytes, m->len, tables, &with_tables);
-    without_tables(m->plain, m->len, with_tables, had);
-    free(with_tables);
-    m->n = words_of(m->plain, m->len, tables, &m->words);
+    m->n = words_of(m->bytes, m->len, tables, &m->words);
 
     const uint16_t* code = (const uint16_t*)m->bytes;
     m->npages = (m->instructions + PAGE - 1) / PAGE;
@@ -93,11 +78,11 @@ static void lay_out(layout* m, const char* hex, const char* tables) {
         if (w->at % PAGE + w->size > page->code_end) page->code_end = w->at % PAGE + w->size;
         if (w->at < KROM_BYTES / (long)sizeof(instruction) && w->at + w->size > m->kernel) m->kernel = w->at + w->size;
     }
-    // A kernel that is longer than its ROM runs on past it, and the words
-    // of it that start there are its too: those that follow with nothing
-    // between, the words being in the order of their places.  (It was
-    // once taken to end with the last word that starts in the ROM, and a
-    // kernel 136 bytes too long was said to be 6.)
+    // A kernel that is longer than its ROM continues past the ROM's end.
+    // The words that follow with no gap are part of it too.  The words are
+    // sorted by address, so one pass finds them.  Counting only the words
+    // that start inside the ROM would understate how far such a kernel
+    // overruns.
     if (m->kernel > KROM_BYTES / (long)sizeof(instruction)) {
         for(int idx=0; idx < m->n; idx++) {
             const word* w = &m->words[idx];
@@ -111,12 +96,12 @@ static void lay_out(layout* m, const char* hex, const char* tables) {
     for(long page=0; page < m->npages; page++) {
         code_page* has = &m->pages[page];
         if (has->end < has->code_end) has->end = has->code_end;
-        has->tables = has->end - has->code_end;
     }
 
     m->headers = headers_of(m->bytes, m->len, &m->headers_from, &m->headers_to);
 
-    // The data, as far as the nucleus's data pointer says; and what is past it.
+    // The data runs up to the nucleus's data pointer.  Count the non-zero
+    // bytes past it.
     m->data_from = (size_t)VAR_BASE * CELL_BYTES;
     m->data_to = m->data_from;
     long dp = place_of(m->words, m->n, "dp");
@@ -130,12 +115,13 @@ static void lay_out(layout* m, const char* hex, const char* tables) {
     }
 }
 
-// What a source file has of an image's code: the words that start in it,
-// its instructions that are in a word and those that are in a table, and
-// the pages they are on, a bit a page.  A file's code is one run of one
-// page, and whatever of it is laid in the kernel's page besides (files.h).
+// A source file's share of an image's code: the number of words that
+// start in it, the number of its instructions that are in a word, and the
+// pages they are on, one bit per page.  A file's code is one contiguous
+// stretch of one page, plus any part of it placed on the kernel's page
+// (files.h).
 typedef struct {
-    long words, code, tables;
+    long words, code;
     unsigned long pages;
 } held;
 
@@ -143,10 +129,10 @@ static void on_page(held* has, long page) {
     if (page >= 0 && page < (long)(8 * sizeof(has->pages))) has->pages |= 1ul << page;
 }
 
-// What each file has: out[idx] for files[idx], and out[n] for the
-// nucleus's own, which is what no file of them has (files.h).  A stretch
-// of a file that is laid in the kernel's page is the file's, and its own
-// line has nothing.
+// Computes each file's share: out[idx] for files[idx], and out[n] for the
+// nucleus itself, which is the code that belongs to none of the files
+// (files.h).  A stretch of a file that is placed on the kernel's page is
+// counted for the file, not separately.
 static void held_by(const layout* m, const span* files, int n, held* out) {
     for(int idx=0; idx <= n; idx++) memset(&out[idx], 0, sizeof(held));
     for(int idx=0; idx < m->n; idx++) {
@@ -158,18 +144,11 @@ static void held_by(const layout* m, const span* files, int n, held* out) {
         has->code += w->size;
         on_page(has, w->at / PAGE);
     }
-    for(long page=0; page < m->npages; page++) {
-        for(long at=page * PAGE + m->pages[page].code_end; at < page * PAGE + m->pages[page].end; at++) {
-            int of = file_holding(files, n, at);
-            held* has = &out[of < 0 ? n : of];
-            has->tables++;
-            on_page(has, page);
-        }
-    }
 }
 
-// Is a file inside another: one that includes it, whose figures have its
-// own in them?  cross.fs says how deep each is included (files.h).
+// Returns 1 if a file is included by another file, whose figures then
+// contain its own.  cross.fs records how deeply each file is included
+// (files.h).
 static int is_included(const span* files, int n, int which) {
     (void)n;
     return(files[which].deep > 1);

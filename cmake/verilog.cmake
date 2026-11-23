@@ -13,8 +13,10 @@
 # counter is 16 bits, which is all an execution token holds.
 #
 # The nucleus the tests run is the one for the machine vm_constants.h
-# gives a cell of that size when nothing else is said (default-32), and
-# what the Verilog does is compared with what vm.c does of that machine.
+# gives a cell of that size when nothing else is said (default-32; with
+# the default machine's cell it is the default machine: default_machine,
+# cmake/machines.cmake), and what the Verilog does is compared with what
+# vm.c does of that machine.
 #
 #   check       on each way: the cases difftest_dump writes, each with what
 #               vm.c left of it, run on the CPU; and a session typed at the
@@ -40,8 +42,8 @@ set(RTL_PC 16)
 set(VERILATED ${VERILATOR} -Wall -Wno-UNUSED -Wno-DECLFILENAME -Wno-PINCONNECTEMPTY -Wno-WIDTH -O3
                         --x-assign fast --x-initial fast)
 
-# The log2 of the cells that so much memory is, of a cell of some size, and
-# no more than an address, which is a cell, can reach.
+# The log2 of the number of cells in that much memory, for a cell of the
+# given size.  It is at most what an address, which is a cell, can reach.
 function(cells_of RESULT BYTES_LOG2 CELL)
     math(EXPR BYTES "${CELL} / 8")
     while(BYTES GREATER 1)
@@ -77,9 +79,7 @@ endfunction()
 # What is the same for every way a CPU of one cell is built: the machine,
 # the cases, and what vm.c sent when the session was typed at it.
 function(verilog_cell CELL)
-    set(M default-${CELL})
-    machine(${M} CELL_BITS=${CELL})
-    machine_made(${M})
+    default_machine(M ${CELL})
     add_custom_command(
             OUTPUT            ${RB}/cases-${CELL}.bin
             COMMAND           ${MKDIR} ${RB}
@@ -105,7 +105,7 @@ function(verilog CELL LAT)                              # and KROM, if the kerne
         set(KROM +define+HF_KROM -I${RB}/${NAME})
     endif()
     set(B ${RB}/${NAME})
-    set(M default-${CELL})
+    default_machine(M ${CELL})
     set(NUC ${BUILD}/${M}/nuc.hex)
     cells_of(ADDR ${RTL_MEMORY} ${CELL})
     set(TOLD -CFLAGS "-DW=${CELL} -DAB=${ADDR} -DLAT=${LAT}")
@@ -181,12 +181,13 @@ set(S ${RB}/synth-c${SYNTH_CELL}-ab${SYNTH_AB})
 if(NOT SYNTH_LAT EQUAL 1)
     string(APPEND S -lat${SYNTH_LAT})
 endif()
+default_machine(SYNTH_MACHINE ${SYNTH_CELL})
 set(SYNTH_ROM)
 set(SYNTH_READ read_verilog)
 set(SYNTH_IS 0)
 if(SYNTH_KROM)
     string(APPEND S -krom)
-    set(SYNTH_ROM COMMAND memimage ${BUILD}/default-${SYNTH_CELL}/nuc.hex ${S} ${SYNTH_AB})
+    set(SYNTH_ROM COMMAND memimage ${BUILD}/${SYNTH_MACHINE}/nuc.hex ${S} ${SYNTH_AB})
     set(SYNTH_READ read_verilog -DHF_KROM -I${S})
     set(SYNTH_IS 1)
 endif()
@@ -262,4 +263,4 @@ add_custom_target(synth
         COMMAND           ${KEEP} synth ${RTL}/hexaforth.v ${S}/result.txt ${S}/nextpnr.log
         WORKING_DIRECTORY ${RTL}
         VERBATIM)
-add_dependencies(synth machine-default-${SYNTH_CELL} ${NEXTPNR_BUILT})
+add_dependencies(synth machine-${SYNTH_MACHINE} ${NEXTPNR_BUILT})

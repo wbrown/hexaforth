@@ -1,29 +1,33 @@
 //
-// The desktop on the reference VM, as the machine that deskcheck.h says
-// one is: for the desktop's test, and for whatever else works the desktop
-// (bench/profile.c).
+// The reference VM as a machine the desktop's checks can run on
+// (deskcheck.h).  The desktop's test uses it, and so does anything else
+// that drives the desktop (bench/profile.c).
 //
-// The machine is the nucleus on vm.c (nucleus.h), which is built into
-// whatever has this in it, for a machine of 64 bits, 32 or 16.
+// The machine is the nucleus on vm.c (nucleus.h), at the cell size of the
+// image: 64, 32 or 16 bits.
 //
-//   the disk       the VM's own, whose driver the kernel's ROM finds when
-//                  the machine starts: a copy of the disk it is given, for
-//                  the editor and HexaPaint to write to.
-//   keys, pointer  the VM has none, so this is them: a word in 'poll,
-//                  typed at the prompt, which the event loop runs each time
-//                  round.  It takes one thing from the console: a key going
-//                  down or up, by its Linux code, as a virtio keyboard
-//                  gives them; the pointer's place; its button; nothing;
-//                  or to stop.  It hands events to on-event, as any driver
+//   the disk       The VM's own disk, whose driver the kernel's ROM finds
+//                  when the machine starts.  It is a copy of the disk
+//                  given, so that the editor and HexaPaint can write to
+//                  it.
+//   keys, pointer  The VM has no keyboard and no pointer, so this file
+//                  provides them: a word stored in 'poll, typed at the
+//                  prompt, which the event loop runs on every turn.  On
+//                  each turn it reads one item from the console: a key
+//                  going down or up, by its Linux key code, as a virtio
+//                  keyboard reports it; the pointer's position; its
+//                  button; an item that does nothing; or a request to
+//                  stop.  It passes events to on-event, as any driver
 //                  does.
-//   the screen     the display in the VM's memory.  When the screen is
-//                  asked for, the last thing sent is to stop: the machine
-//                  stops in its event loop when it has taken everything
-//                  sent before, and is gone on with from there.
+//   the screen     The display in the VM's memory.  To read the screen,
+//                  this file sends a request to stop as the last item.
+//                  The machine stops in its event loop once it has read
+//                  everything sent before, and is resumed from there
+//                  later.
 //
-// The desktop takes exactly one turn of its loop for each thing sent, so
-// what is done is the same every time.  Which key is which character is
-// asked of the machine, which has the map.
+// The desktop takes exactly one turn of its loop for each item sent, so a
+// run is the same every time.  The machine has the key map, so this file
+// gets from the machine which key gives which character.
 //
 
 #ifndef HEXAFORTH_DESKVM_H
@@ -31,19 +35,20 @@
 
 #include "deskcheck.h"
 
-// Start the machine from an image, with a copy of a disk made in `out`,
-// and have it ready to start its desktop: it does when it is first asked
-// what its console said (desk_boot).  `pictures` is its second disk, which
-// has the picture (mkdisk --disk) and is not written to, and `picture` is
-// that picture as a file.  What is so of the machine is what it returns.
-// With `rom_only` the machine has nothing in memory but its ROM, and starts
-// from the first disk, which is then one it can start from: it reads the
-// rest of the image from it, and compiles what its block 1 lists.
+// Starts the machine from an image, with a copy of `disk` made in the
+// directory `out`, and gets it ready to start its desktop.  The desktop
+// itself starts on the first call of desk_boot().  `pictures` is the
+// second disk, which has the picture (mkdisk --disk) and is never written
+// to.  `picture` is the path of the same picture as a file.  Returns the
+// facts about the machine that the checks need.  With `rom_only`, the
+// machine starts with nothing in memory but its ROM, and `disk` must be a
+// disk it can start from: the machine reads the rest of the image from it,
+// and compiles the files that the disk's block 1 lists.
 desk deskvm_start(const char* image, const char* disk, const char* pictures, const char* picture, const char* out,
                   bool names, bool rom_only);
 
-// How many turns its event loop has taken: the things sent that it has
-// taken.
+// The number of turns the event loop has taken, which is the number of
+// items sent that the machine has read.
 extern long deskvm_turns;
 
 #endif //HEXAFORTH_DESKVM_H

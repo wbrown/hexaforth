@@ -5,47 +5,58 @@
 // mkdisk --boot IMAGE.hex OUT.img IPL.bin SOURCE.fs...
 // mkdisk --boot-desk IMAGE.hex OUT.img IPL.bin NAMES SOURCE.fs...
 //
-// A disk is no more than DISK_FLOPPY blocks, what an 8-inch floppy holds,
-// and one that would be more is not made.
+// Makes a disk image.  A disk has at most DISK_FLOPPY blocks, the capacity
+// of an 8-inch floppy, and mkdisk refuses to make a larger one.
 //
-// A disk for the system: each thing from the block that vm_constants.h says
-// is its own.  The Forth source is first, as blocks, as `load` reads them
-// and the editor shows them (pack, below).  NAMES is the names the build
-// made to go with the image (build/nuc.tables).  After them are the blocks
-// kept for HexaPaint's canvas, which are nothing until it is drawn in, and
-// then the threshold masks that a picture kept as gray is drawn through:
-// blue noise of 64 by 64 and of 32 by 32, and Bayer's of 8 by 8, as planes
-// of bits (util/bluenoise.h, mask_planes).  Last are the blocks the viewer
-// writes its dithered bitmap to, and those it writes the picture kept as
-// gray to, which start out empty.  The picture itself is not on this
-// disk: the pictures are on a disk of their own (--disk), and the viewer
-// finds one by its label.
+// With no option it makes the desktop's disk.  Each thing on it starts at
+// the block vm_constants.h assigns to it, in this order:
 //
-// With --pack it makes no disk: it lays each file as blocks, and says how
-// many blocks it took or why it does not go into blocks.
+//   The Forth source, packed into blocks the way `load` reads them and the
+//   editor shows them (pack(), below).
 //
-// With --disk it makes a disk that is an index and the files it is given,
-// source or data by their names, each found by its label, which is its
-// name or what is said before = in front of it (LABEL=FILE): a disk a
-// machine has besides the one it starts from (files_disk, below).
+//   NAMES, the file of names the build made for the image
+//   (build/nuc.tables).
 //
-// With --boot it makes a disk that the machine the image is for (which the
-// image says beside it, util/image.h) starts from with its ROM alone
-// (doc/boot.md): block 0 is its index
-// (doc/disk.md), the sources are from block 1, the first of them being
-// what the machine loads, with each file a source includes after them
-// (with_included, below), and after them is the image's memory above the
-// ROM, which the ROM reads into place.  IPL.bin is what the ROM takes from
-// the console where there is no disk: the same runs, as records of cells
-// in hex (records, below).
+//   The blocks reserved for HexaPaint's canvas, which are zero until
+//   something is drawn.
 //
-// With --boot-desk the disk a machine starts from is the desktop's too: the
-// sources are from block 1, one after another, the first being what the
-// machine loads; the names, the canvas, the masks and the viewer's bitmap
-// are at their own blocks after the source's, as on the first kind of
-// disk; after them are blocks kept for the names of the words the boot
-// compiles, which the index has an entry for (own-names); and the image is
-// after all of those, where the index says.
+//   The threshold masks that a picture stored as gray is drawn through:
+//   blue noise at 64 by 64 and at 32 by 32, and Bayer's 8 by 8, as bit
+//   planes (util/bluenoise.h, mask_planes()).
+//
+//   The blocks the viewer writes its dithered bitmap to, and the blocks it
+//   writes the gray picture to.  Both start out empty.
+//
+// The picture itself is not on this disk.  Pictures are on a disk of their
+// own (--disk), and the viewer finds one by its label.
+//
+// With --pack it makes no disk.  It packs each file into blocks, and
+// prints how many blocks the file took or why it cannot be packed.
+//
+// With --disk it makes a disk that has an index and the given files.  A
+// file is source or data according to its name.  Each file is found by its
+// label, which is its file name, or the text before the = when the
+// argument is LABEL=FILE.  A machine has such a disk in addition to the
+// one it starts from (files_disk(), below).
+//
+// With --boot it makes a disk that a machine starts from with only its ROM
+// in memory (doc/boot.md).  The machine is the one the image was built
+// for, which is recorded beside the image (util/image.h).  Block 0 is the
+// disk's index (doc/disk.md).  The sources start at block 1.  The first
+// source is the one the machine loads, and every file that a source
+// includes is added after the given ones (with_included(), below).  After
+// the sources comes the image's memory above the ROM, which the ROM reads
+// into place.  IPL.bin is what the ROM reads from the console when there
+// is no disk: the same memory, as records of cells in hex (records(),
+// below).
+//
+// With --boot-desk the boot disk is also the desktop's disk.  The sources
+// start at block 1, one after another, and the first is the one the
+// machine loads.  The names, the canvas, the masks and the viewer's bitmap
+// are at their assigned blocks after the sources, as on the desktop's
+// disk.  After them are blocks reserved for the names of the words the
+// boot compiles, which have an entry in the index (own-names).  The image
+// comes after all of those, at the block the index gives.
 //
 
 #include <stdio.h>
@@ -58,12 +69,13 @@
 
 #define BLOCK_LINES (DISK_BLOCK / DISK_LINE)
 
-// A disk is a whole number of these, as a disk that is a file is made.
+// A disk image's size is rounded up to a multiple of this many blocks.
 #define DISK_ROUND 64
 
 static uint8_t* disk;
 
-// Read a file whole, and return how many bytes it is.
+// Reads a whole file into allocated memory at `*bytes`, and returns its
+// length in bytes.
 size_t read_file(const char* path, uint8_t** bytes) {
     FILE* file = fopen(path, "rb");
     if (file == NULL) {
@@ -82,8 +94,8 @@ size_t read_file(const char* path, uint8_t** bytes) {
     return(len);
 }
 
-// Lay bytes down from a block.  They are not to reach the block `limit`,
-// which is something else's.
+// Copies bytes onto the disk starting at a block.  It is an error for them
+// to reach the block `limit`, which belongs to something else.
 void place(const char* what, int block, int limit, const uint8_t* bytes, size_t len) {
     if (len > (size_t)(limit - block) * DISK_BLOCK) {
         fprintf(stderr, "mkdisk: %s is %d bytes, and runs into block %d\n",
@@ -93,21 +105,24 @@ void place(const char* what, int block, int limit, const uint8_t* bytes, size_t 
     memcpy(disk + (size_t)block * DISK_BLOCK, bytes, len);
 }
 
-// Source as blocks have it, from the block `block` and not reaching the
-// block `limit`: a line of the text is a line of a block, DISK_LINE
-// characters with spaces to its end, which is what \ takes a line of a
-// block to be.  Whoever writes the source keeps to that width, and the
-// blocks are this one's doing:
+// Packs source text into blocks, starting at the block `block` and
+// stopping before the block `limit`.  Each line of the text becomes one
+// line of a block: DISK_LINE characters, padded with spaces, which is the
+// line length the word \ assumes in a block.  The author of the source
+// keeps lines to that width.  This function decides where blocks break:
 //
-// - A run of lines with no line of nothing in it, that has code in it, is
-//   laid in one block, so that nothing that runs over lines is cut by the
-//   end of one.  If it does not fit in what is left of a block it starts
-//   the next, and if it is longer than a block it is said.
-// - A run of nothing but comments goes on into the next block as it is.
-// - A line of nothing is laid as it is, but at the top of a block.
+// - A run of lines that has code in it and no blank line is kept in one
+//   block, so that nothing spanning several lines is cut by the end of a
+//   block.  If the run does not fit in the rest of the current block, it
+//   starts the next block.  If it is longer than a whole block, that is
+//   an error.
+// - A run of lines that are all comments continues into the next block.
+// - A blank line is kept, except at the top of a block, where it is
+//   dropped.
 //
-// A block that is laid in is spaces to its end.  It says how many blocks
-// the source took, or what does not fit and then -1.
+// A block that receives any line is padded with spaces to its end.
+// Returns the number of blocks the source took, or -1 after printing what
+// does not fit.
 int pack(const char* what, const uint8_t* text, size_t len, uint8_t* disk, int block, int limit) {
     char** lines = NULL;
     long n = 0, room = 0;
@@ -120,9 +135,9 @@ int pack(const char* what, const uint8_t* text, size_t len, uint8_t* disk, int b
         for(size_t k=from; k < idx; k++) if (text[k] != '\r') line[at++] = text[k] == '\t' ? ' ' : text[k];
         from = idx + 1;
     }
-    // Which lines start in a comment in brackets, which are nothing but
-    // comments, and which start inside a conditional ([if] with no [then]
-    // yet).
+    // For each line, record whether it starts inside a ( ) comment,
+    // whether it is only comments, and whether it starts inside a
+    // conditional (after an [if] that has no [then] yet).
     char* starts_in = room_for(n + 1, 1);
     char* only = room_for(n + 1, 1);
     char* skipped = room_for(n + 1, 1);
@@ -138,10 +153,10 @@ int pack(const char* what, const uint8_t* text, size_t len, uint8_t* disk, int b
     free(pieces);
 
     int at = block, line = 0, last = block, fails = 0;
-    long before = -1;                           // the line of the text laid just above, in this block
+    long before = -1;                           // the text line placed just above in this block, or -1 if there is none
     memset(disk + (size_t)block * DISK_BLOCK, ' ', DISK_BLOCK);
     for(long i=0; i < n && !fails; ) {
-        if (!line_length(lines[i])) {           // a line of nothing
+        if (!line_length(lines[i])) {           // a blank line
             if (line) line++, before = -1;
             if (line == BLOCK_LINES) at++, line = 0;
             i++;
@@ -164,9 +179,10 @@ int pack(const char* what, const uint8_t* text, size_t len, uint8_t* disk, int b
                 fails = 1;
                 break;
             }
-            // What skips a conditional stops at the end of the block it is
-            // in, and the next block is read as if nothing were skipped:
-            // so a conditional is all in one block.
+            // The word that skips a false conditional stops at the end of
+            // its block, and the next block is then read as if nothing
+            // were being skipped.  So a conditional must be all in one
+            // block.
             if (!line && skipped[i]) {
                 fprintf(stderr, "mkdisk: %s: line %ld is the first of a block, and is in a conditional that began "
                         "before it: [if] to [then] is to be lines with none of nothing between, in one block\n",
@@ -181,11 +197,13 @@ int pack(const char* what, const uint8_t* text, size_t len, uint8_t* disk, int b
                 fails = 1;
                 break;
             }
-            // A block has nothing between its lines.  The last word of a
-            // line that is full and the first of the next, if that starts
-            // in its first column, are one word to whatever reads the
-            // block, and two in the file; unless the first is in a comment
-            // to the end of its line.
+            // A block has no separator between its lines.  If a line fills
+            // all DISK_LINE characters and the next line starts in its
+            // first column, the last word of one and the first word of the
+            // other are two words in the file and a single word to
+            // anything that reads the block.  That is an error, unless the
+            // full line ends inside a comment that runs to the end of the
+            // line.
             if (before >= 0 && line_length(lines[before]) == DISK_LINE && lines[i][0] != ' ' &&
                 !ends_in_comment(lines[before], DISK_LINE, starts_in[before])) {
                 fprintf(stderr, "mkdisk: %s: line %ld is all %d characters of a block's line, and line %ld starts in "
@@ -211,7 +229,8 @@ int pack(const char* what, const uint8_t* text, size_t len, uint8_t* disk, int b
     return(fails ? -1 : last - block + 1);
 }
 
-// Each file laid as blocks somewhere of its own, and what it took said.
+// Packs each file into a buffer of its own, and prints how many blocks it
+// took.  Returns the program's exit status.
 int pack_only(int files, char* paths[]) {
     if (!files) {
         fprintf(stderr, "mkdisk --pack: no files were given to lay as blocks\n");
@@ -221,7 +240,7 @@ int pack_only(int files, char* paths[]) {
     for(int f=0; f < files; f++) {
         uint8_t* bytes;
         size_t len = read_file(paths[f], &bytes);
-        long lines = len && bytes[len - 1] != '\n';         // a block for each line is room enough
+        long lines = len && bytes[len - 1] != '\n';         // one block per line is always enough room
         for(size_t idx=0; idx < len; idx++) lines += bytes[idx] == '\n';
         uint8_t* blocks = room_for(lines + 1, DISK_BLOCK);
         int took = pack(paths[f], bytes, len, blocks, 0, (int)lines + 1);
@@ -233,14 +252,16 @@ int pack_only(int files, char* paths[]) {
     return(failed);
 }
 
-// A number of an entry of the index, two bytes or four, the lowest first.
+// Stores a number in an index entry, in two bytes or four, lowest byte
+// first.
 static void put(uint8_t* at, long x, int bytes) {
     for(int idx=0; idx < bytes; idx++) at[idx] = (uint8_t)(x >> (8 * idx));
 }
 
-// Entry n of the index in block 0: its label, its type, its blocks, where
-// it goes in memory if it is binary, and how long it is.  A number of two
-// bytes is to fit in them.
+// Writes entry n of the index in block 0: its label, its type, its first
+// block and number of blocks, the kilobyte of memory it loads at if it is
+// binary, and its length.  It is an error for a value to overflow a
+// two-byte field.
 static void entry(int n, const char* label, int type, long first, long blocks, long where, long length) {
     size_t wide = strlen(label);
     if (wide >= DISK_LABEL) {
@@ -262,12 +283,16 @@ static void entry(int n, const char* label, int type, long first, long blocks, l
     put(at + DISK_ENTRY_LENGTH, length, 4);
 }
 
-// What the ROM takes from the console where there is no disk (nuc.fs,
-// ipl): the cells of an image from byte `from` to byte `to`, as records in
-// hex, RECORD cells to a record.  A record is the cell its first goes in
-// and @, each cell and a space, the sum of that cell and those as a cell
-// of the machine has it and #, and a line's end.  A cell is its bytes, the
-// lowest first.
+// Writes the cells of an image from byte `from` to byte `to` in the form
+// the ROM reads from the console when there is no disk (nuc.fs, ipl):
+// records in hex, RECORD cells to a record.  A record is:
+//
+//   the address of its first cell, then @
+//   each cell, followed by a space
+//   a checksum, then #, then a newline
+//
+// The checksum is the sum of the address and the cells, truncated to the
+// machine's cell size.  A cell is read from the image lowest byte first.
 #define RECORD 8
 
 static void records(FILE* out, const uint8_t* bytes, long from, long to, int bits) {
@@ -286,13 +311,7 @@ static void records(FILE* out, const uint8_t* bytes, long from, long to, int bit
     }
 }
 
-// The disk a machine starts from with its ROM alone.  Its index is block 0,
-// and its last slot is kept for an entry that goes on to more of the index
-// (doc/disk.md).  The image's memory above the ROM is a run for each stretch
-// of kilobytes that has something in it: what is between is nothing in the
-// image, and is left as memory has it.  The runs are laid down one after
-// another, in the order of their entries; the console is sent the same
-// runs, as records, and then ! to end them.
+// Writes a disk's blocks to a file.
 static void write_out(const char* path, const uint8_t* bytes, long blocks) {
     FILE* out = fopen(path, "wb");
     if (out == NULL) {
@@ -303,13 +322,14 @@ static void write_out(const char* path, const uint8_t* bytes, long blocks) {
     fclose(out);
 }
 
-// What the desktop keeps on the disk a machine starts from, each at the
-// block vm_constants.h says is its own: the threshold masks, and the names
-// that go with an image if there are any.  The blocks between and after
-// them are as they were.  The picture is not here: it is on another disk
+// Writes the desktop's fixed contents to the disk, each at the block
+// vm_constants.h assigns to it: the threshold masks, and the image's names
+// if a names file is given.  The blocks between and after them are left as
+// they are.  The picture is not written here: it is on another disk
 // (mkdisk --disk), where it is found by its label.
 static void desk_parts(const char* names_path) {
-    // Each mask, a row of its planes being so many bytes, up to the block of the next.
+    // MASK_BYTES(n) is the size of an n by n mask on the disk.  Each mask
+    // must end before the block where the next one starts.
     #define MASK_BYTES(n) ((n) * DISK_MASK_PLANES * DISK_MASK_WIDTH / 8)
     _Static_assert(DISK_MASKS_BLOCK + DISK_MASKS_BLOCKS <= DISK_VIEW_BLOCK, "the viewer's bitmap is after the masks");
     _Static_assert(DISK_CANVAS_BLOCK + DISK_CANVAS_BLOCKS <= DISK_MASKS_BLOCK, "the masks are after the canvas");
@@ -335,8 +355,8 @@ static void desk_parts(const char* names_path) {
     }
 }
 
-// A disk is no more blocks than a floppy holds: one that would be is not
-// made, and what is too much for it goes on another (mkdisk --disk).
+// Exits with an error if a disk would have more blocks than a floppy
+// holds.  Whatever does not fit goes on another disk (mkdisk --disk).
 static void fits_a_floppy(const char* path, long blocks) {
     if (blocks > DISK_FLOPPY) {
         fprintf(stderr, "mkdisk: %s is %ld blocks, and a disk is %d\n", path, blocks, DISK_FLOPPY);
@@ -344,28 +364,38 @@ static void fits_a_floppy(const char* path, long blocks) {
     }
 }
 
-// The blocks the desktop's things take, from the start of a disk: the last
-// of them are those kept for the viewer's bitmap and for its gray, which
-// are nothing until the viewer makes them.
+// The number of blocks the desktop's contents take, counted from the start
+// of the disk.  The last of them are the blocks reserved for the viewer's
+// bitmap and for its gray picture, which are zero until the viewer writes
+// them.
 _Static_assert(DISK_VIEW_BLOCK + DISK_VIEW_BLOCKS <= DISK_GRAY_BLOCK, "the viewer's gray is after its bitmap");
 #define DESK_BLOCKS (DISK_GRAY_BLOCK + DISK_GRAY_BLOCKS)
 
-// If it is the desktop's disk as well (desk), the sources are from block 1
-// and stop where the names start, the desktop's things are where they are
-// on any disk of the desktop's, and the image, which the index says the
-// place of, is after them all.
+// Makes the disk a machine starts from with only its ROM in memory.  Block
+// 0 is the index.  Its last slot is reserved for an entry that continues
+// the index elsewhere (doc/disk.md).  The image's memory above the ROM is
+// stored as one run for each stretch of kilobytes that has something in
+// it.  The kilobytes between runs are zero in the image, and the machine
+// leaves its memory there as it is.  The runs are written one after
+// another, in the order of their index entries.  The same runs are written
+// to the IPL file as records, followed by ! to end them.
+//
+// If the disk is also the desktop's (`desk`), the sources start at block 1
+// and must end before the block where the names start.  The desktop's
+// contents are at the blocks they have on the desktop's own disk, and the
+// image comes after all of them, at the block the index gives.
 int boot_disk(const char* image_path, const char* out_path, const char* ipl_path,
               int desk, const char* names_path, int sources, char* source_paths[]) {
     uint8_t* image;
     size_t image_len = load_image(image_path, &image);
-    const int bits = CELL_BITS;                             // of the image's machine
+    const int bits = CELL_BITS;                             // the cell size of the image's machine
     uint8_t** texts = calloc(sources, sizeof(uint8_t*));
     size_t* text_lens = calloc(sources, sizeof(size_t));
     long* lines = calloc(sources, sizeof(long));
     long all_lines = 0;
     for(int f=0; f < sources; f++) {
         text_lens[f] = read_file(source_paths[f], &texts[f]);
-        lines[f] = text_lens[f] && texts[f][text_lens[f] - 1] != '\n';  // a block for each line is room enough
+        lines[f] = text_lens[f] && texts[f][text_lens[f] - 1] != '\n';  // one block per line is always enough room
         for(size_t idx=0; idx < text_lens[f]; idx++) lines[f] += texts[f][idx] == '\n';
         all_lines += lines[f] + 1;
     }
@@ -373,14 +403,15 @@ int boot_disk(const char* image_path, const char* out_path, const char* ipl_path
     long room = DISK_SOURCE_BLOCK + (desk ? DESK_BLOCKS + DISK_OWN_BLOCKS : 0) + all_lines + kilobytes;
     while (room % DISK_ROUND) room++;
     disk = calloc(room, DISK_BLOCK);
-    uint8_t* whole = calloc(kilobytes, DISK_BLOCK);         // the image, to a whole number of kilobytes
+    uint8_t* whole = calloc(kilobytes, DISK_BLOCK);         // the image, padded to a whole number of kilobytes
     memcpy(whole, image, image_len);
     if (desk) desk_parts(names_path);
 
-    // Each source after the one before, the first at block 1, each an
-    // entry of the index labelled with its file's name.  On a disk that is
-    // the desktop's too they are all before the names: the source is
-    // first, and whoever reads on from block 1 reads source.
+    // Pack the sources one after another, starting at block 1.  Each gets
+    // an index entry labelled with its file name.  On a disk that is also
+    // the desktop's, all of them must end before the names: source comes
+    // first on the disk, so anything that reads on from block 1 reads
+    // source.
     int slots = DISK_BLOCK / DISK_ENTRY - 1, n = 1;
     long at = DISK_SOURCE_BLOCK;
     for(int f=0; f < sources; f++) {
@@ -398,10 +429,11 @@ int boot_disk(const char* image_path, const char* out_path, const char* ipl_path
     }
 
     if (desk && at < DESK_BLOCKS) at = DESK_BLOCKS;
-    // The machine that boots from it compiles the files of its block 1, and
-    // the names that are those files' own are gone from its dictionary when
-    // each is read: it keeps them in these blocks, which are nothing until
-    // it does, for the decompiler to show a word by (forth/files.fs).
+    // The machine that boots from this disk compiles the files listed in
+    // block 1.  A file's private names are removed from the dictionary
+    // once the file has been read.  The machine saves them in these blocks,
+    // which are zero until it does, so that the decompiler can show a word
+    // by its name (forth/files.fs).
     if (desk) {
         if (n == slots) {
             fprintf(stderr, "mkdisk: block 0 has no slot left for the blocks kept for names\n");
@@ -461,23 +493,25 @@ int boot_disk(const char* image_path, const char* out_path, const char* ipl_path
     return(0);
 }
 
-// A disk that is an index and the files it is given, one after another
-// from block 1: a file whose name ends in .fs is source, laid as blocks,
-// and any other is data, as it is.  Each has an entry labelled with its
-// name.  There is no binary on it, so its own entry says no cell: it is
-// not a disk a machine starts from, but one it finds things on by their
-// labels, after the disks before it (doc/disk.md, Several disks).
+// Returns 1 if a file's name ends in .fs, which makes it source.
 static int is_source(const char* path) {
     size_t len = strlen(path);
     return(len > 3 && !strcmp(path + len - 3, ".fs"));
 }
 
+// Makes a disk that has an index and the given files, one after another
+// from block 1.  A file whose name ends in .fs is source, and is packed
+// into blocks.  Any other file is data, and is copied as it is.  Each file
+// has an index entry labelled with its name.  The disk holds no binary, so
+// the index's own entry records no cell size.  A machine does not start
+// from this disk: it finds things on it by their labels, after looking on
+// the disks before it (doc/disk.md, Several disks).
 static int files_disk(const char* out_path, int files, char* given[]) {
     uint8_t** bytes = calloc(files, sizeof(uint8_t*));
     size_t* lens = calloc(files, sizeof(size_t));
     long* lines = calloc(files, sizeof(long));
-    // A file is said as its path, and is labelled with its name; or as
-    // LABEL=PATH, where it is to have another label than its name.
+    // An argument is a file's path, and the file's label is its file name;
+    // or it is LABEL=PATH, which gives the file a different label.
     char** paths = calloc(files, sizeof(char*));
     char** labels = calloc(files, sizeof(char*));
     for(int f=0; f < files; f++) {
@@ -491,7 +525,7 @@ static int files_disk(const char* out_path, int files, char* given[]) {
         lens[f] = read_file(paths[f], &bytes[f]);
         lines[f] = lens[f] && bytes[f][lens[f] - 1] != '\n';
         for(size_t idx=0; idx < lens[f]; idx++) lines[f] += bytes[f][idx] == '\n';
-        room += is_source(paths[f]) ? lines[f] + 1 : (long)(lens[f] + DISK_BLOCK - 1) / DISK_BLOCK;     // a block a line is room enough
+        room += is_source(paths[f]) ? lines[f] + 1 : (long)(lens[f] + DISK_BLOCK - 1) / DISK_BLOCK;     // one block per line is always enough room
     }
     while (room % DISK_ROUND) room++;
     disk = calloc(room, DISK_BLOCK);
@@ -526,23 +560,24 @@ static int files_disk(const char* out_path, int files, char* given[]) {
     return(0);
 }
 
-// The sources given, and after them each file that one of them includes,
-// once: wherever a line says `include NAME`, before any comment it ends
-// with, the file NAME from the same directory.  So what the boot compiles
-// is said once, in the list the first source is (forth/apps.fs), and the
-// disk has each file it names.
+// Returns the given sources followed by every file that one of them
+// includes, each once, and stores the new count in `*sources`.  Wherever a
+// line has `include NAME` before any \ comment, the file NAME from the
+// same directory is added.  So the files the boot compiles are listed in
+// one place, the first source (forth/apps.fs), and the disk has every file
+// that list names.
 static char** with_included(int* sources, char* given[]) {
     int n = *sources, most = n + 8;
     char** paths = malloc(sizeof(char*) * most);
     memcpy(paths, given, sizeof(char*) * n);
-    for(int f=0; f < n; f++) {                  // n grows: an included file is looked in too
+    for(int f=0; f < n; f++) {                  // n grows inside the loop, so an included file is scanned too
         uint8_t* text;
         size_t len = read_file(paths[f], &text);
         text[len] = '\0';
         for(char* line = (char*)text; line; ) {
             char* next = strchr(line, '\n');
             size_t line_len = next ? (size_t)(next - line) : strlen(line);
-            int including = 0;                  // the word before was include
+            int including = 0;                  // 1 if the previous word was `include`
             for(size_t at = strspn(line, " \t\r"); at < line_len; ) {
                 const char* word = line + at;
                 size_t word_len = strcspn(word, " \t\r\n");
@@ -554,7 +589,7 @@ static char** with_included(int* sources, char* given[]) {
                     continue;
                 }
                 including = 0;
-                int seen = 0;                   // a file of that name is on the disk: its label is the name
+                int seen = 0;                   // 1 if a file of that name is already in the list (a file's label is its name)
                 for(int k=0; k < n; k++) {
                     const char* base = strrchr(paths[k], '/');
                     base = base ? base + 1 : paths[k];

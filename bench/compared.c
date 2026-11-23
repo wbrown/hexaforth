@@ -1,31 +1,36 @@
 //
 // compared WAS WAS.work IS IS.work
 //
-// Two measurements of the same work, compared by word.
+// Compares two measurements of the same work, word by word.
 //
-// WAS and IS are each a directory that has an image and its names in it
-// (nuc.hex, nuc.tables): one that an image is built in (build/16), or one
-// that an image was kept in (build/kept/IMAGE-AS-IT-IS/image, util/keep.c).
-// Each .work is how often each instruction of that image ran (work.h),
-// which a counting VM left and which is kept beside the image.
+// WAS and IS are each a directory that holds an image and its names
+// (nuc.hex, nuc.tables).  It is either a directory an image is built in
+// (build/16), or one an image was kept in
+// (build/kept/IMAGE-AS-IT-IS/image, util/keep.c).  Each .work file gives
+// the number of times each instruction of that image ran (work.h).  A
+// counting VM writes it, and it is kept beside the image.
 //
-// The two are not compared by their totals, and cannot be by place: a
-// change moves every word after it.  A word is the same word by its name,
-// so each image's work is added up by the word each place is in, and the
-// words are put beside each other.  What a word is charged is what its own
-// instructions ran, and not what it calls: a word that is called less
-// shows as itself, and what calls it less shows by having fewer
-// instructions run.  (What a word costs with all it calls is paths.txt,
-// which is kept too.)  Words of one name are one line.
+// The totals alone do not show what a change did, and the two images
+// cannot be compared address by address, because a change moves every
+// word after it.  Words are matched by name instead.  Each image's counts
+// are totalled by the word each address is in, and the two totals for a
+// word are printed side by side.  A word is charged for its own
+// instructions that ran, and not for the words it calls.  So a word that
+// is called less often has a smaller total of its own, and the word that
+// calls it less often has fewer instructions run as well.  (paths.txt,
+// which is kept too, gives the cost of a word with everything it calls.)
+// All the words with one name are reported on one line.
 //
-// Prints what each ran in all, in instructions and in cycles (cycles.h);
-// then every word that ran in either, by how much its cycles changed, with
-// how long the word is in each image, since a word that is another length
-// is one the change made otherwise.  A word that only one image has, or
-// that ran in only one, has nothing in the other's columns.
+// It prints the total each image ran, in instructions and in cycles
+// (cycles.h).  Then it prints every word that ran in either image, ordered
+// by how much its cycles changed, with the word's length in each image.
+// A word whose length differs was compiled differently after the change.
+// If only one image has a word, the other image's columns are blank.  If
+// both have it and it ran in only one, the other's columns are 0.
 //
-// It fails if every word is as long and ran the same in both, since then
-// there was nothing to compare: the same image and work were given twice.
+// It fails if every word has the same length and ran the same number of
+// times in both images, because then there was nothing to compare: the
+// same image and the same work were given twice.
 //
 
 #include <math.h>
@@ -37,15 +42,16 @@
 
 typedef struct {
     char name[NAME_ROOM];
-    double ran[2], cycles[2];           // of each image: was, and is
-    long size[2];                       // how many instructions the word is in each
-    char in[2];                         // whether each image has it
+    double ran[2], cycles[2];           // instructions run and cycles, in WAS ([0]) and in IS ([1])
+    long size[2];                       // the word's length in instructions, in each image
+    char in[2];                         // non-zero if the image has the word
 } line;
 
 static line* LINES;
 static long lines, lines_room;
 static double all_ran[2], all_cycles[2];
 
+// Returns the line for a name, creating it if there is none.
 static line* line_named(const char* name) {
     for(long n=0; n < lines; n++) if (!strcmp(LINES[n].name, name)) return(&LINES[n]);
     ONE_MORE(LINES, lines, lines_room);
@@ -55,7 +61,7 @@ static line* line_named(const char* name) {
     return(is);
 }
 
-// One image's work, added up by word.
+// Totals one image's counts by word.  `which` is 0 for WAS and 1 for IS.
 static void weigh(int which, const char* dir, const char* counts) {
     cut_image m;
     char* hex = NULL;
@@ -76,8 +82,8 @@ static void weigh(int which, const char* dir, const char* counts) {
     int w = -1;
     for(long at=0; at < places; at++) {
         while (w + 1 < m.n && m.words[w + 1].at <= at) w++;
-        if (!m.code[at] || work[at] == 0) continue;     // nothing is there: what ran was put there at the prompt
-        int first = w;                                  // of the names for the same code, the first
+        if (!m.code[at] || work[at] == 0) continue;     // the image has no instruction here: code that ran here was compiled at the prompt
+        int first = w;                                  // when several words name the same code, use the first
         while (first > 0 && m.words[first - 1].at == m.words[w].at) first--;
         line* l = line_named(w < 0 ? "(before any word)" : m.words[first].name);
         double cycles = work[at] * cycles_of(ins_of(m.code[at]), NUMBER_IN[m.code[at]].does == FETCHES_AT_IT);
@@ -98,7 +104,8 @@ static int by_change(const void* a, const void* b) {
     return(strcmp(((const line*)a)->name, ((const line*)b)->name));
 }
 
-// A figure of an image, or nothing if the image has no such word.
+// Prints one image's figure for a word, or blanks if the image does not
+// have the word.
 static void figure(int has, int width, double is) {
     if (has) printf(" %*.0f", width, is);
     else printf(" %*s", width, "");
@@ -110,10 +117,10 @@ int main(int argc, char *argv[]) {
                         "  WAS and IS: each a directory with nuc.hex and nuc.tables in it\n");
         return(1);
     }
-    // The two are of one machine, which an image says beside it: one of
-    // another machine stops this where it is read (util/image.h).  One
-    // that was kept before an image said its machine is taken to be of
-    // the other's.
+    // Both images must be for the same machine, which is recorded beside
+    // each image.  Reading an image for a different machine stops the
+    // program (util/image.h).  An image that was kept before images
+    // recorded their machine is taken to be for the other image's machine.
     char* was = NULL;
     char* is = NULL;
     text_more(&was, "%s/nuc.hex", argv[1]);

@@ -1,12 +1,12 @@
 //
-// The nucleus on vm.c, typed at.
+// Runs the nucleus on vm.c and types at its prompt.
 //
-// The machine is vm.c, which is built into a test for the size of machine
-// the image is for, and the image is the nucleus.  A test starts the
-// machine from the image, says the lines to type at its prompt, and types
-// them: the machine runs until it has read the last.  What the lines left
-// on the data stack, what the machine printed and its memory are then
-// there to be looked at.
+// The machine is vm.c, with the sizes of the machine the image was built
+// for, and the image is the nucleus.  A test starts the machine from the
+// image, queues the lines to type at its prompt, and types them: the
+// machine runs until it has read the last line.  The test can then examine
+// what the lines left on the data stack, what the machine printed, and the
+// machine's memory.
 //
 
 #ifndef HEXAFORTH_NUCLEUS_H
@@ -17,72 +17,83 @@
 #include <stdint.h>
 #include "../vm.h"
 
-extern context machine;         // the machine: it has the memory, the stacks and the disk
-extern char* said;              // what it printed when it was last typed at: all of it, until it is typed at again
+extern context machine;         // the machine: its memory, its stacks and its disk
+extern char* said;              // everything the machine printed the last time it was typed at; valid until the next time
 
-// The image the machine is started from.  This is said once, first.
+// Sets the image the machine starts from.  Call it once, before anything
+// else.
 void nucleus_is(const char* path);
 
-// A machine that stops and has not halted (vm_stopped.h: it ran on, ran
-// where nothing was put, or came to a break the environment says) is not
-// gone on with: what it said and what it was at are printed, and the test
-// has failed.  A test that has more to say of its machine has it said by
-// this, which is run first and may end the test itself.
+// Called when the machine stops without halting (vm_stopped.h: it ran past
+// its budget, was about to run an address that was never written, or
+// reached a break set in the environment).  The test does not continue
+// from there: what the machine printed and where it stopped are printed,
+// and the test fails.  A test that has more to report about its machine
+// sets this function, which is called first and may end the test itself.
 extern void (*stopped_short)(void);
 
-// Start the machine from its image, with nothing to type and no disk.
+// Starts the machine from its image, with no input queued and no disk.
 void start(void);
 
-// A line to type at the machine.
+// Queues a line to type at the machine.  The arguments are as for printf.
 void line(const char* format, ...);
 
-// Type the lines at the machine's prompt and run it until it stops, which
-// is where the last line sends it.
+// Types the queued lines at the machine's prompt, followed by a line that
+// stops the machine, and runs the machine until it stops.
 void type(void);
 
-// Type the lines at the machine as it was left when it was last typed at.
-// It is at its prompt again, as it is after anything that throws: its
-// stacks are empty, and its memory and its dictionary are as they were.
+// Types the queued lines at the machine in the state the last run left it
+// in.  The machine restarts at its prompt, as it does after anything that
+// throws: its stacks are empty, and its memory and dictionary are
+// unchanged.
 void type_more(void);
 
-// A machine that is to be stopped in the middle of what it is doing, looked
-// at, and gone on with: a desktop in its event loop, which never comes back
-// to the prompt.  going_on() is said after start() and before anything
-// else is typed: it gives the machine what go_on() needs.  A word the test
-// types stops the machine by running `stopping() execute`; keys() are
-// bytes for the machine to read that are not a line; set_off() runs it
-// from its prompt on what has been said, until it stops; and go_on() runs
-// it again from where it stopped on what has been said since, its stacks
-// and everything else as they were.
+// These functions are for a machine that must be stopped in the middle of
+// its work, examined, and resumed.  The desktop is one: it stays in its
+// event loop and never returns to the prompt.
 //
-// vm.c starts a machine with nothing on its stacks.  So the machine is gone
-// on with by a word that sets the two depths back through the depth ports,
-// as a task that takes its turn does, and returns to where it stopped.
-// That word puts two numbers on the data stack before the depths are set:
-// the two cells at the bottom of the data stack are not kept, and a test
-// that goes on has the machine put two there that it has no use for.
+//   going_on()   Call it after start() and before anything else is typed.
+//                It defines in the machine what go_on() needs.
+//   stopping()   Returns an address.  A word the test types stops the
+//                machine by running `stopping() execute`.
+//   keys()       Queues bytes for the machine to read that are not a line.
+//   set_off()    Runs the machine from its prompt on the queued input,
+//                until it stops.
+//   go_on()      Resumes the machine where it stopped, on the input queued
+//                since, with its stacks and everything else as they were.
+//
+// vm.c starts a machine with empty stacks.  So go_on() resumes the machine
+// through a word that restores the two stack depths through the depth
+// ports, as a task does when its turn comes, and then returns to where the
+// machine stopped.  That word pushes two numbers before it sets the
+// depths, which overwrites the two cells at the bottom of the data stack.
+// So a test that resumes its machine has the machine keep two cells it
+// does not need at the bottom of that stack.
 void going_on(void);
 int stopping(void);
 void keys(const void* bytes, size_t count);
 void set_off(void);
 void go_on(void);
 
-// The nth cell down from the top of what was left on the data stack.
+// Returns the nth cell from the top of the data stack as the machine left
+// it.  The top is 0.
 uint64_t left(int n);
 
-// A number as a cell of this machine holds it, which is how left() and
-// fetch() give one.
+// Returns a number truncated to this machine's cell size, which is the
+// form left() and fetch() return.
 uint64_t as_cell(int64_t x);
 
-// Whether cells from an address are all in the machine's memory, where a
-// cell is, and what is in it.
+// Access to the machine's memory.  in_memory() returns true if `cells`
+// cells starting at an address are all inside memory.  cell_at() returns a
+// pointer to a cell, fetch() returns its value, and store() sets it.
 bool in_memory(uint64_t addr, uint64_t cells);
 uint8_t* cell_at(uint64_t addr);
 uint64_t fetch(uint64_t addr);
 void store(uint64_t addr, uint64_t x);
 
-// A pixel of the machine's display, where vm_constants.h says the display
-// is and which bit of a cell is which pixel: true if it is black.
+// Returns true if a pixel of the machine's display is black.
+// vm_constants.h gives the display's address and which bit of a cell is
+// which pixel.
 bool black_at(int x, int y);
 
 #endif //HEXAFORTH_NUCLEUS_H

@@ -70,16 +70,17 @@ uint8_t lookup_word(word_node* nodes, const char* word, instruction* lookup) {
     return(0);
 }
 
-// A name with a space in it is a phrase, and not a word (vm_opcodes.h).
+// Returns true if a name is a phrase: a name with a space in it
+// (vm_opcodes.h).
 bool is_phrase(const char* repr) {
     return(strchr(repr, ' ') != NULL);
 }
 
-// What the words from here are in the table: the longest phrase they
-// begin, or the word the first is.  How many instructions that is, which
-// are put in `lookup`, and how many of the words it took; nothing, if the
-// first is no word of the table.
-#define PHRASE_WORDS 4                  // more words than any phrase of the table has
+// Looks up the words starting at `words` in the table: the longest phrase
+// they begin, or failing that the first word alone.  The instructions are
+// written to `lookup`, and their number is returned.  `took` is set to the
+// number of words used.  Returns 0 if the first word is not in the table.
+#define PHRASE_WORDS 4                  // more than the number of words in any phrase of the table
 uint8_t lookup_said(word_node* nodes, char* const* words, int count, instruction* lookup, int* took) {
     for(int n = count < PHRASE_WORDS ? count : PHRASE_WORDS; n > 0; n--) {
         char said[160];
@@ -122,14 +123,14 @@ bool lookup_op_word(word_node* nodes, char* word, instruction* lookup) {
     return(interpret_imm(word, lookup));
 }
 
-// Given where the name in a dictionary header starts, and how many bytes
-// there are from there to the end of the image, write the name out as a
-// string, and return how many bytes of the header the name's cells are.
-// What does not end inside the image, or goes on longer than a name does,
-// is not a name: then the string is empty and nothing is returned.
-// See `NAME_CODES_REPR` for what the codes of a name are.
+// Unpacks the name in a dictionary header into the string `out`.  `cells`
+// points to the name's first cell, and `room` is the number of bytes from
+// there to the end of the image.  Returns the number of bytes the name's
+// cells take.  If the name does not end inside the image, or is longer
+// than NAME_MOST characters, it is not a name: `out` is then empty and the
+// result is 0.  `NAME_CODES_REPR` describes the codes.
 int decode_name(const uint8_t* cells, size_t room, char* out) {
-    const char* lot = NULL;     // which lot the next code is one of, if any
+    const char* lot = NULL;     // the group the next code selects a character from, or NULL
     int len = 0;
     int bytes = 0;
     bool last = false;
@@ -161,22 +162,24 @@ int decode_name(const uint8_t* cells, size_t room, char* out) {
     return(bytes);
 }
 
-// The dictionary of an image of `len` bytes.  A header is cells: the address
-// of the header looked at after it, which is nothing for the last; the
-// word's execution token, with the top bit set if the word is immediate;
-// and the name.  The address of the first header, which is where a search
-// starts, is the first cell of the image's data, the cell at VAR_BASE,
-// where cross.fs puts it.  An address is the number of a cell, and a header
-// is said here by the byte it starts at.
+// The dictionary of an image of `len` bytes.  A header is a sequence of
+// cells: a link, which is the address of the next header to search, or 0
+// in the last header; the word's execution token, with the top bit set if
+// the word is immediate; and the name.  A search starts at the header
+// whose address is in the first cell of the image's data, the cell at
+// VAR_BASE, where cross.fs puts it.  An address is a cell number, but
+// these functions identify a header by the byte offset where it starts.
 //
-// The headers are in the order they are searched in, which is not the order
-// they are in memory: cross.fs links an image's by how often their names
-// are said (headers-ordered), and a header made on the machine is linked
-// before those.  So a link may go on in memory as well as back, and what is
-// read is not a dictionary if it has more headers than it has room for:
-// each is three cells at the least.
-static size_t headers_read;     // since the first was asked for
+// The links follow the order of a search, which is not the order of the
+// headers in memory.  cross.fs links an image's headers by how often the
+// source uses each name (headers-ordered), and a header created on the
+// machine is linked in front of those.  So a link can point forward in
+// memory as well as back.  A chain with more headers than the image has
+// room for is not a dictionary: a header is at least three cells.
+static size_t headers_read;     // headers read since first_header() was called
 
+// Returns the byte offset of the header a search starts at, or 0 if the
+// image has none.
 uint32_t first_header(const uint8_t* image, size_t len) {
     uint64_t head = 0;
     headers_read = 0;
@@ -185,13 +188,13 @@ uint32_t first_header(const uint8_t* image, size_t len) {
     return(head < len / CELL_BYTES ? head * CELL_BYTES : 0);
 }
 
-// Read the header at byte `head`: its name, and its execution token without
-// the top bit.  Returns the byte the header linked after it starts at,
-// which is nothing for the last.  What does not fit in the image, or is
-// linked to itself or to what is outside the image, is not a header: then
-// the name is empty and nothing is returned.  Nor is anything returned for
-// one of more headers than the image has room for, since the first was
-// asked for: a chain that comes round to itself is gone through once.
+// Reads the header at byte offset `head`: its name, and its execution
+// token with the top bit cleared.  Returns the byte offset of the next
+// header in the chain, or 0 after the last.  A header that does not fit in
+// the image, or whose link points to itself or outside the image, is not a
+// header: the name is then empty and the result is 0.  The result is also
+// 0 once more headers have been read, since first_header() was called,
+// than the image has room for, so a chain that loops is walked only once.
 uint32_t read_header(const uint8_t* image, size_t len, uint32_t head,
                      uint64_t* xt, char* name) {
     uint64_t link = 0;
@@ -207,9 +210,9 @@ uint32_t read_header(const uint8_t* image, size_t len, uint32_t head,
     return(link * CELL_BYTES);
 }
 
-// Where the header at byte `head` ends: the byte after the last cell of its
-// name.  This and read_header are what know that a header is two cells and
-// then the name.
+// Returns the byte offset just past the header at `head`: the byte after
+// the last cell of its name.  This function and read_header() are the only
+// code that knows a header is two cells followed by the name.
 uint32_t header_end(const uint8_t* image, size_t len, uint32_t head) {
     char name[NAME_ROOM];
     if (head + 2 * CELL_BYTES > len) return(head);
@@ -271,15 +274,15 @@ bool init_opcodes(word_node* opcodes) {
         uint64_t input_len = strlen(input) + 1;
         char* buffer = malloc(input_len);
         memcpy(buffer, input, input_len);
-        // The words of the definition, each where it is in the copy.
+        // Split the definition into words, each a pointer into the copy.
         char* words[sizeof(op->code) / 2];
         int count = 0;
         for(char* word = strtok(buffer, " "); word; word = strtok(NULL, " ")) words[count++] = word;
 
         for(int at=0; at < count; ) {
             instruction lookup[128];
-            // A word of the table defined before this one, or a phrase of
-            // them: its instructions are this word's next.
+            // If this is a word defined earlier in the table, or a phrase
+            // of such words, append its instructions to this word.
             int took;
             uint8_t num_ins = lookup_said(opcodes, words + at, count - at, (instruction*)&lookup, &took);
             if (num_ins) {

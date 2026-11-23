@@ -14,7 +14,7 @@ typedef struct { int EIP;
     int        SP;
     int        RSP;
     int        DBGP;
-    uint16_t   memory[MEM_MOST / 2];        // room for the largest machine: MEM_BYTES of it is this one's
+    uint16_t   memory[MEM_MOST / 2];        // sized for the largest machine; this machine uses MEM_BYTES of it
     int64_t    DSTACK_park;
     int64_t    DSTACK[STACK_CELLS];
     int64_t    RSTACK_park;
@@ -27,9 +27,9 @@ typedef struct { int EIP;
     word_node* words;
     uint64_t   CYCLES;
     int64_t    IOADDR;
-    FILE       *DISKS[DISK_DRIVES];     // the file that is each disk, if there is one
-    int64_t    DISKBLK;                 // the number the disk's ports are at: a disk, and a block of it
-    int64_t    DISKBLOCKS[DISK_DRIVES]; // how many blocks each disk is
+    FILE       *DISKS[DISK_DRIVES];     // the file behind each disk, or NULL
+    int64_t    DISKBLK;                 // the block number last written to the disk port: it selects a disk and a block
+    int64_t    DISKBLOCKS[DISK_DRIVES]; // the number of blocks on each disk
     } context;
 
 static inline uint8_t clz(uint64_t N);

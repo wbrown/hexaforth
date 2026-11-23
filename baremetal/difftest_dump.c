@@ -1,15 +1,18 @@
-// difftest_dump.c - run test programs on the reference VM (vm.c) and dump
-// each program image together with the machine state it halts in, for
-// difftest.c to replay against the AArch64 kernel.
+// difftest_dump.c - runs test programs on the reference VM (vm.c) and dumps
+// each program's image together with the machine state it halts in.
+// difftest.c replays the cases on the AArch64 kernels, and rtl/tb.cpp
+// replays them on the Verilog.
 //
-// Two sets of cases:
-//   1. every test in test/tests.h, compiled with the test compiler;
-//   2. every possible ALU instruction (all 8192 encodings), executed once
-//      from a fixed machine state in which every stack cell and every
-//      memory cell it can reach holds a valid data address;
-//   3. paged code: calls, jumps and returns between the kernel and two
-//      code pages;
-//   4. the instructions that fetch and store a variable.
+// The sets of cases:
+//   - every test in test/tests.h, compiled with the test compiler.  The
+//     tests are written for 64-bit cells, so only that machine has them
+//   - every possible ALU instruction (all 8192 encodings), executed once
+//     from a fixed machine state in which every stack cell and every
+//     memory cell it can reach holds a valid data address
+//   - paged code: calls, jumps and returns between the kernel and two
+//     code pages, on machines with cells of 32 bits or more
+//   - a return address that has the top bit of a 16-bit cell set
+//   - the instructions that fetch and store a variable
 #include "../test/compiler.h"
 #include "../test/tests.h"
 #include "../test/vm_test.h"
@@ -93,11 +96,12 @@ static void paging_case(FILE *f, word_node *words) {
   free(ctx);
 }
 
-// A return address is a cell on the return stack, and no more than a cell:
-// R is the same as what `r@` gives, also where the address has the top bit
-// of a cell, as one in the upper half of the memory of a 16-bit machine
-// has.  A word at 0xc010 is called from 0xc000: it leaves the address
-// twice, and whether R is the same as it.
+// Checks that a return address is exactly one cell on the return stack.
+// R must equal what `r@` gives, including when the address has the top bit
+// of a cell set, as an address in the upper half of a 16-bit machine's
+// memory has.  A word at 0xc010 is called from 0xc000.  It pushes its
+// return address twice with `r@`, and then replaces the top copy with the
+// flag for whether R equals the other copy.
 static void return_case(FILE *f, word_node *words) {
   context *ctx = calloc(1, sizeof(context));
   ctx->words = words;
@@ -116,8 +120,9 @@ static void return_case(FILE *f, word_node *words) {
 }
 
 // A literal instruction with a shift field of 3 fetches or stores one of
-// the 4,096 cells from VAR_BASE.  The first and the last of them, and one
-// between, stored and fetched back; one that was never stored reads zero.
+// the 4,096 cells that start at VAR_BASE.  This case stores to the first
+// of them, the last and one in between, and fetches each back.  It also
+// fetches one that was never stored to, which reads as zero.
 static void variable_case(FILE *f, word_node *words) {
   context *ctx = calloc(1, sizeof(context));
   ctx->words = words;
@@ -134,9 +139,11 @@ static void variable_case(FILE *f, word_node *words) {
   free(ctx);
 }
 
-// difftest_dump CASES.bin [CELL]: the cases are of a machine of that cell,
-// as vm_constants.h has one when nothing else is said of it; and of the
-// machine vm_constants.h gives when nothing is said, if no cell is.
+// difftest_dump CASES.bin [CELL]
+//
+// With CELL, the cases are for the machine that vm_constants.h gives for
+// that cell size when no other size is given.  Without CELL, they are for
+// the default machine of vm_constants.h.
 int main(int argc, char **argv) {
   if (argc < 2 || argc > 3) {
     fprintf(stderr, "usage: %s CASES.bin [CELL]\n", argv[0]);
@@ -160,10 +167,11 @@ int main(int argc, char **argv) {
     free(ctx);
   }
 
-  // Eight cells of data start at byte 0x400, each holding the address of
-  // one of the eight.  The return stack holds addresses of the empty cells
-  // after them: an instruction that returns goes to one of those, and on a
-  // machine whose cells are 16 bits that is the cell itself, which halts.
+  // Eight cells of data start at byte 0x400, and each holds the address of
+  // one of the eight.  The return stack holds the addresses of the empty
+  // cells after them.  An instruction that returns goes to one of those
+  // addresses.  On a machine with 16-bit cells that is the empty cell
+  // itself, and the zero in it is the instruction that halts.
   const uint16_t DATA = 0x8000 | (0x400 / CELL_BYTES);
   const uint16_t prefix[] = {
       DATA + 8, DATA + 9, DATA + 10,        // literals destined for the return stack
@@ -185,7 +193,7 @@ int main(int argc, char **argv) {
     free(ctx);
     n++;
   }
-  if (CELL_BITS >= 32) {        // its code pages are past 64KB
+  if (CELL_BITS >= 32) {        // the paged case's code pages are past 64KB
     paging_case(f, words);
     n++;
   }

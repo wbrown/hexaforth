@@ -13,7 +13,7 @@ int* grays_of(const uint8_t* bytes, int w, int h, int samples, bool half, int* g
     for(int y=0; y < *gh; y++) {
         for(int x=0; x < *gw; x++) {
             if (half) {
-                // Four pixels' grays, quartered to the nearest.
+                // The average of four pixels' grays, rounded to the nearest.
                 const uint8_t* over = bytes + ((size_t)2 * y * w + 2 * x) * samples;
                 const uint8_t* under = over + (size_t)w * samples;
                 gray[y * *gw + x] = (gray_of(over, samples) + gray_of(over + samples, samples) +
@@ -26,18 +26,19 @@ int* grays_of(const uint8_t* bytes, int w, int h, int samples, bool half, int* g
     return(gray);
 }
 
-// An eighth of what a pixel is out by is owed to each of six others: the
-// two after it, the three under it, and the one two rows under.  Two
-// eighths are owed to nobody.
+// A pixel's error is the difference between its value and the black or
+// white it became.  An eighth of the error is passed to each of six
+// neighbours: the two pixels after it, the three under it, and the one two
+// rows under it.  The other two eighths are discarded.
 void dither(const int* gray, int w, int h, uint8_t* black) {
-    int across = w + 4;         // a row of what is owed has two more at each end
+    int across = w + 4;         // a row of errors has two extra entries at each end
     int* owed = calloc((size_t)across * (h + 2), sizeof(int));
     for(int y=0; y < h; y++) {
         for(int x=0; x < w; x++) {
             int* here = owed + y * across + x + 2;
             int old = gray[y * w + x] + *here;
             int new = old > 127 ? 255 : 0;
-            int eighth = ((old - new + 1024) >> 3) - 128;   // rounded down, below nothing too
+            int eighth = ((old - new + 1024) >> 3) - 128;   // rounds down, for a negative error too
             here[1] += eighth;
             here[2] += eighth;
             here[across - 1] += eighth;

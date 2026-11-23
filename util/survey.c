@@ -1,32 +1,37 @@
 //
 // survey IMAGE.hex IMAGE.tables [COUNTS [REPORT]]
 //
-// The instruction encoding laid out against what a program does with it.
+// Reports how a program uses the instruction encoding.
 //
-// An ALU instruction is fields: where the ALU's input comes from, the
-// operation, where the result goes, how each stack moves, and whether it
-// returns.  Every setting of them is an instruction the machine executes.
-// This says, for all of them and with no opinion about which are useful:
+// An ALU instruction is a set of fields: the source of the ALU's input,
+// the operation, the destination of the result, how each stack moves, and
+// whether it returns.  Every combination is an instruction the machine
+// executes.  This program covers all of them, with no opinion about which
+// are useful, in four parts:
 //
-//   1. the space: for each source, operation and destination, how many
-//      instructions there are that do different things, how many of those
-//      have a name, how many the image uses, and how often they run
-//   2. every instruction the image uses, by how often it runs
-//   3. what is not used and could be: every run of instructions in the
-//      image that one instruction, or two, would do the work of, by how
-//      many instructions that would save when the program runs.  cross.fs
-//      has joined what it joins already: these are what it left
-//   4. every instruction, and the one that stands for all that leave what
-//      it leaves
+//   1. The encoding space.  For each source, operation and destination:
+//      the number of kinds of instruction (kinds.h), how many of those
+//      have a name, how many the image uses, and how often they run.
+//   2. Every instruction the image uses, ordered by how often it runs.
+//   3. The instructions that are not used and could be: every run of
+//      instructions in the image that one instruction, or two, is
+//      equivalent to, ordered by how many instructions the replacement
+//      would save when the program runs.  cross.fs has already joined what
+//      it can, so these are the runs it left.  Under each run the report
+//      lists every place it occurs: the address, the word, and how often
+//      that place ran.
+//   4. Every instruction, with the representative of its kind.
 //
-// What an instruction does, and whether a run does the work of one, is
-// asked of the machine: the step on terms (fuse.h), as cross.fs asks it.
-// Nothing here says what an instruction does.
+// The machine decides what an instruction does and whether a run is
+// equivalent to an instruction.  Both come from the step on terms
+// (fuse.h), which cross.fs uses as well.  This file does not encode what
+// any instruction does.
 //
-// COUNTS is how often each instruction ran, as bench/profile.c writes it
-// (build/profile/desktop.counts): the desktop's work, and a turn of its
-// idle loop.  Without it the counts are of places in the image.  The
-// whole report goes to REPORT (build/survey.txt); the top of each part is
+// COUNTS is the number of times each instruction ran, in the format
+// bench/profile.c writes (build/profile/desktop.counts): the desktop's
+// work, and one turn of its idle loop.  Without COUNTS, every place in
+// the image counts once.  The whole report is written to REPORT
+// (build/survey.txt if none is named), and the top of each part is also
 // printed.
 //
 
@@ -35,27 +40,31 @@
 #include "kinds.h"
 #include "../bench/work.h"
 
-#define LONGEST 6                       // instructions in a run that is tried: chosen, and not the machine's
+#define LONGEST 6                       // the longest run that is tried; a choice made here, not a property of the machine
 
-// What the image does with each kind of instruction (kinds.h): the places
-// it has one, how often those ran as work, and in a turn of the idle loop.
-static struct { long places; double runs, turn; }* USES;       // by kind
+// How the image uses each kind of instruction (kinds.h): the number of
+// places that have one, how often those places ran as work, and how often
+// in one turn of the idle loop.
+static struct { long places; double runs, turn; }* USES;       // indexed by kind
 
-// ---- every two instructions, by what they leave
+// ---- every pair of instructions, by final state
 
 typedef struct { uint64_t leaves; uint16_t first, second; } two;
-static two* TWO;                        // found by what they leave: there is room for twice the pairs there are,
-static int two_bits;                    // which is two to this many
+static two* TWO;                        // a hash table of pairs, keyed by the hash of the pair's final state
+static int two_bits;                    // log2 of its size, which is at least twice the number of pairs
 
-static two* two_at(uint64_t leaves) {   // where two that leave this are, or would be
+// Returns the slot of the pair whose final state has this hash, or the
+// empty slot where that pair would go.
+static two* two_at(uint64_t leaves) {
     uint64_t at = (leaves * 0x9e3779b97f4a7c15ull) >> (64 - two_bits);
     while (TWO[at].leaves && TWO[at].leaves != leaves) at = (at + 1) & (((uint64_t)1 << two_bits) - 1);
     return(&TWO[at]);
 }
 
-// Two instructions that do the work of a run, or nothing: of every two
-// that do not return, the second of which may.  The table is made when it
-// is first asked.
+// Returns a pair of instructions whose final state has this hash, or NULL
+// if there is none.  The pairs are every two instructions that do not
+// return, and every such pair with a return added to the second.  The
+// table is built on the first call.
 static const two* two_leaving(uint64_t leaves) {
     if (!TWO) {
         uint16_t* firsts = room_for(alus, sizeof(uint16_t));
@@ -84,10 +93,14 @@ static const two* two_leaving(uint64_t leaves) {
     return(at->leaves ? at : NULL);
 }
 
-// ---- runs that fewer would do
+// ---- runs that fewer instructions are equivalent to
 
-typedef struct { char* run; char* does; long places; double saved, turn; } fewer;    // each as it is said (kinds.h)
-static fewer* FEWER;                    // those found, and room for more as they are
+typedef struct {
+    char* run; char* does;              // the run and its replacement, as text (kinds.h)
+    long places; double saved, turn;    // how many places have the run, and the instructions saved in the work and in an idle turn
+    long* at; long ats, ats_room;       // the address of each place
+} fewer;
+static fewer* FEWER;                    // the runs found; the list grows as more are found
 static int fewers, fewers_room;
 
 static int by_saved(const void* a, const void* b) {
@@ -108,7 +121,7 @@ int main(int argc, char *argv[]) {
         return(1);
     }
     const char* report = argc > 4 ? argv[4] : "build/survey.txt";
-    machine_from(argv[1]);              // the cell is the image's, before anything is asked of it
+    machine_from(argv[1]);              // take the cell size from the image before the step is used
     get_ready();
     uint16_t takes = ins_named("r>");
     list_kinds();
@@ -117,8 +130,9 @@ int main(int argc, char *argv[]) {
     const uint16_t* code = IMAGE.code;
     long n = IMAGE.instructions;
 
-    // How often each of the image's instructions ran, and in a turn of
-    // the idle loop: nothing, for one the counts are not of.
+    // The number of times each of the image's instructions ran as work,
+    // and in one turn of the idle loop.  It is 0 for an instruction the
+    // counts do not cover.
     double* work = room_for(n, sizeof(double));
     double* idle = room_for(n, sizeof(double));
     const char* unit = "places";
@@ -134,9 +148,9 @@ int main(int argc, char *argv[]) {
         for(long at=0; at < n; at++) work[at] = code[at] ? 1 : 0;
     }
 
-    // What the image uses.
+    // Count the instructions the image uses, by kind.
     double total_runs = 0, total_alu = 0, folded = 0, unnamed = 0;
-    double read_a_port = 0, stored_to_one = 0;  // the step on terms says nothing of these, so they are of no kind
+    double read_a_port = 0, stored_to_one = 0;  // the step on terms does not model IO, so these instructions have no kind
     long instructions = 0;
     int used = 0, used_unnamed = 0, with_name = 0;
     for(long at=0; at < n; at++) {
@@ -164,8 +178,11 @@ int main(int argc, char *argv[]) {
         if (!KIND[k].name) unnamed += USES[k].runs;
     }
 
-    // What is not used and could be.  The instruction after a call of a
-    // word that takes its return address is not joined to what follows it.
+    // Find the runs that fewer instructions are equivalent to.  A word
+    // whose first instruction is `r>` takes its return address, which is
+    // the address of the instruction after the call.  So that instruction
+    // must stay where it is, and it is never joined with the instructions
+    // after it.
     unsigned char* pinned = room_for(n + 1, 1);
     for(long at=0; at < n; at++) {
         instruction ins = ins_of(code[at]);
@@ -197,7 +214,7 @@ int main(int argc, char *argv[]) {
                 } else if (left && length > 2 && (pair = two_leaving(left)) != NULL) {
                     made = 2, with[0] = pair->first, with[1] = pair->second;
                 } else if ((with[0] = numbered_doing(seq, length)) != 0) {
-                    made = 1;                   // one instruction with a number in it: a push, or an add
+                    made = 1;                   // one literal instruction: a push, or an add
                 } else {
                     continue;
                 }
@@ -207,7 +224,7 @@ int main(int argc, char *argv[]) {
                 i++;
                 continue;
             }
-            fewer f = { run_said(code + it->at + i, best, 0), run_said(does, best_does, 0), 0, 0, 0 };
+            fewer f = { .run = run_said(code + it->at + i, best, 0), .does = run_said(does, best_does, 0) };
             int at = 0;
             while (at < fewers && (strcmp(FEWER[at].run, f.run) || strcmp(FEWER[at].does, f.does))) at++;
             if (at < fewers) {
@@ -222,6 +239,8 @@ int main(int argc, char *argv[]) {
                 FEWER[fewers++] = f;
             }
             int gain = best - best_does;
+            ONE_MORE(FEWER[at].at, FEWER[at].ats, FEWER[at].ats_room);
+            FEWER[at].at[FEWER[at].ats++] = it->at + i;
             FEWER[at].places++;
             FEWER[at].saved += gain * work[it->at + i];
             FEWER[at].turn += gain * idle[it->at + i];
@@ -260,7 +279,7 @@ int main(int argc, char *argv[]) {
         cell[ins.alu.in_mux][ins.alu.alu_op][ins.alu.out_mux].used += USES[k].places > 0;
         cell[ins.alu.in_mux][ins.alu.alu_op][ins.alu.out_mux].runs += USES[k].runs;
     }
-    char* row = NULL;               // a row of it, which is as long as there are destinations
+    char* row = NULL;               // one row of the table, with a column for each destination
     text_more(&row, "%22s", "");
     for(int m=0; m < OUTPUTS; m++) text_more(&row, "%28s", OUTPUT_MUX_REPR[m]);
     SAY("%s", row);
@@ -310,6 +329,10 @@ int main(int argc, char *argv[]) {
     for(int idx=0; idx < fewers; idx++) {
         printing = idx < 40;
         SAY("   %6ld %14.0f %7.1f  %s  ->  %s", FEWER[idx].places, FEWER[idx].saved, FEWER[idx].turn, FEWER[idx].run, FEWER[idx].does);
+        for(long p=0; p < FEWER[idx].ats; p++) {
+            long at = FEWER[idx].at[p];
+            fprintf(out, "          $%04lx in %-20s %14.0f %s\n", at, word_at(IMAGE.words, IMAGE.n, at), work[at], unit);
+        }
     }
 
     // 4. Every instruction.

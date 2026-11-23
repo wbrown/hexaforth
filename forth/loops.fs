@@ -13,11 +13,11 @@ target
     begin dup while dup d# 1 and while 1- repeat d# 64 + then ;
 
 header main : main
-    d# 5 to-two [char] 1 + emit         \ 2, so 3
-    d# 1 to-two [char] 2 + emit         \ 0, so 2
-    d# 0 to-two [char] 1 + emit         \ 0, so 1
-    d# 3 odds emit                      \ stops at 2: 66, which is B
-    d# 0 odds [char] 0 + emit           \ 0: it left by the first while
+    d# 5 to-two [char] 1 + emit  \ 2, so 3
+    d# 1 to-two [char] 2 + emit  \ 0, so 2
+    d# 0 to-two [char] 1 + emit  \ 0, so 1
+    d# 3 odds emit               \ stops at 2: 66, which is B
+    d# 0 odds [char] 0 + emit    \ 0: it left by the first while
     d# 10 emit
     halt
 ;

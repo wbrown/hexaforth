@@ -1,5 +1,6 @@
 //
-// The system's tables, read from its source: tables.h says what this is for.
+// Reads the system's tables from its Forth source.  tables.h describes the
+// interface.
 //
 
 #include <stdio.h>
@@ -7,14 +8,14 @@
 #include <string.h>
 #include "tables.h"
 
-static const char* forth;       // where the Forth is
+static const char* forth;       // the directory the Forth source is in
 
 void tables_are(const char* dir) {
     forth = dir;
 }
 
-// A file of the Forth, whole; and where it is, for what is said of it.
-// Both are made here.
+// Returns the whole text of a Forth source file, and stores its path in
+// `*where` for use in messages.  Both are allocated.
 static char* source_of(const char* file, char** where) {
     char* path = malloc(strlen(forth) + strlen(file) + 2);
     if (path == NULL) {
@@ -40,7 +41,7 @@ static char* source_of(const char* file, char** where) {
     return(text);
 }
 
-// A word as a number, if it is one.
+// Parses a word as a Forth number.  Returns false if it is not one.
 static bool number(const char* word, int64_t* n) {
     char* end;
     int base = *word == '$' ? 16 : 10;
@@ -48,17 +49,20 @@ static bool number(const char* word, int64_t* n) {
     bool less = *word == '-';
     if (less) word++;
     if (!*word) return(false);
-    uint64_t much = strtoull(word, &end, base);     // all of a cell of 64 bits, the top bit too
+    uint64_t much = strtoull(word, &end, base);     // unsigned, so that a number can use all 64 bits of a cell
     *n = less ? -(int64_t)much : (int64_t)much;
     return(!*end);
 }
 
-// A picture drawn in the source (picture[, pixels.fs): rows of # and ., each
-// the rest of a line after row|, in pieces side by side with `beside`
-// between them, up to ]picture; a line that starts with \ is a comment.
-// It is the numbers px, would lay it down as: 64 pixels to a number, the
-// leftmost the highest, a row after a row.  A font's strike may be drawn
-// so (spin.fs).  How many numbers it came to; `from` is left after it.
+// Reads a picture drawn in the source (picture[, pixels.fs), and stores
+// it in `out` as the numbers `px,` would compile for it: 64 pixels to a
+// number, the leftmost pixel in the highest bit, row after row.  The
+// picture is rows of # and ., each the rest of a line after `row|`.  It
+// can be drawn in several pieces that go side by side, with `beside`
+// between them, and it ends at `]picture`.  A line that starts with a
+// backslash is a comment.  A font's strike can be drawn this way
+// (spin.fs).  Returns how many numbers there are, and leaves `*from` just
+// after the picture.
 static int picture(const char* path, const char** from, int64_t* out) {
     enum { DOWN = 64, ACROSS = 1024 };
     static char px[DOWN][ACROSS];
@@ -106,8 +110,8 @@ int table(const char* file, const char* name, int64_t** numbers, int count) {
     char* path;
     char* source = source_of(file, &path);
     size_t whole = strlen(source);
-    char* word = malloc(2 * (whole + 1));           // a word of it is no longer than all of it; and the word after
-    int64_t* out = malloc((whole / 2 + 1) * sizeof(int64_t));   // a number is a word and a space, at the least
+    char* word = malloc(2 * (whole + 1));           // room for two words; no word is longer than the whole file
+    int64_t* out = malloc((whole / 2 + 1) * sizeof(int64_t));   // a number takes at least two characters, so this is enough
     if (word == NULL || out == NULL) {
         fprintf(stderr, "there is no room for the numbers of %s\n", path);
         exit(EXIT_FAILURE);
@@ -128,12 +132,12 @@ int table(const char* file, const char* name, int64_t** numbers, int count) {
     int n = 0;
     while (sscanf(at, "%s%n", word, &used) == 1) {
         at += used;
-        if (!strcmp(word, "\\")) {                  // a comment, to the end of its line
+        if (!strcmp(word, "\\")) {                  // a comment, which runs to the end of the line
             at += strcspn(at, "\n");
             continue;
         }
-        if (!strcmp(word, "font[")) continue;       // what a font's numbers are between
-        if (!strcmp(word, "picture[")) {            // a strike that is drawn, and not said as numbers
+        if (!strcmp(word, "font[")) continue;       // the bracket that opens a font's numbers
+        if (!strcmp(word, "picture[")) {            // a strike drawn as a picture instead of written as numbers
             n += picture(path, &at, out + n);
             continue;
         }
@@ -155,7 +159,7 @@ int table(const char* file, const char* name, int64_t** numbers, int count) {
 
 font font_named(const char* name) {
     int64_t* numbers;
-    char file[strlen(name) + sizeof(".fs")];        // a font is in the file named for it
+    char file[strlen(name) + sizeof(".fs")];        // a font is in the file named after it
     sprintf(file, "%s.fs", name);
     int count = table(file, name, &numbers, 0);
     font f = { 0 };

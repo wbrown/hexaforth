@@ -14,7 +14,8 @@
 
 vm_stops STOPS = { .break_at = -1, .break_store = -1 };
 
-// Something was put in the cells from one on: an instruction there may be run.
+// Marks `cells` cells starting at `cell` as written to, so that an
+// instruction in them may be run (STOPS.put).
 void stops_put(int64_t cell, int64_t cells) {
     if (!STOPS.put) return;
     uint64_t from = (uint64_t)cell * (CELL_BYTES / 2), slots = (uint64_t)cells * (CELL_BYTES / 2);
@@ -31,34 +32,35 @@ void stops_put(int64_t cell, int64_t cells) {
 #define STRICT_STACK
 #endif
 
-// Built with -DSTRICT_ALIGN, a fetch or store outside memory stops the VM.
-// The Forth system does not make any.  Nor does it run what is outside
-// memory, and that stops the VM too: an instruction is in the cell it is
-// in, so a jump, a call or a return to a place that is in no cell is seen
-// before the VM looks there.
+// Built with -DSTRICT_ALIGN, the VM stops at a fetch or a store outside
+// memory.  The Forth system never makes one.  The VM also stops before it
+// executes an instruction outside memory: a jump, a call or a return to an
+// address that is in no cell is caught before the VM reads there.
 //
-// Such a VM can also be told to run so many instructions and no more
-// (strict_steps; none is until it halts), so that what is run is what was
-// meant to be and not what happens to come after it.
+// A VM built this way can also be limited to a number of instructions
+// (strict_steps; 0 means run until it halts), so that it runs exactly the
+// instructions it was given and not whatever follows them.
 //
-// A machine may be given cells that are not in its memory: FAR_CELL says
-// where the cell of an address is, or that it has none.  What runs a small
-// machine to try what a run of instructions does gives it the cells the
-// run names, wherever they are (util/fuse.h).  Such a cell is fetched from
-// and stored to; nothing is run from it.
+// A machine can be given cells that are outside its memory.  FAR_CELL
+// returns a pointer to the cell at an address, or NULL if there is none.
+// util/fuse.h uses this: it runs short sequences on a small machine, and
+// gives it the cells those sequences refer to, wherever they are.  Such a
+// cell can be fetched from and stored to, but nothing is executed from it.
 #ifndef FAR_CELL
 #define FAR_CELL(addr) ((uint8_t *)0)
 #endif
 
-// What counts a machine's work is told that the instruction at a place is
-// about to be run (bench/counting.c).  Here that is nothing.
+// RUNS(at) is called just before the instruction at `at` is executed.
+// bench/counting.c defines it to count the machine's work.  Here it does
+// nothing.
 #ifndef RUNS
 #define RUNS(at)
 #endif
 
-// What watches a machine's memory is told that an instruction is about to
-// store to a cell, and that cells have been read into from the disk
-// (bench/heap.c).  Here that is nothing.
+// STORES(addr, x) is called just before an instruction stores to a cell,
+// and FILLS(addr, cells) after cells have been read in from a disk.
+// bench/heap.c defines them to watch the machine's memory.  Here they do
+// nothing.
 #ifndef STORES
 #define STORES(addr, x)
 #endif
@@ -75,17 +77,17 @@ static uint64_t strict_steps;
 #define strict_run(pc) ((void)0)
 #endif
 
-// Built with -DROM_BYTES=n, a store below address n stops the VM: that part
-// of the kernel can then be a ROM.  The Forth system keeps every variable
-// above the kernel and makes no such store.  The ROM starts at the start
-// of memory unless ROM_FROM says where, in bytes.
+// Built with -DROM_BYTES=n, the VM stops at a store below byte n, which
+// shows that the first n bytes of the kernel can be a ROM.  The Forth
+// system keeps every variable above the kernel and never stores there.
+// The ROM starts at byte 0 unless ROM_FROM gives another starting byte.
 #ifndef ROM_FROM
 #define ROM_FROM 0
 #endif
 
-// What the machine does with a cell (vm_loop.h), with no width said: of a
-// cell of whatever width the machine a program is run for has.  This is
-// what the rest of this file, and what has this file in it, asks of a cell.
+// The cell operations (vm_loop.h), included here with no fixed width: they
+// take the cell width from the machine the program is run for.  The rest
+// of this file, and any file that includes it, uses these.
 #include "vm_loop.h"
 
 static inline uint8_t clz(uint64_t N) {
@@ -119,19 +121,20 @@ static inline uint8_t *io_target(context *ctx, int width) {
     return (p >= lo && p + width <= lo + MEM_BYTES) ? p : NULL;
 }
 
-// Disks.  This VM can be given files to be them (main.c), each of blocks
-// of 1,024 bytes, and their controller is reached as any device is,
-// through ports:
-//   0xb0  write: a block's number, which says the disk too: its top four
-//         bits of sixteen are the disk and the rest the block of it
-//         (vm_constants.h)
-//         read: how many blocks the disk that number is of has
-//   0xb1  write: the address of a cell; the block is read into the 1,024
-//         bytes from it, with nothing where the file has ended, and all
-//         of it nothing where there is no such disk
-//   0xb2  write: the address of a cell; the block is written from them
-// Only this VM has it.  On a machine without, the ports read zero, which
-// is a disk of no blocks, and writing them does nothing.
+// Disks.  This VM can be given files to use as disks (main.c).  A disk is
+// blocks of 1,024 bytes, and its controller is reached through ports, like
+// any device:
+//   0xb0  write: a block number, which also selects the disk: the top four
+//         of its sixteen bits are the disk, and the rest are the block on
+//         that disk (vm_constants.h)
+//         read: the number of blocks on the selected disk
+//   0xb1  write: the address of a cell.  The block is read into the 1,024
+//         bytes starting there.  Bytes past the end of the file are zero,
+//         and the whole block is zero if there is no such disk
+//   0xb2  write: the address of a cell.  The block is written from the
+//         1,024 bytes starting there
+// Only this VM has this controller.  On a machine without it the ports
+// read zero, which means a disk with no blocks, and writes do nothing.
 #define IO_DISK_BLOCK 0xb0
 #define IO_DISK_READ  0xb1
 #define IO_DISK_WRITE 0xb2
@@ -213,8 +216,8 @@ static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
     }
     switch (io_addr) {
         case 0xe0:
-            fflush(ctx->OUT);       // what was printed is seen before a key is waited for
-            STOPS.since = 0;        // it is not running on: it took a key
+            fflush(ctx->OUT);       // show what was printed before waiting for a key
+            STOPS.since = 0;        // it took a key, so it is not running away: restart the count
             return(fgetc(ctx->IN));
         default:
             return(false);
@@ -233,16 +236,23 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
 }
 #endif
 
-// What is so of the arithmetic (alu, vm_loop.h) whatever its inputs, for what reasons about
-// it and does not run it (util/fuse.h, which also tries each on the
-// machine): the operations whose two inputs may be exchanged; those of
-// which a run may be regrouped as well, since the cell they make is the
-// same, and for each of those the number that, as one input, leaves the
-// other a cell as it was; the operation that done twice gives back the
-// cell it was given; those that leave a flag, which is TRUE or FALSE and
-// nothing else; the one whose flag is whether two cells are the same; and
-// the one that makes nothing of two cells when they are the same, and of
-// no others.
+// Facts about the arithmetic (alu, vm_loop.h) that hold for every input.
+// util/fuse.h reasons from these without running the arithmetic, and also
+// tests each one against it:
+//
+//   ALU_EITHER_WAY   the operation is commutative
+//   ALU_REGROUPS     it is also associative
+//   ALU_NOTHING      the identity element of an associative operation: the
+//                    number that, as one input, gives the other input back
+//   ALU_UNDOES       applied twice, the operation gives its input back
+//   ALU_FLAGS        the result is a flag: TRUE or FALSE, and no other
+//                    value
+//   ALU_SAME         the flag says whether the two inputs are equal
+//   ALU_DIFFERS      the result is 0 exactly when the two inputs are equal
+//   ALU_KEEPS        the result is the input when both inputs are the same
+//                    cell
+//   ALU_ORDERS       the flag says whether one input is less than the
+//                    other, which is never true of a cell and itself
 #define ALU_REGROUPS(op)    ((op) == ALU_ADD || (op) == ALU_AND || (op) == ALU_OR || (op) == ALU_XOR || (op) == ALU_MUL)
 #define ALU_NOTHING(op)     ((op) == ALU_AND ? TRUE : (op) == ALU_MUL ? 1 : 0)
 #define ALU_EITHER_WAY(op)  (ALU_REGROUPS(op) || (op) == ALU_EQ)
@@ -250,8 +260,10 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
 #define ALU_FLAGS(op)       ((op) == ALU_EQ || (op) == ALU_GT || (op) == ALU_U_GT)
 #define ALU_SAME(op)        ((op) == ALU_EQ)
 #define ALU_DIFFERS(op)     ((op) == ALU_XOR)
+#define ALU_KEEPS(op)       ((op) == ALU_AND || (op) == ALU_OR)
+#define ALU_ORDERS(op)      ((op) == ALU_GT || (op) == ALU_U_GT)
 
-// The step on cells (vm_step.h says what each of these is).
+// The step function on cells.  vm_step.h describes each of these macros.
 #define VALUE           int64_t
 #define DS(i)           ctx->DSTACK[i]
 #define RS(i)           ctx->RSTACK[i]
@@ -285,7 +297,7 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
     if (SP < 0 || SP > STACK_CELLS || RSP < 0 || RSP > STACK_CELLS) { \
         fprintf(stderr, "\nstack out of range (data %d, return %d) at %llx\n", \
                 SP, RSP, (unsigned long long)EIP - 1); \
-        /* and what is on the return stack, the top first: where it was to go back to */ \
+        /* print the return stack, top first: the addresses it would have returned to */ \
         if (RSP > 0 && RSP <= STACK_CELLS) { \
             fprintf(stderr, "the return stack: %llx", (unsigned long long)R); \
             for(int at = RSP - 2; at >= 0; at--) fprintf(stderr, " %llx", (unsigned long long)ctx->RSTACK[at]); \
@@ -297,8 +309,8 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
 #define DEPTHS()
 #endif
 
-// The loop, once for each width a cell has, with the width a constant in
-// it (vm_loop.h): vm_64, vm_32 and vm_16.
+// The interpreter loop is compiled once for each cell width, with the
+// width as a constant (vm_loop.h): vm_64, vm_32 and vm_16.
 #define CELL_IS 64
 #include "vm_loop.h"
 #undef CELL_IS
@@ -309,8 +321,8 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
 #include "vm_loop.h"
 #undef CELL_IS
 
-// The machine is run by the loop that is of its cell's width, which is
-// looked at here, once, as it starts.
+// Runs the machine with the loop for its cell width.  The width is checked
+// once, here.
 int vm(context *ctx) {
     switch (CELL_BITS) {
         case 64: return vm_64(ctx);
@@ -330,9 +342,9 @@ void stops_from_env(void) {
     if (pass) STOPS.pass = strtoull(pass, NULL, 10);
 }
 
-// What is in memory now was put there: the image.  A halt is nothing, so
-// an instruction that is nothing beside one that is something is taken to
-// have been put too.
+// Marks everything now in memory as code that was loaded: the image.  A
+// halt is the instruction 0, so a zero instruction next to a non-zero one
+// is marked as loaded too.
 void stops_watch_code(context *ctx) {
     const long slots = MEM_BYTES / 2;
     if (!STOPS.put) STOPS.put = calloc((size_t)slots / 8 + 1, 1);
@@ -390,7 +402,8 @@ void post_mortem(FILE *to, context *ctx, const char *image, const char *memory_p
             memory_path, image ? image : "IMAGE.hex", memory_path);
 }
 
-// What has the step again, on something else, says these again.
+// A file that includes the step function again, on other values, defines
+// these again.
 #undef VALUE
 #undef DS
 #undef RS

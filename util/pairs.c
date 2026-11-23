@@ -1,55 +1,74 @@
 //
-// pairs type IMAGE.hex IMAGE.tables            what is to be typed at the nucleus
-// pairs read IMAGE.hex OUTPUT                  and what it answered
-// pairs seen IMAGE.hex TYPED                   what it joined of the system's code
+// pairs type IMAGE.hex IMAGE.tables            prints the input to type at the nucleus
+// pairs read IMAGE.hex OUTPUT                  checks what the nucleus answered
+// pairs seen IMAGE.hex TYPED                   checks what it joined in the system's code
 //
-// It is of the machine the image is for, each time: what a run is together
-// is asked of the step on cells of that size.
+// Every mode works on the machine the image was built for: the step runs
+// with that machine's cell size.
 //
-// The nucleus works out what two instructions are together, and three
-// (forth/compose.fs).  This puts to it every pair of instructions it can
-// meet, and every run of three that have a name, and holds each answer to
-// the machine's step.
+// The nucleus computes the single instruction equivalent to two
+// instructions, or to three (forth/compose.fs).  This program gives it
+// every pair of instructions it can be given, and every run of three
+// named instructions, and checks each answer against the machine's step.
 //
-// The instructions the nucleus can meet are those that have a name
-// (vm_opcodes.h), since those are what is typed, and whatever any two of
-// what it can meet are together: a joined instruction is offered again to
-// the one before it.  What a run is together is asked of the step
-// (vm_step.h), which fuse.h has on terms, and is the instruction cross.fs
-// makes of it.
+// The instructions the nucleus can be given are the named ones
+// (vm_opcodes.h), because those are what a person types, plus the result
+// of joining any two instructions it can be given: after a join, the
+// nucleus tries to join the result with the instruction before it.  The
+// expected answer for a run comes from the step (vm_step.h), which fuse.h
+// runs on terms.  It is the instruction cross.fs compiles for that run.
 //
-// `type` writes lines for the prompt of the image: the instructions as a
-// table, in the memory above the image, since the nucleus has not the
-// room for it; and a word that has compose.fs's jtwo asked of every pair of them
-// and its jthree of every three of the named, and prints each that it says
-// is one instruction: where the two or three are in the table, and the
-// instruction.  jtwo and jthree have no header: where they are is read
-// from the image's labels.
+// `type` prints lines to type at the image's prompt.  The lines put the
+// instructions in a table, which is allocated in the memory above the
+// image because the nucleus's data area has no room for it.  They define a
+// word that calls compose.fs's jtwo on every pair in the table, and its
+// jthree on every run of three named instructions, and prints each result
+// that is one instruction: the table indexes of the two or three
+// instructions, and then the result.  jtwo and jthree have no dictionary
+// header, so their addresses come from the image's labels.
 //
-// `read` says, of the pairs and of the threes: how many are one
-// instruction by the step; of those, for how many the nucleus gave the
-// very instruction cross.fs makes, for how many another that does the
-// same, and how many it did not find; and how many it gave that do not do
-// what the run does, each of which is printed, and is a fault.  It fails
-// if the nucleus was wrong of any, or if nothing was compared.
+// `read` reports, for the pairs and then for the runs of three:
 //
-// `seen` holds to the step what the nucleus joined when the system's own
-// code was typed at it (TYPED, which `typed read` prints and the target
-// `peephole` keeps): each time it made one instruction, or nothing, of
-// two or three that have no number in them.  It says how often that was
-// the very instruction cross.fs makes and how often another that does the
-// same, and each of those others, with what cross.fs makes; and fails if
-// any does not do what the run does, or if there were none.
+//   how many the step shows are equivalent to one instruction
+//   of those, how many the nucleus answered with exactly the instruction
+//     cross.fs compiles, how many with a different equivalent instruction,
+//     and how many it did not join
+//   how many answers are not equivalent to the run.  Each of these is
+//     printed, and is a bug.
+//
+// It fails if any answer was wrong, or if nothing was compared.
+//
+// `seen` checks against the step what the nucleus joined when the
+// system's own source was typed at it.  TYPED is the file `typed read`
+// prints, which the target `peephole` keeps.  It checks every place where
+// the nucleus replaced instructions with other instructions: ALU
+// instructions, literals and the instructions that fetch or store a
+// variable, however many there are on each side.  For the joins of ALU
+// instructions that leave one instruction or none, it reports how often
+// the result was exactly the instruction cross.fs compiles, and how often
+// a different equivalent one, and lists each of the different ones beside
+// what cross.fs compiles.
+//
+// Some of the nucleus's rules hold only after a particular instruction:
+// `false =` is `invert` after an instruction that leaves a flag.  TYPED
+// records the instruction before each join.  A join that is not equivalent
+// on its own is checked again with that instruction in front of both
+// sides, and counted separately.
+//
+// A join the step cannot follow is counted and not checked.
+//
+// It fails if any result is not equivalent to the run, or if there were no
+// joins to check.
 //
 
 #include "fuse.h"
 #include "image.h"
 #include "words.h"
 
-static int MEETS[EVERY_WORD];           // the instructions the nucleus can meet,
-static uint16_t MET[EVERY_WORD];        // in the order they were found,
-static int met;
-static int named_ones;                  // of which so many have a name
+static int MEETS[EVERY_WORD];           // 1 for each instruction the nucleus can be given
+static uint16_t MET[EVERY_WORD];        // those instructions, in the order they were found
+static int met;                         // how many there are
+static int named_ones;                  // the first named_ones entries of MET are the named instructions
 
 static void meet(uint16_t x) {
     if (MEETS[x]) return;
@@ -57,7 +76,8 @@ static void meet(uint16_t x) {
     MET[met++] = x;
 }
 
-// The instruction that a run is, as cross.fs makes it, or nothing.
+// Returns the single instruction cross.fs compiles for a run, or 0 if the
+// run is not equivalent to one instruction.
 static uint16_t one_of(const uint16_t* run, int len) {
     named a, b;
     forget();
@@ -75,7 +95,25 @@ static uint16_t two(uint16_t a, uint16_t b) {
     return(one_of(run, 2));
 }
 
-// Does an instruction do what a run does?
+// Returns 1 if two runs are equivalent on the step.  The final states
+// include where each run returns to, so a run that returns is equivalent
+// only to another that returns.
+static int same_runs(const uint16_t* a, int alen, const uint16_t* b, int blen) {
+    named x, y;
+    forget();
+    uint64_t left = names(a, alen, &x);
+    return(left && names(b, blen, &y) == left && same_named(&x, &y));
+}
+
+// Returns 1 if the step can follow a run to its end.  It cannot follow an
+// instruction it does not model, or a run that goes on after a return.
+static int followed(const uint16_t* run, int len) {
+    named m;
+    forget();
+    return(names(run, len, &m) != 0);
+}
+
+// Returns 1 if an instruction is equivalent to a run.
 static int does(uint16_t y, const uint16_t* run, int len) {
     if (alu_at[y] < 0 || returns(y) != returns(run[len - 1])) return(0);
     named a, b;
@@ -84,9 +122,12 @@ static int does(uint16_t y, const uint16_t* run, int len) {
     return(left && names(&y, 1, &b) == left && same_named(&a, &b));
 }
 
-// Those that have a name, and whatever any two that are met are together,
-// until no more are.  Of those that return only the exit is typed: it is
-// offered to what is before it, and so is what the two are together.
+// Fills MET with the named instructions, and then with the result of
+// joining any two instructions already in it, until no join gives a new
+// one.  Of the instructions that return, only `exit` is included, because
+// it is the only one a person types.  The nucleus tries to join `exit`
+// with the instruction before it, and then to join that result with the
+// instruction before that.
 static void meet_all(void) {
     uint16_t the_exit = ins_named("exit");
     for(word_node* w = FORTH_WORDS; w->repr && strlen(w->repr); w++) {
@@ -104,11 +145,20 @@ static void meet_all(void) {
     }
 }
 
-// What the nucleus said of a run: so many are the very instruction, so
-// many another that does the same, so many it did not find, and so many
-// are wrong.
+// Counts of the nucleus's answers for a set of runs:
+//
+//   are      runs the step shows are equivalent to one instruction
+//   very     answers that are exactly the instruction cross.fs compiles
+//   other    answers that are a different equivalent instruction
+//   missed   runs equivalent to one instruction that the nucleus did not
+//            join
+//   wrong    answers that are not equivalent to the run
+//   said     runs the nucleus gave any answer for
 typedef struct { long are, very, other, missed, wrong, said; } tally;
 
+// Checks the nucleus's answer for one run against the step, and counts it
+// in the tally.  `said` is the answer, or 0 if the nucleus gave none.  A
+// wrong answer is printed.
 static void hold(tally* t, const uint16_t* run, int len, uint16_t said) {
     uint16_t is = one_of(run, len);
     t->are += is != 0;
@@ -130,79 +180,113 @@ static void say(const char* what, const tally* t) {
     printf("  it was wrong of %ld\n", t->wrong);
 }
 
-// An instruction by its name, or its number.
+// Prints an instruction's name, or its number in hex if it has no name.
 static void say_ins(uint16_t ins) {
     const char* name = word_of(ins);
     if (name) printf(" %s", name);
     else printf(" $%04x", ins);
 }
 
-// What the nucleus joined of the system's code, held to the step.
+// Checks against the step everything the nucleus joined in the system's
+// code, as recorded in the file `typed`.  Returns the program's exit
+// status.
 static int seen(const char* typed) {
     FILE* in = fopen(typed, "r");
     if (!in) { perror(typed); return(1); }
     uint16_t nothing = ins_named("noop");
     number_set had = {0};
-    long times = 0, very = 0, other = 0, wrong = 0, different = 0, others = 0, not_asked = 0;
+    long times = 0, very = 0, other = 0, wrong = 0, different = 0, others = 0;
+    long after_one = 0;                 // joins that are equivalent only after the instruction before them
+    long to_more = 0;                   // joins of ALU instructions that leave two instructions or more
+    long numbered = 0;                  // joins that contain a literal or a variable's instruction
+    long not_followed = 0;              // joins the step cannot follow
     char* line = NULL;
     long room = 0;
     while (line_of(in, &line, &room)) {
-        const char* bar = line + strcspn(line, " ");        // after the word, whose name may have a bar in it
+        const char* bar = line + strcspn(line, " ");        // start after the word's name, which may itself contain a bar
         for(int n=0; n < 4 && bar; n++) bar = strchr(bar + 1, '|');
         for(const char* rest = bar ? bar + 1 : NULL; rest; ) {
             rest += strspn(rest, " \n");
             size_t len = strcspn(rest, " \n");
             if (!len) break;
-            uint16_t run[3], said = nothing;
-            int n = 0, out = 0, after = 0, asked = 1;
+            // run[0] is the instruction before the join, if there is one.
+            // The instructions that went in follow it from run[1], and
+            // `made` has the same first instruction and then the ones that
+            // came out.
+            uint16_t run[RUN], made[RUN];
+            int n = 0, out = 0, before = 0, after = 0, alu_only = 1;
             for(const char* at = rest; at < rest + len; ) {
                 if (*at == '>') { after = 1; at++; continue; }
                 if (*at == ',') { at++; continue; }
                 char* end;
                 uint16_t ins = (uint16_t)strtol(at, &end, 16);
-                if (end == at) { asked = 0; break; }
-                if (alu_at[ins] < 0) asked = 0;                         // a number
-                if (after) { said = ins; out++; }
-                else if (n < 3) run[n++] = ins;
-                else asked = 0;
+                int* count = after ? &out : &n;
+                if (end == at || 1 + *count == RUN) {
+                    fprintf(stderr, "pairs: %s has a join that is not instructions in hex, or is longer than a run: %.*s\n",
+                            typed, (int)len, rest);
+                    fclose(in);
+                    return(1);
+                }
                 at = end;
+                if (*end == ':') {
+                    before = 1;
+                    run[0] = made[0] = ins;
+                    at++;
+                    continue;
+                }
+                alu_only &= alu_at[ins] >= 0;
+                (after ? made : run)[1 + (*count)++] = ins;
             }
             rest += len;
-            for(int idx=0; idx + 1 < n; idx++) if (returns(run[idx])) asked = 0;    // the rest of it is not run
-            if (!asked || n < 2 || out > 1) { not_asked++; continue; }
-            uint16_t is = one_of(run, n);
-            uint64_t key = (uint64_t)run[0] | (uint64_t)run[1] << 16 | (uint64_t)(n > 2 ? run[2] : 0) << 32 | (uint64_t)said << 48;
-            int first = !already_in(&had, key);
+            if (!out) made[1 + out++] = nothing;
+            if (!n || !followed(run + 1, n) || !followed(made + 1, out)) { not_followed++; continue; }
+            int alone = same_runs(run + 1, n, made + 1, out);
+            if (!alone && before && !followed(run, n + 1)) { not_followed++; continue; }
             times++;
-            different += first;
-            if (said == is) { very++; continue; }
-            if (!does(said, run, n)) {
+            if (!alone && !(before && same_runs(run, n + 1, made, out + 1))) {
                 wrong++;
-                printf("WRONG: the nucleus makes %04x of", said);
-                for(int idx=0; idx < n; idx++) printf(" %04x", run[idx]);
-                printf("\n");
+                printf("WRONG: the nucleus replaced");
+                for(int idx=0; idx < n; idx++) printf(" %04x", run[1 + idx]);
+                printf(" with");
+                for(int idx=0; idx < out; idx++) printf(" %04x", made[1 + idx]);
+                if (before) printf(", after %04x", run[0]);
+                printf(", and the two are not equivalent\n");
                 continue;
             }
+            after_one += !alone;
+            if (!alu_only) { numbered++; continue; }
+            if (out > 1) { to_more++; continue; }
+            if (!alone) continue;
+            uint16_t said = made[1], is = one_of(run + 1, n);
+            uint64_t key = mix(n, said);
+            for(int idx=0; idx < n; idx++) key = mix(key, run[1 + idx]);
+            int first = !already_in(&had, key);
+            different += first;
+            if (said == is) { very++; continue; }
             other++;
             if (!first) continue;
             others++;
-            printf("another:");
-            for(int idx=0; idx < n; idx++) say_ins(run[idx]);
-            printf(" is");
+            printf("differs from cross.fs:");
+            for(int idx=0; idx < n; idx++) say_ins(run[1 + idx]);
+            printf(" becomes");
             say_ins(said);
-            printf(" as the nucleus makes it, and");
-            if (is) say_ins(is); else printf(" not one instruction");
-            printf(" as cross.fs does\n");
+            printf(" in the nucleus, and");
+            if (is) say_ins(is); else printf(" stays as written");
+            printf(" in cross.fs\n");
         }
     }
     fclose(in);
-    printf("what the nucleus joined of the system's code, of instructions with no number in them: %ld times, %ld different\n",
-           times, different);
-    printf("  the very instruction cross.fs makes %ld times, another that does the same %ld times (%ld different), and it was wrong %ld times\n",
-           very, other, others, wrong);
-    printf("  (what has a number in it, or is more than three, is not asked here: %ld times)\n", not_asked);
+    printf("joins the nucleus made in the system's code, checked against the step: %ld, of which %ld are wrong\n", times, wrong);
+    printf("  %ld are of ALU instructions, leave one instruction or none, and are equivalent on their own (%ld distinct joins)\n",
+           very + other, different);
+    printf("    %ld give the instruction cross.fs compiles, and %ld give a different equivalent one (%ld distinct)\n",
+           very, other, others);
+    printf("  %ld are of ALU instructions and leave two instructions or more\n", to_more);
+    printf("  %ld contain a number or a variable's instruction\n", numbered);
+    printf("  %ld are equivalent only after the instruction before them\n", after_one);
+    printf("  %ld more joins are not checked, because the step cannot follow them\n", not_followed);
     if (!times) {
-        fprintf(stderr, "pairs: %s has nothing the nucleus joined: nothing was compared\n", typed);
+        fprintf(stderr, "pairs: %s records no joins that can be checked\n", typed);
         return(1);
     }
     return(wrong ? 1 : 0);
@@ -216,7 +300,7 @@ int main(int argc, char *argv[]) {
                         "       pairs seen IMAGE.hex TYPED\n");
         return(1);
     }
-    machine_from(argv[2]);                      // the cell is the image's, before anything is asked of it
+    machine_from(argv[2]);                      // take the cell size from the image before the step is used
     get_ready();
     if (!type && !read) return(seen(argv[3]));
     meet_all();
@@ -231,8 +315,8 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "pairs: jtwo and jthree are not among the words of %s\n", argv[2]);
             return(1);
         }
-        // The table is more than the data has room for, and is in the
-        // memory above the image (halloc, machine.fs).
+        // The table is larger than the nucleus's data area, so it is
+        // allocated in the memory above the image (halloc, machine.fs).
         printf("decimal %d >c halloc constant tb  variable tp  tb tp !\n", met);
         printf(": t, tp @ !  1 tp +! ;\nhex\n");
         for(int at=0; at < met; at++) printf("%x t,%s", MET[at], at % 8 == 7 || at == met - 1 ? "\n" : " ");
@@ -242,23 +326,24 @@ int main(int argc, char *argv[]) {
         printf(": twos %d 0 do i row loop ;\n", met);
         printf(": r3 %d 0 do over in over in i in j3 ?dup if >r over . dup . r> i . . cr then loop 2drop ;\n", named_ones);
         printf(": threes %d 0 do %d 0 do j i r3 loop loop ;\n", named_ones, named_ones);
-        printf("%d emit twos %d emit cr\n", '[', ']');  // by their numbers: what is typed is said back, and is not to have them
+        printf("%d emit twos %d emit cr\n", '[', ']');  // the brackets are emitted by character code, so the echo of this input has none
         printf("%d emit threes %d emit cr\n", '{', '}');
         printf("bye\n");
         return(0);
     }
 
-    // What it said: between [ and ] a line a pair, and between { and } a
-    // line a three; each where the instructions are in the table, and
-    // the instruction, as numbers.  Every other pair and three it said
-    // nothing of.
+    // Read the nucleus's output.  Between [ and ] there is one line for
+    // each pair it joined, and between { and } one line for each run of
+    // three.  A line has the table indexes of the instructions and then
+    // the result, all as numbers.  A pair or a run of three with no line
+    // was not joined.
     FILE* in = fopen(argv[3], "r");
     if (!in) { perror(argv[3]); return(1); }
     uint16_t* said_two = room_for((size_t)met * met, sizeof(uint16_t));
     uint16_t* said_three = room_for((size_t)named_ones * named_ones * named_ones, sizeof(uint16_t));
     char* line = NULL;
     long room = 0;
-    int part = 0, ended = 0;                    // before the pairs, in them, between, in the threes, after
+    int part = 0, ended = 0;                    // part: 0 before the pairs, 1 in them, 2 between, 3 in the threes, 4 after
     while (line_of(in, &line, &room)) {
         if (strstr(line, "error") || strstr(line, "out of range") || strstr(line, "outside memory")) {
             fprintf(stderr, "pairs: the nucleus said: %s", line);

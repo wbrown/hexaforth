@@ -1,23 +1,24 @@
 //
 // patterns PICTURE.tiff own|half [TOP]
 //
-// How often each cell of the dithered picture occurs: the black and white
-// bitmap the dither makes of the picture, at its own size or at half, cut
-// into the cells of a row, 16, 32 and 64 pixels wide, as the machines with
-// those cells store it.  Only the cells a row is stored in are looked at,
-// from its left edge; a cell that runs past the right edge is white past
-// it.
+// Counts how often each cell value occurs in the dithered picture.  The
+// black and white bitmap the dither makes of the picture, at full size or
+// at half size, is cut into the cells of each row at 16, 32 and 64 pixels
+// wide, the way the machines with those cell sizes store it.  Only the
+// cells a row is stored in are counted, starting at its left edge.  A cell
+// that extends past the right edge is white beyond it.
 //
-// The bitmap is the dither a pixel at a time (test/dither.c), which the
-// benchmarks hold every machine's bitmap to, cell for cell; and the cells
-// are cut by cells_of there.  A cell's value is the same pattern on every
-// machine but for the order of its bits, so how often each occurs does not
-// depend on the machine.
+// The bitmap comes from the reference dither, one pixel at a time
+// (test/dither.c).  The benchmarks compare every machine's bitmap with it
+// cell for cell, and cells_of() in that file cuts the cells.  A cell's
+// value is the same pattern on every machine apart from the order of its
+// bits, so the counts do not depend on the machine.
 //
-// For each width it prints how many cells there are and how many different
-// ones, how many are all white and all black, how many patterns occur only
-// once, how much of the picture the commonest 1, 10 and 100 are, and the
-// commonest TOP (10 if not said), drawn a pixel to a character: # is black.
+// For each width it prints the number of cells and the number of distinct
+// values; how many cells are all white and how many all black; how many
+// values occur only once; the share of the picture covered by the 1, 10
+// and 100 most common values; and the TOP most common values (10 if TOP is
+// not given), drawn one character per pixel, with # for black.
 //
 
 #include <stdio.h>
@@ -40,15 +41,15 @@ static int by_count(const void* a, const void* b) {
     return(x->cell < y->cell ? -1 : x->cell > y->cell);
 }
 
-// A cell as its pixels, the leftmost first.
+// Prints a cell as its pixels, leftmost first.
 static void draw(uint64_t cell, int bits) {
     for(int px=0; px < bits; px++) putchar(cell >> (bits - 1 - px) & 1 ? '#' : '.');
 }
 
 static void width(const uint8_t* black, int w, int h, int bits, int top) {
     int stride;
-    // The leftmost pixel highest, and black a set bit, so that a cell is
-    // drawn as it reads.
+    // Cut the cells with the leftmost pixel in the highest bit and black
+    // as a set bit, so that a printed cell reads the way it looks.
     uint64_t* cells = cells_of(black, w, 0, 0, w, h, bits, false, true, &stride);
     long n = (long)stride * h;
     uint64_t all = bits == 64 ? ~0ull : (1ull << bits) - 1;
