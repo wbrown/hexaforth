@@ -98,28 +98,9 @@ static inline uint8_t ctz(uint64_t N) {
     return N ? 64 - __builtin_ctzll(N) : -(uint64_t)INFINITY;
 }
 
-// Device access ports.  Devices have registers of a fixed width, and `!`
-// always moves 64 bits, so these give exact-width access at a latched
-// machine address:
-//   0xc0  write: latch an address       read: machine address of VM byte 0
-//   0xc1, 0xc2, 0xc4, 0xc8  read or write 8, 16, 32 or 64 bits at the latch
-// This VM has no devices: its machine address space is just the VM memory,
-// and an access outside it reads zero and writes nothing.
-#define IO_ADDR 0xc0
-
-static inline int io_width(uint64_t port) {
-    int width = (port == 0xc1 || port == 0xc2 || port == 0xc4 || port == 0xc8) ? (int)(port & 0xf) : 0;
-    return width > CELL_BYTES ? CELL_BYTES : width;
-}
-
-// With 64-bit cells the latch holds a host address, as it holds a physical
-// address on bare metal.  A narrower cell cannot hold one, so there the
-// latch is an offset into the VM memory and port 0xc0 reads as zero.
-static inline uint8_t *io_target(context *ctx, int width) {
-    uint8_t *lo = (uint8_t *)ctx->memory;
-    uint8_t *p = CELL_BITS == 64 ? (uint8_t *)(intptr_t)ctx->IOADDR : lo + ucell(ctx->IOADDR);
-    return (p >= lo && p + width <= lo + MEM_BYTES) ? p : NULL;
-}
+// Device cells (MODEL.md, The ports): ports 0xc0 to 0xc3.  This VM has no
+// devices, so those ports fall to the handlers' defaults below: 0xc1 reads
+// zero and writes are ignored.
 
 // Disks.  This VM can be given files to use as disks (main.c).  A disk is
 // blocks of 1,024 bytes, and its controller is reached through ports, like
@@ -158,21 +139,12 @@ static inline void disk_io(context *ctx, int64_t addr, int write) {
 }
 
 static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write) {
-    if (io_addr == IO_ADDR) {
-        ctx->IOADDR = io_write;
-        return(TRUE);
-    }
     if (io_addr == IO_DISK_BLOCK) {
         ctx->DISKBLK = io_write;
         return(TRUE);
     }
     if (io_addr == IO_DISK_READ || io_addr == IO_DISK_WRITE) {
         disk_io(ctx, io_write, io_addr == IO_DISK_WRITE);
-        return(TRUE);
-    }
-    if (io_width(io_addr)) {
-        uint8_t *p = io_target(ctx, io_width(io_addr));
-        if (p) memcpy(p, &io_write, io_width(io_addr));
         return(TRUE);
     }
     switch (io_addr) {
@@ -198,21 +170,12 @@ static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t i
 }
 
 static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
-    if (io_addr == IO_ADDR) {
-        return CELL_BITS == 64 ? (int64_t)(intptr_t)ctx->memory : 0;
-    }
     if (io_addr == 0xe1) {
         return TRUE;        // key?: reading stdin just blocks until there is one
     }
     if (io_addr == IO_DISK_BLOCK) {
         int drive = DISK_DRIVE_OF(ucell(ctx->DISKBLK));
         return ctx->DISKS[drive] ? ctx->DISKBLOCKS[drive] : 0;
-    }
-    if (io_width(io_addr)) {
-        uint64_t value = 0;
-        uint8_t *p = io_target(ctx, io_width(io_addr));
-        if (p) memcpy(&value, p, io_width(io_addr));
-        return (int64_t)value;
     }
     switch (io_addr) {
         case 0xe0:

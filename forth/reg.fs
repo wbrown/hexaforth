@@ -1,10 +1,13 @@
-\ reg.fs - a device's registers and its memory, through the
-\ ports
+\ reg.fs - a device's cells, through ports $c0-$c3 (MODEL.md)
 
-\ An address written to $c0 is where $c4 reads or writes 32
-\ bits, and $c0 reads as where cell 0 is (MODEL.md).
+\ $c0 latches the number of a device cell, and $c1 reads or
+\ writes that cell: a whole cell of this machine.
 
-\ what a device is told for the cell a
-header >phys  : >phys ( a -- pa ) >c  h# c0 io@ + ;
-header reg32@ : reg32@ ( pa -- x ) h# c0 io!  h# c4 io@ ;
-header reg32! : reg32! ( x pa -- ) h# c0 io!  h# c4 io! ;
+: latch ( n -- ) h# c0 io! ;
+header dev@ : dev@ ( n -- x ) latch  h# c1 io@ ;
+header dev! : dev! ( x n -- ) latch  h# c1 io! ;
+\ device cell n is given the address of cell a
+header dev-addr! : dev-addr! ( a n -- ) latch  h# c2 io! ;
+\ memory cell d is given the address of cell a, as a device
+\ takes it
+header cell-addr! : cell-addr! ( a d -- ) tuck !  h# c3 io! ;

@@ -9,8 +9,7 @@
 # A way it is built is the bits of its cell; LAT, the cycles after it is
 # asked for that what the memory read is back, 1 or 2; and whether the
 # kernel is in a ROM.  Its memory is what RTL_MEMORY says, or as much of
-# that as a cell of 16 bits reaches.  The program
-# counter is 16 bits, which is all an execution token holds.
+# that as a cell of 16 bits reaches.
 #
 # The nucleus the tests run is the one for the machine vm_constants.h
 # gives a cell of that size when nothing else is said (default-32; with
@@ -38,7 +37,6 @@ set(RTL ${CMAKE_SOURCE_DIR}/rtl)
 # given some as it starts (the screen's port).  With 128KB that was a store
 # outside memory, to a cell that happened to be free.
 set(RTL_MEMORY 18)
-set(RTL_PC 16)
 set(VERILATED ${VERILATOR} -Wall -Wno-UNUSED -Wno-DECLFILENAME -Wno-PINCONNECTEMPTY -Wno-WIDTH -O3
                         --x-assign fast --x-initial fast)
 
@@ -68,7 +66,7 @@ function(verilog_cpu B CELL ADDR LAT)
             OUTPUT            ${B}/tb
             COMMAND           ${MKDIR} ${B}
             COMMAND           ${VERILATED} -CFLAGS "-DW=${CELL} -DAB=${ADDR} -DLAT=${LAT}"
-                                --cc hexaforth.v -GW=${CELL} -GPCW=${RTL_PC} -GLAT=${LAT}
+                                --cc hexaforth.v -GW=${CELL} -GLAT=${LAT}
                                 --exe ${RTL}/tb.cpp --Mdir ${B}/cpu -o ../tb --build -j 4 > ${B}/tb.log 2>&1
             WORKING_DIRECTORY ${RTL}
             COMMENT           "The Verilog CPU in ${B} (what Verilator says is in its tb.log)"

@@ -750,8 +750,8 @@ display-ok
 \ fetches or stores); the headers, from hdr-base; and the code
 \ pages after page 1, from code-base.  hdr-base, bulk-base and
 \ data-base are bytes.  code-base and code-size are instructions.
-\ A header holds its word's xt in 16 bits, and on a machine with
-\ cells of 16 bits the top bit of those is the immediate flag.
+\ A header holds its word's xt in a cell, and the top bit of
+\ that cell is the immediate flag.
 addr-bits #16 > 0= constant small           \ a machine whose memory is 64K cells
 small [if] $6000 [else] cell-bits #64 < [if] $c000 [else] $a800 [then] [then] constant hdr-base
 hdr-base thp !

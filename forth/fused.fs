@@ -20,9 +20,9 @@ $6c04 w, $1 w, hdr, r@
 $643c w, $1 w, hdr, +
 $6308 w, $1 w, hdr, !
 $6480 w, $1 w, hdr, invert
-$60cc w, $1 w, hdr, rshift
-
 $60dc w, $1 w, hdr, lshift
+
+$60cc w, $1 w, hdr, rshift
 $6094 w, $1 w, hdr, true
 $64ac w, $1 w, hdr, <
 $6b38 w, $1 w, hdr, +!
@@ -47,35 +47,35 @@ $64a0 w, $2 w, hdr, over hdr, >
 $640c w, $1 w, hdr, nip
 $646c w, $1 w, hdr, xor
 $600f w, $2 w, hdr, r> hdr, 2drop
-$6501 w, $2 w, hdr, >r hdr, r@
 $683c w, $2 w, hdr, @ hdr, +
+$6501 w, $2 w, hdr, >r hdr, r@
 $6060 w, $2 w, hdr, dup hdr, xor
 $6014 w, $2 w, hdr, swap hdr, dup
+$6111 w, $3 w, hdr, swap hdr, >r hdr, r@
 $6539 w, $2 w, hdr, + hdr, >r
 $6830 w, $3 w, hdr, @ hdr, over hdr, +
-$60d0 w, $3 w, hdr, over hdr, swap hdr, lshift
-$6111 w, $3 w, hdr, swap hdr, >r hdr, r@
-
 $6403 w, $1 w, hdr, rdrop
+
 $68a0 w, $3 w, hdr, @ hdr, over hdr, >
 $606c w, $2 w, hdr, 2drop hdr, false
+$60d0 w, $3 w, hdr, over hdr, swap hdr, lshift
 $60e4 w, $2 w, hdr, over hdr, @
-$6208 w, $1 w, hdr, io!
 $630c w, $3 w, hdr, over hdr, swap hdr, !
 $6b58 w, $1 w, hdr, or!
 $690d w, $2 w, hdr, @ hdr, >r
+$6208 w, $1 w, hdr, io!
 $6c34 w, $3 w, hdr, over hdr, r@ hdr, +
 $6c0f w, $2 w, hdr, 2drop hdr, r>
 $639c w, $3 w, hdr, true hdr, swap hdr, !
 $63e8 w, $4 w, hdr, swap hdr, @ hdr, swap hdr, !
-$64f0 w, $1 w, hdr, io@
 $687c w, $2 w, hdr, @ hdr, *
 $6c03 w, $2 w, hdr, r> hdr, nip
 $689c w, $2 w, hdr, @ hdr, =
-
 $6860 w, $3 w, hdr, @ hdr, over hdr, xor
+
 $600b w, $3 w, hdr, r> hdr, 2drop hdr, nip
 $6090 w, $2 w, hdr, dup hdr, =
+$64f0 w, $1 w, hdr, io@
 $686c w, $2 w, hdr, @ hdr, xor
 $6cd3 w, $3 w, hdr, r> hdr, swap hdr, lshift
 $6f0f w, $3 w, hdr, r> hdr, swap hdr, !
@@ -177,6 +177,7 @@ $6b40 w, $2 w, hdr, 2dup hdr, and!
 
 $6b50 w, $2 w, hdr, 2dup hdr, or!
 $6b80 w, $2 w, hdr, dup hdr, not!
+$6c27 w, $3 w, hdr, nip hdr, dup hdr, r>
 $6c3f w, $3 w, hdr, r> hdr, nip hdr, +
 $6c47 w, $3 w, hdr, over hdr, r> hdr, and
 $6c97 w, $3 w, hdr, over hdr, r> hdr, =
@@ -190,8 +191,8 @@ $600a w, $4 w, hdr, drop hdr, nip hdr, rdrop hdr, rdrop
 $6013 w, $2 w, hdr, swap hdr, rdrop
 $6067 w, $2 w, hdr, rdrop hdr, false
 $6096 w, $3 w, hdr, rdrop hdr, rdrop hdr, true
-$6098 w, $3 w, hdr, 2drop hdr, dup hdr, =
 
+$6098 w, $3 w, hdr, 2drop hdr, dup hdr, =
 $60e7 w, $3 w, hdr, rdrop hdr, over hdr, @
 $6181 w, $3 w, hdr, over hdr, invert hdr, >r
 $618d w, $4 w, hdr, drop hdr, dup hdr, invert hdr, >r
@@ -207,8 +208,8 @@ $640b w, $3 w, hdr, nip hdr, nip hdr, rdrop
 $6417 w, $2 w, hdr, tuck hdr, rdrop
 $643f w, $2 w, hdr, + hdr, rdrop
 $6444 w, $2 w, hdr, 2dup hdr, and
-$6450 w, $2 w, hdr, over hdr, or
 
+$6450 w, $2 w, hdr, over hdr, or
 $6458 w, $2 w, hdr, or hdr, nip
 $645b w, $3 w, hdr, or hdr, nip hdr, rdrop
 $645f w, $2 w, hdr, or hdr, rdrop
@@ -224,8 +225,8 @@ $6599 w, $2 w, hdr, = hdr, >r
 $65a1 w, $3 w, hdr, 2dup hdr, < hdr, >r
 $65a9 w, $2 w, hdr, < hdr, >r
 $65ad w, $3 w, hdr, over hdr, > hdr, >r
-$65b9 w, $2 w, hdr, u< hdr, >r
 
+$65b9 w, $2 w, hdr, u< hdr, >r
 $670c w, $2 w, hdr, dup hdr, !
 $671c w, $3 w, hdr, tuck hdr, swap hdr, !
 $6738 w, $3 w, hdr, swap hdr, bounds hdr, !
@@ -241,14 +242,12 @@ $6908 w, $4 w, hdr, nip hdr, rdrop hdr, @ hdr, >r
 $6959 w, $3 w, hdr, @ hdr, or hdr, >r
 $6961 w, $4 w, hdr, 2dup hdr, @ hdr, xor hdr, >r
 $6999 w, $3 w, hdr, @ hdr, = hdr, >r
-$699d w, $4 w, hdr, @ hdr, over hdr, = hdr, >r
 
+$699d w, $4 w, hdr, @ hdr, over hdr, = hdr, >r
 $6b6c w, $3 w, hdr, over hdr, swap hdr, xor!
 $6b78 w, $1 w, hdr, *!
 $6c00 w, $2 w, hdr, r@ hdr, nip
 $6c0b w, $3 w, hdr, + hdr, 2drop hdr, r>
-$6c10 w, $2 w, hdr, nip hdr, r@
-$6c27 w, $3 w, hdr, nip hdr, dup hdr, r>
 $6c53 w, $4 w, hdr, drop hdr, dup hdr, r> hdr, or
 $6c54 w, $3 w, hdr, over hdr, r@ hdr, or
 $6c84 w, $2 w, hdr, r@ hdr, invert
@@ -259,13 +258,14 @@ $6cd0 w, $3 w, hdr, r@ hdr, swap hdr, lshift
 $6cdf w, $4 w, hdr, nip hdr, r> hdr, swap hdr, lshift
 $6cec w, $3 w, hdr, 2drop hdr, r@ hdr, @
 $6d30 w, $4 w, hdr, over hdr, r> hdr, + hdr, >r
-
 $6dd0 w, $4 w, hdr, r> hdr, over hdr, lshift hdr, >r
+
 $6f0c w, $3 w, hdr, r@ hdr, swap hdr, !
 $6f0e w, $4 w, hdr, r> hdr, swap hdr, rdrop hdr, !
 $6fe3 w, $4 w, hdr, r> hdr, @ hdr, over hdr, !
 $6fef w, $4 w, hdr, r> hdr, @ hdr, swap hdr, !
 $60c8 w, $2 w, hdr, rshift hdr, nip
+$6320 w, $3 w, hdr, tuck hdr, ! hdr, dup
 $6497 w, $3 w, hdr, rdrop hdr, 2dup hdr, =
 $653d w, $3 w, hdr, over hdr, + hdr, >r
 $659d w, $3 w, hdr, over hdr, = hdr, >r

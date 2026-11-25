@@ -1,13 +1,8 @@
 \ machine.fs - access to the machine underneath the VM
 
-lacks? reg32! [if]
+lacks? dev! [if]
 include reg.fs
 [then]
-
-: reg8@  ( pa -- x ) h# c0 io!  h# c1 io@ ;
-header reg64@ : reg64@ ( pa -- x ) h# c0 io!  h# c8 io@ ;
-header reg16! : reg16! ( x pa -- ) h# c0 io!  h# c2 io! ;
-header reg64! : reg64! ( x pa -- ) h# c0 io!  h# c8 io! ;
 
 \ ---- memory above the display, used a cell at a time: on a
 \ machine of 64K cells no byte there has an address

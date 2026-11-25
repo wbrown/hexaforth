@@ -8,8 +8,9 @@
 // vm.c reached when it ran the case: the two stacks, the output it wrote,
 // and its memory.  Each case is run here on the kernel under Unicorn,
 // which emulates an AArch64 with only the memory it is given and a UART.
-// The kernel must halt with the same stacks, the same output and the same
-// memory, byte for byte.
+// Like vm.c it has no devices: where the kernel has its device cells, every
+// read gives zero.  The kernel must halt with the same stacks, the same
+// output and the same memory, byte for byte.
 //
 // The kernel is loaded at the address it is linked for (_start), and its
 // boot stub is run once, up to the point where it fetches its first
@@ -37,6 +38,8 @@
 #define UART_DATA   0x00                // the UART's data register: one character
 #define UART_FLAGS  0x18                // the UART's flag register
 #define RX_EMPTY    0x10                // the flag that says there is nothing to read
+#define DEVICES     0x0a000000ull       // the address of its virtio-mmio slots, which are the kernel's device cells (DEV_BASE)
+#define DEVICES_BYTES 0x4000            // 32 slots of 64 device cells, which are 64 bits each
 #define STEPS       100000              // the most instructions a case may run.  It is a choice, and more than any case needs
 #define SHOWN       40                  // the most failures that are printed
 #define STACK_BYTES (STACK_CELLS * sizeof(int64_t))     // the size of one stack; STACK_CELLS is the machine's
@@ -82,6 +85,13 @@ static void uart(uc_engine* on, uc_mem_type type, uint64_t address, int size, in
         if (tx_len == tx_room) tx = more_room(tx, tx_room = 2 * tx_room + MAPPED, 1);
         tx[tx_len++] = (uint8_t)value;
     }
+}
+
+// Emulates a machine with no devices.  A read of a device cell gives zero,
+// whatever the kernel wrote there before.
+static void no_device(uc_engine* on, uc_mem_type type, uint64_t address, int size, int64_t value, void* user) {
+    static const uint8_t zero[8];
+    uc_mem_write(on, address, zero, (size_t)size);
 }
 
 // Returns the value of a register.
@@ -182,9 +192,11 @@ int main(int argc, char *argv[]) {
     must(uc_open(UC_ARCH_ARM64, UC_MODE_ARM, &uc), "no AArch64");
     must(uc_mem_map(uc, RAM, mapped, UC_PROT_ALL), "its memory");
     must(uc_mem_map(uc, UART, MAPPED, UC_PROT_ALL), "its UART");
+    must(uc_mem_map(uc, DEVICES, DEVICES_BYTES, UC_PROT_ALL), "its device cells");
     must(uc_mem_write(uc, start, code, code_len), "the kernel");
-    uc_hook hook;
+    uc_hook hook, devices;
     must(uc_hook_add(uc, &hook, UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE, uart, NULL, UART, UART + MAPPED - 1), "its UART");
+    must(uc_hook_add(uc, &devices, UC_HOOK_MEM_READ, no_device, NULL, DEVICES, DEVICES + DEVICES_BYTES - 1), "its device cells");
     must(uc_emu_start(uc, start, next, 0, 0), "the kernel's start");       // run the boot stub once
     uc_context* booted;
     must(uc_context_alloc(uc, &booted), "the machine as it starts");

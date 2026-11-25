@@ -241,9 +241,6 @@ static int run_cases(const char *path) {
         std::vector<uint8_t> want_mem = bytes(f, mem_len);
 
         if (mem_len > MEM) continue;        // does not fit this machine
-        // Ports 0xc1 to 0xc8 reach devices, and this machine has none.
-        if (label.size() > 6 && (!memcmp(label.data(), "io 19", 5) || !memcmp(label.data(), "io 200", 6)))
-            continue;
         total++;
         std::fill(m->mem.begin(), m->mem.end(), 0);
         memcpy(m->mem.data(), image.data(), mem_len);

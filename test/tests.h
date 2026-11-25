@@ -420,24 +420,22 @@ static hexaforth_test TESTS[] = {
     {.label = "io 209: raising the depth brings the cells back",
      .input = "1 >r 2 >r 3 >r 1 209 io! 3 209 io! r> r> r>",
      .dstack = "3 2 1"},
-    // Device ports: 192 latches a machine address (and reads the address of
-    // the machine's cell 0); 193/194/196/200 access 8/16/32/64 bits there.
-    {.label = "io 196: 32-bit store leaves neighbours",
+    // Device cells: 192 latches a device cell's number, 193 reads or writes
+    // that cell, and 194 gives the device a cell's address.  These cases run
+    // on machines without devices, where a device cell reads zero and a
+    // write leaves the stacks and the memory as they were.  Port 195 is
+    // tested on QEMU alone, where it changes memory.
+    {.label = "io 193: a device cell reads zero",
+     .input = "9 5 192 io! 193 io@",
+     .dstack = "9 0"},
+    {.label = "io 193: a write to a device cell",
      .init = "0 -1 0 0",
-     .input = "305419896 192 io@ 8 + 192 io! 196 io! 1 @",
-     .dstack = "-3989547400"},
-    {.label = "io 193/194: 8- and 16-bit store",
+     .input = "7 5 192 io! 193 io! 193 io@ 1 @",
+     .dstack = "0 -1"},
+    {.label = "io 194: a cell's address given to a device",
      .init = "0 -1 0 0",
-     .input = "0 192 io@ 8 + 192 io! 193 io! 0 192 io@ 12 + 192 io! 194 io! 1 @",
-     .dstack = "-281470681743616"},
-    {.label = "io 200: 64-bit store",
-     .init = "0 0 0 0",
-     .input = "-2 192 io@ 16 + 192 io! 200 io! 2 @",
-     .dstack = "-2"},
-    {.label = "io 193-200: exact-width reads",
-     .init = "0 -2 0 0",
-     .input = "192 io@ 8 + 192 io! 193 io@ 194 io@ 196 io@ 200 io@",
-     .dstack = "254 65534 4294967294 -2"},
+     .input = "1 5 192 io! 194 io! 193 io@ 1 @",
+     .dstack = "0 -1"},
     // Test array terminator
     {.label = "", .input = "", .dstack = ""},
     // {.label = "c@ ( addr -- c )",

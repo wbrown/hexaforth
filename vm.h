@@ -26,7 +26,6 @@ typedef struct { int EIP;
     char*      meta[65536];
     word_node* words;
     uint64_t   CYCLES;
-    int64_t    IOADDR;
     FILE       *DISKS[DISK_DRIVES];     // the file behind each disk, or NULL
     int64_t    DISKBLK;                 // the block number last written to the disk port: it selects a disk and a block
     int64_t    DISKBLOCKS[DISK_DRIVES]; // the number of blocks on each disk

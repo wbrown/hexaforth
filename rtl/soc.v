@@ -3,7 +3,6 @@
 module soc #(
     parameter W = 64,               // cell width: 64, 32 or 16
     parameter AB = 14,              // log2 of the memory size in cells
-    parameter PCW = 16,             // program counter width, in instructions
     parameter DEPTH = 256,          // cells in each stack
     parameter INIT = "",            // memory image: a hex file, a cell on each line
     parameter LAT = 1               // memory read latency: 1, or 2 with a registered output
@@ -22,8 +21,8 @@ module soc #(
     wire [1:0]   rslot;
     wire         rok, we;
 
-    hexaforth #(.W(W), .PCW(PCW), .DEPTH(DEPTH), .LAT(LAT)) cpu (
-        .clk(clk), .rst(rst), .start_pc({PCW{1'b0}}),
+    hexaforth #(.W(W), .DEPTH(DEPTH), .LAT(LAT)) cpu (
+        .clk(clk), .rst(rst), .start_pc({W{1'b0}}),
         .raddr(raddr), .rslot(rslot), .rok(rok), .rdata(rdata), .rpre(rpre),
         .waddr(waddr), .we(we), .dwdata(dwdata),
         .tx_valid(tx_valid), .tx_data(tx_data), .tx_ready(tx_ready),
