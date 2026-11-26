@@ -255,7 +255,10 @@ create n-page2  #92 c, #94 c, #96 c, #123 c, #124 c, #125 c, #126 c, #95 c,
                      T->IN   ~IN       ->T     d+0    r+0       alu    
                  16                                             imm    
                      N->IN   IN<<T     ->T     d-1    r+0       alu     ;
-:: .s             0                                             imm    
+:: trace-on       1                                             imm    
+                224                                             imm    
+                     N->IN   IN->      ->io[T] d-2    r+0       alu     ;
+:: trace-off      0                                             imm    
                 224                                             imm    
                      N->IN   IN->      ->io[T] d-2    r+0       alu     ;
 
@@ -331,7 +334,8 @@ source: baseword-words
     bw-header >><<
     bw-header nmask8
     bw-header nmask16
-    bw-header .s
+    bw-header trace-on
+    bw-header trace-off
     bw-size cell-bits
     bw-size addr-bits
     bw-size stack-cells

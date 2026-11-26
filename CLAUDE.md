@@ -84,6 +84,7 @@ Answer a question about an image, a profile or a program's output with a tool of
 
 | Question | Tool |
 |---|---|
+| What does a word do, instruction by instruction? | In a file for `hexaforth --typed FILE.fs`, define the word, write `trace-on` on the next line, and then run the word: each instruction of the file's definitions is printed with its fields and both stacks (Building an image, below) |
 | What does the nucleus compile from typed text? | `disasm_hex IMAGE.hex --typed FILE.fs` types the file at the nucleus and shows the words the file defines, as the nucleus compiled them |
 | How many times did each instruction of a word run? | `disasm_hex IMAGE.hex NAME --counts WORK` reads the work a counting VM wrote (`RUN_WORK`). The target `peephole` writes the drawing benchmark's work (`build/peephole/draw.work`). Check there that the work runs a word at all before using `bench-draw` to measure a change to that word |
 | How does the nucleus compile a word of the system, compared with `cross.fs`? | The target `peephole` writes every word the two compile to different lengths to `build/peephole/words.txt`, and `typed word build/peephole/typed.txt NAME...` then shows those words one run at a time |
@@ -192,6 +193,7 @@ CMake builds the C (`CMakeLists.txt`): `hexaforth` (the reference VM, one progra
 | `cmake/disks.cmake` | the tools that make a disk, the source that goes on one, and the pictures |
 | `cmake/machines.cmake` | the machines in `util/machines`, and for each one its images, disks, tests and reports |
 | `cmake/reports.cmake` | the first machine's reports |
+| `cmake/glossary.cmake` | the glossary, `doc/words.md`, and the two tests of it |
 | `cmake/kernels.cmake` | the AArch64 kernels, and the desktop on QEMU |
 | `cmake/verilog.cmake` | the Verilog, its tests, and `synth` |
 | `cmake/bench.cmake`, `cmake/gates.cmake` | the benchmarks, and the CPU's size |
@@ -266,7 +268,19 @@ The checked-in `forth/basewords.fs` defines the machine with 64-bit cells. The s
 
 A disk has at most 1,024 blocks, the capacity of an 8-inch floppy, and `mkdisk` refuses to make a larger one, so the pictures are on a disk of their own (`build/pictures.img`, the target `pictures`). It is the second disk of every machine that shows or checks the desktop, and the viewer finds its picture there by its label (`doc/disk.md`, Several disks).
 
-`build/cmake/hexaforth IMAGE.hex [DISK.img [MEMORY.out]]` runs an image on the reference VM, as the machine the image is for. If `MEMORY.out` is given, the VM writes its memory there when it stops. Give several disks with commas between them, the first being disk 0 (`DISK0.img,DISK1.img`), since a block's number selects its disk (`doc/disk.md`, Several disks).
+`build/cmake/hexaforth [IMAGE.hex | --machine BITS] [--typed FILE.fs] [DISK.img [MEMORY.out]]` runs an image on the reference VM, as the machine the image is for.
+
+| Argument | Meaning |
+|---|---|
+| `IMAGE.hex` | the image to run. The default is the nucleus built for the first machine in `util/machines`, which is `build/64/nuc.hex` |
+| `--machine BITS` | run the built nucleus of the machine with cells of that size: `--machine 16` runs `build/16/nuc.hex` |
+| `--typed FILE.fs` | use the file as the console's input, followed by `bye`. The default input is stdin |
+| `DISK.img` | the disk. Give several with commas between them, the first being disk 0 (`DISK0.img,DISK1.img`), since a block's number selects its disk (`doc/disk.md`, Several disks) |
+| `MEMORY.out` | the file the VM writes its memory to when it stops |
+
+With `--typed`, the program prints what the machine printed, then the data stack, then the reason the machine stopped. Its exit status is 0 only if the machine halted and every throw was caught. A typed run also stops at the end of a file that leaves a definition or an `[if]` unfinished, and when the machine runs more instructions than its budget without reading a key (`STOP_BUDGET_DEFAULT`, `vm_stopped.h`), so an infinite loop ends with a report. The reference VM keeps the line of input it last read, and the report of a machine that stopped without halting ends with that line and its number in the file (`stops_say_line`, `vm.c`).
+
+`trace-on` and `trace-off` are writes to port `0xe0`, which only the reference VM acts on (`MODEL.md`, The ports). After `trace-on`, `hexaforth` prints a line for each instruction that runs in code defined since the image was loaded, which is the definitions that were typed, after the instruction has run: where it is, what it is called, its fields as `vm_opcodes.h` writes them, and both stacks. A call from one such definition to another is followed, and a call to a word of the image is one line, printed when that word has returned. The trace stays on until `trace-off`, and stops after `TRACE_MOST` instructions in one run, which is 500 unless the environment gives another number (`vm_stopped.h`).
 
 Beside an image, `cross.fs` writes these files. The last three are what it saw of names as it compiled, and are to be read before giving a word a header or removing one:
 
@@ -293,13 +307,14 @@ Beside an image, `cross.fs` writes these files. The last three are what it saw o
 
 ### Generated files
 
-Three files are generated and checked in. Each has its own command in `cmake/default-machine.cmake`, which lists what the file is made from:
+Four files are generated and checked in. The three Forth files each have a command in `cmake/default-machine.cmake`, which lists what the file is made from, and `doc/words.md` has its command in `cmake/glossary.cmake`:
 
 | File | What it holds | What writes it |
 |---|---|---|
 | `forth/basewords.fs` | the default machine's definition | `basewords-fs-gen`, from `vm_constants.h` and `vm_opcodes.h` |
 | `forth/folds.fs` | the rules the nucleus's peephole applies | `util/joins.c`, which needs only the machine |
 | `forth/fused.fs` | the words the decompiler shows for each instruction | `util/fused.c`, from a built image |
+| `doc/words.md` | every word that has a header, with its stack comment | `util/glossary.c`, from the Forth source and the first machine's `.public` file |
 
 `joins.c` and `fused.c` both include `fuse.h` and ask the machine. The target `forth-env` makes `folds.fs` and `fused.fs`, and every nucleus that includes either is built after it.
 
@@ -336,6 +351,11 @@ The target `check` runs every test CMake has (`ctest`). It prints one line for e
 | `shadows` | `cross.fs` records each kind of redefined name, and records only those. `forth/shadowed.fs` is a program with a redefinition of each kind, and `test/shadowed.shadows` is the list `cross.fs` must write for it |
 | `loops` | `cross.fs` compiles control structures as the standard defines them. `forth/loops.fs` has a `while` ended by `until` and a loop with two `while`s, and the test runs it on the VM and checks what it prints |
 | `refused-if`, `refused-then`, `refused-into`, `refused-empty` | `cross.fs` must refuse each of four programs (`forth/refused-if.fs` and the three files named for the other tests) and print the reason: an unresolved branch, an unmatched `then`, a word that falls through (`;into`) into a definition other than the one it names, and an empty, headerless word that falls through |
+| `typed-64`, `typed-thrown-64`, and the same tests for each other machine | `hexaforth --typed` on a file with no errors, and on a file with an undefined word, which throws and is named in the error |
+| `typed-unfinished`, `typed-forever`, `typed-underflow`, `typed-exit-ok`, `typed-exit-error` | `hexaforth --typed` on a file that ends inside a definition, on a file that loops forever and on a file that takes a cell from an empty stack, the last two reported with the line that was running, and its exit status for a file with no errors and for a file with one |
+| `typed-traced`, `typed-trace-most` | the trace: after `trace-on`, two typed definitions are reported an instruction at a time as they run, one calling the other, and nothing is reported after `trace-off`; and the trace stops after the number of instructions `TRACE_MOST` gives |
+| `words-doc` | `doc/words.md` is what `glossary` writes from the source now. The target `words` writes the file again |
+| `agents-words` | each stack comment in the word tables of `AGENTS.md` is the one in the source |
 | `fewer` | runs `fewer_test`, which checks the search for the shortest sequence that does the work of a run, or of one turn of a loop (`util/fewer.h`, `util/turns.h`). It gives the search runs whose shortest form is known, and runs each answer on `vm.c` |
 | `kernel-hexaforth`, `kernel-hexaforth-fast` | each AArch64 kernel against `vm.c` |
 | `qemu-hexaforth-display-strict` | the desktop on QEMU with the small kernel. The test drives the desktop and checks its screen, and the target `demo-test` does the same with the kernel selected in CMake |
@@ -375,9 +395,9 @@ The target `shorter-loops` is a separate step (`bench/shorter.c`). For each loop
 | `vm.c` | the reference VM |
 | `vm_loop.h` | the machine's loop and its operations on a cell. `vm.c` includes it once for each cell width, with the width a constant in each copy, and `vm()` checks the machine's width once, when it starts, and runs the loop for that width. `vm.c` includes it once more with the width a run-time value, for code outside the loop that handles cells |
 | `vm_step.h` | the one implementation of what a literal or an ALU instruction does, which `vm.c` runs on cells and `util/fuse.h` runs on terms |
-| `main.c` | loads an image and runs it |
+| `main.c` | the `hexaforth` program: it loads an image and runs it, with a file as the console's input if `--typed` names one, and prints the lines of the trace |
 | `vm_debug.c` | the trace |
-| `vm_stopped.h` | why the reference VM stopped, what stops it besides a halt, the environment variables that set those stops, and the report on a machine that stopped somewhere unexpected |
+| `vm_stopped.h` | why the reference VM stopped, what stops it besides a halt, the environment variables that set those stops, the report on a machine that stopped somewhere unexpected, and the trace that `trace-on` starts |
 | `vm_opcodes.c` | builds instructions from the definitions, and reads an image's dictionary in search order (`first_header`, `read_header`) |
 
 ### The tools, in `util/`
@@ -386,10 +406,10 @@ The target `shorter-loops` is a separate step (`bench/shorter.c`). For each loop
 |---|---|
 | `baseword_fs_gen.c` | writes `basewords.fs` |
 | `disasm_hex.c` | prints an image's code word by word, formatted and named the way `see` does it, with every instruction's address, number and fields. On a terminal it prints in colour |
-| `stack.c` | prints the stacks, for the trace |
+| `stack.c` | prints the stacks, for `hexaforth_test` |
 | `hex2bin.c` | converts an image, or only its ROM, to the bytes a kernel includes |
 | `memimage.c` | converts an image to the files the Verilog loads |
-| `image.c` | reads an image |
+| `image.c` | reads an image, and finds the built nucleus for a program that is given no image |
 | `mkdisk.c` | makes a disk, with source formatted as its blocks. With `--boot` it makes a disk that a machine with only its ROM starts from (`doc/boot.md`), and with `--boot-desk` that disk is the desktop's disk as well. With `--disk` it makes a disk that is an index and its files, for the disks a machine has besides the one it starts from |
 | `lines.h` | parses a line of Forth source into words, strings and comments, for the tools that format source |
 | `wrap.c` | fits source to the lines of a block (the target `wrap`) |
@@ -415,6 +435,7 @@ The target `shorter-loops` is a separate step (`bench/shorter.c`). For each loop
 | `clangd.c` | reports what clangd, the language server, found in the C, from what it printed for each file (the target `clangd`). Its report must be empty |
 | `said.c` | finds the file names the tree's text mentions and checks that each file exists (the target `said`). Run it when a file is renamed or removed |
 | `keep.c` | saves what a target measured, filed under the measured image, where the next measurement leaves it intact |
+| `glossary.c` | writes `doc/words.md`: every word that has a header, with the stack comment and the description from the Forth source. With `--check` it compares the stack comments in a document's tables with the source's |
 | `again.c` | lists the names a source redefines, from the `.shadows` file beside each machine's image, each name once. `quick` and `check` print this list |
 
 ### The tests, in `test/`
@@ -431,6 +452,7 @@ The target `shorter-loops` is a separate step (`bench/shorter.c`). For each loop
 | `source_test.c`, `source.fs` | comments, at the prompt and in a block of a disk that `mkdisk` made from that file |
 | `boot_test.c`, with `boot.fs`, `boot-more.fs` and `boot-error.fs` | the machine started from its ROM alone, and from its whole image. The cases are a disk that `mkdisk --boot` made from the image and those files; a diskless start, with the image sent to the console; and an error in a block. A store into the ROM stops the machine |
 | `prompt_test.c` | the nucleus at its prompt: its compiler, its arithmetic, variables, tasks and names. Each check is the text to type and the result it must leave |
+| `typed.fs`, `typed-thrown.fs`, `typed-unfinished.fs`, `typed-forever.fs`, `typed-underflow.fs`, `typed-traced.fs` | the files the tests of `hexaforth --typed` type |
 | `kernel_test.c` | the kernel's words and what reaches each. It includes `reach.h` |
 | `fewer_test.c` | the search for a shorter sequence. Its cases are runs and turns written as words, each with the shortest length the search must find |
 | `region_test.c` | regions against their pixels. The text typed at the machine is also applied to a plane of pixels, and every cell of every region is compared with the one form those pixels have as a region |
@@ -587,6 +609,7 @@ Each compiler implements these in its own way:
 |---|---|
 | `desktop.png` | the README's picture of the desktop, which the target `screenshot` makes |
 | `hello.fs` | the window `DESKTOP.md` describes, which the target `hello` types at the reference VM |
+| `words.md` | every word that has a header, by file, with its stack comment and its description. It is generated (`util/glossary.c`, the target `words`), and ends with the Forth-2012 core words the system lacks |
 | `formatting.md` | how Forth source is formatted, from *Thinking Forth*: what is written by hand and what `util/wrap.c` does |
 | `boot.md` | how the machine starts from its ROM and a disk, and compiles the system from source on the machine: what is built, what is decided, what is still to be decided, and the order of the work. It is a plan, and its first part is built |
 | `disk.md` | block 0, the disk's index: what is on a disk, where, and of what type. Part of the design is built |

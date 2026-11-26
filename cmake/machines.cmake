@@ -334,6 +334,18 @@ function(machine_tests NAME)
 
     machine_test(prompt-${NAME} ${NAME} prompt_test ${NUC})
 
+    # `hexaforth --typed` on this machine (main.c):
+    #
+    #   typed-NAME          a file with no errors, which leaves 3 4 on the stack
+    #   typed-thrown-NAME   a file with an undefined word, which throws -13
+    #                       and is named in the error
+    machine_test(typed-${NAME} ${NAME} hexaforth --machine ${NAME} --typed test/typed.fs)
+    set_tests_properties(typed-${NAME} PROPERTIES
+                         PASS_REGULAR_EXPRESSION "21 twice \\. 42  ok.*data stack \\(2 cells, top last\\): 3 4\nhalted\n")
+    machine_test(typed-thrown-${NAME} ${NAME} hexaforth --machine ${NAME} --typed test/typed-thrown.fs)
+    set_tests_properties(typed-thrown-${NAME} PROPERTIES
+                         PASS_REGULAR_EXPRESSION "error: -13 no-such-word.*halted after 1 uncaught error")
+
     # The block is a file that is there for this, laid down as a disk's
     # source is.
     add_custom_command(
@@ -606,3 +618,57 @@ endforeach()
 list(GET MACHINES 0 FIRST)
 plain(${FIRST})
 builds_test(${FIRST})
+
+# hexaforth runs a built nucleus when it is given no image.  util/image.c
+# finds that nucleus (built_nucleus): BUILT is the build directory, and
+# FIRST_MACHINE is the default machine.
+set_source_files_properties(util/image.c PROPERTIES
+        COMPILE_DEFINITIONS "BUILT=\"${BUILD}\";FIRST_MACHINE=\"${FIRST}\"")
+
+# Tests of `hexaforth --typed` that run on the first machine only:
+#
+#   typed-unfinished    the file ends inside a definition
+#   typed-forever       the last line is an infinite loop, stopped by the budget
+#   typed-underflow     a line takes a cell from an empty stack
+#   typed-exit-ok       the exit status is 0 for a file with no errors
+#   typed-exit-error    the exit status is non-zero for a file with an error
+#
+# A machine that stops without halting is reported with the line of the
+# file it was running.  CTest ignores the exit status of a test that has
+# PASS_REGULAR_EXPRESSION, so the exit status has tests of its own.
+machine_test(typed-unfinished ${FIRST} hexaforth --typed test/typed-unfinished.fs)
+set_tests_properties(typed-unfinished PROPERTIES PASS_REGULAR_EXPRESSION "end of file inside")
+add_test(NAME typed-forever
+         COMMAND ${WITH} STOP_BUDGET=1000000 $<TARGET_FILE:hexaforth> --typed test/typed-forever.fs
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(typed-forever PROPERTIES PASS_REGULAR_EXPRESSION "it ran on.*while running line 5: forever")
+needs(typed-forever hexaforth machine-${FIRST})
+on_the_vm(typed-forever)
+machine_test(typed-underflow ${FIRST} hexaforth --typed test/typed-underflow.fs)
+set_tests_properties(typed-underflow PROPERTIES
+                     PASS_REGULAR_EXPRESSION "stack out of range \\(data -1.*while running line 3: 1 drop drop")
+
+# The trace (vm_stopped.h): `trace-on` typed after two definitions, which
+# are then run.
+#
+#   typed-traced        each instruction of the two definitions is reported
+#                       with its fields and the stacks, the call from one to
+#                       the other is followed, a call to a word of the image
+#                       is one line, and nothing is reported after `trace-off`
+#   typed-trace-most    the trace stops after the number of reports that
+#                       TRACE_MOST gives
+#
+# A `;` would end the regular expression, so the one the trace prints after
+# an instruction with a return folded into it is matched by a dot.
+machine_test(typed-traced ${FIRST} hexaforth --typed test/typed-traced.fs)
+set_tests_properties(typed-traced PROPERTIES PASS_REGULAR_EXPRESSION
+        "sum +false +N->IN +IN\\^N +->T +d\\+1 +r\\+0 +alu +data: 3 0 .*twice\\+1 +\\+ . +T->IN +IN\\+N +->T +d-1 +r-1 +RET +alu +data: 2 4 .*\\(loopdone\\).*exit +T->IN.*RET +alu +data: 6 .*\n6  ok.*4 twice \\. 8  ok")
+add_test(NAME typed-trace-most
+         COMMAND ${WITH} TRACE_MOST=5 $<TARGET_FILE:hexaforth> --typed test/typed-traced.fs
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(typed-trace-most PROPERTIES PASS_REGULAR_EXPRESSION "the trace stopped after 5 instructions")
+needs(typed-trace-most hexaforth machine-${FIRST})
+on_the_vm(typed-trace-most)
+machine_test(typed-exit-ok ${FIRST} hexaforth --typed test/typed.fs)
+machine_test(typed-exit-error ${FIRST} hexaforth --typed test/typed-thrown.fs)
+set_tests_properties(typed-exit-error PROPERTIES WILL_FAIL TRUE)

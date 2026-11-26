@@ -82,7 +82,8 @@ add_custom_command(
 # fused, and BOOTED_FOR to the four files of the booted machine.
 stepping_tool(fused util/fused.c util/image.c)
 target_compile_definitions(fused PRIVATE GFORTH="${GFORTH}")
-# The reference VM (main.c): hexaforth IMAGE.hex [DISK.img [MEMORY.out]].
+# The reference VM.  The top of main.c describes its arguments, and
+# cmake/machines.cmake gives it the build directory and the default machine.
 machine_tool(hexaforth main.c vm.c)
 # runs cuts two builds of an image into the same runs, and typed types the
 # runs at the nucleus (bench/runs.c, bench/typed.c).

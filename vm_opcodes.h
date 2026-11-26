@@ -297,7 +297,8 @@ static forth_define FORTH_OPS[] = {
         {">><<",    "tuck rshift swap lshift", CODE},
         {"nmask8",  "255 imm invert", CODE},
         {"nmask16",  "0 imm invert 16 imm lshift", CODE},
-        {".s",      "0 imm 224 imm io!", CODE},
+        {"trace-on",  "1 imm 224 imm io!", CODE},
+        {"trace-off", "0 imm 224 imm io!", CODE},
         {"",        "", CODE}};
 
 // Instructions associated with string representations.

@@ -10,9 +10,8 @@
 #include "vm_stopped.h"
 #include "vm_instruction.h"
 #include "vm_constants.h"
-#include "util/stack.h"
 
-vm_stops STOPS = { .break_at = -1, .break_store = -1 };
+vm_stops STOPS = { .break_at = -1, .break_store = -1, .counted_at = -1 };
 
 // Marks `cells` cells starting at `cell` as written to, so that an
 // instruction in them may be run (STOPS.put).
@@ -20,6 +19,78 @@ void stops_put(int64_t cell, int64_t cells) {
     if (!STOPS.put) return;
     uint64_t from = (uint64_t)cell * (CELL_BYTES / 2), slots = (uint64_t)cells * (CELL_BYTES / 2);
     for(uint64_t at = from; at < from + slots && at < MEM_BYTES / 2; at++) STOPS.put[at >> 3] |= (uint8_t)(1 << (at & 7));
+}
+
+// Records a key the machine read from its input, as part of the line it
+// is on.  The nucleus reads a whole line before it runs any of it, so the
+// line read last is the line being run.
+static void stops_key(int key) {
+    if (key == EOF) return;
+    if (!STOPS.line || STOPS.line_ended) {      // the first key of a line
+        STOPS.line++;
+        STOPS.line_len = 0;
+        STOPS.line_ended = 0;
+    }
+    if (key == '\n') STOPS.line_ended = 1;
+    else if (STOPS.line_len < STOP_LINE) STOPS.line_text[STOPS.line_len++] = (char)key;
+}
+
+void stops_say_line(FILE *to) {
+    if (!STOPS.line) return;
+    fprintf(to, "while running line %ld: %.*s\n", STOPS.line, STOPS.line_len, STOPS.line_text);
+}
+
+// ---- the trace (vm_stopped.h)
+
+// Records every instruction now in memory as the image's.  The trace
+// reports the instructions that are put there afterwards.
+void stops_mark_image(context *ctx) {
+    const long slots = MEM_BYTES / 2;
+    if (!STOPS.image) STOPS.image = calloc((size_t)slots / 8 + 1, 1);
+    if (!STOPS.image) return;
+    for(long at = 0; at < slots; at++) if (ctx->memory[at]) STOPS.image[at >> 3] |= (uint8_t)(1 << (at & 7));
+}
+
+// Turns the trace on or off, when the machine writes to the trace's port.
+static void trace_switch(int on) {
+    if (!on) {
+        STOPS.trace = 0;
+        return;
+    }
+    if (STOPS.trace || !STOPS.trace_say || !STOPS.image) return;
+    if (!STOPS.trace_most) {
+        const char* most = getenv("TRACE_MOST");
+        STOPS.trace_most = most ? strtol(most, NULL, 10) : TRACE_MOST_DEFAULT;
+    }
+    if (STOPS.trace_said >= STOPS.trace_most) return;
+    STOPS.trace = 1;
+    STOPS.trace_at = -1;
+    STOPS.on = 1;               // the loop looks at the trace only when this is set
+}
+
+// Called before each instruction while the trace is on.  `at` is the
+// address of the instruction about to run, and the stacks are as the
+// instruction before it left them.  The instruction before it is reported
+// now, if it was in traced code.  A call is reported later than that: when
+// the machine is next in traced code, which for a call to a word of the
+// image is when that word has returned.
+static void trace_step(context *ctx, int64_t at, int sp, int64_t t, int rsp, int64_t r) {
+    const bool traced = !(STOPS.image[at >> 3] & (1 << (at & 7)));
+    if (STOPS.trace_at >= 0 && (traced || !STOPS.trace_called)) {
+        STOPS.trace_say(ctx, STOPS.trace_at, sp, t, rsp, r);
+        STOPS.trace_at = -1;
+        if (++STOPS.trace_said >= STOPS.trace_most) {
+            fflush(ctx->OUT);
+            fprintf(stderr, "the trace stopped after %ld instructions, the most it reports in one run (TRACE_MOST)\n",
+                    STOPS.trace_said);
+            STOPS.trace = 0;
+            return;
+        }
+    }
+    if (!traced) return;
+    const instruction ins = *(const instruction*)&ctx->memory[at];
+    STOPS.trace_at = at;
+    STOPS.trace_called = !ins.lit.lit_f && ins.alu.op_type == OP_TYPE_CALL;
 }
 #ifdef DEBUG
 #include "vm_debug.h"
@@ -150,6 +221,7 @@ static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t i
     switch (io_addr) {
         case 0xf1:
             fputc((uint8_t)io_write, ctx->OUT);
+            STOPS.mid_line = (uint8_t)io_write != '\n';
             return(TRUE);
         case 0xf0: {
             uint8_t msb = clz(io_write) + 1;
@@ -160,10 +232,9 @@ static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t i
             }
             return(TRUE);
         }
-        case 0xe0: {
-            print_stack(ctx->SP-2, ctx->DSTACK[ctx->SP-3], ctx, false);
-            print_stack(ctx->RSP-1, ctx->RSTACK[ctx->RSP-2], ctx, true);
-        }
+        case IO_TRACE:
+            trace_switch(io_write != 0);
+            return(TRUE);
         default:
             return(FALSE);
     }
@@ -178,10 +249,14 @@ static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
         return ctx->DISKS[drive] ? ctx->DISKBLOCKS[drive] : 0;
     }
     switch (io_addr) {
-        case 0xe0:
+        case 0xe0: {
             fflush(ctx->OUT);       // show what was printed before waiting for a key
             STOPS.since = 0;        // it took a key, so it is not running away: restart the count
-            return(fgetc(ctx->IN));
+            int key = fgetc(ctx->IN);
+            if (key == EOF && STOPS.at_end) STOPS.ended = 1;    // end of input: stop before the next instruction
+            stops_key(key);
+            return(key);
+        }
         default:
             return(false);
     }
@@ -258,6 +333,7 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
 #ifdef STRICT_STACK
 #define DEPTHS() \
     if (SP < 0 || SP > STACK_CELLS || RSP < 0 || RSP > STACK_CELLS) { \
+        fflush(ctx->OUT);       /* what the machine printed comes before the report */ \
         fprintf(stderr, "\nstack out of range (data %d, return %d) at %llx\n", \
                 SP, RSP, (unsigned long long)EIP - 1); \
         /* print the return stack, top first: the addresses it would have returned to */ \
@@ -266,6 +342,7 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
             for(int at = RSP - 2; at >= 0; at--) fprintf(stderr, " %llx", (unsigned long long)ctx->RSTACK[at]); \
             fprintf(stderr, "\n"); \
         } \
+        stops_say_line(stderr); \
         exit(3); \
     }
 #else
@@ -326,6 +403,7 @@ const char* stop_reason(void) {
         case STOP_NO_CODE:  return("it ran where nothing was ever put");
         case STOP_AT_BREAK: return("it came to the instruction STOP_AT says");
         case STOP_AT_STORE: return("it stored to the cell STOP_ON_STORE says");
+        case STOP_END_OF_INPUT: return("it read a key at the end of its input");
         default:            return("it halted");
     }
 }

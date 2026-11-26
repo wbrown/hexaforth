@@ -254,7 +254,7 @@ A port that a machine lacks reads as zero and ignores what is written to it. The
 | `0xc2` | | a cell address: that cell's address, in the form the device takes, is stored starting at the latched device cell | all | where that form is wider than a cell, it continues into the cells that follow |
 | `0xc3` | | the address of a memory cell that holds a cell address: the address it holds is replaced by the form the device takes | all | the same |
 | `0xd0`, `0xd1` | the depth of the data stack, of the return stack | sets it | all | Stacks, above |
-| `0xe0` | a character from the console, when there is one | anything written prints one cell of each stack | all for a read, VM for a write | the write is `.s` in `vm_opcodes.h`, for debugging, and is still faulty |
+| `0xe0` | a character from the console, when there is one | a flag: non-zero starts the trace of instructions, and zero stops it | all for a read, VM for a write | the write is `trace-on` and `trace-off` in `vm_opcodes.h`, for debugging. While the trace is on, the reference VM reports each instruction that runs in code defined since the image was loaded, with the instruction's fields and both stacks |
 | `0xe1` | true if a character is waiting | | all | the reference VM reports that a character is always waiting, and then waits for one |
 | `0xf0` | | a cell written sends its low byte followed by stray bytes | VM | `8emit` in `vm_opcodes.h`, for debugging; it is still faulty |
 | `0xf1` | | a character to the console | all | |

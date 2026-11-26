@@ -44,4 +44,11 @@ void machine_from(const char* image_path);
 // image.
 void machine_said(int cell_bits, int addr_bits, int disp_w, int disp_h, long long disp_base);
 
+// Returns the path of the nucleus that CMake built for the machine with
+// `bits`-bit cells ("16", "32" or "64"), or for the first machine in
+// util/machines if `bits` is NULL.  The program exits with a message if
+// that file is missing.  CMake gives util/image.c the build directory and
+// the first machine (cmake/machines.cmake).
+const char* built_nucleus(const char* bits);
+
 #endif //HEXAFORTH_IMAGE_H

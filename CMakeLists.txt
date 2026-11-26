@@ -61,6 +61,7 @@ include(cmake/default-machine.cmake)    # the generated Forth, the default machi
 include(cmake/disks.cmake)              # what makes a disk, the source that goes on one, and the pictures
 include(cmake/machines.cmake)           # the machines of util/machines: the images, disks, tests and reports of each
 include(cmake/reports.cmake)            # the reports of the first machine
+include(cmake/glossary.cmake)           # the glossary of the words, generated from the source
 include(cmake/kernels.cmake)            # the AArch64 kernels, and the desktop on QEMU
 include(cmake/verilog.cmake)            # the Verilog, its tests, and synthesis
 include(cmake/bench.cmake)              # the benchmarks
