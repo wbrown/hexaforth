@@ -76,7 +76,6 @@ $6860 w, $3 w, hdr, @ hdr, over hdr, xor
 $600b w, $3 w, hdr, r> hdr, 2drop hdr, nip
 $6090 w, $2 w, hdr, dup hdr, =
 $64f0 w, $1 w, hdr, io@
-$680c w, $2 w, hdr, nip hdr, @
 $686c w, $2 w, hdr, @ hdr, xor
 $6cd3 w, $3 w, hdr, r> hdr, swap hdr, lshift
 $6f0f w, $3 w, hdr, r> hdr, swap hdr, !
@@ -84,6 +83,7 @@ $6068 w, $3 w, hdr, + hdr, 2drop hdr, false
 $6101 w, $2 w, hdr, over hdr, >r
 $632c w, $2 w, hdr, tuck hdr, !
 $6434 w, $2 w, hdr, 2dup hdr, +
+$680c w, $2 w, hdr, nip hdr, @
 $68ac w, $2 w, hdr, @ hdr, <
 $6cc3 w, $3 w, hdr, r> hdr, swap hdr, rshift
 $6008 w, $2 w, hdr, drop hdr, nip

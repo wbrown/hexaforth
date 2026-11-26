@@ -320,7 +320,10 @@ header 2!
     cell+ !
 ;
 
-: unparsed ( -- c-addr u ) source >in @ ;into /string
+: sourced ( -- c-addr u n ) \ the source, and what >in holds
+    source >in @
+;
+: unparsed ( -- c-addr u ) sourced ;into /string
 header /string
 : /string ( c-addr u n -- c-addr+n u-n )
     dup >r - swap r> + swap
@@ -842,7 +845,7 @@ header throw
         dup invert if                   \ ABORT, which is -1, prints nothing
             "error:" >c d# 7 type
             .
-            source drop >in @ type cr
+            sourced nip type cr
         then
         prompting
         'console @ 'emit !
