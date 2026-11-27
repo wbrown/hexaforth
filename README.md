@@ -28,7 +28,7 @@ As a result, dithering the Mandrill in colour takes 21.5 million clocks with 64-
 - What could have been: a desktop on a machine of that size and speed.
 - A Forth operating system with a desktop: overlapping windows, regions, a menu, a pointer, proportional text, and programs. There is a Forth prompt in a window, a block editor, a viewer that reads a TIFF and dithers it, a calculator, a paint program and a decompiler.
 - The instruction set, in which an instruction is a control word: where the ALU's input comes from, the operation, where the result goes, and how each stack moves.
-- How little code it takes. The kernel is 3,518 bytes, in a 4,096-byte ROM, the paint program is 2,232 bytes, and the whole machine, written in AArch64 assembler, is 800 bytes.
+- How little code it takes. The kernel is 3,522 bytes, in a 4,096-byte ROM, the paint program is 2,232 bytes, and the whole machine, written in AArch64 assembler, is 800 bytes.
 
 It is meant to be built from TTL, on an FPGA, or through TinyTapeout.
 
@@ -53,7 +53,7 @@ Fetching is a choice of input and storing is a choice of output, so an operation
 
 The other instructions are a jump, a conditional jump, a call, and a 12-bit literal that is either pushed or added to the top of the stack, or that fetches or stores one of 4,096 variables.
 
-A Forth word is a name for one of these instructions or for a sequence of them. Leaving out the ones that read or write a port, the fields give 4,960 instructions that behave differently, because many combinations do the same thing. Fifty-eight of those have names, and the system uses 416 (the target `profile` counts them, for the 64-bit image). The unnamed ones it uses come from the compiler, which replaces a sequence with a single instruction wherever one does the same work, and finds out which by asking the machine. `MODEL.md` describes every field.
+A Forth word is a name for one of these instructions or for a sequence of them. Leaving out the ones that read or write a port, the fields give 4,960 instructions that behave differently, because many combinations do the same thing. Fifty-eight of those have names, and the system uses 415 (the target `profile` counts them, for the 64-bit image). The unnamed ones it uses come from the compiler, which replaces a sequence with a single instruction wherever one does the same work, and finds out which by asking the machine. `MODEL.md` describes every field.
 
 ## The numbers
 
@@ -96,7 +96,7 @@ Each figure below is printed by one of the tree's own targets, named so it can b
 
 | | words | bytes of code |
 |---|---|---|
-| The kernel, in a 4,096-byte ROM | 267 | 3,518 |
+| The kernel, in a 4,096-byte ROM | 269 | 3,522 |
 | All drawing: fills, copying, text | 156 | 5,242 |
 | Regions | 37 | 1,406 |
 | The window manager | 116 | 3,536 |
@@ -110,9 +110,9 @@ Each figure below is printed by one of the tree's own targets, named so it can b
 | The decompiler and the Words window | 134 | 4,784 |
 | Files on the disks, found by label, and the boot's console | 47 | 1,540 |
 | The compiler's peephole, for typed code | 108 | 3,546 |
-| Everything | 1,568 | 40,546 |
+| Everything | 1,571 | 40,594 |
 
-The dictionary holds 638 names in 5,964 bytes, at five bits per character.
+The dictionary holds 640 names in 5,984 bytes, at five bits per character.
 
 **The machine on another processor** (`size`). `baremetal/hexaforth.S` is the whole machine in AArch64 assembler, with a console. It is 800 bytes:
 

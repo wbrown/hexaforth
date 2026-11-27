@@ -8,6 +8,8 @@ Hexaforth is a stack machine, a Forth system that runs on it, and three implemen
 
 - Say that something builds, runs or passes only when a tool result in this session shows it, and quote that result. Quote only output that a tool actually printed. A tool call that returned an error left everything as it was, so make the call again correctly before relying on it.
 - Run commands yourself with the tools, including any you would otherwise hand to the user.
+- Do not work a whole solution out before running anything. A turn that ends inside its reasoning is discarded, so write one line, run it, and choose the next step from what it printed.
+- Do not reason inside a tool call's arguments. Decide what a file will contain before you write it, and put only that in the call: `hexaforth` types a file line by line, so a note to yourself in it is a line of undefined words.
 - When the user asks a question about work in progress, stop all running and editing, and answer the question: yes or no first, then what was done and why. End the answer there, because the user decides what happens next. "Stop" means the same.
 - Report what was done, what failed, and what the user must decide. A decision stays decided once it is made, so act on it.
 - The project is written in C and Forth, so a test, a generator or a measuring tool is C in the tree that CMake builds and runs. Python, shell scripts and Makefiles stay out of the tree.
@@ -53,6 +55,7 @@ build/cmake/hexaforth --typed build/try.fs
 For example, with this in `build/try.fs`:
 
 ```forth
+\ the square of a number, and a cell as 16 hex digits
 : square ( n -- n*n ) dup * ;
 : .cell ( x -- ) dup hi32 .x .x ;
 7 square .
@@ -64,6 +67,7 @@ s" hello" type
 the command prints:
 
 ```
+\ the square of a number, and a cell as 16 hex digits  ok
 : square ( n -- n*n ) dup * ;  ok
 : .cell ( x -- ) dup hi32 .x .x ;  ok
 7 square . 49  ok
@@ -168,7 +172,7 @@ Build a word a step at a time, and run the file after each step.
 
 - `.s` prints the data stack, the top last, and leaves it as it was: `1 2 3 .s` prints `1 2 3`.
 - `see /mod` prints the definition as the machine compiled it.
-- A comment is `( ... )`, with a space after the `(`, or `\` and the rest of the line. A name inside a stack comment, such as `rem`, is a label for the reader. Do not use one as a word. Do not write a comment as `/* ... */` or `//`, which are undefined words here.
+- A comment is `\` and the rest of the line, or `( ... )` with a space after the `(`. Do not start a comment with `#`, `//` or `/*`, because Forth reads each of them as a word, which is undefined here, and the line ends in `error: -13`. A name inside a stack comment, such as `rem`, is a label for the reader. Do not use one as a word.
 - A test whose two inputs are equal hides a word that confuses them, so give the inputs different values.
 - Report the output of a run made after the last edit to the file.
 
