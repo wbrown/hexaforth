@@ -270,7 +270,7 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
     mini_stack(RSP, R, ctx->RSTACK, rstack_repr);
     mini_stack(SP, T, ctx->DSTACK, dstack_repr);
     debug_address(disasm, ctx, EIP);
-    dprintf("EXEC[0x%0.4x]: %s S%-26s R%s\n", (unsigned)EIP, disasm, dstack_repr, rstack_repr);
+    dprintf("EXEC[$%0.4X]: %s S%-26s R%s\n", (unsigned)EIP, disasm, dstack_repr, rstack_repr);
 }
 #endif
 
@@ -334,12 +334,12 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
 #define DEPTHS() \
     if (SP < 0 || SP > STACK_CELLS || RSP < 0 || RSP > STACK_CELLS) { \
         fflush(ctx->OUT);       /* what the machine printed comes before the report */ \
-        fprintf(stderr, "\nstack out of range (data %d, return %d) at %llx\n", \
+        fprintf(stderr, "\nstack out of range (data %d, return %d) at $%llX\n", \
                 SP, RSP, (unsigned long long)EIP - 1); \
         /* print the return stack, top first: the addresses it would have returned to */ \
         if (RSP > 0 && RSP <= STACK_CELLS) { \
-            fprintf(stderr, "the return stack: %llx", (unsigned long long)R); \
-            for(int at = RSP - 2; at >= 0; at--) fprintf(stderr, " %llx", (unsigned long long)ctx->RSTACK[at]); \
+            fprintf(stderr, "the return stack: $%llX", (unsigned long long)R); \
+            for(int at = RSP - 2; at >= 0; at--) fprintf(stderr, " $%llX", (unsigned long long)ctx->RSTACK[at]); \
             fprintf(stderr, "\n"); \
         } \
         stops_say_line(stderr); \
@@ -409,15 +409,17 @@ const char* stop_reason(void) {
 }
 
 void post_mortem(FILE *to, context *ctx, const char *image, const char *memory_path) {
-    fprintf(to, "the machine stopped: %s, at %llx, which is %04x\n", stop_reason(),
+    // Every hex number in the report is printed as the machine prints one
+    // with `.x`: after the `$` the nucleus reads one by, in upper case.
+    fprintf(to, "the machine stopped: %s, at $%llX, which is $%04X\n", stop_reason(),
             (unsigned long long)ctx->EIP, (unsigned)ctx->memory[ctx->EIP]);
     fprintf(to, "  the data stack, %d deep, the top first:", ctx->SP);
     for(int at = ctx->SP - 1; at >= 0 && at >= ctx->SP - 8; at--) {
-        if (at < STACK_CELLS) fprintf(to, " %llx", (unsigned long long)ucell(ctx->DSTACK[at]));
+        if (at < STACK_CELLS) fprintf(to, " $%llX", (unsigned long long)ucell(ctx->DSTACK[at]));
     }
     fprintf(to, "\n  the return stack, %d deep, the top first:", ctx->RSP);
     for(int at = ctx->RSP - 1; at >= 0; at--) {
-        if (at < STACK_CELLS) fprintf(to, " %llx", (unsigned long long)ucell(ctx->RSTACK[at]));
+        if (at < STACK_CELLS) fprintf(to, " $%llX", (unsigned long long)ucell(ctx->RSTACK[at]));
     }
     fprintf(to, "\n");
     if (STOPS.on && STOPS.ran) {
@@ -425,7 +427,7 @@ void post_mortem(FILE *to, context *ctx, const char *image, const char *memory_p
         uint64_t kept = STOPS.ran < STOP_RING ? STOPS.ran : STOP_RING;
         for(uint64_t back = 1; back <= kept; back++) {
             if (back % 16 == 1) fprintf(to, "\n   ");
-            fprintf(to, " %llx", (unsigned long long)STOPS.ring[(STOPS.ran - back) % STOP_RING]);
+            fprintf(to, " $%llX", (unsigned long long)STOPS.ring[(STOPS.ran - back) % STOP_RING]);
         }
         fprintf(to, "\n");
     }

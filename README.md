@@ -28,7 +28,7 @@ As a result, dithering the Mandrill in colour takes 21.5 million clocks with 64-
 - What could have been: a desktop on a machine of that size and speed.
 - A Forth operating system with a desktop: overlapping windows, regions, a menu, a pointer, proportional text, and programs. There is a Forth prompt in a window, a block editor, a viewer that reads a TIFF and dithers it, a calculator, a paint program and a decompiler.
 - The instruction set, in which an instruction is a control word: where the ALU's input comes from, the operation, where the result goes, and how each stack moves.
-- How little code it takes. The kernel is 3,522 bytes, in a 4,096-byte ROM, the paint program is 2,232 bytes, and the whole machine, written in AArch64 assembler, is 800 bytes.
+- How little code it takes. The kernel is 3,524 bytes, in a 4,096-byte ROM, the paint program is 2,232 bytes, and the whole machine, written in AArch64 assembler, is 800 bytes.
 
 It is meant to be built from TTL, on an FPGA, or through TinyTapeout.
 
@@ -96,7 +96,7 @@ Each figure below is printed by one of the tree's own targets, named so it can b
 
 | | words | bytes of code |
 |---|---|---|
-| The kernel, in a 4,096-byte ROM | 269 | 3,522 |
+| The kernel, in a 4,096-byte ROM | 268 | 3,524 |
 | All drawing: fills, copying, text | 156 | 5,242 |
 | Regions | 37 | 1,406 |
 | The window manager | 116 | 3,536 |
@@ -110,7 +110,7 @@ Each figure below is printed by one of the tree's own targets, named so it can b
 | The decompiler and the Words window | 134 | 4,784 |
 | Files on the disks, found by label, and the boot's console | 47 | 1,540 |
 | The compiler's peephole, for typed code | 108 | 3,546 |
-| Everything | 1,571 | 40,594 |
+| Everything | 1,570 | 40,596 |
 
 The dictionary holds 640 names in 5,984 bytes, at five bits per character.
 
@@ -186,6 +186,12 @@ The settings belong to the configure step, so one written after `--target demo` 
     cmake --build build/cmake --target screenshot   # remakes the picture above
 
 `DESKTOP.md` explains how to use the desktop and how to write a program for it.
+
+## Using local LLM agents
+
+A model served on the same machine can work in this tree as an agent. `AGENTS.md` is what an agent reads: the rules, the machine, and how to write, run and debug Forth here. An agent runs Forth with `build/cmake/hexaforth --typed FILE.fs` and `--evaluate 'TEXT'`, which type it at the built system and print what it printed, the stack and why the machine stopped.
+
+[doc/local-llm-models.md](doc/local-llm-models.md) has the setup that was used, with oMLX as the inference server and `omp` as the agent, the sampling and reasoning settings for each model, what each server does with a request's fields, and what each model did in its sessions.
 
 ## What is in the tree
 

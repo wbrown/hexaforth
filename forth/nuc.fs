@@ -101,8 +101,14 @@ header bl
 ;
 
 \ hex8 prints eight digits: DOUBLE calls what follows with the
-\ upper half, which then runs again with the lower.
+\ upper half, which then runs again with the lower.  The widest
+\ of them prints a whole cell.
+W64? [if]
+: hex16 dup d# 32 rshift DOUBLE
+[then]
+W32+? [if]
 : hex8 dup d# 16 rshift DOUBLE
+[then]
 : hex4 dup d# 8 rshift DOUBLE
 : hex2 dup d# 4 rshift DOUBLE
 header hex1 : hex1 ( u -- ) \ prints the lowest hex digit of u
@@ -112,10 +118,21 @@ header hex1 : hex1 ( u -- ) \ prints the lowest hex digit of u
     dup d# 9 > d# 7 and +  [char] 0 + emit
 ;
 
-header .x : .x ( u -- ) \ prints 8 hex digits and a space
-    hex8 space ;
-header .x2 : .x2 ( u -- ) \ prints 2 hex digits and a space
-    hex2 space ;
+\ A hex number is printed as it is typed, after a $.
+header .x : .x ( u -- ) \ prints $, a cell's hex digits and a space
+    [char] $ emit
+W64? [if]
+    hex16
+[else]
+W32? [if]
+    hex8
+[else]
+    hex4
+[then]
+[then]
+    space ;
+header .x2 : .x2 ( u -- ) \ prints $, 2 hex digits and a space
+    [char] $ emit  hex2 space ;
 
 header true     : ttrue ( -- -1 )   true     ;
 header false    : tfalse ( -- 0 )   false    ;

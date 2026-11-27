@@ -53,7 +53,7 @@ static inline uint64_t ucell(int64_t x) {
 #ifdef STRICT_ALIGN
 static void strict_at(const char *what, int64_t addr, int far_too) {
     if (ucell(addr) >> ADDR_BITS && !(far_too && FAR_CELL(addr))) {
-        fprintf(stderr, "\n%s outside memory, at %llx, by the instruction at %llx\n", what,
+        fprintf(stderr, "\n%s outside memory, at $%llX, by the instruction at $%llX\n", what,
                 (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
         exit(3);
     }
@@ -97,7 +97,7 @@ static inline void mem_store(context *ctx, int64_t addr, int64_t v) {
     strict("store", addr);
 #ifdef ROM_BYTES
     if (ucell(addr) >= ROM_FROM >> BYTE_SHIFT && ucell(addr) < ROM_BYTES >> BYTE_SHIFT) {
-        fprintf(stderr, "\nstore to the kernel at %llx by the instruction at %llx\n",
+        fprintf(stderr, "\nstore to the kernel at $%llX by the instruction at $%llX\n",
                 (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
         exit(3);
     }

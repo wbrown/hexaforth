@@ -341,7 +341,7 @@ function(machine_tests NAME)
     #                       and is named in the error
     machine_test(typed-${NAME} ${NAME} hexaforth --machine ${NAME} --typed test/typed.fs)
     set_tests_properties(typed-${NAME} PROPERTIES
-                         PASS_REGULAR_EXPRESSION "21 twice \\. 42  ok.*data stack \\(2 cells, top last\\): 3 4\nhalted\n")
+                         PASS_REGULAR_EXPRESSION "21 twice \\. 42  ok.*data stack \\(2 cells, top last\\): \\$3 \\$4\nhalted\n")
     machine_test(typed-thrown-${NAME} ${NAME} hexaforth --machine ${NAME} --typed test/typed-thrown.fs)
     set_tests_properties(typed-thrown-${NAME} PROPERTIES
                          PASS_REGULAR_EXPRESSION "error: -13 no-such-word.*halted after 1 uncaught error")
@@ -652,9 +652,10 @@ set_tests_properties(typed-underflow PROPERTIES
 # are then run.
 #
 #   typed-traced        each instruction of the two definitions is reported
-#                       with its fields and the stacks, the call from one to
-#                       the other is followed, a call to a word of the image
-#                       is one line, and nothing is reported after `trace-off`
+#                       with its fields and the stacks, each cell in hex
+#                       after a `$`, the call from one to the other is
+#                       followed, a call to a word of the image is one
+#                       line, and nothing is reported after `trace-off`
 #   typed-trace-most    the trace stops after the number of reports that
 #                       TRACE_MOST gives
 #
@@ -662,7 +663,7 @@ set_tests_properties(typed-underflow PROPERTIES
 # an instruction with a return folded into it is matched by a dot.
 machine_test(typed-traced ${FIRST} hexaforth --typed test/typed-traced.fs)
 set_tests_properties(typed-traced PROPERTIES PASS_REGULAR_EXPRESSION
-        "sum +false +N->IN +IN\\^N +->T +d\\+1 +r\\+0 +alu +data: 3 0 .*twice\\+1 +\\+ . +T->IN +IN\\+N +->T +d-1 +r-1 +RET +alu +data: 2 4 .*\\(loopdone\\).*exit +T->IN.*RET +alu +data: 6 .*\n6  ok.*4 twice \\. 8  ok")
+        "sum +false +N->IN +IN\\^N +->T +d\\+1 +r\\+0 +alu +data: \\$3 \\$0 .*twice\\+1 +\\+ . +T->IN +IN\\+N +->T +d-1 +r-1 +RET +alu +data: \\$2 \\$4 .*\\(loopdone\\).*exit +T->IN.*RET +alu +data: \\$6 .*\n6  ok.*4 twice \\. 8  ok")
 add_test(NAME typed-trace-most
          COMMAND ${WITH} TRACE_MOST=5 $<TARGET_FILE:hexaforth> --typed test/typed-traced.fs
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
@@ -672,3 +673,26 @@ on_the_vm(typed-trace-most)
 machine_test(typed-exit-ok ${FIRST} hexaforth --typed test/typed.fs)
 machine_test(typed-exit-error ${FIRST} hexaforth --typed test/typed-thrown.fs)
 set_tests_properties(typed-exit-error PROPERTIES WILL_FAIL TRUE)
+
+# Tests of `hexaforth --evaluate`, which types its text in place of a file
+# or after one, on the first machine:
+#
+#   evaluated               the text is typed, and the run is reported
+#   evaluated-after         the text is typed after the --typed file, and
+#                           runs a word the file defines
+#   evaluated-unfinished    the text ends inside a definition
+#   evaluated-exit-ok       the exit status is 0 for text with no errors
+#   evaluated-exit-error    the exit status is non-zero for text with an error
+#
+# A `;` would end a test's argument, so the text of these tests leaves the
+# definitions to the file.
+machine_test(evaluated ${FIRST} hexaforth --evaluate "3 4 + .")
+set_tests_properties(evaluated PROPERTIES PASS_REGULAR_EXPRESSION "3 4 \\+ \\. 7  ok.*data stack: empty\nhalted")
+machine_test(evaluated-after ${FIRST} hexaforth --typed test/typed.fs --evaluate "+ twice .")
+set_tests_properties(evaluated-after PROPERTIES
+                     PASS_REGULAR_EXPRESSION "21 twice \\. 42  ok.*\\+ twice \\. 14  ok.*data stack: empty\nhalted")
+machine_test(evaluated-unfinished ${FIRST} hexaforth --evaluate ": half 2 /")
+set_tests_properties(evaluated-unfinished PROPERTIES PASS_REGULAR_EXPRESSION "--evaluate: end of the text inside")
+machine_test(evaluated-exit-ok ${FIRST} hexaforth --evaluate "3 4 + .")
+machine_test(evaluated-exit-error ${FIRST} hexaforth --evaluate "3 nosuchword")
+set_tests_properties(evaluated-exit-error PROPERTIES WILL_FAIL TRUE)

@@ -1,5 +1,6 @@
 //
-// hexaforth [IMAGE.hex | --machine BITS] [--typed FILE.fs] [DISK.img [MEMORY.out]]
+// hexaforth [IMAGE.hex | --machine BITS] [--typed FILE.fs] [--evaluate TEXT]
+//           [DISK.img [MEMORY.out]]
 //
 // Runs an image on the reference VM (vm.c).
 //
@@ -10,14 +11,16 @@
 //                    cells: 16, 32 or 64.
 //   --typed FILE.fs  Use FILE.fs as the console's input, followed by `bye`,
 //                    which halts the machine.  The default input is stdin.
+//   --evaluate TEXT  Use TEXT as the console's input, followed by `bye`.
+//                    With --typed, TEXT is typed after the file.
 //   DISK.img         The disk image, or several separated by commas, for
 //                    disk 0, disk 1 and so on.
 //   MEMORY.out       Write the machine's memory to this file when the
 //                    machine stops.
 //
-// With --typed, the program prints the data stack and the reason the
-// machine stopped, and for a machine that stopped without halting, the
-// line of the file it was running.  Its exit status is 0 only if the
+// With --typed or --evaluate, the program prints the data stack and the
+// reason the machine stopped, and for a machine that stopped without
+// halting, the line it was running.  Its exit status is 0 only if the
 // machine halted and every throw was caught.
 //
 // After `trace-on`, the program prints a line for each instruction that
@@ -96,7 +99,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx, bool verb
         if (!WORDCT || head / 2 < DP0) DP0 = head / 2;
         if (!WORDCT || end > DP1) DP1 = end;
         WORDCT++;
-        dprintf("  0x%0.4x @ %s => 0x%0.4x\n", head, word, (unsigned)xt);
+        dprintf("  $%0.4X @ %s => $%0.4X\n", head, word, (unsigned)xt);
         head = before;
     }
     dprintf(" ... %d words scanned!\n", WORDCT);
@@ -107,7 +110,7 @@ void load_hex(const char* filepath, const char* lstpath, context *ctx, bool verb
         uint16_t cell = ctx->memory[idx];
         if (cell) {
             debug_address(out, ctx, idx);
-            dprintf("IMG [0x%0.4x]: %s\n", idx, out);
+            dprintf("IMG [$%0.4X]: %s\n", idx, out);
         }
     };
 #endif
@@ -169,7 +172,7 @@ static void stop_it(int signal) {
 }
 
 static void usage(const char* self) {
-    fprintf(stderr, "usage: %s [IMAGE.hex | --machine BITS] [--typed FILE.fs] [DISK.img [MEMORY.out]]\n", self);
+    fprintf(stderr, "usage: %s [IMAGE.hex | --machine BITS] [--typed FILE.fs] [--evaluate TEXT] [DISK.img [MEMORY.out]]\n", self);
     exit(EXIT_FAILURE);
 }
 
@@ -178,39 +181,49 @@ static bool is_image(const char* name) {
     return(len > 4 && !strcmp(name + len - 4, ".hex"));
 }
 
-// Returns a stream of the file's contents followed by the line `bye`.
-static FILE* typed_from(const char* path) {
+// Returns a stream of the file's contents, then `more`, then the line
+// `bye`.  Either of `path` and `more` may be NULL.
+static FILE* typed_from(const char* path, const char* more) {
     static const char bye[] = "bye\n";
-    FILE* file = fopen(path, "rb");
-    if (!file) {
+    size_t len = 0, extra = more ? strlen(more) : 0;
+    FILE* file = path ? fopen(path, "rb") : NULL;
+    if (path && !file) {
         perror(path);
         exit(EXIT_FAILURE);
     }
-    fseek(file, 0, SEEK_END);
-    size_t len = (size_t)ftell(file);
-    rewind(file);
-    char* text = malloc(len + 1 + sizeof(bye));
-    if (!text || fread(text, 1, len, file) != len) {
-        perror(path);
+    if (file) {
+        fseek(file, 0, SEEK_END);
+        len = (size_t)ftell(file);
+        rewind(file);
+    }
+    char* text = malloc(len + 1 + extra + 1 + sizeof(bye));
+    if (!text || (file && fread(text, 1, len, file) != len)) {
+        perror(path ? path : "--evaluate");
         exit(EXIT_FAILURE);
     }
-    fclose(file);
-    if (len && text[len - 1] != '\n') text[len++] = '\n';      // end the file's last line, so that `bye` starts a new one
+    if (file) fclose(file);
+    if (len && text[len - 1] != '\n') text[len++] = '\n';      // end the file's last line, so that what follows starts a new one
+    if (extra) memcpy(text + len, more, extra);
+    len += extra;
+    if (len && text[len - 1] != '\n') text[len++] = '\n';
     memcpy(text + len, bye, sizeof(bye));
     return(fmemopen(text, len + sizeof(bye) - 1, "r"));
 }
 
-// Prints the cells of a stack in hex, the top last.  The stack is `depth`
-// cells: the cells in `cells` and, above them, `top`.  At most `most` are
-// printed, the ones nearest the top.
+// Prints the cells of a stack in hex, the top last.  A hex number is
+// printed the way the machine prints one with `.x`: after the `$` that the
+// nucleus reads a hex number by, and in upper case, so a cell can be typed
+// back as it is printed.  The stack is `depth` cells: the cells in `cells`
+// and, above them, `top`.  At most `most` are printed, the ones nearest
+// the top.
 static void say_stack(FILE* to, const int64_t* cells, int depth, int64_t top, int most) {
     const uint64_t mask = CELL_BITS == 64 ? ~0ull : (1ull << CELL_BITS) - 1;
     if (depth > STACK_CELLS) depth = STACK_CELLS;
     if (depth > most) fprintf(to, " ...");
     for(int at = depth > most ? depth - most : 0; at < depth - 1; at++) {
-        fprintf(to, " %llx", (unsigned long long)((uint64_t)cells[at] & mask));
+        fprintf(to, " $%llX", (unsigned long long)((uint64_t)cells[at] & mask));
     }
-    if (depth > 0) fprintf(to, " %llx", (unsigned long long)((uint64_t)top & mask));
+    if (depth > 0) fprintf(to, " $%llX", (unsigned long long)((uint64_t)top & mask));
 }
 
 // ---- the trace (vm_stopped.h): one line for each instruction reported
@@ -241,7 +254,7 @@ static const word* word_around(context *ctx, int64_t at) {
 // it: `name`, `name+3`, or the address if it is in no word.
 static void say_place(char* text, size_t room, context *ctx, int64_t at) {
     const word* in = word_around(ctx, at);
-    if (!in) snprintf(text, room, "%llx", (unsigned long long)at);
+    if (!in) snprintf(text, room, "$%llX", (unsigned long long)at);
     else if (at > in->at) snprintf(text, room, "%s+%ld", in->name, (long)(at - in->at));
     else snprintf(text, room, "%s", in->name);
 }
@@ -276,7 +289,7 @@ static void trace_line(context *ctx, int64_t at, int sp, int64_t t, int rsp, int
     if (switches_trace(ctx, at)) return;
     say_place(where, sizeof(where), ctx, at);
     if (ins.lit.lit_f && ins.lit.lit_shifts == 3) {
-        snprintf(called, sizeof(called), "var%s %llx", ins.lit.lit_add ? "!" : "@", (unsigned long long)(VAR_BASE + ins.lit.lit_v));
+        snprintf(called, sizeof(called), "var%s $%llX", ins.lit.lit_add ? "!" : "@", (unsigned long long)(VAR_BASE + ins.lit.lit_v));
     } else if (ins.lit.lit_f) {
         snprintf(called, sizeof(called), "%s%llu", ins.lit.lit_add ? "+" : "",
                  (unsigned long long)ins.lit.lit_v << (ins.lit.lit_shifts * LIT_BITS));
@@ -301,12 +314,13 @@ static void trace_line(context *ctx, int64_t at, int sp, int64_t t, int rsp, int
     free(fields);
 }
 
-// Prints the result of a --typed run: the data stack and "halted" if the
+// Prints the result of a typed run: the data stack and "halted" if the
 // machine halted, and otherwise the reason it stopped.  The stack is
 // printed only after a halt, because at any other stop it also holds the
-// interpreter's working values.  Returns true if the machine halted and
-// every throw was caught.
-static bool typed_report(context *ctx, const char* typed, const char* image, const char* memory_to) {
+// interpreter's working values.  `text` is the --evaluate text, which is
+// the end of the input if there is any, and `file` is the --typed file.
+// Returns true if the machine halted and every throw was caught.
+static bool typed_report(context *ctx, const char* file, const char* text, const char* image, const char* memory_to) {
     int cells = ctx->SP < 0 ? 0 : ctx->SP > STACK_CELLS ? STACK_CELLS : ctx->SP;
     printf("\n");
     switch (STOPS.reason) {
@@ -327,7 +341,8 @@ static bool typed_report(context *ctx, const char* typed, const char* image, con
                    (unsigned long long)STOPS.counted, STOPS.counted == 1 ? "" : "s");
             return(false);
         case STOP_END_OF_INPUT:
-            printf("%s: end of file inside an unfinished definition or [if]\n", typed);
+            if (text) printf("--evaluate: end of the text inside an unfinished definition or [if]\n");
+            else printf("%s: end of file inside an unfinished definition or [if]\n", file);
             return(false);
         default:
             fflush(stdout);
@@ -338,10 +353,11 @@ static bool typed_report(context *ctx, const char* typed, const char* image, con
 }
 
 int main(int argc, char *argv[]) {
-    const char *image = NULL, *typed = NULL, *bits = NULL, *disks = NULL, *memory_to = NULL;
+    const char *image = NULL, *file = NULL, *text = NULL, *bits = NULL, *disks = NULL, *memory_to = NULL;
     for(int idx=1; idx < argc; idx++) {
         const char* arg = argv[idx];
-        if (!strcmp(arg, "--typed") && idx + 1 < argc) typed = argv[++idx];
+        if (!strcmp(arg, "--typed") && idx + 1 < argc) file = argv[++idx];
+        else if (!strcmp(arg, "--evaluate") && idx + 1 < argc) text = argv[++idx];
         else if (!strcmp(arg, "--machine") && idx + 1 < argc) bits = argv[++idx];
         else if (arg[0] == '-') usage(argv[0]);
         else if (!image && !disks && is_image(arg)) image = arg;
@@ -354,6 +370,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     if (!image) image = built_nucleus(bits);
+    bool typed = file || text;          // the console's input is a file, text or both, in place of stdin
 
     context *ctx = calloc(sizeof(context), 1);
     if (getenv("STOP_AFTER")) {
@@ -379,7 +396,7 @@ int main(int argc, char *argv[]) {
     // already written if it is stopped from outside.
     setvbuf(stdout, NULL, _IOLBF, 0);
     ctx->OUT=stdout;
-    ctx->IN = typed ? typed_from(typed) : stdin;
+    ctx->IN = typed ? typed_from(file, text) : stdin;
     // DISK.img is one file, or several separated by commas, for disk 0,
     // disk 1 and so on (vm.c).  Each is opened read-write if possible, and
     // read-only otherwise.
@@ -407,11 +424,11 @@ int main(int argc, char *argv[]) {
     // the machine stops for one of them, print the report of where it was.
     stops_from_env();
     if (typed) {
-        // A --typed run stops on a halt, and also when the machine:
+        // A typed run stops on a halt, and also when the machine:
         //
         //   - reads a key at the end of its input.  The input ends with
         //     `bye`, so this happens only when `bye` was compiled or
-        //     skipped: the file ended inside a definition or an [if].
+        //     skipped: the input ended inside a definition or an [if].
         //   - runs more instructions than its budget without reading a
         //     key, which is an infinite loop.
         //   - runs an address that was never written.
@@ -429,7 +446,7 @@ int main(int argc, char *argv[]) {
     vm(ctx);
     bool ok = true;
     if (typed) {
-        ok = typed_report(ctx, typed, image, memory_to);
+        ok = typed_report(ctx, file, text, image, memory_to);
     } else {
         printf("\n[%lld instructions executed]\n", ctx->CYCLES);
         if (STOPS.on && STOPS.reason != STOP_HALT) {

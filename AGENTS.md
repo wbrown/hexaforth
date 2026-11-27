@@ -9,6 +9,7 @@ Hexaforth is a stack machine, a Forth system that runs on it, and three implemen
 - Say that something builds, runs or passes only when a tool result in this session shows it, and quote that result. Quote only output that a tool actually printed. A tool call that returned an error left everything as it was, so make the call again correctly before relying on it.
 - Run commands yourself with the tools, including any you would otherwise hand to the user.
 - Do not work a whole solution out before running anything. A turn that ends inside its reasoning is discarded, so write one line, run it, and choose the next step from what it printed.
+- Do not work out by hand what a line leaves on the stack. The machine keeps the stack, so run the line and read the stack that `hexaforth` prints, and when a definition gives a wrong answer, run it between `trace-on` and `trace-off`, which prints both stacks after every instruction (Developing and debugging a word, below).
 - Do not reason inside a tool call's arguments. Decide what a file will contain before you write it, and put only that in the call: `hexaforth` types a file line by line, so a note to yourself in it is a line of undefined words.
 - When the user asks a question about work in progress, stop all running and editing, and answer the question: yes or no first, then what was done and why. End the answer there, because the user decides what happens next. "Stop" means the same.
 - Report what was done, what failed, and what the user must decide. A decision stays decided once it is made, so act on it.
@@ -55,11 +56,10 @@ build/cmake/hexaforth --typed build/try.fs
 For example, with this in `build/try.fs`:
 
 ```forth
-\ the square of a number, and a cell as 16 hex digits
+\ the square of a number, and a cell in hex
 : square ( n -- n*n ) dup * ;
-: .cell ( x -- ) dup hi32 .x .x ;
 7 square .
--1 .cell
+-1 .x
 s" hello" type
 1 2 +
 ```
@@ -67,19 +67,18 @@ s" hello" type
 the command prints:
 
 ```
-\ the square of a number, and a cell as 16 hex digits  ok
+\ the square of a number, and a cell in hex  ok
 : square ( n -- n*n ) dup * ;  ok
-: .cell ( x -- ) dup hi32 .x .x ;  ok
 7 square . 49  ok
--1 .cell FFFFFFFF FFFFFFFF  ok
+-1 .x $FFFFFFFFFFFFFFFF  ok
 s" hello" type hello ok
 1 2 +  ok
 bye 
-data stack (1 cell, top last): 3
+data stack (1 cell, top last): $3
 halted
 ```
 
-Each line of the file is echoed, followed by what it printed and `ok`. At the end `hexaforth` prints the data stack, in hex, and the reason the machine stopped. Quote this output when you report what a word does.
+Each line of the file is echoed, followed by what it printed and `ok`. At the end `hexaforth` prints the data stack and the reason the machine stopped. A number after a `$` is hex, in what `.x` prints and in everything `hexaforth` itself prints, and it is written the way a hex number is typed, so it can be typed back as it is printed. `.x` prints every digit of the cell, and `hexaforth` leaves the leading zeros out. A number without the `$` is decimal. Quote this output when you report what a word does.
 
 | In the output | Meaning |
 |---|---|
@@ -88,10 +87,11 @@ Each line of the file is echoed, followed by what it printed and `ok`. At the en
 | `error: -8` | the dictionary or the code page is full |
 | `halted` | the file ran to its end, and the exit status is 0 |
 | `halted after 1 uncaught error` | one line had an error, and the exit status is 1 |
-| `end of file inside an unfinished definition or [if]` | a `;` or a `[then]` is missing |
-| `stack out of range (data -1, return 4)` | a word took a cell from an empty stack. The machine stops there with exit status 3, and the line `while running line 3: ...` gives the line of the file |
+| `end of file inside an unfinished definition or [if]` | a `;` or a `[then]` is missing. For the text of `--evaluate` the line says `end of the text` |
+| `stack out of range (data -1, return 4)` | a word took a cell from an empty stack. The machine stops there with exit status 3, and the line `while running line 3: ...` gives the line, counted from the first line of the file |
 | `the machine stopped: it ran on` | an infinite loop, in the line that `while running line` gives |
 
+- `--evaluate 'TEXT'` types its text at the system in place of a file, so one line can be tried from the command line: `build/cmake/hexaforth --evaluate '17 5 mod .'` prints `17 5 mod . 2  ok`. With `--typed` as well, the text is typed after the file's last line, where it can run the words the file defines. Put the text in single quotes, because inside double quotes the shell replaces `$ff`. A line with a `'` in it, such as `'q' emit`, goes in the file.
 - `--machine 16` and `--machine 32` run the file on the machine with cells of that size: `build/cmake/hexaforth --machine 16 --typed build/try.fs`. The default is 64-bit cells.
 - Keep a scratch file under `build/`, which git ignores.
 - `words` prints every name in the dictionary, and `see square` prints a word's definition as the machine has it.
@@ -99,15 +99,24 @@ Each line of the file is echoed, followed by what it printed and `ok`. At the en
 
 ### Developing and debugging a word
 
-Build a word a step at a time, and run the file after each step.
+The machine keeps the stack and prints it, so every step here is a run: words tried on numbers, a definition tested, and a definition that gives a wrong answer traced. Definitions go in the file. A line that runs them goes after them in the file, or on the command line with `--evaluate`, which leaves the file as it is.
 
-1. Try the words on numbers before defining anything. With `17 5 2dup mod` as the only line of `build/try.fs`, the run ends with
+1. Try the words on numbers before defining anything.
 
    ```
-   data stack (3 cells, top last): 11 5 2
+   build/cmake/hexaforth --evaluate '17 5 2dup mod'
    ```
 
-   so `2dup mod` left the two numbers and the remainder, 2. The stack is printed in hex, and `11` is 17. Add the next words to the line and run it again: `17 5 2dup mod -rot /` leaves `2 3`, the remainder and the quotient.
+   prints
+
+   ```
+   17 5 2dup mod  ok
+   bye 
+   data stack (3 cells, top last): $11 $5 $2
+   halted
+   ```
+
+   so `2dup mod` left the two numbers and the remainder, 2. The stack is in hex, and `$11` is 17. Add the next words to the text and run it again: `17 5 2dup mod -rot /` leaves `$2 $3`, the remainder and the quotient.
 
 2. Put the words that worked in a definition, and test it with inputs that differ from each other and whose answers you worked out beforehand. Where the system has a word that does part of the same work, compare with it. The file
 
@@ -127,48 +136,94 @@ Build a word a step at a time, and run the file after each step.
    100 7 /mod  100 7 / = .  100 7 mod = . -1 -1  ok
    ```
 
-3. When a run fails, read the line the failure names, change one thing, and run again. Two failures look like this:
+3. When a definition gives a wrong answer, trace it on one input before changing it. Suppose `build/try.fs` holds this first version of a range check:
+
+   ```forth
+   : between? ( n lo hi -- f ) over - -rot - u< ;
+   ```
+
+   Typed after the file, `5 0 10 between? .  15 0 10 between? .` prints `0 -1`, and the right answers are `-1 0`. Run one of the two inputs between `trace-on` and `trace-off`:
+
+   ```
+   build/cmake/hexaforth --typed build/try.fs --evaluate 'trace-on 5 0 10 between? . trace-off'
+   ```
+
+   prints
+
+   ```
+   : between? ( n lo hi -- f ) over - -rot - u< ;  ok
+   trace-on 5 0 10 between? . trace-off 
+   between?         over                 N->IN   IN->      ->T     d+1    r+0       alu      data: $5 $0 $A $0  return: $1 $6EE $584
+   between?+1       -            $00E0                                              scall    data: $5 $0 $A  return: $1 $6EE $584
+   between?+2       -rot         $002C                                              scall    data: $A $5 $0  return: $1 $6EE $584
+   between?+3       -            $00E0                                              scall    data: $A $5  return: $1 $6EE $584
+   between?+4       u< ;                 T->IN   Nu<IN     ->T     d-1    r-1  RET  alu      data: $0  return: $1 $6EE
+   0  ok
+   ```
+
+   From `trace-on` to `trace-off`, `hexaforth` prints a line for each instruction that runs in a definition of the file, once the instruction has run: where it is, what it is called, its fields as `vm_opcodes.h` writes them, and the data and return stacks as it left them, each cell in hex after a `$`, with the top last.
+
+   Read the data stack down the lines, against what each word was meant to leave. `over` and `-` left `$5 $0 $A`, which is n, lo and hi-lo, as meant. `-rot` and the second `-` left `$A $5`, which is hi-lo with n-lo on top of it. `u<` is true when the second cell is less than the top, so it compared hi-lo with n-lo, and the comparison meant is n-lo with hi-lo. The fault is at the first line whose stack differs from what was meant. Change that one thing, here a `swap` before `u<`, and test again with numbers inside the range, outside it and at each end of it:
+
+   ```forth
+   : between? ( n lo hi -- f ) over - -rot - swap u< ;
+   5 0 10 between? .  15 0 10 between? .  -3 0 10 between? .
+   0 0 10 between? .  10 0 10 between? .
+   ```
+
+   prints
+
+   ```
+   : between? ( n lo hi -- f ) over - -rot - swap u< ;  ok
+   5 0 10 between? .  15 0 10 between? .  -3 0 10 between? . -1 0 0  ok
+   0 0 10 between? .  10 0 10 between? . -1 0  ok
+   ```
+
+4. A loop is traced the same way, with a line for each instruction of each turn. With `: sum ( n -- total ) 0 swap 0 do i + loop ;` in the file, `--evaluate 'trace-on 2 sum . trace-off'` traces two turns. The start of that run, and then its second turn and the end of the word:
+
+   ```
+   sum              false                N->IN   IN^N      ->T     d+1    r+0       alu      data: $2 $0  return: $1 $6EE $584
+   sum+1            swap                 N->IN   T<>N,IN-> ->T     d+0    r+0       alu      data: $0 $2  return: $1 $6EE $584
+   sum+2            false                N->IN   IN^N      ->T     d+1    r+0       alu      data: $0 $2 $0  return: $1 $6EE $584
+   sum+3            (do)         $049A                                              scall    data: $0 $FFFFFFFFFFFFFFFE  return: $1 $6EE $584 $0
+   ```
+
+   ```
+   sum+4            >r                   T->IN   IN->      ->R     d-1    r+1       alu      data: $0  return: ... $6EE $584 $0 $FFFFFFFFFFFFFFFF
+   sum+5            i            $04F5                                              scall    data: $0 $1  return: ... $6EE $584 $0 $FFFFFFFFFFFFFFFF
+   sum+6            +                    T->IN   IN+N      ->T     d-1    r+0       alu      data: $1  return: ... $6EE $584 $0 $FFFFFFFFFFFFFFFF
+   sum+7            r>                   R->IN   IN->      ->T     d+1    r-1       alu      data: $1 $FFFFFFFFFFFFFFFF  return: $1 $6EE $584 $0
+   sum+8            (loopnext)   $04A8                                              scall    data: $1 $0 $0  return: $1 $6EE $584 $0
+   sum+9            sum+11       $1CF4                                              0jump    data: $1 $0  return: $1 $6EE $584 $0
+   sum+11           (loopdone)   $03F4                                              scall    data: $1  return: $1 $6EE $584
+   sum+12           exit                 T->IN   IN->      ->T     d+0    r-1  RET  alu      data: $1  return: $1 $6EE
+   ```
+
+   | In the trace | Meaning |
+   |---|---|
+   | `false` | a `0` in the definition, which is compiled as that instruction |
+   | `u< ;` | the definition's last word with its return in the same instruction |
+   | `scall` in a line, as for `i` and `-` | a call to a word of the system, printed when that word has returned |
+   | a call to another definition of the file | followed into that definition, a line for each of its instructions |
+   | `sum+11` as the name | a jump or a branch, named by the place it goes to |
+   | `the trace stopped after 500 instructions` | the limit of one run, which `TRACE_MOST=2000 build/cmake/hexaforth --typed build/try.fs` raises |
+
+   The two words do nothing on a machine other than the reference VM.
+
+5. When a run stops with an error, read the line the error names, change one thing, and run again. Two errors look like this, each from a line typed after the `/mod` file of step 2:
 
    ```
    17 5 /mod remainder . error: -13 17 5 /mod remainder 
+   ```
+
+   ```
    17 5 /mod . . . 3 2 
-   stack out of range (data -1, return 4) at 31
-   the return stack: 322 57e 6e8 2
-   while running line 3: 17 5 /mod . . .
+   stack out of range (data -1, return 4) at $31
+   the return stack: $32A $584 $6EE $1
+   while running line 5: 17 5 /mod . . .
    ```
 
-   The error ends with `remainder`, which is the undefined word. In line 3 the third `.` found the stack empty, because `/mod` leaves two cells. Count what each word of the named line takes and leaves, from its stack comment.
-
-4. To see what a definition does an instruction at a time, write `trace-on` after it and then run it:
-
-   ```forth
-   : sum ( n -- total ) 0 swap 0 do i + loop ;
-   trace-on
-   2 sum .
-   trace-off
-   ```
-
-   From `trace-on` to `trace-off`, `hexaforth` prints a line for each instruction that runs in a definition of the file, once the instruction has run: where it is, what it is called, its fields as `vm_opcodes.h` writes them, and the data and return stacks as it left them, in hex with the top last. The start of that run, and the last turn of the loop:
-
-   ```
-   sum              false                N->IN   IN^N      ->T     d+1    r+0       alu      data: 2 0  return: 1 6e8 57e
-   sum+1            swap                 N->IN   T<>N,IN-> ->T     d+0    r+0       alu      data: 0 2  return: 1 6e8 57e
-   sum+2            false                N->IN   IN^N      ->T     d+1    r+0       alu      data: 0 2 0  return: 1 6e8 57e
-   sum+3            (do)         $0494                                              scall    data: 0 fffffffffffffffe  return: 1 6e8 57e 0
-   ```
-
-   ```
-   sum+4            >r                   T->IN   IN->      ->R     d-1    r+1       alu      data: 0  return: ... 6e8 57e 0 ffffffffffffffff
-   sum+5            i            $04ef                                              scall    data: 0 1  return: ... 6e8 57e 0 ffffffffffffffff
-   sum+6            +                    T->IN   IN+N      ->T     d-1    r+0       alu      data: 1  return: ... 6e8 57e 0 ffffffffffffffff
-   sum+7            r>                   R->IN   IN->      ->T     d+1    r-1       alu      data: 1 ffffffffffffffff  return: 1 6e8 57e 0
-   sum+8            (loopnext)   $04a2                                              scall    data: 1 0 0  return: 1 6e8 57e 0
-   sum+9            sum+11       $1cf4                                              0jump    data: 1 0  return: 1 6e8 57e 0
-   sum+11           (loopdone)   $03ee                                              scall    data: 1  return: 1 6e8 57e
-   sum+12           exit                 T->IN   IN->      ->T     d+0    r-1  RET  alu      data: 1  return: 1 6e8
-   ```
-
-   A `0` in a definition is compiled as `false`. A call to a word of the system, such as `i`, is one line, printed when that word has returned. A call to another definition of the file is followed into it. A jump or a branch is called by the place it goes to. The trace stops after 500 instructions in one run, which `TRACE_MOST=2000 build/cmake/hexaforth --typed build/try.fs` raises. On a machine other than the reference VM the two words do nothing.
+   The first ends with `remainder`, which is the undefined word. In the second the third `.` found the stack empty, because `/mod` leaves two cells, and line 5 is the text, typed after the file's four lines. Count what each word of the named line takes and leaves, from its stack comment.
 
 - `.s` prints the data stack, the top last, and leaves it as it was: `1 2 3 .s` prints `1 2 3`.
 - `see /mod` prints the definition as the machine compiled it.
@@ -181,7 +236,7 @@ Build a word a step at a time, and run the file after each step.
 | Standard Forth | Here |
 |---|---|
 | an address counts bytes | an address `a` is the number of a cell, so `cell+` adds 1. `c@` and `c!` take a byte address `c-addr`, which `>c` makes from a cell address |
-| `u.` | absent. `.` prints a signed decimal number, and `.x` prints the low 32 bits as 8 hex digits |
+| `u.` | absent. `.` prints a signed number in decimal, and `.x` prints a whole cell in hex after a `$`: `-1 .x` prints `$FFFFFFFFFFFFFFFF` |
 | `."` | absent. Write `s" text" type` |
 | `/mod`, `*/`, `*/mod`, `m*`, `fm/mod`, `sm/rem` | absent. `/`, `mod`, `um*`, `um/mod` and `u/mod` are there |
 | `abort`, `abort"` | absent. Write `-1 throw` |
@@ -265,8 +320,8 @@ Build a word a step at a time, and run the file after each step.
 | `space` | `( -- )` | prints a space |
 | `type` | `( c-addr u -- )` | prints u characters |
 | `.` | `( n -- )` | prints a signed decimal number and a space |
-| `.x` | `( u -- )` | prints 8 hex digits and a space |
-| `.x2` | `( u -- )` | prints 2 hex digits and a space |
+| `.x` | `( u -- )` | prints `$`, the hex digits of a whole cell and a space |
+| `.x2` | `( u -- )` | prints `$`, 2 hex digits and a space |
 | `.s` | `( -- )` | prints the data stack, the top last, and keeps it |
 | `s>d` | `( n -- d )` | makes a cell a two-cell number |
 | `d+` | `( d1 d2 -- d3 )` | adds two-cell numbers |
@@ -307,7 +362,7 @@ The system is the Forth in `forth/`, and `cmake --build build/cmake` compiles it
 | `[char] q` | `'q'` |
 | `header name : name ... ;` for a word that another file or the prompt uses | `: name ... ;` |
 
-`build/cmake/disasm_hex build/64/nuc.hex NAME --no-color` prints the instructions of a word of the system. `hexaforth-debug` runs like `hexaforth` and traces every instruction with its fields and both stacks.
+`build/cmake/disasm_hex build/64/nuc.hex NAME --no-color` prints the instructions of a word of the system. `hexaforth-debug` takes the same arguments as `hexaforth` and traces every instruction the machine runs, with its fields and both stacks.
 
 ## Building and testing
 
@@ -327,8 +382,8 @@ A target is run with `cmake --build build/cmake --target NAME`.
 | Command or target | What it shows |
 |---|---|
 | `build/cmake/hexaforth --typed FILE.fs` | types a file of Forth at the built system, and prints what it printed, the stack and why the machine stopped (Writing Forth, above) |
-| `build/cmake/hexaforth IMAGE.hex [DISK.img [MEMORY.out]]` | runs an image on the reference VM with stdin as its console, and writes the VM's memory to `MEMORY.out` when it stops |
-| `build/cmake/hexaforth-debug IMAGE.hex` | the same run with a trace of every instruction |
+| `build/cmake/hexaforth --evaluate 'TEXT'` | types the text in place of a file, or after the file that `--typed` names. `--evaluate 'words'` lists every name in the dictionary, and `--evaluate 'see NAME'` prints a word's definition |
+| `build/cmake/hexaforth-debug --evaluate 'TEXT'` | the same run with a trace of every instruction from the machine's start, the system's own as well, which is tens of thousands of lines for one line of text. `trace-on` traces a definition alone |
 | `build/cmake/disasm_hex IMAGE.hex [NAME...]` | an image's code, one instruction to a line, for every word or for the named ones |
 | `build/cmake/disasm_hex IMAGE.hex --typed FILE.fs` | what the nucleus compiles when `FILE.fs` is typed at it |
 | `build/cmake/disasm_hex IMAGE.hex NAME --counts WORK` | how many times each instruction of a word ran |

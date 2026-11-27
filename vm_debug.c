@@ -41,7 +41,7 @@ void debug_monitor(int64_t T, int16_t R,
     ctx->EIP = EIP;
     ctx->SP = SP;
     ctx->RSP = RSP;
-    fprintf(ctx->OUT, "@$%0.4x !! ", EIP);
+    fprintf(ctx->OUT, "@$%0.4X !! ", EIP);
     int idx;
     char buf[160];
 
@@ -79,13 +79,13 @@ void mini_stack(int16_t P, int64_t TOS, int64_t* stack, char* buf) {
             int idx = (P - 3 > 0) ? P - 3 : 0;  // floor the start value to 0
             int last = P - 1;                   // don't loop to top of stack
             for ( ; idx < last; idx++ ) {
-                    buf += sprintf(buf, "%s$%llx", sep, stack[idx]);
+                    buf += sprintf(buf, "%s$%llX", sep, stack[idx]);
                     // We're past the first element, so we set the separator
                     // to a space.
                     sep = " ";
                 };
             // Finally, print TOS.
-            sprintf(buf, "%s$%llx]", sep, TOS);
+            sprintf(buf, "%s$%llX]", sep, TOS);
     }
 }
 

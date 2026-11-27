@@ -379,7 +379,7 @@ char* instruction_to_str(instruction ins) {
                      class_repr);
         } else {
             asprintf(&ret_str,
-                     "$%0.4x   %42s %-7s",
+                     "$%0.4X   %42s %-7s",
                      ins.jmp.target,
                      "",
                      OP_TYPE_REPR[ins.jmp.op_type]);

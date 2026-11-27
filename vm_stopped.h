@@ -13,7 +13,7 @@
 //   a break       it is about to run the instruction at STOPS.break_at
 //   a store       it has stored to the cell STOPS.break_store
 //   end of input  it read a key at the end of its input, and STOPS.at_end
-//                 is set (main.c sets it for --typed)
+//                 is set (main.c sets it for --typed and --evaluate)
 //
 // It also keeps the addresses of the last STOP_RING instructions it ran,
 // counts how many times it ran the instruction at STOPS.counted_at, and

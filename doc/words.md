@@ -40,8 +40,8 @@ An address `a` is the number of a cell, and `c-addr` is the address of a byte. A
 | `cr` | `( -- )` |  |
 | `bl` | `( -- c )` |  |
 | `hex1` | `( u -- )` | prints the lowest hex digit of u |
-| `.x` | `( u -- )` | prints 8 hex digits and a space |
-| `.x2` | `( u -- )` | prints 2 hex digits and a space |
+| `.x` | `( u -- )` | prints $, a cell's hex digits and a space |
+| `.x2` | `( u -- )` | prints $, 2 hex digits and a space |
 | `true` | `( -- -1 )` |  |
 | `false` | `( -- 0 )` |  |
 | `rot` | `( x1 x2 x3 -- x2 x3 x1 )` |  |
