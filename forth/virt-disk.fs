@@ -3,9 +3,10 @@
 \ Its disks are the block devices in its places for a virtio
 \ device, in order: the first is disk 0.
 
-$0a000000 constant VPLACES      \ the first place,
-$4000 constant VPLACES-ALL      \ how far past it the last ends,
-$200 constant VPLACE            \ and from one to the next
+\ in device cells, of which a place is 64
+0 constant VPLACES              \ the first place,
+$800 constant VPLACES-ALL       \ all 32,
+$40 constant VPLACE             \ and from one to the next
 
 include virtio-disk.fs
 
@@ -30,24 +31,25 @@ meta upper-half target
 
 create vnow 0 ,     \ the disk the driver is pointed at
 
-: vdrive-at ( d -- pa|0 ) \ the d'th block device's registers
-    VPLACES VPLACES-ALL bounds              ( d end pa )
+\ the first device cell of the d'th block device
+: vdrive-at ( d -- n true | false )
+    VPLACES VPLACES-ALL bounds              ( d end n )
     begin
         2dup xor
     while
         dup vdisk? if
-            rot ?dup 0= if nip exit then
+            rot ?dup 0= if nip true exit then
             1- -rot
         then
         VPLACE +
     repeat
-    2drop drop d# 0
+    2drop drop false
 ;
 
 \ pointed at disk d, the device it was at stopped first
 : vdrive ( d -- f )
     dup vnow @ = if drop true exit then
-    dup vdrive-at ?dup 0= if drop false exit then
+    dup vdrive-at 0= if drop false exit then
     d# 0 vstatus  vstart  vnow !  true
 ;
 

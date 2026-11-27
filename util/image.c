@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "image.h"
 #include "../vm_constants.h"
 
@@ -120,3 +121,20 @@ size_t load_image(const char* path, uint8_t** bytes) {
     memset(*bytes + len, 0, 8);
     return(len);
 }
+
+// BUILT and FIRST_MACHINE come from CMake: the build directory, and the
+// cell size of the first machine in util/machines.  A program that is
+// built without them has no default image.
+#ifdef BUILT
+const char* built_nucleus(const char* bits) {
+    char* built;
+    if (!bits) bits = FIRST_MACHINE;
+    asprintf(&built, "%s/%s/nuc.hex", BUILT, bits);
+    if (access(built, R_OK)) {
+        fprintf(stderr, "%s is missing.  Either util/machines has no %s-bit machine, "
+                        "or `cmake --build build/cmake` has yet to build it\n", built, bits);
+        exit(EXIT_FAILURE);
+    }
+    return(built);
+}
+#endif

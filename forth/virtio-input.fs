@@ -8,16 +8,20 @@ header 'event create 'event 0 ,       \ ( type code value -- )
 create idevs  0 , 0 , 0 , 0 ,
 header nidev create nidev  0 ,     \ how many devices there are
 
-\ A device's record: its registers, descriptors, available ring,
-\ used ring, how far the used ring is read, and 64 buffers.
+\ A device's record: its first device cell, descriptors,
+\ available ring, used ring, how far the used ring is read, and
+\ 64 buffers.
+
+: ring ( n a -- ia ) \ 16-bit field n of the ring at cell a
+    CELLB 2/ * + ;
 
 : idev-buffer ( i rec -- i ) \ buffer i: described, and offered
     >r
-    dup cells r@ c# 5 + @ + >phys           ( i buffer )
+    dup cells r@ c# 5 + @ +                 ( i buffer )
     over 2* cells r@ CELL + @ +             ( i buffer desc )
-    tuck !
+    tuck cell-addr!
     d# 2 d# 32 lshift d# 8 or swap CELL + ! \ 8 bytes, written
-    dup dup 2* r@ CELL2 + @ >c + d# 4 + w!
+    dup dup d# 2 + r@ CELL2 + @ ring i!
     rdrop
 ;
 
@@ -30,9 +34,9 @@ header nidev create nidev  0 ,     \ how many devices there are
     d# 0 r@ c# 4 + !
     d# 512 halloc r@ c# 5 + !
     d# 0 begin dup d# 64 < while r@ idev-buffer 1+ repeat drop
-    d# 64 r@ CELL2 + @ >c d# 2 + w!
+    d# 64 d# 1 r@ CELL2 + @ ring i!
     vgo
-    d# 0 h# 50 vreg!
+    d# 0 d# 10 vcell!
     r> nidev @ cells idevs + !
     d# 1 nidev +!
 ;
@@ -52,8 +56,8 @@ header input-init
 
 : idev-take ( dev -- id type code value ) \ the event used next
     >r
-    r@ c# 4 + @ d# 63 and d# 3 lshift
-    r@ c# 3 + @ >c + d# 4 + l@               ( id )
+    r@ c# 4 + @ d# 63 and
+    r@ c# 3 + @ + @ d# 32 rshift             ( id )
     dup cells r> c# 5 + @ + @                ( id event )
     dup h# ffff and
     over d# 16 rshift h# ffff and
@@ -62,18 +66,18 @@ header input-init
 
 : idev-give ( id dev -- ) \ its buffer given back
     >r
-    r@ CELL2 + @ >c d# 2 + uw@ d# 63 and 2*
-    r@ CELL2 + @ >c + d# 4 + w!
-    r@ CELL2 + @ >c d# 2 + dup uw@ 1+ swap w!
+    d# 1 r@ CELL2 + @ ring i@ d# 63 and
+    d# 2 + r@ CELL2 + @ ring i!
+    d# 1 r@ CELL2 + @ ring dup i@ 1+ swap i!
     r@ c# 4 + @ 1+ h# ffff and r@ c# 4 + !
     r> @ vdev !
-    d# 0 h# 50 vreg!
+    d# 0 d# 10 vcell!
 ;
 
 : idev-poll ( dev -- )
     >r
     begin
-        r@ c# 3 + @ >c d# 2 + uw@  r@ c# 4 + @ <>
+        d# 1 r@ c# 3 + @ ring i@  r@ c# 4 + @ <>
     while
         r@ idev-take 'event @ execute
         r@ idev-give

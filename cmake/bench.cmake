@@ -26,6 +26,15 @@
 #                   The bitmap, and the display where it was copied, are
 #                   compared with the same done a pixel at a time
 #                   (test/gray.h)
+#   bench-view      bench/view.fs: the Mandrill made as the picture viewer
+#                   makes it (forth/view.fs), on the whole system: a block
+#                   read from one disk, its rows dithered, and each block
+#                   of the bitmap written to the machine's first disk, at
+#                   the picture's own size and at half of it.  The bitmap
+#                   is read from that disk and compared with the same
+#                   dither.  One block of the bitmap is in memory at a
+#                   time, so the machine of 64K cells makes the picture at
+#                   its own size with the whole desktop's system
 #
 # and two things are there to compare the machine with:
 #
@@ -36,7 +45,8 @@
 #                   and fetches Musashi, which is the 68000
 #   gates           how big the CPU is beside a Z80 and a 68000
 #
-#   bench           the first four
+#   bench           bench-draw, bench-dither, bench-gray, bench-view and
+#                   bench-m68k
 #
 # A figure is printed by what checked the work it is of (bench/check.c),
 # and nothing is printed for work that was not checked.  Everything is
@@ -164,6 +174,19 @@ file(WRITE ${BB}/asks-gray.fs
      "${GRAY_DRAW} ${GRAY_AT} show mark\n"
      "b @ . b 1+ @ .\nbye\n")
 
+# The pictures the viewer makes that are timed, each as PICTURE:SIZE.  The
+# viewer is given a window with room for the picture at its own size, or
+# at half of it, which are the two the desktop opens (forth/desk.fs).
+# asks-view-PIC-SIZE.fs is what is typed after bench/view.fs to run one: it
+# finds the window's size, has the viewer make the picture, and stops.
+set(VIEWS colour:own colour:half)
+foreach(VIEW ${VIEWS})
+    string(REPLACE ":" ";" VIEW ${VIEW})
+    list(GET VIEW 0 PIC)
+    list(GET VIEW 1 SIZE)
+    file(WRITE ${BB}/asks-view-${PIC}-${SIZE}.fs "${PIC}-picture ${SIZE} mark view mark\nbye\n")
+endforeach()
+
 # A benchmark's work, counted: bench/WORK.fs and what is typed after it
 # (ASKS), typed at the counting VM of the machine NAME, with the benchmarks'
 # disks.  What was typed, what the machine printed and the work by place
@@ -261,6 +284,31 @@ function(bench_on NAME)
         set_property(GLOBAL APPEND PROPERTY GRAY_FIGURES ${J}.txt)
         set_property(GLOBAL APPEND PROPERTY GRAY_KEPT
                      COMMAND ${KEEP} gray-${NAME}-${LAT} ${NUC} ${J}.txt ${J}.fs)
+
+        # The viewer writes its bitmap to the machine's first disk, so each
+        # run's first disk is a copy of the system's, which the test bench
+        # writes back and bench_check then reads.
+        foreach(VIEW ${VIEWS})
+            string(REPLACE ":" ";" VIEW ${VIEW})
+            list(GET VIEW 0 PIC)
+            list(GET VIEW 1 SIZE)
+            set(J ${BB}/view-${PIC}-${SIZE}-${NAME}-${LAT})
+            add_custom_command(
+                    OUTPUT            ${J}.txt
+                    COMMAND           ${CAT} ${BENCH}/tb-disk.fs ${BENCH}/pictures.fs ${BENCH}/view.fs
+                                        ${BB}/asks-view-${PIC}-${SIZE}.fs > ${J}.fs
+                    COMMAND           ${COPY} ${BB}/system.img ${J}.img
+                    COMMAND           ${T}/tb run ${NUC} "${J}.img,${PICTURES},${BB}/grays.img"
+                                        < ${J}.fs > ${J}.out 2> ${J}.err
+                    COMMAND           bench_check ${NUC} view ${PICTURE} ${SIZE} ${J}.img ${J}.out ${J}.err
+                                        "view ${PIC} ${SIZE}" "${ON}" > ${J}.txt 2> ${J}.check
+                    COMMAND           ${REMOVE} ${J}.img
+                    DEPENDS           ${WANTS} bench/pictures.fs bench/tb-disk.fs bench/view.fs picture ${PICTURE}
+                    VERBATIM)
+            set_property(GLOBAL APPEND PROPERTY VIEW_FIGURES ${J}.txt)
+            set_property(GLOBAL APPEND PROPERTY VIEW_KEPT
+                         COMMAND ${KEEP} view-${PIC}-${SIZE}-${NAME}-${LAT} ${NUC} ${J}.txt ${J}.fs)
+        endforeach()
     endforeach()
 
     # Where the dither's clocks go (dither-costs-NAME): the same work, at
@@ -304,6 +352,7 @@ function(bench_on NAME)
             COMMAND           ${KEEP} gray-costs ${NUC} ${K}/work ${K}/typed.fs ${K}/paths.txt ${K}/loops.txt ${K}/vars.txt
             DEPENDS           ${K}/work
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
 endfunction()
 foreach(NAME ${MACHINES})
     bench_on(${NAME})
@@ -376,7 +425,7 @@ endif()
 # them, each under the image it is of (KEEP): every time, since a figure
 # that is already kept is not kept again.  The 68000's are of no image of
 # this machine's, and change only when its program does.
-foreach(KIND DRAW DITHER GRAY)
+foreach(KIND DRAW DITHER GRAY VIEW)
     get_property(${KIND}_FIGURES GLOBAL PROPERTY ${KIND}_FIGURES)
     get_property(${KIND}_KEPT GLOBAL PROPERTY ${KIND}_KEPT)
     string(TOLOWER ${KIND} KIND_OF)
@@ -403,5 +452,6 @@ endfunction()
 figures(bench-draw DRAW)
 figures(bench-dither DITHER)
 figures(bench-gray GRAY)
+figures(bench-view VIEW)
 figures(bench-m68k M68K)
-figures(bench DRAW DITHER GRAY M68K)
+figures(bench DRAW DITHER GRAY VIEW M68K)

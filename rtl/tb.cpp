@@ -8,9 +8,10 @@
 //                          sends, then cycle and instruction counts.
 //                          DISK.img is a file that serves as the disk, or
 //                          several files separated by commas that serve as
-//                          disk 0, disk 1 and so on.  MEMORY.out is the
-//                          file the memory is written to when the machine
-//                          has stopped
+//                          disk 0, disk 1 and so on.  A disk the machine
+//                          wrote a block to is written back to its file
+//                          when the machine has stopped.  MEMORY.out is
+//                          the file the memory is written to then
 //
 // The memory here is a plain array with the timing the CPU expects: one
 // read port, whose address is sampled on the clock edge and whose data
@@ -33,11 +34,15 @@
 // address of the cell the block goes to, four bytes each, lowest byte
 // first.  When the eighth byte has arrived, the test bench puts the
 // block's bytes in memory starting at that cell, as the reference VM's
-// disk does.  A read costs the CPU what sending nine characters costs, and
-// the disk itself takes no time.  MARK, ASK and the eight bytes after ASK
-// are not printed.  A block's number says which disk the block is on, as
-// it does for any driver (MODEL.md): the top four of its sixteen bits are
-// the disk, and a block of a disk that is not present reads as zeros.
+// disk does.  A word that is put in the vector 'blk-write sends the
+// character GIVE and the same eight bytes, and the test bench then puts
+// the block's bytes, from memory starting at that cell, on the disk.  A
+// read or a write costs the CPU what sending nine characters costs, and
+// the disk itself takes no time.  MARK, ASK, GIVE and the eight bytes
+// after ASK or GIVE are not printed.  A block's number says which disk the
+// block is on, as it does for any driver (MODEL.md): the top four of its
+// sixteen bits are the disk.  A block of a disk that is not present reads
+// as zeros, and a write to such a disk does nothing.
 
 #include "Vhexaforth.h"
 #include "Vhexaforth___024root.h"
@@ -61,6 +66,7 @@ static const uint64_t CELL_MASK = W == 64 ? ~0ull : (1ull << W) - 1;
 
 #define MARK        30      // the character that tells the test bench to record a mark
 #define ASK         29      // the character that asks the disk for a block
+#define GIVE        28      // the character that gives the disk a block to keep
 #define DISK_BLOCK  1024    // the number of bytes in a block
 #define DISK_BLOCK_BITS 12  // the bits of a block's number that are the block; the four bits above them are the disk.
                             // DISK_BLOCK and DISK_BLOCK_BITS repeat the values in vm_constants.h
@@ -82,7 +88,9 @@ struct Machine {
     bool timing = false;            // true for "run": marks are recorded, and the disk answers
     std::vector<Mark> marks;
     std::vector<std::vector<uint8_t>> disks;
-    int asked = -1;                 // the number of the eight bytes after ASK that have arrived, or -1 when no request is under way
+    std::vector<bool> written;      // for each disk, true if the machine wrote a block to it
+    int asked = -1;                 // the number of the eight bytes after ASK or GIVE that have arrived, or -1 when no request is under way
+    bool giving = false;            // true if the request under way began with GIVE
     uint8_t ask[8];
 
     // Handles a character the machine sent.  Returns true if it was a mark
@@ -95,8 +103,9 @@ struct Machine {
                 marks.push_back({cycles, executed, fetches, reads, writes});
                 return true;
             }
-            if (c != ASK || disks.empty()) return false;
+            if ((c != ASK && c != GIVE) || disks.empty()) return false;
             asked = 0;
+            giving = c == GIVE;
             return true;
         }
         ask[asked++] = c;
@@ -104,11 +113,20 @@ struct Machine {
             uint64_t blk = 0, cell = 0;
             for (int i = 3; i >= 0; i--) { blk = blk << 8 | ask[i];  cell = cell << 8 | ask[4 + i]; }
             size_t drive = blk >> DISK_BLOCK_BITS & 15;
-            static const std::vector<uint8_t> none;
-            const std::vector<uint8_t> &disk = drive < disks.size() ? disks[drive] : none;
-            size_t from = (blk & ((1 << DISK_BLOCK_BITS) - 1)) * DISK_BLOCK, to = (cell % CELLS) * (W / 8);
-            for (size_t i = 0; i < DISK_BLOCK && to + i < MEM; i++)
-                mem[to + i] = from + i < disk.size() ? disk[from + i] : 0;
+            size_t on_disk = (blk & ((1 << DISK_BLOCK_BITS) - 1)) * DISK_BLOCK, in_memory = (cell % CELLS) * (W / 8);
+            if (giving) {
+                if (drive < disks.size() && in_memory + DISK_BLOCK <= MEM) {
+                    std::vector<uint8_t> &disk = disks[drive];
+                    if (disk.size() < on_disk + DISK_BLOCK) disk.resize(on_disk + DISK_BLOCK);
+                    memcpy(&disk[on_disk], &mem[in_memory], DISK_BLOCK);
+                    written[drive] = true;
+                }
+            } else {
+                static const std::vector<uint8_t> none;
+                const std::vector<uint8_t> &disk = drive < disks.size() ? disks[drive] : none;
+                for (size_t i = 0; i < DISK_BLOCK && in_memory + i < MEM; i++)
+                    mem[in_memory + i] = on_disk + i < disk.size() ? disk[on_disk + i] : 0;
+            }
             asked = -1;
         }
         return true;
@@ -223,9 +241,6 @@ static int run_cases(const char *path) {
         std::vector<uint8_t> want_mem = bytes(f, mem_len);
 
         if (mem_len > MEM) continue;        // does not fit this machine
-        // Ports 0xc1 to 0xc8 reach devices, and this machine has none.
-        if (label.size() > 6 && (!memcmp(label.data(), "io 19", 5) || !memcmp(label.data(), "io 200", 6)))
-            continue;
         total++;
         std::fill(m->mem.begin(), m->mem.end(), 0);
         memcpy(m->mem.data(), image.data(), mem_len);
@@ -259,6 +274,7 @@ static int run_image(const char *path, const char *disk, const char *memory) {
         memcpy(&m->mem[at], &v, 4);
     }
     fclose(f);
+    std::vector<std::string> disk_files;
     for (std::string rest = disk ? disk : ""; !rest.empty();) {     // load each disk; the files are separated by commas
         size_t comma = rest.find(',');
         std::string one = rest.substr(0, comma);
@@ -271,6 +287,8 @@ static int run_image(const char *path, const char *disk, const char *memory) {
         if (fread(is.data(), 1, is.size(), f) != is.size()) { perror(one.c_str()); return 2; }
         fclose(f);
         m->disks.push_back(is);
+        m->written.push_back(false);
+        disk_files.push_back(one);
     }
     for (int c; (c = getchar()) != EOF;) m->in.push_back(c);
     std::vector<uint8_t> input = m->in;
@@ -295,6 +313,13 @@ static int run_image(const char *path, const char *disk, const char *memory) {
         f = fopen(memory, "wb");
         if (!f) { perror(memory); return 2; }
         fwrite(m->mem.data(), 1, MEM, f);
+        fclose(f);
+    }
+    for (size_t i = 0; i < m->disks.size(); i++) {      // write back each disk the machine wrote to
+        if (!m->written[i]) continue;
+        f = fopen(disk_files[i].c_str(), "wb");
+        if (!f) { perror(disk_files[i].c_str()); return 2; }
+        fwrite(m->disks[i].data(), 1, m->disks[i].size(), f);
         fclose(f);
     }
     return halted ? 0 : 1;

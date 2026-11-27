@@ -1,41 +1,43 @@
-\ virtio.fs - what the virtio-mmio drivers share
+\ virtio.fs - what the virtio-mmio drivers share, on a machine
+\ with 64-bit cells
 
-\ Version 2's registers, a queue a device, polled.
+\ virtio-mmio version 2, one queue per device, polled.  A
+\ device is 64 of this machine's device cells, read and written
+\ whole (reg.fs); virtio-disk.fs says what is in each.
 
-$0a000000 constant VIRTIO0  \ the first of 32 slots, $200 apart
-
-header vdev \ machine address of the registers being worked on
+header vdev \ the first device cell of the device worked on
     create vdev  0 ,
-create vkind 0 ,
+create vkind 0 ,    \ the kind looked for, in a cell's high half
 
-header vreg@ : vreg@ ( off -- x ) vdev @ + reg32@ ;
-header vreg! : vreg! ( x off -- ) vdev @ + reg32! ;
+header vcell@ : vcell@ ( n -- x ) vdev @ + dev@ ;
+header vcell! : vcell! ( x n -- ) vdev @ + dev! ;
+: vaddr! ( a n -- ) vdev @ + dev-addr! ;
 
 \ the next device of this kind, from slot
 header vprobe : vprobe ( id slot -- slot true | false )
-    swap vkind !
+    swap d# 32 lshift vkind !
     begin
         dup d# 32 <
     while
-        dup d# 9 lshift VIRTIO0 + vdev !
-        d# 0 vreg@ h# 74726976 =            \ magic "virt"
-        d# 4 vreg@ d# 2 = and               \ version
-        d# 8 vreg@ vkind @ = and            \ device id
+        dup d# 6 lshift vdev !
+        \ "virt" and version 2, and of that kind
+        d# 0 vcell@ h# 274726976 =
+        d# 1 vcell@ d# 32 lshift vkind @ = and
         if true exit then
         1+
     repeat
     drop false
 ;
 
-: vstatus+ ( bit -- ) h# 70 vreg@ or h# 70 vreg! ;
+: vstatus+ ( bit -- ) d# 14 vcell@ or d# 14 vcell! ;
 
 header vhello : vhello ( -- ) \ reset; VERSION_1 and no more
-    d# 0 h# 70 vreg!
+    d# 0 d# 14 vcell!
     d# 1 vstatus+  d# 2 vstatus+        \ acknowledge, driver
-    d# 1 h# 24 vreg!  d# 1 h# 20 vreg!  \ features 32-63
-    d# 0 h# 24 vreg!  d# 0 h# 20 vreg!  \ features 0-31: none
+    h# 100000000 dup d# 4 vcell!        \ features 32-63:
+    1+ d# 4 vcell!                      \ bit 32
     d# 8 vstatus+                       \ features ok
-    h# 70 vreg@ d# 8 and 0= d# 37 -throw
+    d# 14 vcell@ d# 8 and 0= d# 37 -throw
 ;
 
 : vroom ( u -- a ) \ u bytes, all 0
@@ -43,16 +45,16 @@ header vhello : vhello ( -- ) \ reset; VERSION_1 and no more
 
 \ queue 0, with n descriptors
 header vqueue : vqueue ( n -- desc avail used )
-    d# 0 h# 30 vreg!
-    dup h# 38 vreg!
+    d# 0 d# 6 vcell!
+    dup d# 7 vcell!
     dup d# 4 lshift vroom
     over 2* d# 6 + vroom
     rot d# 3 lshift d# 6 + vroom
     >r >r
-    dup    >phys dup h# 80 vreg!  d# 32 rshift h# 84 vreg!
-    r> dup >phys dup h# 90 vreg!  d# 32 rshift h# 94 vreg!
-    r> dup >phys dup h# a0 vreg!  d# 32 rshift h# a4 vreg!
-    d# 1 h# 44 vreg!                        \ queue ready
+    dup    d# 16 vaddr!
+    r> dup d# 18 vaddr!
+    r> dup d# 20 vaddr!
+    h# 100000000 d# 8 vcell!                \ queue ready
 ;
 
 header vgo : vgo ( -- ) d# 4 vstatus+ ;  \ driver ok

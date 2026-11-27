@@ -10,9 +10,8 @@
 #include "vm_stopped.h"
 #include "vm_instruction.h"
 #include "vm_constants.h"
-#include "util/stack.h"
 
-vm_stops STOPS = { .break_at = -1, .break_store = -1 };
+vm_stops STOPS = { .break_at = -1, .break_store = -1, .counted_at = -1 };
 
 // Marks `cells` cells starting at `cell` as written to, so that an
 // instruction in them may be run (STOPS.put).
@@ -20,6 +19,78 @@ void stops_put(int64_t cell, int64_t cells) {
     if (!STOPS.put) return;
     uint64_t from = (uint64_t)cell * (CELL_BYTES / 2), slots = (uint64_t)cells * (CELL_BYTES / 2);
     for(uint64_t at = from; at < from + slots && at < MEM_BYTES / 2; at++) STOPS.put[at >> 3] |= (uint8_t)(1 << (at & 7));
+}
+
+// Records a key the machine read from its input, as part of the line it
+// is on.  The nucleus reads a whole line before it runs any of it, so the
+// line read last is the line being run.
+static void stops_key(int key) {
+    if (key == EOF) return;
+    if (!STOPS.line || STOPS.line_ended) {      // the first key of a line
+        STOPS.line++;
+        STOPS.line_len = 0;
+        STOPS.line_ended = 0;
+    }
+    if (key == '\n') STOPS.line_ended = 1;
+    else if (STOPS.line_len < STOP_LINE) STOPS.line_text[STOPS.line_len++] = (char)key;
+}
+
+void stops_say_line(FILE *to) {
+    if (!STOPS.line) return;
+    fprintf(to, "while running line %ld: %.*s\n", STOPS.line, STOPS.line_len, STOPS.line_text);
+}
+
+// ---- the trace (vm_stopped.h)
+
+// Records every instruction now in memory as the image's.  The trace
+// reports the instructions that are put there afterwards.
+void stops_mark_image(context *ctx) {
+    const long slots = MEM_BYTES / 2;
+    if (!STOPS.image) STOPS.image = calloc((size_t)slots / 8 + 1, 1);
+    if (!STOPS.image) return;
+    for(long at = 0; at < slots; at++) if (ctx->memory[at]) STOPS.image[at >> 3] |= (uint8_t)(1 << (at & 7));
+}
+
+// Turns the trace on or off, when the machine writes to the trace's port.
+static void trace_switch(int on) {
+    if (!on) {
+        STOPS.trace = 0;
+        return;
+    }
+    if (STOPS.trace || !STOPS.trace_say || !STOPS.image) return;
+    if (!STOPS.trace_most) {
+        const char* most = getenv("TRACE_MOST");
+        STOPS.trace_most = most ? strtol(most, NULL, 10) : TRACE_MOST_DEFAULT;
+    }
+    if (STOPS.trace_said >= STOPS.trace_most) return;
+    STOPS.trace = 1;
+    STOPS.trace_at = -1;
+    STOPS.on = 1;               // the loop looks at the trace only when this is set
+}
+
+// Called before each instruction while the trace is on.  `at` is the
+// address of the instruction about to run, and the stacks are as the
+// instruction before it left them.  The instruction before it is reported
+// now, if it was in traced code.  A call is reported later than that: when
+// the machine is next in traced code, which for a call to a word of the
+// image is when that word has returned.
+static void trace_step(context *ctx, int64_t at, int sp, int64_t t, int rsp, int64_t r) {
+    const bool traced = !(STOPS.image[at >> 3] & (1 << (at & 7)));
+    if (STOPS.trace_at >= 0 && (traced || !STOPS.trace_called)) {
+        STOPS.trace_say(ctx, STOPS.trace_at, sp, t, rsp, r);
+        STOPS.trace_at = -1;
+        if (++STOPS.trace_said >= STOPS.trace_most) {
+            fflush(ctx->OUT);
+            fprintf(stderr, "the trace stopped after %ld instructions, the most it reports in one run (TRACE_MOST)\n",
+                    STOPS.trace_said);
+            STOPS.trace = 0;
+            return;
+        }
+    }
+    if (!traced) return;
+    const instruction ins = *(const instruction*)&ctx->memory[at];
+    STOPS.trace_at = at;
+    STOPS.trace_called = !ins.lit.lit_f && ins.alu.op_type == OP_TYPE_CALL;
 }
 #ifdef DEBUG
 #include "vm_debug.h"
@@ -98,28 +169,9 @@ static inline uint8_t ctz(uint64_t N) {
     return N ? 64 - __builtin_ctzll(N) : -(uint64_t)INFINITY;
 }
 
-// Device access ports.  Devices have registers of a fixed width, and `!`
-// always moves 64 bits, so these give exact-width access at a latched
-// machine address:
-//   0xc0  write: latch an address       read: machine address of VM byte 0
-//   0xc1, 0xc2, 0xc4, 0xc8  read or write 8, 16, 32 or 64 bits at the latch
-// This VM has no devices: its machine address space is just the VM memory,
-// and an access outside it reads zero and writes nothing.
-#define IO_ADDR 0xc0
-
-static inline int io_width(uint64_t port) {
-    int width = (port == 0xc1 || port == 0xc2 || port == 0xc4 || port == 0xc8) ? (int)(port & 0xf) : 0;
-    return width > CELL_BYTES ? CELL_BYTES : width;
-}
-
-// With 64-bit cells the latch holds a host address, as it holds a physical
-// address on bare metal.  A narrower cell cannot hold one, so there the
-// latch is an offset into the VM memory and port 0xc0 reads as zero.
-static inline uint8_t *io_target(context *ctx, int width) {
-    uint8_t *lo = (uint8_t *)ctx->memory;
-    uint8_t *p = CELL_BITS == 64 ? (uint8_t *)(intptr_t)ctx->IOADDR : lo + ucell(ctx->IOADDR);
-    return (p >= lo && p + width <= lo + MEM_BYTES) ? p : NULL;
-}
+// Device cells (MODEL.md, The ports): ports 0xc0 to 0xc3.  This VM has no
+// devices, so those ports fall to the handlers' defaults below: 0xc1 reads
+// zero and writes are ignored.
 
 // Disks.  This VM can be given files to use as disks (main.c).  A disk is
 // blocks of 1,024 bytes, and its controller is reached through ports, like
@@ -158,10 +210,6 @@ static inline void disk_io(context *ctx, int64_t addr, int write) {
 }
 
 static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t io_write) {
-    if (io_addr == IO_ADDR) {
-        ctx->IOADDR = io_write;
-        return(TRUE);
-    }
     if (io_addr == IO_DISK_BLOCK) {
         ctx->DISKBLK = io_write;
         return(TRUE);
@@ -170,14 +218,10 @@ static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t i
         disk_io(ctx, io_write, io_addr == IO_DISK_WRITE);
         return(TRUE);
     }
-    if (io_width(io_addr)) {
-        uint8_t *p = io_target(ctx, io_width(io_addr));
-        if (p) memcpy(p, &io_write, io_width(io_addr));
-        return(TRUE);
-    }
     switch (io_addr) {
         case 0xf1:
             fputc((uint8_t)io_write, ctx->OUT);
+            STOPS.mid_line = (uint8_t)io_write != '\n';
             return(TRUE);
         case 0xf0: {
             uint8_t msb = clz(io_write) + 1;
@@ -188,19 +232,15 @@ static inline int64_t io_write_handler(context *ctx, uint64_t io_addr, int64_t i
             }
             return(TRUE);
         }
-        case 0xe0: {
-            print_stack(ctx->SP-2, ctx->DSTACK[ctx->SP-3], ctx, false);
-            print_stack(ctx->RSP-1, ctx->RSTACK[ctx->RSP-2], ctx, true);
-        }
+        case IO_TRACE:
+            trace_switch(io_write != 0);
+            return(TRUE);
         default:
             return(FALSE);
     }
 }
 
 static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
-    if (io_addr == IO_ADDR) {
-        return CELL_BITS == 64 ? (int64_t)(intptr_t)ctx->memory : 0;
-    }
     if (io_addr == 0xe1) {
         return TRUE;        // key?: reading stdin just blocks until there is one
     }
@@ -208,17 +248,15 @@ static inline int64_t io_read_handler(context *ctx, uint64_t io_addr) {
         int drive = DISK_DRIVE_OF(ucell(ctx->DISKBLK));
         return ctx->DISKS[drive] ? ctx->DISKBLOCKS[drive] : 0;
     }
-    if (io_width(io_addr)) {
-        uint64_t value = 0;
-        uint8_t *p = io_target(ctx, io_width(io_addr));
-        if (p) memcpy(&value, p, io_width(io_addr));
-        return (int64_t)value;
-    }
     switch (io_addr) {
-        case 0xe0:
+        case 0xe0: {
             fflush(ctx->OUT);       // show what was printed before waiting for a key
             STOPS.since = 0;        // it took a key, so it is not running away: restart the count
-            return(fgetc(ctx->IN));
+            int key = fgetc(ctx->IN);
+            if (key == EOF && STOPS.at_end) STOPS.ended = 1;    // end of input: stop before the next instruction
+            stops_key(key);
+            return(key);
+        }
         default:
             return(false);
     }
@@ -232,7 +270,7 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
     mini_stack(RSP, R, ctx->RSTACK, rstack_repr);
     mini_stack(SP, T, ctx->DSTACK, dstack_repr);
     debug_address(disasm, ctx, EIP);
-    dprintf("EXEC[0x%0.4x]: %s S%-26s R%s\n", (unsigned)EIP, disasm, dstack_repr, rstack_repr);
+    dprintf("EXEC[$%0.4X]: %s S%-26s R%s\n", (unsigned)EIP, disasm, dstack_repr, rstack_repr);
 }
 #endif
 
@@ -295,14 +333,16 @@ void print_state(context *ctx, int16_t RSP, int16_t SP, int64_t EIP, int64_t R, 
 #ifdef STRICT_STACK
 #define DEPTHS() \
     if (SP < 0 || SP > STACK_CELLS || RSP < 0 || RSP > STACK_CELLS) { \
-        fprintf(stderr, "\nstack out of range (data %d, return %d) at %llx\n", \
+        fflush(ctx->OUT);       /* what the machine printed comes before the report */ \
+        fprintf(stderr, "\nstack out of range (data %d, return %d) at $%llX\n", \
                 SP, RSP, (unsigned long long)EIP - 1); \
         /* print the return stack, top first: the addresses it would have returned to */ \
         if (RSP > 0 && RSP <= STACK_CELLS) { \
-            fprintf(stderr, "the return stack: %llx", (unsigned long long)R); \
-            for(int at = RSP - 2; at >= 0; at--) fprintf(stderr, " %llx", (unsigned long long)ctx->RSTACK[at]); \
+            fprintf(stderr, "the return stack: $%llX", (unsigned long long)R); \
+            for(int at = RSP - 2; at >= 0; at--) fprintf(stderr, " $%llX", (unsigned long long)ctx->RSTACK[at]); \
             fprintf(stderr, "\n"); \
         } \
+        stops_say_line(stderr); \
         exit(3); \
     }
 #else
@@ -363,20 +403,23 @@ const char* stop_reason(void) {
         case STOP_NO_CODE:  return("it ran where nothing was ever put");
         case STOP_AT_BREAK: return("it came to the instruction STOP_AT says");
         case STOP_AT_STORE: return("it stored to the cell STOP_ON_STORE says");
+        case STOP_END_OF_INPUT: return("it read a key at the end of its input");
         default:            return("it halted");
     }
 }
 
 void post_mortem(FILE *to, context *ctx, const char *image, const char *memory_path) {
-    fprintf(to, "the machine stopped: %s, at %llx, which is %04x\n", stop_reason(),
+    // Every hex number in the report is printed as the machine prints one
+    // with `.x`: after the `$` the nucleus reads one by, in upper case.
+    fprintf(to, "the machine stopped: %s, at $%llX, which is $%04X\n", stop_reason(),
             (unsigned long long)ctx->EIP, (unsigned)ctx->memory[ctx->EIP]);
     fprintf(to, "  the data stack, %d deep, the top first:", ctx->SP);
     for(int at = ctx->SP - 1; at >= 0 && at >= ctx->SP - 8; at--) {
-        if (at < STACK_CELLS) fprintf(to, " %llx", (unsigned long long)ucell(ctx->DSTACK[at]));
+        if (at < STACK_CELLS) fprintf(to, " $%llX", (unsigned long long)ucell(ctx->DSTACK[at]));
     }
     fprintf(to, "\n  the return stack, %d deep, the top first:", ctx->RSP);
     for(int at = ctx->RSP - 1; at >= 0; at--) {
-        if (at < STACK_CELLS) fprintf(to, " %llx", (unsigned long long)ucell(ctx->RSTACK[at]));
+        if (at < STACK_CELLS) fprintf(to, " $%llX", (unsigned long long)ucell(ctx->RSTACK[at]));
     }
     fprintf(to, "\n");
     if (STOPS.on && STOPS.ran) {
@@ -384,7 +427,7 @@ void post_mortem(FILE *to, context *ctx, const char *image, const char *memory_p
         uint64_t kept = STOPS.ran < STOP_RING ? STOPS.ran : STOP_RING;
         for(uint64_t back = 1; back <= kept; back++) {
             if (back % 16 == 1) fprintf(to, "\n   ");
-            fprintf(to, " %llx", (unsigned long long)STOPS.ring[(STOPS.ran - back) % STOP_RING]);
+            fprintf(to, " $%llX", (unsigned long long)STOPS.ring[(STOPS.ran - back) % STOP_RING]);
         }
         fprintf(to, "\n");
     }

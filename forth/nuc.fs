@@ -35,13 +35,13 @@ header up create up 0 ,                     \ the task that is running
 #4 constant HANDLER-CELL                    \ where a record has its handler,
 #6 constant EMIT-CELL                       \ and where its output goes
 
-header sbase    : sbase    up @ c# 3 + ;    \ where its data stack starts
-: handler       up @ HANDLER-CELL + ;       \ the catch that a throw goes to
-header base     : base     up @ c# 5 + ;
-header 'emit    : 'emit    up @ EMIT-CELL + ;
-header sourceid : sourceid up @ c# 7 + ;
-header >in      : >in      up @ c# 8 + ;
-: sourceC                  up @ c# 9 + ;    \ two cells: the text being interpreted
+header sbase    : sbase ( -- a )    up @ c# 3 + ;   \ where its data stack starts
+: handler ( -- a )                  up @ HANDLER-CELL + ;   \ the catch that a throw goes to
+header base     : base ( -- a )     up @ c# 5 + ;
+header 'emit    : 'emit ( -- a )    up @ EMIT-CELL + ;
+header sourceid : sourceid ( -- a ) up @ c# 7 + ;
+header >in      : >in ( -- a )      up @ c# 8 + ;
+: sourceC ( -- a )                  up @ c# 9 + ;   \ two cells: the text being interpreted
 
 \ A baseword is a macro of cross.fs: one or two instructions,
 \ compiled inline.  To be typed at the prompt it needs a header
@@ -53,27 +53,27 @@ header >in      : >in      up @ c# 8 + ;
 \
 \ `;into Y` ends a definition with no exit: it runs on into Y,
 \ the definition after it.
-header 0=       callable 0=
-header 0<>      : 0<>       d# 0 ;into <>
-header <>       callable <>
-header 0>       : 0>        d# 0 ;into >
-header >        callable >
-header 0<       callable 0<
+header 0=       callable 0=         ( x -- f )
+header 0<>      : 0<> ( x -- f )    d# 0 ;into <>
+header <>       callable <>         ( x1 x2 -- f )
+header 0>       : 0> ( n -- f )     d# 0 ;into >
+header >        callable >          ( n1 n2 -- f )
+header 0<       callable 0<         ( n -- f )
 header isnotspace? : isnotspace? ( c -- f ) d# 32 ;into u>
-header u>       callable u>
-header 2*       callable 2*
-header 2dup     callable 2dup
-header bounds   callable bounds
-header -rot     callable -rot
-header 2drop    callable 2drop
-header io!      callable io!
+header u>       callable u>         ( u1 u2 -- f )
+header 2*       callable 2*         ( x -- x' )
+header 2dup     callable 2dup       ( x1 x2 -- x1 x2 x1 x2 )
+header bounds   callable bounds     ( a n -- a+n a )
+header -rot     callable -rot       ( x1 x2 x3 -- x3 x1 x2 )
+header 2drop    callable 2drop      ( x1 x2 -- )
+header io!      callable io!        ( x port -- )
 
-header negate   :noname     invert ;into cell+
-header 1+                                   \ the same word as cell+
-header cell+    : cell+     CELL + ;
-header cells    : cells ;
+header negate   :noname ( n -- -n ) invert ;into cell+
+header 1+       ( n -- n+1 )                \ the same word as cell+
+header cell+    : cell+ ( a -- a+1 ) CELL + ;
+header cells    : cells ( n -- n ) ;
 
-header >c       : >c        (>c) ;          \ a cell's byte address
+header >c       : >c ( a -- c-addr ) (>c) ;     \ a cell's byte address
 
 header key?
 : key? ( -- f ) \ is a character waiting on the console?
@@ -83,63 +83,83 @@ header key?
 header uart-emit : uart-emit ( c -- ) IO-OUT io! ;
 
 header space
-: space
+: space ( -- )
     d# 32
 ;into emit
 header emit
 : emit ( c -- ) 'emit @ >r ;      \ as execute: return into the vector
 
 header cr
-: cr
+: cr ( -- )
     d# 13 emit
     d# 10 emit
 ;
 
 header bl
-: bl
+: bl ( -- c )
     d# 32
 ;
 
 \ hex8 prints eight digits: DOUBLE calls what follows with the
-\ upper half, which then runs again with the lower.
+\ upper half, which then runs again with the lower.  The widest
+\ of them prints a whole cell.
+W64? [if]
+: hex16 dup d# 32 rshift DOUBLE
+[then]
+W32+? [if]
 : hex8 dup d# 16 rshift DOUBLE
+[then]
 : hex4 dup d# 8 rshift DOUBLE
 : hex2 dup d# 4 rshift DOUBLE
-header hex1 : hex1
+header hex1 : hex1 ( u -- ) \ prints the lowest hex digit of u
     h# f and
 ;into .digit
 : .digit ( u -- )
     dup d# 9 > d# 7 and +  [char] 0 + emit
 ;
 
-header .x       : .x hex8 space ;
-header .x2      : .x2 hex2 space ;
+\ A hex number is printed as it is typed, after a $.
+header .x : .x ( u -- ) \ prints $, a cell's hex digits and a space
+    [char] $ emit
+W64? [if]
+    hex16
+[else]
+W32? [if]
+    hex8
+[else]
+    hex4
+[then]
+[then]
+    space ;
+header .x2 : .x2 ( u -- ) \ prints $, 2 hex digits and a space
+    [char] $ emit  hex2 space ;
 
-header true     : ttrue     true     ;
-header false    : tfalse    false    ;
-header rot      : rot   >r swap r> swap ;
-header tuck     :noname     tuck     ;
-header ?dup     : ?dup  dup if dup then ;
+header true     : ttrue ( -- -1 )   true     ;
+header false    : tfalse ( -- 0 )   false    ;
+header rot      : rot ( x1 x2 x3 -- x2 x3 x1 ) >r swap r> swap ;
+header tuck     :noname ( x1 x2 -- x2 x1 x2 ) tuck ;
+header ?dup     : ?dup ( x -- 0 | x x ) dup if dup then ;
 
-header +!       :noname     +!       ;
-header or!      :noname     or!      ;
-header and!     :noname     and!     ;
-header xor!     :noname     xor!     ;
-header *!       :noname     *!       ;
-header not!     :noname     not!     ;
-header 2swap    : 2swap rot >r rot r> ;
-header 2over    : 2over >r >r 2dup r> r> 2swap ;
+header +!       :noname ( n a -- )  +!       ;
+header or!      :noname ( x a -- )  or!      ;
+header and!     :noname ( x a -- )  and!     ;
+header xor!     :noname ( x a -- )  xor!     ;
+header *!       :noname ( n a -- )  *!       ;
+header not!     :noname ( a -- )    not!     ;
+header 2swap    : 2swap ( x1 x2 x3 x4 -- x3 x4 x1 x2 ) rot >r rot r> ;
+header 2over    : 2over ( x1 x2 x3 x4 -- x1 x2 x3 x4 x1 x2 )
+    >r >r 2dup r> r> 2swap ;
 
-header min      : min   2dup < if drop exit then nip ;
-header max      : max   2dup < if nip exit then drop ;
+header min      : min ( n1 n2 -- n3 ) 2dup < if drop exit then nip ;
+header max      : max ( n1 n2 -- n3 ) 2dup < if nip exit then drop ;
 
-header hi32  :noname hi32 ;
+header hi32  :noname ( dw -- w ) hi32 ;
 header lo32  : lo32 ( dw -- w ) h# ffffffff and ;
 header hi16  : hi16 ( dw -- s ) d# 16 rshift ;into lo16
 header lo16  : lo16 ( dw -- s ) h# ffff and ;
 
 header count
-: count
+: count ( c-addr -- c-addr+1 c )
     dup 1+ swap
 ;into c@
 header c@
@@ -193,7 +213,7 @@ header i!
 [then]
 
 header type
-: type
+: type ( c-addr u -- )
     bounds
     begin
         2dup xor
@@ -209,7 +229,7 @@ create "cold"
 create "boot"
     'b' c, 'o' c, 'o' c, 't' c,
 create "error:"
-    'e' c, 'r' c, 'r' c, 'o' c, 'r' c, ':' c,
+    'e' c, 'r' c, 'r' c, 'o' c, 'r' c, ':' c, $20 c,
 
 \ forth, the header a search starts at, is the first cell of the data (cross.fs)
 create cp       0 ,         \ Code pointer, grows up,
@@ -238,29 +258,29 @@ create rO       0 ,         \ the limit of the DO loop that is running (see `do`
 create leaves   0 ,         \ the LEAVEs of the loop being compiled, as a chain
 create tib $80 allot
 
-header dp    :noname dp ;
-header cp    :noname cp ;
-header state :noname state ;
-header forth :noname forth ;
+header dp    :noname ( -- a ) dp ;
+header cp    :noname ( -- a ) cp ;
+header state :noname ( -- a ) state ;
+header forth :noname ( -- a ) forth ;
 
 : prev ( -- ia ) cp @ ;into 1-  \ where the last instruction is
-header 1-       : 1-        d# -1 + ;
+header 1-       : 1- ( n -- n-1 )   d# -1 + ;
 
 header adepth : adepth ( -- n ) IO-SP io@ 1- ;            \ less the port number itself
-header depth    : depth     adepth sbase @ ;into -        \ from sbase
-header -        : -         negate + ;
+header depth    : depth ( -- n )    adepth sbase @ ;into -        \ from sbase
+header -        : - ( n1 n2 -- n3 ) negate + ;
 header s>d
-: s>d dup 0< ;
-header abs      : abs       s>d if negate then ;
+: s>d ( n -- d ) dup 0< ;
+header abs      : abs ( n -- u )    s>d if negate then ;
 header 2/ : 2/ ( n -- n/2 ) \ the sign stays where it is
     d# 0 2dup < >r                          ( n 0 ) ( R: is n negative? )
     1+ over swap rshift                     ( n n>>1 )
     TOPBIT r> swap lshift                   ( n n>>1 sign )
     or nip
 ;
-header here     : here      dp @ ;into c>
-header c>       : c>        (c>) ;          \ the cell a byte is in
-header align    : align     dp @ CELLB 1- + ALIGN-MASK and dp ! ;
+header here     : here ( -- a )     dp @ ;into c>
+header c>       : c> ( c-addr -- a ) (c>) ;     \ the cell a byte is in
+header align    : align ( -- )      dp @ CELLB 1- + ALIGN-MASK and dp ! ;
 
 \ pause runs the next task.  The task that stops pushes rO and
 \ the depth of its data stack on its return stack; its record
@@ -286,11 +306,11 @@ header aligned
 ;
 
 header d2*
-: d2*
+: d2* ( d -- 2d )
     2dup
 ;into d+
 header d+
-: d+                              ( augend . addend . -- sum . )
+: d+ ( d1 d2 -- d3 )
     rot + >r                      ( augend addend) 
     over +                        ( augend sum)
     swap over swap                ( sum sum augend)
@@ -299,7 +319,7 @@ header d+
 ;
 
 header dnegate
-: dnegate
+: dnegate ( d -- -d )
     >r invert r> invert
     d# 1. d+
 ;
@@ -307,19 +327,22 @@ header dnegate
 header source
 : source ( -- c-addr u ) sourceC ;into 2@
 header 2@
-: 2@ \ ( a -- lo hi )
+: 2@ ( a -- lo hi )
     dup cell+ @ swap @
 ;
 
 header 2!
-: 2! \ ( lo hi a -- )
+: 2! ( lo hi a -- )
     tuck !
     cell+ !
 ;
 
-: unparsed ( -- c-addr u ) source >in @ ;into /string
+: sourced ( -- c-addr u n ) \ the source, and what >in holds
+    source >in @
+;
+: unparsed ( -- c-addr u ) sourced ;into /string
 header /string
-: /string
+: /string ( c-addr u n -- c-addr+n u-n )
     dup >r - swap r> + swap
 ;
 
@@ -349,7 +372,7 @@ header um*
     drop
 ;
 
-header *        :noname     *        ;
+header *        :noname ( n1 n2 -- n3 ) * ;
 
 \ see Hacker's Delight (2nd ed) 9-4 "Unsigned Long Division"
 : divstep  \ ( y x z )   a step for every bit of a cell
@@ -372,7 +395,7 @@ W32+? [if]
 ;
 
 header um/mod
-: um/mod \ ( ud u1 -- u2 u3 ) ( 6.1.2370 ) 
+: um/mod ( ud u -- rem quot )
     divstep
     drop swap 
 ; 
@@ -405,7 +428,7 @@ W32+? [if]
 ;
 
 header accept
-: accept
+: accept ( c-addr n1 -- n2 ) \ reads a line of at most n1 characters
     >r d# 0  ( addr len R: maxlen )
 
     begin
@@ -433,7 +456,8 @@ header accept
 ;
 
 : 3rd   >r over r> swap ;
-header 3dup : 3dup  3rd 3rd 3rd ;
+header 3dup : 3dup ( x1 x2 x3 -- x1 x2 x3 x1 x2 x3 )
+    3rd 3rd 3rd ;
 
 header cells-move
 : cells-move ( from to n -- )
@@ -597,7 +621,7 @@ header name>
     nbuf >c  pto @ nbuf - >c  psh @ d# 3 rshift +
 ;
 
-header words : words
+header words : words ( -- ) \ prints every name, in search order
     forth @
     begin
         dup
@@ -667,7 +691,7 @@ header-imm recurse
 header compile,
 : compile, ( xt -- ) 'compile @ ;into execute
 header execute
-: execute
+: execute ( xt -- )
     >r
 ;
 
@@ -677,7 +701,7 @@ header execute
 ;
 
 header source-id
-: source-id
+: source-id ( -- n )
     sourceid @
 ;
 
@@ -712,12 +736,12 @@ header parse-name
 ;
 
 header isnotdelim
-: isnotdelim
+: isnotdelim ( c -- f )
     delim @ <>
 ;
 
 header parse
-: parse ( "ccc<char" -- c-addr u )
+: parse ( c "ccc<c>" -- c-addr u )
     delim !
     unparsed  over -rot
     ['] isnotdelim xt-skip
@@ -744,24 +768,24 @@ header-imm (
 \ A word whose name cross.fs has a macro of is named otherwise
 \ here (tallot, t, tliteral, tif), under a header of the name.
 header ,
-: t,
+: t, ( x -- )
     align
     here !
     CELLB
 ;into allot
 header allot
-: tallot
+: tallot ( n -- )
     dp +!
 ;
 
 header w,
-: tw,
+: tw, ( w -- )
     dp @ w!
     d# 2 tallot
 ;
 
 header c,
-: tc,
+: tc, ( c -- )
     dp @ c!
     d# 1 tallot
 ;
@@ -782,24 +806,25 @@ header .
 \ rO on the return stack, and keeps the return stack's depth in
 \ `handler`.  throw cuts the return stack back to that depth and
 \ restores the three, leaving the thrown number where the xt
-\ was.  With no catch, throw prints the number and restarts the
-\ prompt.
+\ was.  With no catch, throw prints the number and the line as
+\ far as it was read, which ends with the word the throw came
+\ from, empties both stacks and restarts the prompt.
 
 header-imm [
-: t[
+: t[ ( -- )
     d# 0 state !
 ;
 
 header decimal
-: decimal
+: decimal ( -- )
     d# 10
 ;into setbase
-: setbase
+: setbase ( n -- )
     base !
 ;
 
 header hex
-: hex
+: hex ( -- )
     d# 16 setbase
 ;
 
@@ -835,11 +860,9 @@ header throw
             exit
         then
         dup invert if                   \ ABORT, which is -1, prints nothing
-            "error:" >c d# 6 type
-            space
+            "error:" >c d# 7 type
             .
-        else
-            drop
+            sourced nip type cr
         then
         prompting
         'console @ 'emit !
@@ -904,7 +927,7 @@ header-imm begin
 ;
 
 header s,
-: s,
+: s, ( c-addr u -- ) \ compiles the string, with its length first
     dup tc,
     bounds
     begin
@@ -934,23 +957,23 @@ header s,
 ;
 
 header immediate
-: timmediate
+: timmediate ( -- )
     lastword @ cell+
     dup @ d# 1 TOPBIT lshift or
     swap !
 ;
 
 header :
-:noname
+:noname ( "name" -- )
     mkheader
 ;into ]
 header ]
-: t]
+: t] ( -- )
     d# 3 state !
 ;
 
 header :noname
-:noname
+:noname ( -- xt )
     newpage?
     cp @
     dup thisxt !
@@ -981,13 +1004,13 @@ header :noname
 ;
 
 header-imm 2literal
-: 2literal
+: 2literal ( x1 x2 -- )
     swap DOUBLE
 \ A negative number is its complement and invert: any on 64
 \ bits; on 32 only one whose complement is a single literal; none
 \ on 16, where two literals make any cell.  -1 is `true`.
 header-imm literal
-: tliteral
+: tliteral ( x -- )
 W64? [if]
     s>d if
         invert ?dup if tliteral inline; invert then
@@ -1032,13 +1055,13 @@ header constant
 : exit, ( -- ) inline; exit ;fallthru
 
 header variable
-: variable
+: variable ( "name" -- )
     tcreate d# 0 t,
 ;
 
 \ the created word's exit becomes a jump to the code after does>
 header does>
-: (does>)
+: (does>) ( -- )
     r>                                  ( xt of the code after does> )
     dup d# 12 rshift if
         dup doesexit @ xor d# 12 rshift if
@@ -1063,7 +1086,7 @@ header does>
 ;
 
 header-imm exit
-: texit
+: texit ( -- )
     cp @ thisxt @ <> if                     \ a call before it is made a jump,
         prev dup i@ dup jumpable if
             h# 4000 xor swap i!
@@ -1079,41 +1102,41 @@ header-imm exit
 \ compiled.  `;` is join.fs's, which gives `exit` a newer header.
 
 header-imm if
-: tif
+: tif ( -- orig )
     cp @
     h# 2000 code,
 ;
 
 header-imm ahead
-: tahead
+: tahead ( -- orig )
     cp @
     h# 0000 code,
 ;
 
 header-imm else
-:noname
+:noname ( orig1 -- orig2 )
     tahead
     swap
 ;into then
 header-imm then
-: tthen
+: tthen ( orig -- )
     dup i@
     landing or
     swap i!
 ;
 
 header-imm until
-: tuntil
+: tuntil ( dest -- )
     h# 2000 or code,
 ;
 
 header-imm while
-:noname
+:noname ( dest -- orig dest )
     tif swap
 ;
 
 header-imm repeat
-:noname
+:noname ( orig dest -- )
     tagain tthen
 ;
 
@@ -1155,7 +1178,7 @@ header folds-at create folds-at 0 ,     \ where folds.fs's table is
 ;
 
 header-imm do
-:noname
+:noname ( -- do-sys )
     leaves @ d# 0 leaves !
     ['] (do) compile,
     tbegin
@@ -1163,7 +1186,7 @@ header-imm do
 ;fallthru
 
 header-imm loop
-:noname
+:noname ( do-sys -- )
     inline: r>
     ['] (loopnext) compile,
     tif
@@ -1195,7 +1218,7 @@ header-imm loop
 ;
 
 header-imm +loop
-:noname
+:noname ( do-sys -- )
     inline: r>
     ['] (+loopnext) compile,
     tuntil
@@ -1203,7 +1226,7 @@ header-imm +loop
 ;
 
 header-imm leave
-: leave
+: leave ( -- )
     inline: r>
 ;into leaf,
 \ a LEAVE is a jump.  Until the loop ends its target is the page
@@ -1215,7 +1238,7 @@ header-imm leave
 ;
 
 header-imm ?do
-:noname
+:noname ( -- do-sys )
     leaves @ d# 0 leaves !
     ['] (?do) compile,
     tif
@@ -1226,14 +1249,14 @@ header-imm ?do
 ;fallthru
 
 header i
-: i
+: i ( -- n ) \ the index of the loop that is running
     r>
     r@ over >r                              ( ra count ) ( R: count ra )
     rO  meta [T]->IN IN+N ->T d-2 alu target    \ @ + nip
 ;
 
 header j
-: j
+: j ( -- n ) \ the index of the loop outside that one
     r> r>
     r> r> 2dup + -rot
     >r >r
@@ -1242,29 +1265,29 @@ header j
 ;
 
 header-imm unloop
-:noname
+:noname ( -- )
     inline: r>
     ['] (loopdone) compile,
 ;
 
-header !        :noname     !        ;
-header +        :noname     +        ;
-header xor      :noname     xor      ;
-header and      :noname     and      ;
-header or       :noname     or       ;
-header invert   :noname     invert   ;
-header =        :noname     =        ;
-header <        :noname     <        ;
-header u<       :noname     u<       ;
-header swap     :noname     swap     ;
-header dup      :noname     dup      ;
-header drop     :noname     drop     ;
-header over     :noname     over    ;
-header nip      :noname     nip      ;
-header @        :noname     @        ;
-header io@      :noname     io@      ;
-header rshift   :noname     rshift   ;
-header lshift   :noname     lshift   ;
+header !        :noname ( x a -- )          !       ;
+header +        :noname ( n1 n2 -- n3 )     +       ;
+header xor      :noname ( x1 x2 -- x3 )     xor     ;
+header and      :noname ( x1 x2 -- x3 )     and     ;
+header or       :noname ( x1 x2 -- x3 )     or      ;
+header invert   :noname ( x -- x' )         invert  ;
+header =        :noname ( x1 x2 -- f )      =       ;
+header <        :noname ( n1 n2 -- f )      <       ;
+header u<       :noname ( u1 u2 -- f )      u<      ;
+header swap     :noname ( x1 x2 -- x2 x1 )  swap    ;
+header dup      :noname ( x -- x x )        dup     ;
+header drop     :noname ( x -- )            drop    ;
+header over     :noname ( x1 x2 -- x1 x2 x1 ) over  ;
+header nip      :noname ( x1 x2 -- x2 )     nip     ;
+header @        :noname ( a -- x )          @       ;
+header io@      :noname ( port -- x )       io@     ;
+header rshift   :noname ( x u -- x' )       rshift  ;
+header lshift   :noname ( x u -- x' )       lshift  ;
 \ >r r> r@ rdrop are immediate words, defined in join.fs.
 
 
@@ -1327,7 +1350,7 @@ header lshift   :noname     lshift   ;
 ;
 
 header-imm postpone
-:noname
+:noname ( "name" -- )
     sought
     0< if
         tliteral
@@ -1411,13 +1434,13 @@ header '
 \ with a display, ['] is placement.fs's
 DISPLAY? [if] [else]
 header-imm [']
-:noname
+:noname ( "name" -- )
     tick tliteral
 ;
 [then]
 
 header refill
-: refill
+: refill ( -- f )
     source-id 0= dup
     if
         tib >c dup d# 128 accept
@@ -1426,7 +1449,7 @@ header refill
 ;
 
 header evaluate
-: tevaluate
+: tevaluate ( c-addr u -- )
     blk dup @ >r  false swap !
     >in @ >r  source >r >r
     source-id >r d# -1 sourceid !
@@ -1571,7 +1594,7 @@ target
     "cold" >c d# 4 by-name
 ;into quit
 header quit
-: quit
+: quit ( -- ) \ the prompt: reads a line and interprets it, for ever
     begin
         refill drop
         interpret
@@ -1584,18 +1607,27 @@ header quit
 \ the ROM runs one before the image is read (kernel_test, typed)
 meta rom-ends upper-half target
 
+header .s
+: .s ( -- ) \ prints the data stack, the top last, and keeps it
+    depth dup                       ( x1 .. xn n n )
+    begin dup while  rot >r 1-  repeat
+    drop                            ( n ) ( R: xn .. x1 )
+    begin dup while  r> dup . swap 1-  repeat
+    drop
+;
+
 header dabs
 : dabs ( d -- ud )
     dup 0< if dnegate then
 ;
 
 header 2rot
-: 2rot
+: 2rot ( x1 x2 x3 x4 x5 x6 -- x3 x4 x5 x6 x1 x2 )
     >r >r 2swap r> r> 2swap
 ;
 
 header d>s
-: d>s   drop ;
+: d>s ( d -- n ) drop ;
 
 header d=
 : d= ( a b c d -- f )
@@ -1606,36 +1638,36 @@ header d=
 ;
 
 header d<
-: d<            \ ( al ah bl bh -- flag )
+: d< ( d1 d2 -- f )
     rot         \ al bl bh ah
     2dup xor if > nip nip exit then
     2drop u<
 ;
 
 header du<
-: du<           \ ( al ah bl bh -- flag )
+: du< ( ud1 ud2 -- f )
     rot         \ al bl bh ah
     2dup xor if u> nip nip exit then
     2drop u<
 ;
 
 header d-
-: d-
+: d- ( d1 d2 -- d3 )
     dnegate d+
 ;
 
 header d0<
-: d0<
+: d0< ( d -- f )
     nip 0<
 ;
 
 header d0=
-: d0=
+: d0= ( d -- f )
     or 0=
 ;
 
 header d2/
-: d2/
+: d2/ ( d -- d' )
     >r d# 1 rshift r@
     TOPBIT lshift
     or r> 2/
@@ -1653,7 +1685,7 @@ header fill
 ;
 
 header cmove>
-: cmove> \ ( addr1 addr2 u -- )
+: cmove> ( addr1 addr2 u -- )
     begin
         dup
     while
@@ -1672,7 +1704,7 @@ meta
     $2000 org
 target
 
-header bye : bye halt ;
+header bye : bye ( -- ) halt ;
 
 include join.fs
 meta t' pcompile, t' 'compile tvar! target  \ placement.fs puts a word before it

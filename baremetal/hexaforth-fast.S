@@ -20,6 +20,7 @@
 
         .equ    UART_BASE,   0x09000000      // PL011 on QEMU `virt`
         .equ    UART_FR,     0x18
+        .equ    DEV_BASE,    0x0a000000      // device cell n is the 64 bits at DEV_BASE + 8n
 // An address is the number of a cell.  Memory is 2^ADDR_BITS cells, and the
 // stacks come after it.
 #define AT(r)   [MEM, r, lsl #3]
@@ -31,7 +32,7 @@
         .equ    IO_EMIT,     0xf1
         .equ    IO_KEY,      0xe0
         .equ    IO_KEYQ,     0xe1
-        .equ    IO_ADDR,     0xc0
+        .equ    IO_DEV,      0xc0            // the four device ports start here
         .equ    IO_SP,       0xd0
         .equ    IO_RSP,      0xd1
 
@@ -43,7 +44,7 @@
 // keeps the count and the time in two registers and nothing in memory.
 
 MEM     .req    x19     // host address of cell 0
-IOA     .req    x20     // latched machine address for the device ports
+IOA     .req    x20     // latched device cell number
 PC      .req    x21     // word address of next instruction
 T       .req    x22     // top of data stack
 R       .req    x23     // top of return stack
@@ -110,7 +111,7 @@ _start:
         adr     TBL2, tbl2
         adr     HB, hbase
         mov     PC, #0
-        mov     IOA, MEM
+        mov     IOA, #0
         mov     T, #0
         mov     R, #0
 #ifdef IPS
@@ -338,27 +339,10 @@ io_read:                                        // port in OUT, result in OUT
         tst     w12, #0x10                      // RXFE clear: something is waiting
         csetm   OUT, eq
         ret
-2:      sub     x12, OUT, #IO_ADDR              // device ports 0xc0-0xc8
-        cmp     x12, #8
-        b.hi    5f
-        mov     OUT, MEM                        // 0xc0: where cell 0 is
-        cbz     x12, 9f
-        mov     OUT, #0
-        cmp     x12, #1
-        b.ne    3f
-        ldrb    w10, [IOA]
-        ret
-3:      cmp     x12, #2
-        b.ne    4f
-        ldrh    w10, [IOA]
-        ret
-4:      cmp     x12, #4
-        b.ne    6f
-        ldr     w10, [IOA]
-        ret
-6:      cmp     x12, #8
-        b.ne    9f
-        ldr     OUT, [IOA]
+2:      cmp     OUT, #IO_DEV + 1                // 0xc1: the latched device cell
+        b.ne    5f
+        mov     x12, #DEV_BASE
+        ldr     OUT, [x12, IOA, lsl #3]
         ret
 5:      cmp     OUT, #IO_SP                     // stack depths
         b.eq    7f
@@ -379,27 +363,22 @@ io_write:                                       // port in x15, value in OUT
         tbnz    w12, #5, 1b                     // TXFF: transmit FIFO full
         str     w10, [UART]
         ret
-2:      sub     x12, x15, #IO_ADDR              // device ports 0xc0-0xc8
-        cmp     x12, #8
+2:      sub     x12, x15, #IO_DEV               // device ports 0xc0-0xc3
+        cmp     x12, #3
         b.hi    7f
         cbnz    x12, 3f
-        mov     IOA, OUT                        // 0xc0: latch
+        mov     IOA, OUT                        // 0xc0: latch a device cell's number
         ret
-3:      cmp     x12, #1
-        b.ne    4f
-        strb    w10, [IOA]
+3:      cmp     x12, #2
+        b.hi    5f
+        b.lo    4f
+        add     OUT, MEM, OUT, lsl #3           // 0xc2: the physical address of cell OUT
+4:      mov     x12, #DEV_BASE                  // 0xc1 and 0xc2: store to the latched device cell
+        str     OUT, [x12, IOA, lsl #3]
         ret
-4:      cmp     x12, #2
-        b.ne    5f
-        strh    w10, [IOA]
-        ret
-5:      cmp     x12, #4
-        b.ne    6f
-        str     w10, [IOA]
-        ret
-6:      cmp     x12, #8
-        b.ne    9f
-        str     OUT, [IOA]
+5:      ldr     x12, AT(OUT)                    // 0xc3: the cell at OUT holds a cell address,
+        add     x12, MEM, x12, lsl #3           // which becomes that cell's physical address
+        str     x12, AT(OUT)
         ret
 7:      add     x12, STK, OUT, lsl #3           // new stack pointer
         cmp     x15, #IO_SP

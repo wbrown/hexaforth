@@ -241,10 +241,8 @@ desk deskvm_start(const char* image, const char* disk, const char* pictures, con
     start();
     if (rom_only) memset((uint8_t*)machine.memory + KROM_BYTES, 0, MEM_BYTES - KROM_BYTES);
     // Besides a halt, two things stop the machine (vm_stopped.h): running
-    // an address that was never written, and running past the budget.  A
-    // boot that compiles the system reads no key for about a hundred
-    // million instructions.  The budget is twenty times that.
-    if (!STOPS.budget) STOPS.budget = 2000000000ull;
+    // an address that was never written, and running past the budget.
+    if (!STOPS.budget) STOPS.budget = STOP_BUDGET_DEFAULT;
     stops_watch_code(&machine);
     stopped_short = stopped_wrong;
     disk_is(disk, copy);

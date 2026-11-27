@@ -38,25 +38,25 @@
 // IO ports, as in vm.c:
 //     0xf1 write   UART transmit         0xe0 read   UART receive (waits)
 //     0xe1 read    true if a byte is waiting
-//     0xc0 write   latch an address      0xc0 read   0 (memory starts at 0)
-//     0xc1 0xc2 0xc4 0xc8   read or write 8/16/32/64 bits at the latch
+//     0xc0 write   latch the number of a device cell
+//     0xc1 read    the latched device cell, which is 0: there are no devices
+//     0xc1 0xc2 0xc3 write   dropped, for the same reason
 //     0xd0 0xd1    read or set the data / return stack depth
 
 module hexaforth #(
     parameter W     = 64,           // cell width: 64, 32 or 16
-    parameter PCW   = 16,           // program counter width, in words; at most W
     parameter DEPTH = 256,          // cells in each stack: STACK_CELLS in vm_constants.h
     parameter LAT   = 1             // cycles from a read address to its data: 1 or 2
 ) (
     input  wire        clk,
     input  wire        rst,
-    input  wire [PCW-1:0] start_pc,
+    input  wire [W-1:0] start_pc,
 
     // Read port: the address of a cell out, the cell back the next cycle.
     // For an instruction rslot says which of the cell's instructions is
     // wanted, and it comes back in the low 16 bits.  rok is low for a read
-    // of a device port, which must read zero: this machine has no devices
-    // behind ports 0xc1 to 0xc8.
+    // of a device cell (port 0xc1), which the memory answers with zero:
+    // this machine has no devices.
     output reg  [W-1:0] raddr,
     output reg  [1:0]  rslot,
     output reg         rok,
@@ -85,10 +85,10 @@ module hexaforth #(
     output wire        dbg_exec
 );
     // ------------------------------------------------------------ state
-    reg [PCW-1:0] pc;               // address of the instruction being decoded
+    reg [W-1:0] pc;                 // address of the instruction being decoded: a cell (MODEL.md, Code)
     reg [W-1:0] T, N, R;
     reg [7:0]  dsp, rsp;            // stack depths, for the depth ports
-    reg [W-1:0] ioa;                 // latched address for the device ports
+    reg [W-1:0] ioa;                 // latched device cell number
 
     // The cells under N (ds3, ds4) and under R (rs2, rs3) come from the
     // stacks below the registers, defined further down.
@@ -122,7 +122,7 @@ module hexaforth #(
     reg [15:0] ir;
     reg        nxtv;                // LAT 2: the one after it is in `nxt`
     reg [15:0] nxt;
-    reg [PCW-1:0] fpc;              // the next instruction to ask for
+    reg [W-1:0] fpc;                // the next instruction to ask for
 
     // Work done ahead of executing the instruction.
     reg        have_a, have_b;      // memory reads latched
@@ -251,8 +251,7 @@ module hexaforth #(
 
     // Port numbers are small: compare the low byte once the rest is zero.
     wire        in_small = in_ctl[W-1:8] == 0;
-    wire        dev_port = in_small && in_ctl[7:4] == 4'hc &&
-                           (in_ctl[3:0] == 1 || in_ctl[3:0] == 2 || in_ctl[3:0] == 4 || in_ctl[3:0] == 8);
+    wire        dev_port = in_small && in_ctl[7:0] == 8'hc1;
     wire        need_b   = is_alu && (alu_op == 4'd14 || (alu_op == 4'd15 && dev_port));
     wire        is_shift = is_alu && (alu_op == 4'd12 || alu_op == 4'd13);
     wire        is_mul   = is_alu && alu_op == 4'd7;
@@ -265,19 +264,13 @@ module hexaforth #(
     wire        slt = (N[W-1] ^ in[W-1]) ? N[W-1] : ult;
     wire        eq  = N == in;                  // not through the adder
 
-    // Device reads are at most a cell wide.
-    localparam [W-1:0] M8 = 64'hff, M16 = 64'hffff, M32 = 64'hffffffff;
-
     reg  [W-1:0] io_in;
     always @* begin
         io_in = 0;
         if (in_small) case (in_ctl[7:0])
             8'he0: io_in = {{(W-8){1'b0}}, rx_data};
             8'he1: io_in = {W{rx_valid}};
-            8'hc1: io_in = b_now & M8;
-            8'hc2: io_in = b_now & M16;
-            8'hc4: io_in = b_now & M32;
-            8'hc8: io_in = b_now;
+            8'hc1: io_in = b_now;
             8'hd0: io_in = {{(W-8){1'b0}}, dsp};
             8'hd1: io_in = {{(W-8){1'b0}}, rsp};
             default: ;
@@ -315,13 +308,10 @@ module hexaforth #(
     wire [W-1:0] port   = t1;
     wire        port_small = port[W-1:8] == 0;
     wire        tx_wr   = io_wr && port_small && port[7:0] == 8'hf1;
-    wire        dev_wr  = io_wr && port_small && port[7:4] == 4'hc &&
-                          (port[3:0] == 1 || port[3:0] == 2 || port[3:0] == 4 || port[3:0] == 8);
     wire        rx_rd   = is_alu && alu_op == 4'd15 && in_small && in_ctl[7:0] == 8'he0;
 
     // ------------------------------------------------- next state values
     wire [W-1:0] lit = {{(W-12){1'b0}}, ins[11:0]} << (ins[13:12] * 12);
-    wire [W:0]   pc_wide = {{(W+1-PCW){1'b0}}, pc};
 
     reg  [W-1:0] t_next, n_next, r_next;
     always @* begin
@@ -341,7 +331,7 @@ module hexaforth #(
             default: n_next = N;
         endcase
         case (c_rsel)
-            RS_PC:   r_next = pc_wide[W-1:0] + 1;
+            RS_PC:   r_next = pc + 1;
             RS_RS2:  r_next = rs2;
             RS_RS3:  r_next = rs3;
             RS_OUT:  r_next = out;
@@ -350,9 +340,9 @@ module hexaforth #(
     end
 
     // Branch targets: bit 12 clear is the kernel; set is this page.
-    wire [PCW-1:0] target = ins[12] ? {pc[PCW-1:12], ins[11:0]}
-                                    : {{(PCW-12){1'b0}}, ins[11:0]};
-    reg  [PCW-1:0] pc_next;
+    wire [W-1:0] target = ins[12] ? {pc[W-1:12], ins[11:0]}
+                                  : {{(W-12){1'b0}}, ins[11:0]};
+    reg  [W-1:0] pc_next;
     always @* begin
         pc_next = pc + 1;
         if (!is_lit) begin
@@ -360,7 +350,7 @@ module hexaforth #(
                 2'd0: pc_next = target;
                 2'd1: if (T == 0) pc_next = target;
                 2'd2: pc_next = target;
-                2'd3: if (ret) pc_next = R[PCW-1:0];
+                2'd3: if (ret) pc_next = R;
             endcase
         end
     end
@@ -398,7 +388,7 @@ module hexaforth #(
     wire [1:0] total  = {1'b0, have_cur} + others;
     wire [1:0] left   = total - {1'b0, execute};
     wire       room   = state != S_HALT && (jump || left < LAT);
-    wire [PCW-1:0] fetch = jump ? pc_next : fpc;
+    wire [W-1:0] fetch = jump ? pc_next : fpc;
 
     // The kernel ROM.  The first 2^KB instructions of the kernel are never
     // written, so they can also be had from logic, without a clock: an
@@ -419,11 +409,11 @@ module hexaforth #(
     // the tools leave it as logic behind the address registers.  KB, the
     // log2 of the ROM's size in instructions, is in krom.vh too: the size
     // is KROM_BYTES in vm_constants.h.
-    wire [PCW-1:0] btarget = op_type == 2'd3 ? R[PCW-1:0] : target;
+    wire [W-1:0] btarget = op_type == 2'd3 ? R : target;
 `ifdef HF_KROM
 `include "krom.vh"
-    wire        rom_s = fpc[PCW-1:KB] == 0;
-    wire        rom_b = btarget[PCW-1:KB] == 0;
+    wire        rom_s = fpc[W-1:KB] == 0;
+    wire        rom_b = btarget[W-1:KB] == 0;
     wire [15:0] romq_s = kromf(fpc[KB-1:0]);
     wire [15:0] romq_b = kromf(btarget[KB-1:0]);
 `else
@@ -454,9 +444,8 @@ module hexaforth #(
     // A cell holds 2^ISB instructions.
     localparam ISB = W == 64 ? 2 : W == 32 ? 1 : 0;
     localparam [1:0] SLOTS = (1 << ISB) - 1;
-    wire [W-1:0] fetch_w = {{(W-PCW){1'b0}}, fetch};
     always @* begin
-        raddr = fetch_w >> ISB;  rslot = fetch[1:0] & SLOTS;  rok = 1;
+        raddr = fetch >> ISB;  rslot = fetch[1:0] & SLOTS;  rok = 1;
         if (want_a) begin raddr = is_vf ? vaddr : T;  rslot = 0; end
         else if (want_b) begin
             raddr = in_ctl;  rslot = 0;

@@ -16,8 +16,8 @@
 set(SAID_ANOTHERS ltdl.h unicorn/unicorn.h libcc.fs
                   m68k.h m68kcpu.c m68kops.c m68kops.h m68kmake.c m68k_in.c softfloat/softfloat.c
                   tv80s.v tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-set(SAID_MADE     test_cases.fs cmake_install.cmake typed.fs asks-gray.fs asks-PIC-SIZE.fs half.fs phrasetest.fs
-                  Vhexaforth.h Vhexaforth___024root.h Vhf_mem.h Vsoc.h)
+set(SAID_MADE     test_cases.fs cmake_install.cmake typed.fs asks-gray.fs asks-PIC-SIZE.fs asks-view-PIC-SIZE.fs half.fs
+                  phrasetest.fs Vhexaforth.h Vhexaforth___024root.h Vhf_mem.h Vsoc.h)
 set(SAID_ANY      name.fs program.fs yourprogram.fs mine.fs)
 set(SAID_GONE     vmdisk.fs virtio-blk.fs)
 set(SAID_WORDS    cw.h)

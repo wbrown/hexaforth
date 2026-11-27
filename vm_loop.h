@@ -53,7 +53,7 @@ static inline uint64_t ucell(int64_t x) {
 #ifdef STRICT_ALIGN
 static void strict_at(const char *what, int64_t addr, int far_too) {
     if (ucell(addr) >> ADDR_BITS && !(far_too && FAR_CELL(addr))) {
-        fprintf(stderr, "\n%s outside memory, at %llx, by the instruction at %llx\n", what,
+        fprintf(stderr, "\n%s outside memory, at $%llX, by the instruction at $%llX\n", what,
                 (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
         exit(3);
     }
@@ -97,7 +97,7 @@ static inline void mem_store(context *ctx, int64_t addr, int64_t v) {
     strict("store", addr);
 #ifdef ROM_BYTES
     if (ucell(addr) >= ROM_FROM >> BYTE_SHIFT && ucell(addr) < ROM_BYTES >> BYTE_SHIFT) {
-        fprintf(stderr, "\nstore to the kernel at %llx by the instruction at %llx\n",
+        fprintf(stderr, "\nstore to the kernel at $%llX by the instruction at $%llX\n",
                 (unsigned long long)ucell(addr), (unsigned long long)strict_pc - 1);
         exit(3);
     }
@@ -149,6 +149,12 @@ static int vm_loop(context *ctx) {
         if (strict_steps && cycles - ctx->CYCLES >= strict_steps) break;
 #endif
         if (STOPS.on) {         // the other reasons to stop (vm_stopped.h)
+            if (STOPS.ended) {
+                STOPS.ended = 0;
+                STOPS.reason = STOP_END_OF_INPUT;
+                break;
+            }
+            if (EIP == STOPS.counted_at) STOPS.counted++;
             if (STOPS.stored) {
                 STOPS.stored = 0;
                 if (!STOPS.pass) { STOPS.reason = STOP_AT_STORE; break; }
@@ -161,6 +167,7 @@ static int vm_loop(context *ctx) {
             if (STOPS.budget && ++STOPS.since > STOPS.budget) { STOPS.reason = STOP_RAN_ON; break; }
             if (STOPS.put && !(STOPS.put[EIP >> 3] & (1 << (EIP & 7)))) { STOPS.reason = STOP_NO_CODE; break; }
             STOPS.ring[STOPS.ran++ % STOP_RING] = EIP;
+            if (STOPS.trace) trace_step(ctx, EIP, SP, T, RSP, R);
         }
         // #ifdef DEBUG
         //    show_registers(T, R, EIP, SP, RSP, ctx);

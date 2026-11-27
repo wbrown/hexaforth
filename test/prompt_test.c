@@ -56,6 +56,7 @@ static check CHECKS[] = {
     {"a loop that ends in its middle", ": g 0 swap begin dup while tuck + swap 1- repeat drop ; 10 g", 1, {55}},
     {"one of two", ": h 0= if 7 else 9 then ; 0 h 1 h", 2, {7, 9}},
     {"numbers printed", "12 . -172 .", 0, {0}, "12 -172  ok"},
+    {"the stack printed, the top last, and kept", "7 8 9 .s", 3, {7, 8, 9}, "7 8 9  ok"},
     {"a number printed in another base", "hex ff . decimal", 0, {0}, "decimal FF  ok"},
     // A number wider than 36 bits is compiled with a shift.
     {"a number wider than 36 bits", ": big 81985529216486895 ; big", 1, {81985529216486895}, NULL, 64},
@@ -186,12 +187,14 @@ static check CHECKS[] = {
      "65 isnotspace? 32 isnotspace? 9 isnotspace? 33 isnotspace? 32 isspace? 33 isspace?", 6, {-1, 0, 0, -1, -1, 0}},
 
     // A name that does not exist is not found by ' or by postpone, which
-    // throw -13.  A throw that nothing catches prints its number, empties
-    // the stacks and restarts the prompt in interpreting state.  So in
-    // these checks the number that marks the stack is typed again after
-    // the throw.  abort throws -1, which prints nothing.
+    // throw -13.  A throw that nothing catches prints its number and the
+    // line as far as it was read, empties the stacks and restarts the
+    // prompt in interpreting state.  So in these checks the number that
+    // marks the stack is typed again after the throw.  abort throws -1,
+    // which prints nothing.
     {"a name that is not there", "' ' catch nosuch  ' postpone catch nosuch", 2, {-13, -13}},
     {"a throw that nothing catches says its number", "5 throw\n12345", 0, {0}, "error: 5"},
+    {"and the line as far as the word it came from", "1 2 nosuch 3 4\n12345", 0, {0}, "error: -13 1 2 nosuch"},
     {"and -1 says nothing", "-1 throw\n12345", 0, {0}, "throw 12345"},
     {"what is no number is refused", "12x\n12345", 0, {0}, "error: -13"},
     {"and so is a quote that is no character", "'ab\n12345", 0, {0}, "error: -13"},

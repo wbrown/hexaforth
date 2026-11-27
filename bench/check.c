@@ -1,5 +1,6 @@
 //
 // check IMAGE.hex picture PICTURE.tiff own|half|doubled MEMORY CONSOLE TIMED WHAT ON [PIECE ...]
+// check IMAGE.hex view PICTURE.tiff own|half DISK CONSOLE TIMED WHAT ON [PIECE ...]
 // check IMAGE.hex gray PICTURE.tiff SHIFT DSHIFT N AT MEMORY CONSOLE TIMED WHAT ON [PIECE ...]
 // check IMAGE.hex display MEMORY MEMORY TIMED WHAT ON [PIECE ...]
 // check table RESULT ...
@@ -24,6 +25,13 @@
 // (half), or from its half-size grays with each gray repeated as a 2 by 2
 // square (doubled).  If the machine printed an error at its console, it
 // could not do the work and has measured nothing, so the result is a FAIL.
+//
+// `view` checks a bitmap the viewer made of a picture (forth/view.fs), at
+// full size (own) or at half size (half).  The viewer writes its bitmap to
+// the machine's first disk a block at a time, from the block
+// DISK_VIEW_BLOCK, with as many whole rows in a block as fit.  DISK is
+// that disk as the machine left it (rtl/tb.cpp writes it back).  Every
+// cell on the disk is compared with the same reference dither.
 //
 // `gray` checks a bitmap the machine drew from the picture stored as gray
 // (forth/gray.fs).  The gray has one sample for each square of
@@ -170,26 +178,69 @@ static char* bitmaps(const uint64_t* want, int stride, int w, int h, const char*
     return(why);
 }
 
-// Checks a bitmap the machine dithered from a picture against the
-// reference dither.  `size` says which grays were dithered: the picture's
+// Returns the cells of the reference dither of a picture, as newly
+// allocated memory.  `size` says which grays are dithered: the picture's
 // at full size (own), at half size (half), or at half size with each gray
-// repeated as a 2 by 2 square (doubled).  Returns a description of what is
-// wrong, or NULL if the bitmap is right.
-static char* pictures(const char* is_picture, const char* size, const char* is_memory, const char* said) {
+// repeated as a 2 by 2 square (doubled).  `*w` and `*h` receive the
+// bitmap's size in pixels, and `*stride` the number of cells in a row.
+static uint64_t* dithered(const char* is_picture, const char* size, int* w, int* h, int* stride) {
     tiff picture = read_tiff(is_picture);
-    int w, h, stride;
-    int* gray = grays_of(picture.bytes, picture.w, picture.h, picture.samples, strcmp(size, "own"), &w, &h);
+    int* gray = grays_of(picture.bytes, picture.w, picture.h, picture.samples, strcmp(size, "own"), w, h);
     if (!strcmp(size, "doubled")) {
-        int* doubled = malloc(sizeof(int) * 4 * w * h);
-        for(int y=0; y < 2 * h; y++) for(int x=0; x < 2 * w; x++) doubled[y * 2 * w + x] = gray[(y / 2) * w + x / 2];
+        int* doubled = malloc(sizeof(int) * 4 * *w * *h);
+        for(int y=0; y < 2 * *h; y++) for(int x=0; x < 2 * *w; x++) doubled[y * 2 * *w + x] = gray[(y / 2) * *w + x / 2];
         free(gray);
-        gray = doubled, w *= 2, h *= 2;
+        gray = doubled, *w *= 2, *h *= 2;
     }
-    uint8_t* black = calloc((size_t)w * h + 1, 1);
-    dither(gray, w, h, black);
-    uint64_t* want = cells_of(black, w, 0, 0, w, h, CELL_BITS, DISP_LEFT_LOW, DISP_INK_BLACK, &stride);
+    uint8_t* black = calloc((size_t)*w * *h + 1, 1);
+    dither(gray, *w, *h, black);
+    uint64_t* want = cells_of(black, *w, 0, 0, *w, *h, CELL_BITS, DISP_LEFT_LOW, DISP_INK_BLACK, stride);
+    free(picture.bytes), free(gray), free(black);
+    return(want);
+}
+
+// Checks a bitmap the machine dithered from a picture against the
+// reference dither of the picture at `size`.  Returns a description of
+// what is wrong, or NULL if the bitmap is right.
+static char* pictures(const char* is_picture, const char* size, const char* is_memory, const char* said) {
+    int w, h, stride;
+    uint64_t* want = dithered(is_picture, size, &w, &h, &stride);
     char* why = bitmaps(want, stride, w, h, is_memory, said);
-    free(picture.bytes), free(gray), free(black), free(want);
+    free(want);
+    return(why);
+}
+
+// Checks the bitmap the viewer left on its disk against the reference
+// dither of the picture at `size`.  The bitmap starts at the block
+// DISK_VIEW_BLOCK, and each block holds as many whole rows as fit.  A cell
+// past the end of the disk's file counts as a cell that differs.  Returns
+// a description of what is wrong, or NULL if the bitmap is right.
+static char* views(const char* is_picture, const char* size, const char* is_disk) {
+    int w, h, stride;
+    uint64_t* want = dithered(is_picture, size, &w, &h, &stride);
+    size_t len;
+    uint8_t* disk = (uint8_t*)read_all(is_disk, &len);
+    int block_cells = DISK_BLOCK / CELL_BYTES, block_rows = block_cells / stride;
+    char* why = NULL;
+    if (!block_rows || (h + block_rows - 1) / block_rows > DISK_VIEW_BLOCKS) {
+        text_more(&why, "NOT CHECKED: a bitmap of %d by %d does not fit the %d blocks a disk has for it", w, h, DISK_VIEW_BLOCKS);
+        free(want), free(disk);
+        return(why);
+    }
+    int total = 0, differ = 0;
+    for(int y=0; y < h; y++) {
+        size_t row = (size_t)DISK_VIEW_BLOCK * block_cells + (size_t)(y / block_rows) * block_cells + (size_t)(y % block_rows) * stride;
+        for(int x=0; x < stride; x++) {
+            uint64_t got = 0;
+            size_t at = (row + x) * CELL_BYTES;
+            if (at + CELL_BYTES <= len) memcpy(&got, disk + at, CELL_BYTES);
+            if (at + CELL_BYTES > len || got != want[y * stride + x]) differ++;
+            total++;
+        }
+    }
+    fprintf(stderr, "%d by %d: %d cells of the bitmap on the disk compared, %d differ\n", w, h, total, differ);
+    if (differ || !total) text_more(&why, "%d by %d: %d cells of the bitmap on the disk compared, %d differ", w, h, total, differ);
+    free(want), free(disk);
     return(why);
 }
 
@@ -268,17 +319,18 @@ int main(int argc, char *argv[]) {
     bool told = argc >= 3 && machine_of(argv[1]);       // take the cell size and the display from the image
     if (told) argv++, argc--;
     bool display = argc >= 7 && !strcmp(argv[1], "display"), picture = argc >= 9 && !strcmp(argv[1], "picture");
-    bool gray = argc >= 12 && !strcmp(argv[1], "gray");
-    if (!told || (!display && !picture && !gray)) {
+    bool gray = argc >= 12 && !strcmp(argv[1], "gray"), view = argc >= 9 && !strcmp(argv[1], "view");
+    if (!told || (!display && !picture && !gray && !view)) {
         fprintf(stderr, "Usage: %s IMAGE.hex picture PICTURE.tiff own|half|doubled MEMORY CONSOLE TIMED WHAT ON [PIECE ...]\n"
+                        "       %s IMAGE.hex view PICTURE.tiff own|half DISK CONSOLE TIMED WHAT ON [PIECE ...]\n"
                         "       %s IMAGE.hex gray PICTURE.tiff SHIFT DSHIFT N AT MEMORY CONSOLE TIMED WHAT ON [PIECE ...]\n"
                         "       %s IMAGE.hex display MEMORY MEMORY TIMED WHAT ON [PIECE ...]\n"
                         "       %s table RESULT ...\n"
                         "IMAGE.hex is the image the machine ran, which says its machine beside it.\n",
-                self, self, self, self);
+                self, self, self, self, self);
         return(1);
     }
-    int before = display ? 4 : picture ? 6 : 9;         // the index of TIMED in argv
+    int before = display ? 4 : gray ? 9 : 6;            // the index of TIMED in argv
     char** rest = argv + before;                        // TIMED, WHAT, ON, and then the names of the pieces
     int pieces = argc - before - 3;
     const char* timed = rest[0];
@@ -293,6 +345,7 @@ int main(int argc, char *argv[]) {
         char* said = read_all(argv[before - 1], &said_len);
         why = could_not(said);
         if (!why && picture) why = pictures(argv[2], argv[3], argv[4], said);
+        if (!why && view) why = views(argv[2], argv[3], argv[4]);
         if (!why && gray) why = grays(argv[2], atoi(argv[3]), atoi(argv[4]), atoi(argv[5]), atoi(argv[6]), argv[7], said);
     }
     if (why) {
